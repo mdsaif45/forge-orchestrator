@@ -12,15 +12,15 @@ import { buildChildEnv, redactOutput, stripAnsi, withheldEnvNames } from './reda
  * programs: several change behaviour when stdout is not a TTY, and some refuse to run
  * at all. `node-pty` gives them the terminal they expect.
  *
- * Two findings from verifying the dependency, recorded because the issue anticipated
- * the opposite:
+ * On the dependency's packaging, which is platform-dependent in a way worth stating:
  *
- *   - `node-pty@1.1.0` ships **N-API prebuilds** under `prebuilds/<platform>/`, so it
- *     loads under this repo's `ignore-scripts=true` with no rebuild and no addition to
- *     `npm run setup`. Measured: installed with scripts disabled, required, spawned a
- *     command, and read its output back.
- *   - being N-API, one binary serves both plain Node (ABI 127) and Electron. That is
- *     the same property that made `better-sqlite3` work here.
+ *   - `node-pty@1.1.0` ships prebuilds for `darwin-arm64/x64` and `win32-arm64/x64`, but
+ *     **not `linux-x64`**. It therefore loads untouched under this repo's
+ *     `ignore-scripts=true` on Windows and macOS, and must be compiled on Linux —
+ *     handled by `npm run setup`, which builds only where no prebuild exists. CI is what
+ *     established this: Windows passed while Linux failed to load the module at all.
+ *   - where a prebuild exists it is N-API, so one binary serves both plain Node (ABI 127)
+ *     and Electron. That is the same property that made `better-sqlite3` work here.
  *
  * The guarantees this class exists to provide:
  *

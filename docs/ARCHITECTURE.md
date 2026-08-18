@@ -216,11 +216,13 @@ ProcessManager.spawn ──> node-pty ──> stream ──> exit
 A pty rather than pipes because the CLIs Forge drives are interactive programs: several
 change behaviour when stdout is not a TTY, and some refuse to run at all.
 
-`node-pty@1.1.0` needs **no rebuild story**, which is the opposite of what #23 assumed.
-It ships N-API prebuilds under `prebuilds/<platform>/`, so it loads under this repo's
-`ignore-scripts=true` untouched, and one binary serves both plain Node and Electron —
-the same property that made `better-sqlite3` work here. Verified by installing with
-scripts disabled, requiring it, spawning a command, and reading the output back.
+`node-pty@1.1.0` ships prebuilds for **darwin-arm64/x64 and win32-arm64/x64 — but not
+linux-x64**, so it loads untouched on Windows and macOS and must be compiled on Linux.
+CI is what established that: Windows passed while Linux failed with `Cannot find module
+'./prebuilds/linux-x64//pty.node'`. `npm run setup` builds it only where no prebuild
+exists; `npm run setup:pty` is the pty alone, for the CI job that runs the tests but
+never launches the app. Where a prebuild does exist it is N-API, so one binary serves
+both plain Node and Electron — the same property that made `better-sqlite3` work here.
 
 ### Four platform behaviours, each measured
 

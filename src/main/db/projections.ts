@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import type { DomainEvent, EventPayloads, EventType, ProjectId } from '@shared/domain'
 import type { ForgeDatabase } from './connection'
-import { projects, repositories, rules } from './schema'
+import { projects, repositories, rules, tasks, workflows, workflowSteps } from './schema'
 import { toJson } from './rows'
 
 /**
@@ -107,6 +107,163 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
     return
   }
 
+  /**
+   * Tasks.
+   *
+   * Projected here rather than with #35 because a workflow's foreign key points at a task,
+   * and `rebuildProjections` deletes the project — which cascades to `tasks`. With this
+   * unprojected, replaying a workflow failed with `FOREIGN KEY constraint failed`: the task
+   * had been deleted and nothing recreated it. Found by the replay test, and it would have
+   * broken every resume in production, not only in tests.
+   */
+  if (isType(event, 'task.created')) {
+    const task = event.payload.task
+    db.insert(tasks)
+      .values({
+        id: task.id,
+        projectId: event.projectId,
+        objective: task.objective,
+        constraints: toJson(task.constraints),
+        completionCriteria: toJson(task.completionCriteria),
+        scope: toJson(task.scope),
+        lockedDecisionIds: toJson(task.lockedDecisionIds),
+        correctsTaskId: task.correctsTaskId,
+        createdAt: task.createdAt,
+      })
+      .onConflictDoUpdate({
+        target: tasks.id,
+        set: {
+          objective: task.objective,
+          constraints: toJson(task.constraints),
+          completionCriteria: toJson(task.completionCriteria),
+          scope: toJson(task.scope),
+          lockedDecisionIds: toJson(task.lockedDecisionIds),
+        },
+      })
+      .run()
+    return
+  }
+
+  // ---- Workflows (#27, #28) ------------------------------------------------
+  //
+  // Every writer below is an upsert or an absolute `set`, never a read-modify-write.
+  // That is what makes replay safe: applying the same event twice has to leave the same
+  // row, because a resume re-applies the tail of the log by design (#28). An
+  // `iteration = iteration + 1` here would double-count on every replay.
+
+  if (isType(event, 'workflow.started')) {
+    const payload = event.payload
+    db.insert(workflows)
+      .values({
+        id: payload.workflowId,
+        projectId: event.projectId,
+        taskId: payload.taskId,
+        templateId: payload.templateId,
+        state: 'DISCOVERY',
+        iteration: 0,
+        limits: toJson(payload.limits),
+        checkpoint: null,
+        resumeState: null,
+        blockedByQuestionId: null,
+        haltReason: null,
+        startedAt: payload.startedAt,
+        finishedAt: null,
+      })
+      .onConflictDoUpdate({
+        target: workflows.id,
+        set: { templateId: payload.templateId, limits: toJson(payload.limits) },
+      })
+      .run()
+    return
+  }
+
+  if (isType(event, 'workflow.transitioned')) {
+    const payload = event.payload
+    db.update(workflows)
+      .set({
+        state: payload.to,
+        // Absolute, taken from the event, so a replay cannot advance it further.
+        iteration: payload.iteration,
+        // Recorded on the way in and cleared on the way out, matching the invariant
+        // `workflowSchema` enforces: only AWAITING_USER may name a resume state.
+        resumeState: payload.to === 'AWAITING_USER' ? payload.from : null,
+        ...(payload.to === 'AWAITING_USER' ? {} : { blockedByQuestionId: null }),
+      })
+      .where(eq(workflows.id, payload.workflowId))
+      .run()
+    return
+  }
+
+  if (isType(event, 'workflow.checkpointed')) {
+    db.update(workflows)
+      .set({ checkpoint: toJson(event.payload.checkpoint) })
+      .where(eq(workflows.id, event.payload.workflowId))
+      .run()
+    return
+  }
+
+  if (isType(event, 'workflow.halted')) {
+    db.update(workflows)
+      .set({ state: event.payload.state, haltReason: event.payload.haltReason })
+      .where(eq(workflows.id, event.payload.workflowId))
+      .run()
+    return
+  }
+
+  if (isType(event, 'workflow.finished')) {
+    db.update(workflows)
+      .set({
+        state: event.payload.state,
+        finishedAt: event.payload.finishedAt,
+        // A finished workflow has nothing in flight, so the checkpoint is cleared —
+        // which is also what makes "interrupted" detectable as "checkpoint is not null".
+        checkpoint: null,
+      })
+      .where(eq(workflows.id, event.payload.workflowId))
+      .run()
+    return
+  }
+
+  if (isType(event, 'step.started')) {
+    const step = event.payload.step
+    db.insert(workflowSteps)
+      .values({
+        id: step.id,
+        workflowId: event.payload.workflowId,
+        index: step.index,
+        role: step.role,
+        runtimeId: step.runtimeId,
+        state: step.state,
+        contextRef: step.contextRef,
+        reportStatus: step.reportStatus,
+        verdict: step.verdict,
+        changeSetId: step.changeSetId,
+        startedAt: step.startedAt,
+        finishedAt: step.finishedAt,
+      })
+      // Keyed on the step id, so re-running an interrupted step reuses its row instead
+      // of colliding with the unique (workflow, index) constraint.
+      .onConflictDoUpdate({
+        target: workflowSteps.id,
+        set: { state: step.state, contextRef: step.contextRef, startedAt: step.startedAt },
+      })
+      .run()
+    return
+  }
+
+  if (isType(event, 'step.finished')) {
+    const payload = event.payload
+    db.update(workflowSteps)
+      .set({
+        verdict: payload.verdict,
+        changeSetId: payload.changeSetId,
+        finishedAt: payload.finishedAt,
+      })
+      .where(eq(workflowSteps.id, payload.stepId))
+      .run()
+    return
+  }
+
   // Everything else is recorded in the log but has no read model yet. This is a
   // deliberate no-op rather than an error: the events are still replayable, and
   // their projections arrive with the features that read them.
@@ -127,14 +284,6 @@ const PROJECTED_LATER: ReadonlySet<EventType> = new Set([
   'decision.superseded', // #40
   'question.asked', // #38
   'question.answered', // #38
-  'task.created', // #35
-  'workflow.started', // #27
-  'workflow.transitioned', // #27
-  'workflow.checkpointed', // #28
-  'workflow.halted', // #29
-  'workflow.finished', // #27
-  'step.started', // #27
-  'step.finished', // #27
   'changeset.captured', // #34
   'changeset.reviewed', // #36
   'evidence.recorded', // #33

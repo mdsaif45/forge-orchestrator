@@ -9,6 +9,14 @@ export {
   type OpenDatabaseResult,
 } from './connection'
 export { loadMigrations, readAppliedCount, runMigrations, type Migration } from './migrate'
+export {
+  planResume,
+  resumeDecisionSchema,
+  WorkflowStore,
+  type ResumeDecision,
+  type ResumePlan,
+  type StartWorkflowInput,
+} from './workflowStore'
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'
 

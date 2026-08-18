@@ -3,6 +3,7 @@ import { accessSync, constants } from 'node:fs'
 import { appendFile, mkdir } from 'node:fs/promises'
 import { delimiter, isAbsolute, join } from 'node:path'
 import { spawn as spawnPty, type IPty } from 'node-pty'
+import type { OrphanTracker } from './orphans'
 import { buildChildEnv, redactOutput, stripAnsi, withheldEnvNames } from './redact'
 
 /**
@@ -63,6 +64,13 @@ export interface ProcessManagerOptions {
   readonly maxLogBytes?: number
   /** Injected for tests, so timing assertions are not tied to the wall clock. */
   readonly now?: () => number
+  /**
+   * Records spawned pids so a crashed run's children can be killed on the next start.
+   *
+   * Optional because most tests do not need it, and because the tracker writes a file —
+   * a test that only checks streaming should not have to manage one.
+   */
+  readonly orphans?: OrphanTracker
 }
 
 export interface SpawnRequest {
@@ -181,6 +189,7 @@ export class ProcessManager {
   private readonly logDirectory: string | null
   private readonly maxLogBytes: number
   private readonly now: () => number
+  private readonly orphans: OrphanTracker | null
 
   private readonly running = new Map<string, Run>()
   private readonly queue: (() => void)[] = []
@@ -192,6 +201,7 @@ export class ProcessManager {
     this.logDirectory = options.logDirectory ?? null
     this.maxLogBytes = options.maxLogBytes ?? DEFAULT_MAX_LOG_BYTES
     this.now = options.now ?? Date.now
+    this.orphans = options.orphans ?? null
   }
 
   /** How many runs are executing, as opposed to queued. */
@@ -269,6 +279,14 @@ export class ProcessManager {
       this.settle(run, 'spawn-failed')
       return this.handleFor(run, completed)
     }
+
+    // Recorded immediately after the spawn, so a crash between here and the first output
+    // still leaves a trace to reap on the next start.
+    void this.orphans?.record({
+      pid: run.pty.pid,
+      command: `${request.command} ${request.args.join(' ')}`.trim(),
+      startedAt: new Date(this.now()).toISOString(),
+    })
 
     run.pty.onData((data) => {
       this.record(run, data)
@@ -471,6 +489,7 @@ export class ProcessManager {
     }
 
     this.running.delete(run.runId)
+    if (run.pty !== null) void this.orphans?.forget(run.pty.pid)
     run.resolve(outcome)
     run.emitter.emit('settled')
 

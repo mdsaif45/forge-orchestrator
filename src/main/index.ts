@@ -3,7 +3,7 @@ import { app, BrowserWindow, dialog } from 'electron'
 import { initialiseDatabase, type ForgeDatabase } from './db'
 import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
-import { ProcessManager } from './process'
+import { OrphanTracker, ProcessManager } from './process'
 import { ProjectService } from './projects/projectService'
 import {
   applyContentSecurityPolicy,
@@ -118,7 +118,25 @@ if (!claimSingleInstance()) {
     // handle means the process is already going down and no handler should bind.
     if (db === null) return
 
-    processes = new ProcessManager({ logDirectory: join(app.getPath('userData'), 'logs') })
+    // Reaped *before* the manager starts anything, so a crashed run's agents are gone
+    // before a resumed workflow diffs the tree they were editing.
+    const orphans = new OrphanTracker(join(app.getPath('userData'), 'processes.json'))
+
+    void orphans.reap().then((report) => {
+      if (report.killed.length > 0) {
+        console.warn(
+          `Killed ${String(report.killed.length)} orphaned process(es) from a previous run`,
+        )
+      }
+      if (report.foreign.length > 0) {
+        console.warn('Another Forge instance owns the recorded processes; left them alone')
+      }
+    })
+
+    processes = new ProcessManager({
+      logDirectory: join(app.getPath('userData'), 'logs'),
+      orphans,
+    })
 
     registerIpcHandlers(createIpcHandlers({ projects: new ProjectService(db) }))
 

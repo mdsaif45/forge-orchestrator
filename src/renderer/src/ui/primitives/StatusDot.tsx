@@ -31,8 +31,7 @@ const dot = cva('inline-block shrink-0 rounded-(--radius-full)', {
 })
 
 export interface StatusDotProps
-  extends Omit<React.HTMLAttributes<HTMLSpanElement>, 'children'>,
-    VariantProps<typeof dot> {
+  extends Omit<React.HTMLAttributes<HTMLSpanElement>, 'children'>, VariantProps<typeof dot> {
   /** Screen-reader text; the colour alone must never be the only signal. */
   readonly label?: string
 }

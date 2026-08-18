@@ -77,7 +77,9 @@ export function Dialog({
     }
 
     dialog.addEventListener('cancel', onCancel)
-    return () => dialog.removeEventListener('cancel', onCancel)
+    return () => {
+      dialog.removeEventListener('cancel', onCancel)
+    }
   }, [dismissible, onClose])
 
   return (
@@ -95,7 +97,9 @@ export function Dialog({
           ) : null}
         </div>
 
-        {dismissible ? <IconButton label="Close dialog" onClick={onClose} icon={<CloseIcon />} /> : null}
+        {dismissible ? (
+          <IconButton label="Close dialog" onClick={onClose} icon={<CloseIcon />} />
+        ) : null}
       </div>
 
       {children !== undefined ? <div className="p-4">{children}</div> : null}

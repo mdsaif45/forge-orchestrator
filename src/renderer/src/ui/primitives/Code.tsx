@@ -51,7 +51,6 @@ export function CodeBlock({
         <code className="grid grid-cols-[auto_1fr] gap-x-3">
           {lines.map((line, index) => (
             // Line position is the identity here; there is no stabler key.
-            // eslint-disable-next-line react/no-array-index-key
             <span key={index} className="contents">
               <span className="text-right tabular-nums text-(--color-text-subtle) select-none">
                 {index + 1}

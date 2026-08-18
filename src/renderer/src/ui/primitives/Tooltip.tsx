@@ -34,10 +34,18 @@ export function Tooltip({
   return (
     <span
       className={cn('relative inline-flex', className)}
-      onMouseEnter={() => setVisible(true)}
-      onMouseLeave={() => setVisible(false)}
-      onFocus={() => setVisible(true)}
-      onBlur={() => setVisible(false)}
+      onMouseEnter={() => {
+        setVisible(true)
+      }}
+      onMouseLeave={() => {
+        setVisible(false)
+      }}
+      onFocus={() => {
+        setVisible(true)
+      }}
+      onBlur={() => {
+        setVisible(false)
+      }}
       aria-describedby={visible ? id : undefined}
     >
       {children}

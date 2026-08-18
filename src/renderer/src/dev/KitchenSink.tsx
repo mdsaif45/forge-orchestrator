@@ -91,7 +91,9 @@ export function KitchenSink(): React.JSX.Element {
                 loading={loading}
                 onClick={() => {
                   setLoading(true)
-                  setTimeout(() => setLoading(false), 1200)
+                  setTimeout(() => {
+                    setLoading(false)
+                  }, 1200)
                 }}
               >
                 {loading ? 'Working' : 'Click to load'}
@@ -210,13 +212,13 @@ export function KitchenSink(): React.JSX.Element {
                 <Button
                   key={tone}
                   variant="secondary"
-                  onClick={() =>
+                  onClick={() => {
                     show({
                       tone,
                       title: `${tone} notification`,
                       description: 'Feedback on a completed action.',
                     })
-                  }
+                  }}
                 >
                   Show {tone}
                 </Button>
@@ -256,7 +258,9 @@ export function KitchenSink(): React.JSX.Element {
                 Changed <Code>src/main/index.ts</Code> at <Code>4fa1fc5</Code>
               </p>
               <CodeBlock showLineNumbers>
-                {'export function createWindow() {\n  return new BrowserWindow({\n    sandbox: true,\n  })\n}'}
+                {
+                  'export function createWindow() {\n  return new BrowserWindow({\n    sandbox: true,\n  })\n}'
+                }
               </CodeBlock>
             </div>
           </Section>
@@ -265,10 +269,20 @@ export function KitchenSink(): React.JSX.Element {
         <TabPanel active={tab === 'overlays'}>
           <Section title="Dialog and drawer">
             <Row>
-              <Button variant="secondary" onClick={() => setDialogOpen(true)}>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setDialogOpen(true)
+                }}
+              >
                 Open dialog
               </Button>
-              <Button variant="secondary" onClick={() => setDrawerOpen(true)}>
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setDrawerOpen(true)
+                }}
+              >
                 Open drawer
               </Button>
             </Row>
@@ -288,15 +302,27 @@ export function KitchenSink(): React.JSX.Element {
 
         <Dialog
           open={dialogOpen}
-          onClose={() => setDialogOpen(false)}
+          onClose={() => {
+            setDialogOpen(false)
+          }}
           title="Lock these decisions?"
           description="Locked decisions cannot be changed by an agent without your approval."
           footer={
             <>
-              <Button variant="ghost" onClick={() => setDialogOpen(false)}>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setDialogOpen(false)
+                }}
+              >
                 Cancel
               </Button>
-              <Button variant="primary" onClick={() => setDialogOpen(false)}>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setDialogOpen(false)
+                }}
+              >
                 Lock and continue
               </Button>
             </>
@@ -310,11 +336,18 @@ export function KitchenSink(): React.JSX.Element {
 
         <Drawer
           open={drawerOpen}
-          onClose={() => setDrawerOpen(false)}
+          onClose={() => {
+            setDrawerOpen(false)
+          }}
           title="Step output"
           description="planner · 11 files inspected"
           footer={
-            <Button variant="secondary" onClick={() => setDrawerOpen(false)}>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setDrawerOpen(false)
+              }}
+            >
               Close
             </Button>
           }

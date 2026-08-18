@@ -1,0 +1,6 @@
+out/
+dist/
+coverage/
+scripts/build/
+package-lock.json
+*.md

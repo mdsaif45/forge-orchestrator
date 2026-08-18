@@ -63,8 +63,8 @@ export async function invokeChannel(
     // The contract keys the handler map, so this lookup is total; the casts are
     // needed only because TypeScript cannot narrow the generic through an
     // indexed access on a mapped type.
-    const handler = handlers[channel] as IpcHandler<IpcChannel>
-    raw = await handler(parsedRequest.data as IpcRequest<IpcChannel>)
+    const handler = handlers[channel]
+    raw = await handler(parsedRequest.data)
   } catch (error) {
     return failure('HANDLER_FAILED', `${channel}: ${describe(error)}`)
   }

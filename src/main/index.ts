@@ -9,7 +9,7 @@ import {
   lockWindowNavigation,
 } from './security'
 
-const devServerUrl = process.env['ELECTRON_RENDERER_URL']
+const devServerUrl = process.env.ELECTRON_RENDERER_URL
 
 function createWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -35,7 +35,9 @@ function createWindow(): BrowserWindow {
     },
   })
 
-  window.on('ready-to-show', () => window.show())
+  window.on('ready-to-show', () => {
+    window.show()
+  })
   lockWindowNavigation(window, devServerUrl)
 
   if (devServerUrl !== undefined) {

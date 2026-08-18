@@ -52,7 +52,10 @@ app.whenReady().then(async () => {
 
   await window.loadFile(join(__dirname, '../out/renderer/index.html'))
   // Let React mount before probing the DOM.
-  await evaluate(window, `new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`)
+  await evaluate(
+    window,
+    `new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`,
+  )
 
   // Tokens must resolve on the root element.
   const tokens = await evaluate(

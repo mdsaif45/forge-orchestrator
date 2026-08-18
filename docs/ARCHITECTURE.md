@@ -298,6 +298,64 @@ Both were verified by planting a violation and confirming they fire.
 This indirection is what let the #20 spike's finding — Antigravity ships no headless
 CLI — become a scoping decision rather than a rewrite.
 
+### The wire protocol
+
+This is the layer that replaces the user as the message bus.
+
+```
+PromptPacket ─render─> text ─> agent ─> stdout ─extract─> JSON ─validate─> AgentReport
+                                            │                     │
+                                      no fence found        schema failure
+                                            └──── re-prompt ONCE with the error ────┘
+                                                          │
+                                                    still bad -> fail the step
+```
+
+Reports are delimited by `FORGE_REPORT_BEGIN` / `FORGE_REPORT_END` rather than a
+```` ```json ```` fence: agents emit those constantly for ordinary code samples, so a
+generic fence cannot be told apart from the report.
+
+Tolerant about surroundings, strict about content. Narration before and after the block is
+normal and must not fail; a report missing a field fails even if it looks plausible. Two
+concessions to how models actually behave, each with a test:
+
+```
+a ```json fence INSIDE the sentinels   -> stripped, not rejected
+the sentinel quoted in the report      -> last end fence wins, so it still parses
+```
+
+Burning the single retry on formatting rather than substance would waste it.
+
+Exactly one re-prompt, and it carries the **actual validation error** — a vague "invalid
+report" would make the second attempt a guess, which defeats the point of validating with
+a schema. A second failure fails the step: a model that cannot follow the protocol twice
+will not follow it a third time.
+
+Parsing lives in `shared/domain/protocol.ts` (pure) and the exchange in
+`main/runtimes/exchange.ts` (drives a runtime). The split is what makes the interesting
+cases testable without a runtime.
+
+### What a valid report *means* is a separate judgement
+
+```
+parse    did the agent answer in the required shape?
+assess   what does the answer mean for the workflow?
+```
+
+A valid report can still halt the run:
+
+```
+assumptions[] non-empty  -> halt-assumption   R1: a violation, not a footnote
+status question + asks   -> await-user        route to the queue, pause
+status question, no ask  -> halt-blocked      nothing to queue, nothing to wait for
+status blocked           -> halt-blocked
+status completed         -> accept            a CLAIM entering verification
+```
+
+The assumption check runs **before** status, deliberately. An agent admitting an assumption
+while claiming `completed` is exactly how R1 gets violated in practice, and taking `status`
+at face value first would let it through.
+
 ### Everything an agent says is a claim
 
 ```
@@ -402,7 +460,7 @@ Two traps worth remembering:
 | Area | Issue |
 |------|-------|
 | git write operations, gated by permissions | #37 |
-| real CLI adapters | #24 → #26 |
+| real CLI adapters | #24 #25 |
 | workflow engine, context engine | #27 → #32 |
 | evidence, policy engine | #33 → #37 |
 | questions, decision lock, diff UI | #38 → #42 |

@@ -53,8 +53,36 @@ export const promptPacketSchema = z.strictObject({
   /** Repository-relative paths the agent may modify. Empty means unconstrained. */
   allowedPaths: z.array(z.string().min(1)).readonly(),
   forbiddenPaths: z.array(z.string().min(1)).readonly(),
+  /**
+   * Files the context engine judged relevant, ranked (#30).
+   *
+   * A hint, not a restriction — `allowedPaths` is the restriction. Listing them saves the
+   * agent rediscovering the same files on every step, which is the difference between a
+   * focused packet and dumping the repository.
+   */
+  relevantFiles: z.array(z.string().min(1)).readonly(),
   /** Findings from a previous attempt, when this step is a correction. */
   reviewFindings: z.array(z.string().min(1)).readonly(),
+  /**
+   * What the previous attempt did, when this step is a correction.
+   *
+   * `diffStat` is Forge's own measurement rather than the previous agent's claim, so a
+   * correction step starts from what actually happened (A3).
+   */
+  previousAttempt: z
+    .strictObject({
+      summary: z.string().min(1),
+      diffStat: z.string(),
+    })
+    .nullable(),
+  /**
+   * The conditions Forge will check the work against.
+   *
+   * Sent deliberately: an agent that knows how completion is judged can aim at it, and
+   * hiding the criteria would only invite a report that satisfies nothing measurable.
+   * Forge still evaluates them itself (#35) — telling the agent is not delegating.
+   */
+  completionCriteria: z.array(z.string().min(1)).readonly(),
   /** Answers to questions the agent previously raised, so it need not ask twice. */
   answeredQuestions: z
     .array(z.strictObject({ question: z.string().min(1), answer: z.string().min(1) }))
@@ -87,7 +115,16 @@ export const agentReportSchema = z.strictObject({
       z.strictObject({
         question: z.string().min(1),
         whyUndetermined: z.string().min(1),
-        evidence: z.array(evidenceRefSchema).readonly(),
+        /**
+         * Non-empty, matching `openQuestionSchema`.
+         *
+         * Rule R2 is enforced *here*, at the boundary where an agent's reply arrives,
+         * rather than only on the stored entity — a question that skipped investigation
+         * has to be refused as it comes in, not discovered later when something tries to
+         * persist it. The two schemas disagreed on this at first, which meant the
+         * enforcement existed everywhere except the one place it mattered.
+         */
+        evidence: z.array(evidenceRefSchema).min(1).readonly(),
         options: z.array(z.string().min(1)).readonly(),
         recommendation: z.string().min(1).nullable(),
       }),

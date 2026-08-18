@@ -160,6 +160,16 @@ export class MockAgentRuntime implements IAgentRuntime {
         return
       }
 
+      case 'text': {
+        // Raw stdout and no structured result, which is how a real CLI behaves: the
+        // protocol has to extract a report from prose. This is the only ending that
+        // exercises parsing and the re-prompt.
+        this.emit(state, { type: 'chunk', at: this.now(), text: step.replyText ?? '' })
+        state.state = 'idle'
+        this.emit(state, { type: 'state', at: this.now(), state: 'idle' })
+        return
+      }
+
       case 'silent': {
         // Deliberately emits nothing further and leaves the state as `working`. The
         // caller's own timeout has to end this, which is exactly what #29 must handle.

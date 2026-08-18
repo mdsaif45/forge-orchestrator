@@ -45,8 +45,15 @@ export const scenarioStepSchema = z.strictObject({
    * `silent` never emits anything further, which is what the no-progress detector
    * (#29) has to notice; `crash` emits a retryable error; `authFailure` emits a
    * non-retryable one, matching what the #20 spike measured from a real CLI.
+   *
+   * `text` emits `replyText` as chunks and never produces a structured `result`. That is
+   * how a real CLI behaves — it prints prose and the protocol extracts a report from it —
+   * so it is the only ending that exercises parsing and the re-prompt. A mock that always
+   * handed back a validated object would leave the whole extraction path untested.
    */
-  ending: z.enum(['report', 'silent', 'crash', 'authFailure']),
+  ending: z.enum(['report', 'silent', 'crash', 'authFailure', 'text']),
+  /** Raw stdout for a `text` ending. Ignored otherwise. */
+  replyText: z.string().nullable(),
 })
 
 export type ScenarioStep = z.infer<typeof scenarioStepSchema>
@@ -82,6 +89,7 @@ function step(overrides: Partial<z.infer<typeof scenarioStepSchema>> = {}): Scen
     edits: [],
     report: null,
     ending: 'report',
+    replyText: null,
     ...overrides,
   })
 }
@@ -267,6 +275,82 @@ export const READ_ONLY: Scenario = scenarioSchema.parse({
   steps: [step({ report: report({ summary: 'Reviewed the diff' }) })],
 })
 
+/** The report an honest agent would print, fenced as the protocol requires. */
+function fencedReport(body: Record<string, unknown>): string {
+  return [
+    'Reading the file now.',
+    '',
+    'FORGE_REPORT_BEGIN',
+    JSON.stringify(body, null, 2),
+    'FORGE_REPORT_END',
+    '',
+    'Let me know if you need anything else.',
+  ].join('\n')
+}
+
+/**
+ * Prints a fenced report as raw stdout, the way a real CLI does.
+ *
+ * Distinct from `happy`, which hands back a structured `result` event and so never
+ * exercises extraction. This is the path a real adapter takes.
+ */
+export const TEXT_REPLY: Scenario = scenarioSchema.parse({
+  name: 'textReply',
+  description: 'Prints a valid fenced report as prose, as a CLI would',
+  capabilities: ALL,
+  steps: [
+    step({
+      edits: [{ path: 'src/math.ts', contents: 'export const answer = 42\n' }],
+      ending: 'text',
+      replyText: fencedReport({
+        status: 'completed',
+        summary: 'Corrected the constant',
+        filesChanged: ['src/math.ts'],
+        commandsRun: ['npm test'],
+        testsRun: true,
+        openQuestions: [],
+        assumptions: [],
+      }),
+    }),
+  ],
+})
+
+/** Replies with prose and no report at all, which must be re-prompted. */
+export const NO_REPORT: Scenario = scenarioSchema.parse({
+  name: 'noReport',
+  description: 'Answers in prose without a report block, then complies after the correction',
+  capabilities: ALL,
+  steps: [
+    step({
+      ending: 'text',
+      replyText: 'All done! I fixed the constant and the tests pass.',
+    }),
+    step({
+      ending: 'text',
+      replyText: fencedReport({
+        status: 'completed',
+        summary: 'Corrected the constant',
+        filesChanged: ['src/math.ts'],
+        commandsRun: [],
+        testsRun: false,
+        openQuestions: [],
+        assumptions: [],
+      }),
+    }),
+  ],
+})
+
+/** Replies with a report missing a required field, twice. Exhausts the single retry. */
+export const MALFORMED_TWICE: Scenario = scenarioSchema.parse({
+  name: 'malformedTwice',
+  description: 'Sends an invalid report, then sends an invalid report again',
+  capabilities: ALL,
+  steps: [
+    step({ ending: 'text', replyText: fencedReport({ status: 'completed' }) }),
+    step({ ending: 'text', replyText: fencedReport({ status: 'completed' }) }),
+  ],
+})
+
 export const SCENARIOS = {
   happy: HAPPY_PATH,
   correction: CORRECTION,
@@ -278,6 +362,9 @@ export const SCENARIOS = {
   crash: CRASH,
   authFailure: AUTH_FAILURE,
   readOnly: READ_ONLY,
+  textReply: TEXT_REPLY,
+  noReport: NO_REPORT,
+  malformedTwice: MALFORMED_TWICE,
 } as const satisfies Record<string, Scenario>
 
 export type ScenarioName = keyof typeof SCENARIOS

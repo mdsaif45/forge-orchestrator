@@ -3,6 +3,7 @@ import { app, BrowserWindow, dialog } from 'electron'
 import { initialiseDatabase, type ForgeDatabase } from './db'
 import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
+import { ProcessManager } from './process'
 import { ProjectService } from './projects/projectService'
 import {
   applyContentSecurityPolicy,
@@ -12,6 +13,16 @@ import {
 } from './security'
 
 const devServerUrl = process.env.ELECTRON_RENDERER_URL
+
+/**
+ * Owns every child process Forge starts.
+ *
+ * Module scope because it must outlive any one window and be reachable from the quit
+ * handler: a per-window manager would leak processes when a window closed. Constructed
+ * lazily during startup rather than here, because `app.getPath('userData')` is only
+ * meaningful once Electron is ready.
+ */
+let processes: ProcessManager | null = null
 
 /**
  * The open database handle.
@@ -107,6 +118,8 @@ if (!claimSingleInstance()) {
     // handle means the process is already going down and no handler should bind.
     if (db === null) return
 
+    processes = new ProcessManager({ logDirectory: join(app.getPath('userData'), 'logs') })
+
     registerIpcHandlers(createIpcHandlers({ projects: new ProjectService(db) }))
 
     createWindow()
@@ -118,6 +131,22 @@ if (!claimSingleInstance()) {
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
+  })
+
+  // A killed Electron process that leaves agent CLIs running against the user's
+  // repository is worse than a crash: the work keeps happening with nothing supervising
+  // it, and the next start would diff against a tree something else is still editing.
+  //
+  // Kills are started here, on `before-quit`, which fires before windows close and so
+  // gives the signals a head start on the rest of shutdown.
+  //
+  // Deliberately *not* `event.preventDefault()` with a re-issued `app.quit()`: that
+  // cancels the whole quit sequence, and the re-issued quit then races a shutdown
+  // Electron has already abandoned. Measured — it hung `app.close()` indefinitely and
+  // took the e2e suite from 4s to a 30s teardown timeout. The pty kill is a signal, not a
+  // wait, so blocking quit on it buys nothing.
+  app.on('before-quit', () => {
+    void processes?.killAll('Forge is shutting down')
   })
 
   // Closing the handle flushes the WAL, so the next start does not have to recover.

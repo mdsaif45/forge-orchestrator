@@ -127,6 +127,56 @@ question · event                  view preferences
 Domain state must not be mirrored into the renderer store: a persisted copy would
 diverge from the database *and* survive restarts, which is a second truth.
 
+## Git as evidence
+
+```
+snapshot(before) ──> agent step runs ──> diffWorktree(baseSha)
+       │                                        │
+    baseSha                            files[] + patch  ──> ChangeSet
+```
+
+`GitService` (`src/main/git/`) is read-only: it has no commit, stage, branch, or
+push method, and a test asserts that surface rather than leaving it to review. Write
+operations arrive with the permission model (#37). This is what makes an agent's
+claim checkable against the repository (A3).
+
+### Why `git` is spawned directly, not wrapped
+
+`simple-git` was the alternative. Spawning won because the formats consumed here —
+`--porcelain=v2`, `--numstat`, `--name-status`, all with `-z` — are git's own
+documented machine-readable contracts, so a wrapper would add a dependency tree and
+a second parser without removing the need to understand them. `execFile` is used
+with no shell, so a path or ref containing a space or `;` is an argument, not syntax.
+
+Three format traps, each verified against `git 2.51` output rather than recalled:
+
+```
+--name-status -z   "M" \0 path                  2 fields
+                   "R075" \0 old \0 new         3 fields — status letter sets arity
+--numstat -z       "1\t0\tpath"                 1 field, tab-delimited
+                   "1\t0\t" \0 old \0 new       3 fields, inline path EMPTY
+                   "-\t-\tpath"                 binary: dashes, not integers
+porcelain=v2 -z    "2 R. … R75 new" \0 old      new path first — reverse of diff
+```
+
+Because arity depends on the status letter, records cannot be read in fixed strides.
+Binary files report `-` where `ChangedFile` requires a non-negative integer, so they
+map to `0` with a `binary` flag — zero-because-binary stays distinguishable from
+zero-because-unchanged.
+
+The subtlest one, caught by a test rather than by review:
+
+```
+git diff <base>  ──> tracked content only
+                     a file the agent CREATED is invisible
+```
+
+An untracked file is the most common kind of agent change, and it was silently
+missing from the changeset. `git add -N` would fix the diff but writes to the index —
+unacceptable in a read-only service operating on a repository an agent may still be
+editing. Untracked paths therefore come from `status`, and each is diffed against
+the null device with `--no-index`, which exits 1 by design when the files differ.
+
 ## Design system
 
 ```
@@ -177,8 +227,8 @@ Two traps worth remembering:
 
 | Area | Issue |
 |------|-------|
-| domain model, SQLite, event log | #14 #15 #16 |
-| git service | #17 |
+| project creation, rules engine | #18 #19 |
+| git write operations, gated by permissions | #37 |
 | agent runtimes, `IAgentRuntime` | #21 → #26 |
 | workflow engine, context engine | #27 → #32 |
 | evidence, policy engine | #33 → #37 |

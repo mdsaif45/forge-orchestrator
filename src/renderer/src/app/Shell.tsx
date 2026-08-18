@@ -20,7 +20,9 @@ export function Shell(): React.JSX.Element {
       <StatusStrip
         projectName={null}
         workflowState="idle"
-        onOpenKitchenSink={() => setSinkOpen(true)}
+        onOpenKitchenSink={() => {
+          setSinkOpen(true)
+        }}
       />
 
       <div className="flex min-h-0 flex-1">
@@ -34,7 +36,9 @@ export function Shell(): React.JSX.Element {
 
       <Dialog
         open={sinkOpen}
-        onClose={() => setSinkOpen(false)}
+        onClose={() => {
+          setSinkOpen(false)
+        }}
         title="Kitchen sink"
         description="Every primitive in every variant — the design system's regression surface."
         size="xl"

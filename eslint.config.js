@@ -1,0 +1,157 @@
+import js from '@eslint/js'
+import globals from 'globals'
+import tseslint from 'typescript-eslint'
+import reactHooks from 'eslint-plugin-react-hooks'
+import prettier from 'eslint-config-prettier'
+
+/**
+ * Flat ESLint config.
+ *
+ * Type-aware linting is enabled, which is what makes the rules below able to see
+ * across the process boundary rather than only within a file.
+ */
+export default tseslint.config(
+  { ignores: ['out/**', 'dist/**', 'scripts/build/**', 'coverage/**', 'node_modules/**'] },
+
+  js.configs.recommended,
+
+  // Type-aware rules apply to the application only. The tooling files below are
+  // plain JS with no tsconfig behind them; running type-aware rules there would
+  // report every value as `any` — noise about the linter's own view, not defects.
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    extends: [tseslint.configs.strictTypeChecked, tseslint.configs.stylisticTypeChecked],
+    languageOptions: {
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      // Forge's own convention: an unused value is either used or deleted, but a
+      // deliberately-ignored argument may be prefixed.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
+      // Axiom A2 applies to the code as well as to agents: an implicit `any` is a
+      // guess about a type.
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/consistent-type-imports': [
+        'error',
+        { prefer: 'type-imports', fixStyle: 'inline-type-imports' },
+      ],
+      // A floating promise in the main process means an unobserved failure, which
+      // is how a workflow silently stalls.
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+      // Exhaustive switches over WorkflowState are load-bearing (#27).
+      '@typescript-eslint/switch-exhaustiveness-check': 'error',
+      eqeqeq: ['error', 'always', { null: 'ignore' }],
+      'no-console': ['error', { allow: ['warn', 'error'] }],
+    },
+  },
+
+  // ---- Renderer -----------------------------------------------------------
+  {
+    files: ['src/renderer/**/*.{ts,tsx}'],
+    languageOptions: {
+      globals: globals.browser,
+    },
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      // The renderer has no Node access (axiom A7); importing these would compile
+      // and then fail at runtime, so it is a lint error rather than a surprise.
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['electron', 'node:*', 'fs', 'path', 'child_process'],
+              message:
+                'The renderer has no Node or Electron access. Route privileged work through the IPC contract in src/shared/ipc.ts.',
+            },
+            {
+              group: ['**/ui/primitives/*'],
+              message:
+                "Import primitives from '@renderer/ui' — the single import surface — not from the primitives directory directly.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // The design system is the one place allowed to reach into itself.
+  {
+    files: ['src/renderer/src/ui/**/*.{ts,tsx}'],
+    rules: { 'no-restricted-imports': 'off' },
+  },
+
+  // ---- Main and preload ---------------------------------------------------
+  {
+    files: ['src/main/**/*.ts', 'src/preload/**/*.ts'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
+
+  // ---- Shared -------------------------------------------------------------
+  {
+    files: ['src/shared/**/*.ts'],
+    rules: {
+      // Shared code compiles into all three targets, so it must stay
+      // environment-free: no Node, no Electron, no React.
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['electron', 'node:*', 'react', 'react-dom'],
+              message:
+                'src/shared is compiled into main, preload, and renderer. Keep it to pure data and pure functions.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // ---- Tests and checks ---------------------------------------------------
+  {
+    files: ['**/*.test.{ts,tsx}', 'src/test/**/*.{ts,tsx}'],
+    rules: {
+      '@typescript-eslint/no-non-null-assertion': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+    },
+  },
+  {
+    // The verification scripts are plain JS, run outside the app, and print to
+    // stdout by design.
+    files: ['scripts/**/*.{cjs,mjs,js}', 'eslint.config.js'],
+    languageOptions: {
+      globals: globals.node,
+      sourceType: 'commonjs',
+    },
+    rules: {
+      'no-console': 'off',
+      'no-undef': 'off',
+    },
+  },
+  {
+    files: ['scripts/**/*.mjs', 'eslint.config.js'],
+    languageOptions: { sourceType: 'module' },
+  },
+  {
+    files: ['electron.vite.config.ts', 'vitest.config.ts'],
+    extends: [tseslint.configs.strictTypeChecked],
+    languageOptions: {
+      globals: globals.node,
+      parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
+    },
+  },
+
+  // Must stay last so formatting rules lose to Prettier.
+  prettier,
+)

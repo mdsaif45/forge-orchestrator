@@ -31,8 +31,7 @@ const field = cva(
 )
 
 export interface InputProps
-  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'>,
-    VariantProps<typeof field> {}
+  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'>, VariantProps<typeof field> {}
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   { className, invalid, inputSize, mono, ...props },
@@ -49,7 +48,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
 })
 
 export interface TextareaProps
-  extends React.TextareaHTMLAttributes<HTMLTextAreaElement>,
+  extends
+    React.TextareaHTMLAttributes<HTMLTextAreaElement>,
     Pick<VariantProps<typeof field>, 'invalid' | 'mono'> {}
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(

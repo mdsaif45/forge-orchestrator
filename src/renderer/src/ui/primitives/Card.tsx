@@ -22,8 +22,7 @@ const card = cva('rounded-(--radius-lg) border', {
 })
 
 export interface CardProps
-  extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof card> {}
+  extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof card> {}
 
 export function Card({
   className,
@@ -59,9 +58,6 @@ export function CardDescription({
   ...props
 }: React.HTMLAttributes<HTMLParagraphElement>): React.JSX.Element {
   return (
-    <p
-      className={cn('text-(length:--text-xs) text-(--color-text-muted)', className)}
-      {...props}
-    />
+    <p className={cn('text-(length:--text-xs) text-(--color-text-muted)', className)} {...props} />
   )
 }

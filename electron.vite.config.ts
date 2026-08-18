@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
+import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwind from '@tailwindcss/vite'
 
@@ -7,7 +7,6 @@ const shared = resolve('src/shared')
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
     resolve: {
       alias: {
         '@main': resolve('src/main'),
@@ -29,7 +28,6 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
     resolve: {
       alias: {
         '@shared': shared,

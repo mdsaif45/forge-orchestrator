@@ -11,5 +11,6 @@
       "@renderer/*": ["src/renderer/src/*"],
       "@shared/*": ["src/shared/*"]
     }
-  }
+  },
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "src/test/**"]
 }

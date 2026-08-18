@@ -52,7 +52,10 @@ app.whenReady().then(async () => {
 
   await window.loadFile(join(__dirname, '../out/renderer/index.html'))
   // Let React mount before probing the DOM.
-  await evaluate(window, `new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`)
+  await evaluate(
+    window,
+    `new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`,
+  )
 
   // Tokens must resolve on the root element.
   const tokens = await evaluate(
@@ -114,21 +117,35 @@ app.whenReady().then(async () => {
   )
 
   // Switching the theme must repaint from tokens alone.
-  // Setting the attribute directly is safe here because nothing re-renders in
-  // between; `getBoundingClientRect` forces the pending style recalc to flush so
-  // the read is not stale.
+  //
+  // The recalc that follows a `data-theme` change is asynchronous, and
+  // `getBoundingClientRect` does not force it — that flushes layout, not the
+  // style invalidation from an attribute change. So each read polls until the
+  // value settles, bounded so a real regression fails rather than hanging. An
+  // earlier version read immediately and passed locally while failing on the
+  // slower Windows runner.
   const themed = await evaluate(
     window,
-    `(() => {
-       const read = () => {
-         document.body.getBoundingClientRect()
-         return getComputedStyle(document.body).backgroundColor
+    `(async () => {
+       const read = () => getComputedStyle(document.body).backgroundColor
+
+       const readUntil = async (expected) => {
+         for (let i = 0; i < 120 && read() !== expected; i += 1) {
+           await new Promise((r) => requestAnimationFrame(r))
+         }
+         return read()
        }
-       const before = read()
+
+       const dark = 'rgb(11, 13, 16)'
+       const light = 'rgb(255, 255, 255)'
+
+       const before = await readUntil(dark)
        document.documentElement.dataset.theme = 'light'
-       const after = read()
+       const after = await readUntil(light)
        document.documentElement.dataset.theme = 'dark'
-       return JSON.stringify({ before, after, restored: read() })
+       const restored = await readUntil(dark)
+
+       return JSON.stringify({ before, after, restored })
      })()`,
   )
   const th = JSON.parse(themed)

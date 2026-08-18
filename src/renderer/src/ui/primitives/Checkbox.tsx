@@ -1,8 +1,7 @@
 import { forwardRef, useId } from 'react'
 import { cn } from '../cn'
 
-export interface CheckboxProps
-  extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> {
+export interface CheckboxProps extends Omit<React.InputHTMLAttributes<HTMLInputElement>, 'type'> {
   readonly label: string
   readonly hint?: string
 }

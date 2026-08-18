@@ -406,6 +406,7 @@ describe('every scenario', () => {
       textReply: 'idle',
       noReport: 'idle',
       malformedTwice: 'idle',
+      noProgress: 'completed',
     })
   })
 })

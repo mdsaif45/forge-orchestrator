@@ -200,6 +200,83 @@ unacceptable in a read-only service operating on a repository an agent may still
 editing. Untracked paths therefore come from `status`, and each is diffed against
 the null device with `--no-index`, which exits 1 by design when the files differ.
 
+## Loop guards (A5)
+
+The failure mode these exist to prevent:
+
+```
+planner → builder → reviewer → builder → reviewer → ...   forever
+```
+
+Two agents can exchange work indefinitely, each plausibly making progress, until the quota
+is gone. Every guard answers one question: *is it still reasonable to continue?*
+
+```
+iteration cap     5      transition table, on the correctionStarted edge
+step wall clock   30m    checkBudgets
+step idle         10m    checkBudgets  (also enforced in the pty, #23)
+total wall clock  4h     checkBudgets  — reported BEFORE a per-step budget
+retries           3      decideRetry, fixed 5s backoff
+no progress       —      detectNoProgress, on the diff not the report
+stop-on toggles   —      checkStopConditions
+```
+
+All pure functions in `src/shared/domain/guards.ts`. The engine calls them and acts; nothing
+there spawns, kills, or waits — which is what makes a retry budget interacting with a wall
+clock testable without a running workflow.
+
+### Transient vs semantic
+
+The distinction that matters most:
+
+```
+transient   the same request could plausibly succeed unchanged   -> retry
+semantic    it could not                                          -> never retry
+```
+
+Retrying a bad credential or a policy violation spends the budget on a certainty and delays
+the halt the user needs to see. Fixed backoff rather than exponential: exponential earns its
+complexity when many clients contend for one resource, whereas a single workflow retrying
+its own local step only takes longer to admit defeat.
+
+### No progress is measured on the diff
+
+```
+fingerprint = sorted(path:+n:-n) + hash(patch)
+two CONSECUTIVE iterations with the same fingerprint  ->  HALTED_LIMIT
+```
+
+Fingerprinted from what git shows, not from the report, because the case being caught is an
+agent resubmitting identical work while describing it differently each round (A3). Only
+*consecutive* repeats count — two identical diffs with a different one between them is a
+loop that tried something else, which is progress even if it was reverted.
+
+It fires on the **second** identical attempt, so a spinning loop stops immediately instead of
+burning the full iteration budget first.
+
+### Limits come through the rules chain
+
+```
+global ──> workspace ──> project ──> workflow ──> agent ──> task
+rule key: limit.maxIterations · limit.stopOn.buildFailure · …
+```
+
+Reusing the rules engine rather than adding a parallel settings mechanism means one
+inheritance implementation, and an overridden limit shows up in the settings screen with its
+provenance like any other rule. A malformed value is *reported*, never silently ignored: a
+project that meant to cap iterations at 3 and typed `three` must not quietly run with 5.
+
+`stopOn.permissionViolation` is typed `true` rather than `boolean`. A7 is not a preference,
+and a toggle that could disable it would make the guarantee advisory.
+
+```
+zod trap, measured:  .default({})   value used AS-IS, inner defaults SKIPPED
+                     .prefault({})  value PARSED, inner defaults applied
+```
+
+`.default({})` on `stopOn` yielded a bare `{}`, so `unexpectedFileModification` came back
+`undefined` and the guard silently stopped firing. Caught by a test.
+
 ## Crash recovery
 
 ```

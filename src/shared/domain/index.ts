@@ -193,3 +193,19 @@ export {
   type ReportAssessment,
   type ReportVerdict,
 } from './protocol'
+
+export {
+  canTransition,
+  IllegalTransitionError,
+  legalTriggers,
+  parseWorkflowState,
+  renderStateDiagram,
+  transition,
+  TRANSITIONS,
+  workflowTriggerSchema,
+  WORKFLOW_TRIGGERS,
+  type Transition,
+  type TransitionContext,
+  type TransitionResult,
+  type WorkflowTrigger,
+} from './transitions'

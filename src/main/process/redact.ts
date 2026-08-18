@@ -122,58 +122,12 @@ export function stripAnsi(text: string): string {
   return text.replace(OSC_PATTERN, '').replace(CSI_PATTERN, '').replace(LONE_ESCAPE_PATTERN, '')
 }
 
-export const REDACTION = '[redacted]'
-
 /**
- * Patterns for secret-shaped values in process output.
+ * Re-exported from `@shared/domain` rather than reimplemented.
  *
- * These match on *structure*, because a log is arbitrary text with no key names to key
- * off. Ordering matters: longer, more specific forms are replaced first, so a bearer
- * token is not partly consumed by the generic long-string rule.
+ * Process output and prompt packets both need value-shape redaction, and two copies would
+ * drift — the one that drifted being the one that leaks. The shared module is the authority;
+ * this file keeps only what a process spawner uniquely needs: environment-name filtering
+ * and terminal control stripping.
  */
-const OUTPUT_PATTERNS: readonly RegExp[] = [
-  // Authorization headers and bearer tokens.
-  /\b(?:bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi,
-  // `KEY=value` and `KEY: value` where the key looks secret.
-  /\b[\w.-]*(?:token|secret|password|passwd|api[-_]?key|access[-_]?key|credential)[\w.-]*\s*[:=]\s*("[^"]*"|'[^']*'|\S+)/gi,
-  // PEM blocks, which span lines.
-  /-----BEGIN[^-]*PRIVATE KEY-----[\s\S]*?-----END[^-]*PRIVATE KEY-----/g,
-  // JWTs: three base64url segments.
-  /\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\b/g,
-  // A URL carrying credentials.
-  /\b([a-z][a-z0-9+.-]*):\/\/[^\s:/@]+:[^\s@]+@/gi,
-]
-
-/**
- * Scrubs secret-shaped text out of captured output.
- *
- * Applied before anything is written to a log file or an event, so a secret an agent
- * printed does not become a durable artifact. It will over-redact sometimes; that
- * trade is deliberate, since a redacted log is recoverable by re-running and a leaked
- * credential is not.
- */
-export function redactOutput(text: string): string {
-  let result = text
-
-  for (const pattern of OUTPUT_PATTERNS) {
-    result = result.replace(pattern, (match) => {
-      // The URL case is tested *first*. A scheme contains a colon (`https:`), so the
-      // assignment branch below would otherwise claim it and produce
-      // `https:[redacted]example.com` — mangling the line instead of redacting the
-      // credential. Caught by a test; the ordering is the whole fix.
-      const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(match)
-      if (scheme !== null) return `${scheme[1] ?? ''}://${REDACTION}@`
-
-      // Keep the assignment's key so the log still says *what* was withheld. Only a
-      // separator after the first character counts, since a leading one has no key.
-      const separator = /\s*[:=]\s*/.exec(match)
-      if (separator?.index !== undefined && separator.index > 0) {
-        return `${match.slice(0, separator.index)}${separator[0]}${REDACTION}`
-      }
-
-      return REDACTION
-    })
-  }
-
-  return result
-}
+export { REDACTION, redactSecrets as redactOutput } from '@shared/domain'

@@ -1,8 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import {
+  FORGE_DEFAULT_RULES,
   projectIdSchema,
   repositoryIdSchema,
+  resolveEffectivePolicy,
+  ruleScopeSchema,
   ruleIdSchema,
+  type EffectiveRule,
   type Project,
   type ProjectId,
   type Rule,
@@ -92,6 +96,81 @@ export class ProjectService {
     return toProjectView(project)
   }
 
+  /**
+   * Sets one rule at one scope, then returns the project's new state.
+   *
+   * The (scope, key) pair is the identity: setting `R4` at project scope overrides
+   * the global default rather than adding a second rule beside it, and setting it
+   * again replaces it. The projection's upsert enforces that, so an override cannot
+   * silently become a duplicate.
+   *
+   * Returning the whole detail rather than the rule means the caller re-reads the
+   * resolved policy in the same round trip — the alternative is a renderer that
+   * patches its own copy and drifts from what the resolver would say.
+   */
+  async setRule(
+    rawProjectId: string,
+    scope: string,
+    key: string,
+    statement: string,
+  ): Promise<ProjectDetail | null> {
+    const parsedProject = projectIdSchema.safeParse(rawProjectId)
+    const parsedScope = ruleScopeSchema.safeParse(scope)
+
+    if (!parsedProject.success) return null
+    if (!parsedScope.success) {
+      throw new Error(`"${scope}" is not a rule scope`)
+    }
+
+    const projectId = parsedProject.data
+    if (this.store.findById(projectId) === null) return null
+
+    const existing = this.rules.findByKey(projectId, parsedScope.data, key)
+
+    this.store.setRule(
+      projectId,
+      {
+        // Reuses the existing id when overwriting, so the event log reads as one
+        // rule changing rather than a new rule appearing at the same coordinates.
+        id: existing?.id ?? ruleIdSchema.parse(randomUUID()),
+        scope: parsedScope.data,
+        key,
+        statement: statement.trim(),
+        source: 'settings',
+        createdAt: existing?.createdAt ?? new Date().toISOString(),
+      },
+      'user',
+    )
+
+    return this.get(rawProjectId)
+  }
+
+  async removeRule(rawProjectId: string, rawRuleId: string): Promise<ProjectDetail | null> {
+    const parsedProject = projectIdSchema.safeParse(rawProjectId)
+    const parsedRule = ruleIdSchema.safeParse(rawRuleId)
+
+    if (!parsedProject.success || !parsedRule.success) return null
+
+    this.store.removeRule(parsedProject.data, parsedRule.data, 'user', new Date().toISOString())
+
+    return this.get(rawProjectId)
+  }
+
+  /**
+   * The effective policy for a project: Forge's defaults plus its stored rules.
+   *
+   * Resolved on read rather than stored, because the answer is a function of the
+   * rules that exist right now — caching it would mean a rule change that does not
+   * take effect until something invalidates the cache.
+   *
+   * The global defaults are code constants (`FORGE_DEFAULT_RULES`), not rows: they
+   * are Forge's own policy, they must be present for the axioms to mean anything,
+   * and a narrower scope may override one but nothing can delete it.
+   */
+  resolvePolicy(projectId: ProjectId): readonly EffectiveRule[] {
+    return resolveEffectivePolicy([...FORGE_DEFAULT_RULES, ...this.rules.listForProject(projectId)])
+  }
+
   list(): readonly ProjectView[] {
     return this.store.list().map(toProjectView)
   }
@@ -117,6 +196,7 @@ export class ProjectService {
     return {
       project: toProjectView(project),
       rules: this.rules.listForProject(projectId).map(toRuleView),
+      policy: this.resolvePolicy(projectId),
       // A path that has stopped being a repository is reported as null rather than
       // as a probe full of problems, so the UI can say "the repository is missing"
       // instead of listing reasons a folder failed validation.

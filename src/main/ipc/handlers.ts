@@ -56,5 +56,10 @@ export function createIpcHandlers({ projects }: IpcDependencies): IpcHandlerMap 
     'project:list': () => ({ projects: projects.list() }),
 
     'project:get': ({ projectId }) => projects.get(projectId),
+
+    'rule:set': ({ projectId, scope, key, statement }) =>
+      projects.setRule(projectId, scope, key, statement),
+
+    'rule:remove': ({ projectId, ruleId }) => projects.removeRule(projectId, ruleId),
   }
 }

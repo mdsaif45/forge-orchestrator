@@ -32,6 +32,11 @@ const api: ForgeApi = {
     list: () => call('project:list', {}),
     get: (projectId) => call('project:get', { projectId }),
   },
+  rule: {
+    set: (projectId, scope, key, statement) =>
+      call('rule:set', { projectId, scope, key, statement }),
+    remove: (projectId, ruleId) => call('rule:remove', { projectId, ruleId }),
+  },
 }
 
 contextBridge.exposeInMainWorld('forge', api)

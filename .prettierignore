@@ -4,3 +4,5 @@ coverage/
 scripts/build/
 package-lock.json
 *.md
+src/main/db/migrations/
+src/main/db/migrations.generated.ts

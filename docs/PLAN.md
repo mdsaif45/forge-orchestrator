@@ -102,12 +102,53 @@ Never dump full history. Never include `.env`. Snapshot every packet for replay.
 | M0 | Foundation            | app boots, IPC safe, CI green, design system seeded |
 | M1 | State core            | project + repo + SQLite + event log + git service   |
 | M2 | Runtime adapters      | spawn CLI, structured protocol, mock runtime, cancel|
+|    |                       | ⚠ reshaped by the #20 spike — see below             |
 | M3 | Workflow engine       | full state machine, checkpoints, resume, limits     |
 | M4 | Evidence + review     | build/test runners, diff scope check, verdicts      |
 | M5 | Human control plane   | question queue, decision lock, changes UI, edit mode|
 | M6 | Polish & scale        | multi-account, templates, permissions UI, packaging |
 
 MVP = M0..M5. One project, one loop, no manual copy-paste.
+
+## What the #20 spike changed
+
+Measured, not assumed — full evidence in `docs/spikes/agent-cli-capability.md`.
+
+```
+Claude Code 2.1.209   -p · --output-format json|stream-json · exit codes   WORKS
+Antigravity 1.107     `chat` opens a GUI WINDOW, no stdout, never exits    DOES NOT
+```
+
+Antigravity is a VS Code fork shipped as a GUI app, with no headless entry point. So
+the MVP loop cannot be two spawned CLIs, and #25 is unbuildable as written (#63).
+
+```
+#21 IAgentRuntime      unchanged — A6 is what makes this survivable
+#22 MockAgentRuntime   unchanged, now the critical path for M3/M4
+#23 ProcessManager     unchanged, target Claude
+#24 ClaudeCliRuntime   after the authenticated re-run (#64)
+#25 Antigravity        BLOCKED (#63)
+```
+
+Two traps worth remembering, both measured:
+
+```
+1. json envelope reported subtype:"success" WHILE is_error:true
+   => key off is_error and the exit code, never subtype
+2. the auth failure was written to STDOUT, not stderr
+   => an adapter reading only stderr sees nothing on failure
+```
+
+And one constraint that shapes context handling:
+
+```
+plain -p   inherits ambient CLAUDE.md · hooks · plugins · MCP
+--bare     isolates them, but NEVER reads OAuth (API key only)
+           => full isolation and Pro auth are mutually exclusive;
+              isolate with --settings/--strict-mcp-config instead
+```
+
+Open decisions: #62 (ToS + rate limits), #63 (builder role), #64 (authenticated re-run).
 
 ## Phases inside milestones
 

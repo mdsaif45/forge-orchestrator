@@ -10,6 +10,12 @@
  */
 const { app, BrowserWindow, ipcMain } = require('electron')
 const { join } = require('node:path')
+const { mkdtempSync } = require('node:fs')
+const { tmpdir } = require('node:os')
+
+// A throwaway user-data directory, so persisted renderer state from a previous
+// run cannot influence these assertions.
+app.setPath('userData', mkdtempSync(join(tmpdir(), 'forge-smoke-')))
 
 const checks = []
 function check(name, pass, detail) {
@@ -62,8 +68,18 @@ app.whenReady().then(async () => {
 
   await window.loadFile(join(__dirname, '../out/renderer/index.html'))
 
-  const heading = await evaluate(window, `document.querySelector('h1')?.textContent ?? null`)
-  check('renderer mounts React and renders the shell', heading === 'Forge', `h1 = ${heading}`)
+  // Asserts React mounted and produced real DOM. Deliberately structural rather
+  // than tied to specific copy or tag names, so shell redesigns do not break it
+  // — `check:ui` is where the design system itself is asserted.
+  const mounted = await evaluate(
+    window,
+    `JSON.stringify({
+       children: document.getElementById('root')?.children.length ?? 0,
+       buttons: document.querySelectorAll('button').length,
+     })`,
+  )
+  const m = JSON.parse(mounted)
+  check('renderer mounts React and renders the shell', m.children > 0 && m.buttons > 0, mounted)
 
   const name = await evaluate(
     window,

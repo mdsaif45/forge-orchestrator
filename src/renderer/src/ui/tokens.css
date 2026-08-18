@@ -1,0 +1,138 @@
+/*
+ * Design tokens — the single source of visual truth for Forge.
+ *
+ * Rules:
+ *   - primitives reference tokens, never raw hex or magic numbers
+ *   - pages reference primitives, never tokens directly for colour or spacing
+ *   - adding a colour means adding a token here, not a one-off value in a page
+ *
+ * Semantic naming is deliberate: `--color-surface-raised` survives a palette
+ * change, `--color-gray-800` does not.
+ */
+
+@theme {
+  /* ---- Palette: dark is the default surface for a long-running tool ---- */
+  --color-canvas: #0b0d10;
+  --color-surface: #12151a;
+  --color-surface-raised: #171b21;
+  --color-surface-overlay: #1c2128;
+  --color-surface-inset: #0d1014;
+
+  --color-border: #232830;
+  --color-border-strong: #313843;
+  --color-border-focus: #4d8dff;
+
+  --color-text: #e6e8eb;
+  --color-text-muted: #8b929c;
+  --color-text-subtle: #646b75;
+  --color-text-inverted: #0b0d10;
+
+  /* ---- Intent: meaning, not hue. Workflow states map onto these. ---- */
+  --color-accent: #4d8dff;
+  --color-accent-hover: #6ba0ff;
+  --color-accent-muted: #1b2942;
+
+  --color-success: #3fb950;
+  --color-success-muted: #12261a;
+
+  --color-warning: #d29922;
+  --color-warning-muted: #2b2113;
+
+  --color-danger: #f85149;
+  --color-danger-muted: #2d1517;
+
+  --color-info: #58a6ff;
+  --color-info-muted: #14243d;
+
+  /* Agent roles get stable identities so a workflow graph reads consistently. */
+  --color-role-planner: #a371f7;
+  --color-role-implementer: #4d8dff;
+  --color-role-reviewer: #3fb950;
+  --color-role-system: #8b929c;
+
+  /* ---- Typography ---- */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Code', 'JetBrains Mono', Menlo, monospace;
+
+  --text-2xs: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-lg: 1rem;
+  --text-xl: 1.25rem;
+  --text-2xl: 1.5rem;
+  --text-3xl: 2rem;
+
+  /* ---- Radius ---- */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-full: 9999px;
+
+  /* ---- Elevation ---- */
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.3);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.35);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.45);
+
+  /* ---- Motion: fast enough to feel direct, never decorative ---- */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 120ms;
+  --duration-base: 180ms;
+
+  /* ---- Layering: one scale, so nothing fights over z-index ---- */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-drawer: 30;
+  --z-dialog: 40;
+  --z-tooltip: 50;
+  --z-toast: 60;
+}
+
+/*
+ * Light theme.
+ *
+ * Only tokens are redefined — no primitive knows a theme exists. `[data-theme]`
+ * on the root element is the switch; the dark values above are the default.
+ */
+[data-theme='light'] {
+  --color-canvas: #ffffff;
+  --color-surface: #f6f7f9;
+  --color-surface-raised: #ffffff;
+  --color-surface-overlay: #ffffff;
+  --color-surface-inset: #eef0f3;
+
+  --color-border: #d8dce1;
+  --color-border-strong: #b9c0c9;
+  --color-border-focus: #0b62d6;
+
+  --color-text: #14181d;
+  --color-text-muted: #5c646e;
+  --color-text-subtle: #838b95;
+  --color-text-inverted: #ffffff;
+
+  --color-accent: #0b62d6;
+  --color-accent-hover: #0a55b8;
+  --color-accent-muted: #e3edfc;
+
+  --color-success: #1a7f37;
+  --color-success-muted: #e3f5e7;
+
+  --color-warning: #9a6700;
+  --color-warning-muted: #fdf3d7;
+
+  --color-danger: #cf222e;
+  --color-danger-muted: #fce8e9;
+
+  --color-info: #0b62d6;
+  --color-info-muted: #e3edfc;
+
+  --color-role-planner: #8250df;
+  --color-role-implementer: #0b62d6;
+  --color-role-reviewer: #1a7f37;
+  --color-role-system: #5c646e;
+
+  --shadow-sm: 0 1px 2px rgb(16 22 26 / 0.08);
+  --shadow-md: 0 4px 12px rgb(16 22 26 / 0.1);
+  --shadow-lg: 0 12px 32px rgb(16 22 26 / 0.14);
+}

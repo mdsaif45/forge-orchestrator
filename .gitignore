@@ -14,3 +14,4 @@ coverage/
 forge.db
 forge.db-*
 chatgpt-chat/
+node_modules/.tmp/

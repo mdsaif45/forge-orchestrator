@@ -1,0 +1,63 @@
+/*
+ * Temporary shell styling only.
+ * Design tokens and reusable primitives are introduced in #10; after that, no
+ * page-level CSS should define colour, spacing, or typography by hand.
+ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #0b0d10;
+  color: #e6e8eb;
+  font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.shell {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  gap: 0.5rem;
+  text-align: center;
+}
+
+.shell h1 {
+  margin: 0;
+  font-size: 2.5rem;
+  letter-spacing: -0.02em;
+}
+
+.tagline {
+  margin: 0;
+  color: #8b929c;
+}
+
+.versions {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 0.125rem 1rem;
+  margin: 1.5rem 0 0;
+  font-size: 0.8125rem;
+  color: #8b929c;
+}
+
+.versions dt {
+  text-align: right;
+}
+
+.versions dd {
+  margin: 0;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}

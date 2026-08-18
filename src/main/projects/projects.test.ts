@@ -54,8 +54,11 @@ afterEach(() => {
 })
 
 /** The stored form: canonical and POSIX-separated, matching git output. */
-function storedPath(): string {
-  return repoPath.split(String.fromCharCode(92)).join('/')
+async function storedPath(): Promise<string> {
+  // Taken from the probe rather than derived from `repoPath`: main canonicalises,
+  // and Windows short names mean a locally recomputed value can differ. The
+  // canonicalisation itself is asserted in its own test above.
+  return (await validateRepository(repoPath)).path
 }
 
 function request(overrides: Record<string, unknown> = {}): Parameters<ProjectService['create']>[0] {
@@ -133,16 +136,22 @@ describe('validateRepository', () => {
     }
   })
 
-  it('reports the canonical path, not the spelling that was typed', async () => {
+  it('reports one stable path regardless of the spelling that was typed', async () => {
     // What gets stored must match what git reports, since scope globs and prompt
-    // packets compare against git output later.
-    const probe = await validateRepository(`${repoPath}${sep}`)
+    // packets compare against git output later. The assertion is that every
+    // spelling collapses to the *same* answer, rather than to a value recomputed
+    // here: Node's realpath resolves symlinks but does not expand 8.3 short names,
+    // so restating main's normalisation would just encode a different bug.
+    const spellings = [repoPath, `${repoPath}${sep}`, repoPath.split('\\').join('/')]
 
-    // Compared against realpath rather than the temp path as returned: mkdtemp can
-    // hand back a path that is itself a symlink (/var on macOS), so the canonical
-    // form is the only correct expectation.
-    expect(probe.path).toBe((await realpath(repoPath)).split('\\').join('/'))
-    expect(probe.path).not.toContain('\\')
+    const paths = await Promise.all(
+      spellings.map(async (spelling) => (await validateRepository(spelling)).path),
+    )
+
+    expect(new Set(paths).size).toBe(1)
+    expect(paths[0]).not.toContain('\\')
+    // Still the same directory, whatever spelling it settled on.
+    expect(await realpath(paths[0] ?? '')).toBe(await realpath(repoPath))
   })
 
   it('reports a dirty worktree without making it a problem', async () => {
@@ -189,7 +198,7 @@ describe('ProjectService.create', () => {
     const created = await service.create(request())
 
     expect(created.name).toBe('InTime')
-    expect(created.repository.absolutePath).toBe(storedPath())
+    expect(created.repository.absolutePath).toBe(await storedPath())
     expect(created.repository.buildCommand).toBe('dotnet build')
 
     const detail = await service.get(created.id)
@@ -304,7 +313,7 @@ describe('restart', () => {
 
     expect(service.list()).toHaveLength(1)
     expect(detail?.project.name).toBe('InTime')
-    expect(detail?.project.repository.absolutePath).toBe(storedPath())
+    expect(detail?.project.repository.absolutePath).toBe(await storedPath())
     expect(detail?.project.repository.tech).toEqual(['.NET 9', 'React'])
     expect(detail?.rules.map((rule) => rule.statement)).toEqual([
       'never modify migrations without approval',

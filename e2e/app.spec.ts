@@ -164,11 +164,9 @@ test('a project can be created, and survives a restart', async () => {
 
   await page.getByRole('button', { name: 'New project' }).click()
 
-  // Forward slashes throughout: git reports POSIX-style paths, and the domain's
-  // `repoPath` refuses a backslash for exactly that reason. `realpath` because the
-  // runner's temp directory can be an 8.3 short name, which main canonicalises —
-  // asserting the raw value here would fail on Windows CI and pass locally.
-  const repoPosix = realpathSync(repo).split('\\').join('/')
+  // Forward slashes: git reports POSIX-style paths, and the domain's `repoPath`
+  // refuses a backslash for exactly that reason.
+  const repoPosix = repo.split('\\').join('/')
 
   await page.getByLabel('Name').fill('E2E Project')
   await page.getByLabel('Repository').fill(repoPosix)
@@ -186,8 +184,21 @@ test('a project can be created, and survives a restart', async () => {
   // means the create round-tripped through main and was re-read.
   await expect(page.getByRole('combobox', { name: 'Active project' })).toHaveValue(/.+/)
   await expect(page.getByRole('heading', { name: 'E2E Project' })).toBeVisible()
-  await expect(page.getByText(repoPosix)).toBeVisible()
   await expect(page.getByText('never modify migrations without approval')).toBeVisible()
+
+  // Asserted against what main stored rather than against a path recomputed here.
+  // Node's realpath resolves symlinks but does *not* expand 8.3 short names, while
+  // `git rev-parse` answers with the long form — so on the Windows runner, whose
+  // temp directory is `RUNNER~1`, the two disagree. Reading it back means the test
+  // checks the real claim (the displayed path is the stored one) instead of
+  // reimplementing main's normalisation and getting it wrong.
+  const stored = await page.evaluate(async () => {
+    const listed = await window.forge.project.list()
+    return listed.ok ? (listed.value.projects.at(0)?.repository.absolutePath ?? '') : ''
+  })
+
+  expect(stored).not.toContain('\\')
+  await expect(page.getByText(stored)).toBeVisible()
 
   // Relaunch against the same user data directory.
   await app.close()

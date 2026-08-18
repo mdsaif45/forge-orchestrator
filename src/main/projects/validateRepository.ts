@@ -80,10 +80,14 @@ export async function validateRepository(candidatePath: string): Promise<Reposit
     })
   }
 
-  const [branch, headSha, status] = await Promise.all([
+  const [branch, headSha, status, root] = await Promise.all([
     git.currentBranch(),
     git.headSha(),
     git.status(),
+    // Git's own answer is the authority on how the root is spelled, and it is the
+    // form every later comparison happens against. It also expands an 8.3 short
+    // name, which `realpath` does not — measured, not assumed.
+    findEnclosingRepository(resolved),
   ])
 
   const dirtyPaths = [
@@ -110,7 +114,7 @@ export async function validateRepository(candidatePath: string): Promise<Reposit
   }
 
   return {
-    path: posix(resolved),
+    path: posix(root ?? resolved),
     isRepository: true,
     branch,
     headSha,
@@ -149,9 +153,9 @@ function probe({ problems }: { readonly problems: RepositoryProbeProblem[] }): R
 /**
  * Finds the repository root above a directory, if there is one.
  *
- * Used only to turn "not a repository" into the more useful "you picked a
- * subdirectory of one, here is the root". Returns null when the path is genuinely
- * outside any repository.
+ * Used to turn "not a repository" into the more useful "you picked a subdirectory of
+ * one, here is the root", and to learn git's own spelling of the root. Returns null
+ * when the path is genuinely outside any repository.
  */
 async function findEnclosingRepository(directory: string): Promise<string | null> {
   try {

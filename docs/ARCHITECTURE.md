@@ -200,6 +200,59 @@ unacceptable in a read-only service operating on a repository an agent may still
 editing. Untracked paths therefore come from `status`, and each is diffed against
 the null device with `--no-index`, which exits 1 by design when the files differ.
 
+## Crash recovery
+
+```
+checkpoint(step) ──> event persisted ──> side effect ──> result event persisted
+       │                                     │
+  killed here                          killed here
+       │                                     │
+  resume: redo the step                 resume: continue
+```
+
+The event is written **before** the side effect runs. That ordering is why a crash is
+recoverable rather than merely survivable: if the record of what was being attempted is
+written only afterwards, a process killed mid-step leaves no trace of the step and resume
+has to guess. Writing first means the worst case is a step *redone*, not a step lost —
+which is why steps must be idempotent.
+
+"Interrupted" needs no flag; it falls out of the ordering:
+
+```
+checkpoint IS NOT NULL  AND  finishedAt IS NULL   ->  something was in flight
+```
+
+A checkpoint is written before a step's side effects and cleared when the workflow
+finishes, so its presence on an unfinished workflow means the process died mid-step.
+
+**Idempotency is a property of the projections.** Every workflow writer is an upsert or an
+absolute `set`, never a read-modify-write — an `iteration = iteration + 1` would
+double-count on every replay, and a resume re-applies the tail of the log by design. A test
+rebuilds twice and asserts the state is unchanged.
+
+A resumed step replays the **snapshotted packet** (`checkpoint.inputRef`), not a freshly
+compiled one: project state has moved on since the crash, so recompiling would send
+different context than the step was attempting, and the resumed run would not be the
+interrupted one.
+
+### Orphaned processes
+
+`killAll()` covers an orderly quit. It cannot cover being killed — no hook runs, and the
+spawned agents keep working against the repository.
+
+```
+spawn ──> record pid to disk ──> ... crash ...
+                                     │
+                       next start: read the record
+                                     │
+                       alive? ──yes──> kill      ──no──> forget
+                       owner still alive? ──> leave alone (another Forge)
+```
+
+The owner check matters more than it looks: killing a *second live instance's* agents would
+be worse than leaving an orphan, so a record whose owner is still running is skipped rather
+than reaped.
+
 ## Child processes
 
 ```

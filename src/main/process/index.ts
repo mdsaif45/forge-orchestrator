@@ -7,6 +7,8 @@ export {
   type SpawnRequest,
 } from './processManager'
 
+export { isAlive, OrphanTracker, type OrphanReport, type TrackedProcess } from './orphans'
+
 export {
   buildChildEnv,
   isSecretEnvName,

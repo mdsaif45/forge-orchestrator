@@ -73,6 +73,14 @@ export const workflowCheckpointSchema = z.strictObject({
   state: workflowStateSchema,
   startedAt: timestampSchema,
   lastOperation: z.string().min(1),
+  /**
+   * The snapshotted prompt packet this step was started with.
+   *
+   * A resumed step must replay the *same* packet, not a freshly compiled one: the project
+   * state has moved on since the crash, so recompiling would send different context than
+   * the step was attempting, and the resumed run would not be the interrupted one.
+   */
+  inputRef: z.string().min(1).nullable(),
 })
 
 export type WorkflowCheckpoint = z.infer<typeof workflowCheckpointSchema>

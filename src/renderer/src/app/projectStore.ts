@@ -29,6 +29,8 @@ interface ProjectState {
   readonly refresh: () => Promise<void>
   readonly select: (projectId: string | null) => Promise<void>
   readonly createProject: (request: CreateProjectRequest) => Promise<ProjectView>
+  readonly applyRule: (scope: string, key: string, statement: string) => Promise<void>
+  readonly removeRule: (ruleId: string) => Promise<void>
 }
 
 function message(cause: unknown): string {
@@ -101,6 +103,29 @@ export const useProjectStore = create<ProjectState>()(
         await get().refresh()
 
         return created
+      },
+
+      /**
+       * Sets a rule and stores the detail main returned.
+       *
+       * Main resolves the policy and sends the whole detail back, so the displayed
+       * inheritance is what the resolver actually computed rather than a local guess
+       * at what the change implied.
+       */
+      applyRule: async (scope, key, statement) => {
+        const projectId = get().selectedProjectId
+        if (projectId === null) return
+
+        const detail = await window.forge.rule.set(projectId, scope, key, statement).then(unwrap)
+        set({ detail })
+      },
+
+      removeRule: async (ruleId) => {
+        const projectId = get().selectedProjectId
+        if (projectId === null) return
+
+        const detail = await window.forge.rule.remove(projectId, ruleId).then(unwrap)
+        set({ detail })
       },
     }),
     {

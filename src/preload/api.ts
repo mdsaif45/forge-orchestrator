@@ -42,4 +42,20 @@ export interface ForgeApi {
     /** Resolves null when the id does not exist, rather than failing. */
     get: (projectId: string) => Promise<IpcResult<ProjectDetail | null>>
   }
+  readonly rule: {
+    /**
+     * Sets one rule at one scope, returning the project's new state.
+     *
+     * The (scope, key) pair is the identity, so setting a key that a wider scope
+     * already defines is how an override is expressed — the whole detail comes back
+     * so the caller re-reads the resolved policy instead of patching its own copy.
+     */
+    set: (
+      projectId: string,
+      scope: string,
+      key: string,
+      statement: string,
+    ) => Promise<IpcResult<ProjectDetail | null>>
+    remove: (projectId: string, ruleId: string) => Promise<IpcResult<ProjectDetail | null>>
+  }
 }

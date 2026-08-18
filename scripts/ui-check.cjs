@@ -56,6 +56,8 @@ app.whenReady().then(async () => {
   // being asserted on.
   ipcMain.handle('project:list', () => ({ ok: true, value: { projects: [] } }))
   ipcMain.handle('project:get', () => ({ ok: true, value: null }))
+  ipcMain.handle('rule:set', () => ({ ok: true, value: null }))
+  ipcMain.handle('rule:remove', () => ({ ok: true, value: null }))
 
   await window.loadFile(join(__dirname, '../out/renderer/index.html'))
   // Let React mount before probing the DOM.

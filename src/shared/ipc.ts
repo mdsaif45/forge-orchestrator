@@ -128,10 +128,38 @@ export const ruleViewSchema = z.strictObject({
 
 export type RuleView = z.infer<typeof ruleViewSchema>
 
+/**
+ * One rule of the effective policy, with what it displaced.
+ *
+ * `shadowed` is what lets a settings screen show *where* a value came from and which
+ * wider rule it replaced — the difference between inherited and overridden. A
+ * resolved policy that dropped the losers would make an override indistinguishable
+ * from a rule that was simply set once.
+ */
+export const effectiveRuleViewSchema = z.strictObject({
+  key: z.string(),
+  statement: z.string(),
+  scope: z.string(),
+  source: z.string(),
+  shadowed: z
+    .array(
+      z.strictObject({
+        statement: z.string(),
+        scope: z.string(),
+        source: z.string(),
+      }),
+    )
+    .readonly(),
+})
+
+export type EffectiveRuleView = z.infer<typeof effectiveRuleViewSchema>
+
 /** A project plus the live repository state, which is read fresh rather than stored. */
 export const projectDetailSchema = z.strictObject({
   project: projectViewSchema,
   rules: z.array(ruleViewSchema).readonly(),
+  /** Forge's defaults merged with this project's rules, most specific winning. */
+  policy: z.array(effectiveRuleViewSchema).readonly(),
   /** Null when the bound path is no longer a readable repository. */
   probe: repositoryProbeSchema.nullable(),
 })
@@ -167,6 +195,23 @@ export const IPC_CONTRACT = {
   },
   'project:get': {
     request: z.strictObject({ projectId: z.string() }),
+    response: projectDetailSchema.nullable(),
+  },
+  /**
+   * Sets one rule at one scope. Overwrites the rule with the same (scope, key),
+   * which is how an override is expressed rather than accumulating near-duplicates.
+   */
+  'rule:set': {
+    request: z.strictObject({
+      projectId: z.string(),
+      scope: z.string(),
+      key: z.string().min(1),
+      statement: z.string().min(1),
+    }),
+    response: projectDetailSchema.nullable(),
+  },
+  'rule:remove': {
+    request: z.strictObject({ projectId: z.string(), ruleId: z.string() }),
     response: projectDetailSchema.nullable(),
   },
 } as const satisfies IpcContractShape

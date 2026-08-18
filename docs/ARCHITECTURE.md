@@ -200,6 +200,41 @@ unacceptable in a read-only service operating on a repository an agent may still
 editing. Untracked paths therefore come from `status`, and each is diffed against
 the null device with `--no-index`, which exits 1 by design when the files differ.
 
+## Rules and the effective policy
+
+```
+global ──> workspace ──> project ──> workflow ──> agent ──> task
+                 most-specific scope wins on conflict
+```
+
+`resolveEffectivePolicy` (`src/shared/domain/policy.ts`) is a pure function, in
+`shared` so main resolves the policy it sends and the renderer resolves the same
+answer it shows — one implementation rather than two that can disagree.
+
+Rules are prose statements keyed by a stable `key`. Same key at two scopes means the
+*same concern*, and the narrower one wins; different keys accumulate. The loser is
+**kept** as `shadowed` rather than discarded, because "this rule is overridden" is
+what the settings screen has to show — a silent override is how a global safety rule
+disappears unnoticed.
+
+```
+FORGE_DEFAULT_RULES  R1..R8, code constants, global scope
+                     ↓ merged on every read
+project rules        rows, projected from rule.set / rule.removed events
+                     ↓
+effective policy     resolved fresh, never cached
+```
+
+The eight defaults from `docs/FORGE_RULES.md` are code constants, not rows: they are
+Forge's own policy, they must exist for the axioms to mean anything, and a narrower
+scope may override one but nothing can delete it. A test compares them against the
+document's headings, since a doc that disagrees with the enforced policy is worse
+than no doc.
+
+Ordering is by codepoint, not `localeCompare`: the resolved text goes into prompt
+packets that are snapshotted and compared, and `localeCompare` reads the host's
+locale, so the same policy could order one way locally and another in CI.
+
 ## Design system
 
 ```
@@ -250,7 +285,6 @@ Two traps worth remembering:
 
 | Area | Issue |
 |------|-------|
-| rules engine with scope inheritance | #19 |
 | git write operations, gated by permissions | #37 |
 | agent runtimes, `IAgentRuntime` | #21 → #26 |
 | workflow engine, context engine | #27 → #32 |

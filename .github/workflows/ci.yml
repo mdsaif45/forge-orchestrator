@@ -34,6 +34,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # node-pty ships no linux-x64 prebuild, so the process tests cannot load it
+      # without a build. Electron is still skipped; this is the pty alone.
+      - name: Build node-pty
+        run: npm run setup:pty
+
       - run: npm run format:check
       - run: npm run lint
       - run: npm run typecheck

@@ -182,7 +182,15 @@ Three gotchas, all hit and measured:
                     on Windows CI. but prebuilds/win32-x64.node ships and WORKS,
                     so the compile is pure waste.
    esbuild          platform binary is an optional dep. nothing to do.
-   fix: .npmrc ignore-scripts + `npm run setup` (electron only)
+   node-pty       ships prebuilds for darwin-arm64/x64 and win32-arm64/x64 --
+                    but NOT linux-x64. loads untouched on Windows and macOS;
+                    must be compiled on Linux. CI caught this: Windows passed
+                    while Linux failed with
+                      Cannot find module './prebuilds/linux-x64//pty.node'
+                    the fourth mechanism, and the only PARTIALLY painless one.
+   fix: .npmrc ignore-scripts + `npm run setup` (electron, and node-pty where
+        no prebuild exists). `npm run setup:pty` is the pty alone, for the CI job
+        that runs tests but never launches the app.
    NOTE: an existing node_modules hides all of this. it only appears on a clean
    install — which is why "no rebuild needed" survived a PR review before CI
    caught it.

@@ -32,7 +32,8 @@ const iconButton = cva(
 )
 
 export interface IconButtonProps
-  extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'>,
+  extends
+    Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'>,
     VariantProps<typeof iconButton> {
   /** Required: an icon-only control has no visible text to name it. */
   readonly label: string

@@ -14,9 +14,9 @@ export const ipcHandlers: IpcHandlerMap = {
     version: app.getVersion(),
     platform: process.platform,
     versions: {
-      electron: process.versions.electron ?? 'unknown',
-      chrome: process.versions.chrome ?? 'unknown',
-      node: process.versions.node ?? 'unknown',
+      electron: process.versions.electron,
+      chrome: process.versions.chrome,
+      node: process.versions.node,
     },
   }),
 }

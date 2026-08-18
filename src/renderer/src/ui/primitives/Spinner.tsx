@@ -13,8 +13,7 @@ const spinner = cva('animate-spin rounded-full border-current border-t-transpare
 })
 
 export interface SpinnerProps
-  extends React.HTMLAttributes<HTMLSpanElement>,
-    VariantProps<typeof spinner> {
+  extends React.HTMLAttributes<HTMLSpanElement>, VariantProps<typeof spinner> {
   /** Announced to assistive tech; omit only when a parent already labels the wait. */
   readonly label?: string
 }

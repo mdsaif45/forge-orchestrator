@@ -24,7 +24,8 @@ const button = cva(
           'bg-(--color-accent) text-white hover:bg-(--color-accent-hover) active:brightness-95',
         secondary:
           'bg-(--color-surface-raised) text-(--color-text) border border-(--color-border) hover:bg-(--color-surface-overlay) hover:border-(--color-border-strong)',
-        ghost: 'bg-transparent text-(--color-text-muted) hover:bg-(--color-surface-raised) hover:text-(--color-text)',
+        ghost:
+          'bg-transparent text-(--color-text-muted) hover:bg-(--color-surface-raised) hover:text-(--color-text)',
         danger: 'bg-(--color-danger) text-white hover:brightness-110 active:brightness-95',
         // For the one primary-destructive case per screen at most.
         'danger-subtle':
@@ -44,8 +45,7 @@ const button = cva(
 )
 
 export interface ButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof button> {
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof button> {
   /** Shows a spinner and blocks interaction without changing the button's width. */
   readonly loading?: boolean
 }

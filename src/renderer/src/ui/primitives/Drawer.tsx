@@ -74,7 +74,9 @@ export function Drawer({
     }
 
     dialog.addEventListener('cancel', onCancel)
-    return () => dialog.removeEventListener('cancel', onCancel)
+    return () => {
+      dialog.removeEventListener('cancel', onCancel)
+    }
   }, [onClose])
 
   return (

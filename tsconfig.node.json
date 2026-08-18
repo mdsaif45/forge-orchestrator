@@ -1,11 +1,6 @@
 {
   "extends": "./tsconfig.base.json",
-  "include": [
-    "src/main/**/*",
-    "src/preload/**/*",
-    "src/shared/**/*",
-    "electron.vite.config.ts"
-  ],
+  "include": ["src/main/**/*", "src/preload/**/*", "src/shared/**/*", "electron.vite.config.ts"],
   "compilerOptions": {
     "lib": ["ES2023"],
     "types": ["node"],
@@ -15,5 +10,6 @@
       "@main/*": ["src/main/*"],
       "@shared/*": ["src/shared/*"]
     }
-  }
+  },
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "src/test/**"]
 }

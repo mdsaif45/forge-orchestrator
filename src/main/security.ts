@@ -71,7 +71,10 @@ export function denyAllPermissionRequests(): void {
  * and `window.open` / target=_blank. External links are handed to the OS browser,
  * which keeps untrusted pages out of a privileged renderer.
  */
-export function lockWindowNavigation(window: BrowserWindow, allowedOrigin: string | undefined): void {
+export function lockWindowNavigation(
+  window: BrowserWindow,
+  allowedOrigin: string | undefined,
+): void {
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (isExternalHttp(url)) void shell.openExternal(url)
     return { action: 'deny' }

@@ -61,7 +61,9 @@ export function Tabs<T extends string>({
             aria-selected={selected}
             disabled={item.disabled}
             tabIndex={selected ? 0 : -1}
-            onClick={() => onChange(item.value)}
+            onClick={() => {
+              onChange(item.value)
+            }}
             className={cn(
               'inline-flex items-center gap-1.5 px-3 py-2',
               'text-(length:--text-sm) font-medium',

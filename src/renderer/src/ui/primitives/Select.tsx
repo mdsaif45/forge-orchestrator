@@ -7,8 +7,10 @@ export interface SelectOption {
   readonly disabled?: boolean
 }
 
-export interface SelectProps
-  extends Omit<React.SelectHTMLAttributes<HTMLSelectElement>, 'children' | 'size'> {
+export interface SelectProps extends Omit<
+  React.SelectHTMLAttributes<HTMLSelectElement>,
+  'children' | 'size'
+> {
   readonly options: readonly SelectOption[]
   /** Rendered as a disabled first option, so it cannot be submitted as a value. */
   readonly placeholder?: string

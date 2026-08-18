@@ -19,15 +19,16 @@ export function useTheme(): {
   const [theme, setThemeState] = useState<Theme>(readStoredTheme)
 
   useEffect(() => {
-    document.documentElement.dataset['theme'] = theme
+    document.documentElement.dataset.theme = theme
     localStorage.setItem(STORAGE_KEY, theme)
   }, [theme])
 
-  const setTheme = useCallback((next: Theme) => setThemeState(next), [])
-  const toggleTheme = useCallback(
-    () => setThemeState((current) => (current === 'dark' ? 'light' : 'dark')),
-    [],
-  )
+  const setTheme = useCallback((next: Theme) => {
+    setThemeState(next)
+  }, [])
+  const toggleTheme = useCallback(() => {
+    setThemeState((current) => (current === 'dark' ? 'light' : 'dark'))
+  }, [])
 
   return { theme, setTheme, toggleTheme }
 }

@@ -31,9 +31,8 @@ app.disableHardwareAcceleration()
 app.whenReady().then(async () => {
   // The app's own policy, imported rather than reimplemented, so this asserts
   // the shipped CSP and not a copy of it.
-  const { applyContentSecurityPolicy, contentSecurityPolicy } = await import(
-    '../out/main/security.js'
-  )
+  const { applyContentSecurityPolicy, contentSecurityPolicy } =
+    await import('../out/main/security.js')
   applyContentSecurityPolicy(undefined)
 
   const policy = contentSecurityPolicy(undefined)
@@ -142,7 +141,11 @@ app.whenReady().then(async () => {
     window,
     `fetch('https://example.com/probe').then(() => 'ALLOWED').catch(() => 'BLOCKED')`,
   )
-  check('CSP blocks external network access from the renderer', externalFetch === 'BLOCKED', externalFetch)
+  check(
+    'CSP blocks external network access from the renderer',
+    externalFetch === 'BLOCKED',
+    externalFetch,
+  )
 
   for (const { name: label, pass, detail } of checks) {
     console.log(`${pass ? 'PASS' : 'FAIL'}  ${label}${pass ? '' : `  (${detail})`}`)

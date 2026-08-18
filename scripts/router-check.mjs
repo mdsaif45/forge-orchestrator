@@ -40,7 +40,11 @@ check(
 )
 
 // A handler returning the wrong shape must fail here, not corrupt the renderer.
-const badResponse = await invokeChannel({ 'app:getInfo': () => ({ name: 'Forge' }) }, 'app:getInfo', {})
+const badResponse = await invokeChannel(
+  { 'app:getInfo': () => ({ name: 'Forge' }) },
+  'app:getInfo',
+  {},
+)
 check(
   'malformed handler response is rejected',
   badResponse.ok === false && badResponse.code === 'INVALID_RESPONSE',

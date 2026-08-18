@@ -15,7 +15,15 @@ export default defineConfig({
     },
     build: {
       rollupOptions: {
-        input: { index: resolve('src/main/index.ts') },
+        input: {
+          index: resolve('src/main/index.ts'),
+          // The routing core is emitted separately so `npm run check:router` can
+          // exercise the boundary rules in plain Node, with no window involved.
+          router: resolve('src/main/ipc/router.ts'),
+          // Emitted separately so the smoke check can apply and assert the real
+          // policy instead of reimplementing it.
+          security: resolve('src/main/security.ts'),
+        },
       },
     },
   },

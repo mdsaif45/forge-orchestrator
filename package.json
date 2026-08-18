@@ -17,7 +17,9 @@
     "smoke": "electron scripts/smoke.cjs",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "typecheck:node": "tsc -p tsconfig.node.json --noEmit",
-    "typecheck:web": "tsc -p tsconfig.web.json --noEmit"
+    "typecheck:web": "tsc -p tsconfig.web.json --noEmit",
+    "check:router": "esbuild src/renderer/src/ipc.ts --bundle --format=esm --platform=node --outfile=scripts/build/renderer-ipc.js --log-level=warning && node scripts/router-check.mjs",
+    "check": "npm run typecheck && npm run build && npm run check:router && npm run smoke"
   },
   "dependencies": {
     "zod": "^4.4.3"

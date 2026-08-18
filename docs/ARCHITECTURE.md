@@ -200,6 +200,74 @@ unacceptable in a read-only service operating on a repository an agent may still
 editing. Untracked paths therefore come from `status`, and each is diffed against
 the null device with `--no-index`, which exits 1 by design when the files differ.
 
+## Child processes
+
+```
+ProcessManager.spawn ──> node-pty ──> stream ──> exit
+        │                   │
+        │                   ├── idle timeout   no output for N ms ──> killed, reported
+        │                   └── hard timeout   wall clock exceeded ──> killed, reported
+        │
+        ├── cancel   posix: SIGINT ─> SIGTERM ─> SIGKILL    win32: pty.kill()
+        ├── cap of 2 concurrent, further starts queue
+        └── killAll() on before-quit, so nothing is orphaned
+```
+
+A pty rather than pipes because the CLIs Forge drives are interactive programs: several
+change behaviour when stdout is not a TTY, and some refuse to run at all.
+
+`node-pty@1.1.0` needs **no rebuild story**, which is the opposite of what #23 assumed.
+It ships N-API prebuilds under `prebuilds/<platform>/`, so it loads under this repo's
+`ignore-scripts=true` untouched, and one binary serves both plain Node and Electron —
+the same property that made `better-sqlite3` work here. Verified by installing with
+scripts disabled, requiring it, spawning a command, and reading the output back.
+
+### Four platform behaviours, each measured
+
+```
+1. Windows has no signals
+   pty.kill('SIGINT')  ->  throws "Signals not supported on windows."
+                           from inside a DEFERRED callback, so try/catch
+                           cannot catch it — it becomes uncaught
+   pty.kill()          ->  kills the ConPTY agent, which owns the console
+                           the whole child tree is attached to
+
+2. Windows does not search PATH
+   spawn('git', …)     ->  throws "File not found:"
+   => Forge resolves bare names itself, honouring PATHEXT. Not via a shell,
+      which would reintroduce the injection surface GitService avoids.
+
+3. ConPTY splices control codes mid-word
+   git --version  ->  …[H g  ESC]0;…\git.exe BEL  ESC[?25h it version 2.51.0
+                          ↑ the title sequence lands inside the word
+   => /git version/ does NOT match raw output. Stripped before storing.
+
+4. Output arrives before exit, with a silent tail
+   last chunk ~2535ms, process exit ~3546ms  — an ~800ms gap
+   => an idle timeout must exceed the tail, not just the inter-chunk gap,
+      or a healthy process is killed as it finishes
+```
+
+### Quitting
+
+`before-quit` starts the kills; `will-quit` closes the database. Deliberately **not**
+`preventDefault()` with a re-issued `app.quit()` — that cancels the quit sequence, and
+the re-issued quit then races a shutdown Electron has already abandoned. Measured: it
+hung `app.close()` and took the e2e suite from 4s to a 30s teardown timeout.
+
+### Secrets (R7)
+
+```
+into the process    parent env is filtered by NAME SHAPE, default drop
+out of the logs     output scrubbed by VALUE SHAPE before storing or emitting
+```
+
+Filtering is by shape rather than by vendor, which is both R7 and A6: a list naming
+providers would miss the next one and would put provider names into core. A guardrail,
+not a guarantee — a child runs with the user's own privileges and can read `.env`
+itself. The point is that Forge does not help, and that a captured log is safe to attach
+to a workflow step.
+
 ## Agent runtimes (A6)
 
 ```
@@ -332,7 +400,7 @@ Two traps worth remembering:
 | Area | Issue |
 |------|-------|
 | git write operations, gated by permissions | #37 |
-| agent runtime adapters (pty, real CLIs) | #23 → #26 |
+| real CLI adapters | #24 → #26 |
 | workflow engine, context engine | #27 → #32 |
 | evidence, policy engine | #33 → #37 |
 | questions, decision lock, diff UI | #38 → #42 |

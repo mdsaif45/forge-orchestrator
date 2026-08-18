@@ -182,6 +182,9 @@ Three gotchas, all hit and measured:
                     on Windows CI. but prebuilds/win32-x64.node ships and WORKS,
                     so the compile is pure waste.
    esbuild          platform binary is an optional dep. nothing to do.
+   node-pty       ships N-API prebuilds under prebuilds/<platform>/ and needs NO
+                    rebuild and no setup step -- measured under ignore-scripts=true.
+                    the fourth mechanism, and the only painless one.
    fix: .npmrc ignore-scripts + `npm run setup` (electron only)
    NOTE: an existing node_modules hides all of this. it only appears on a clean
    install — which is why "no rebuild needed" survived a PR review before CI

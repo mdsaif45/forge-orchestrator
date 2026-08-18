@@ -65,6 +65,16 @@ jobs:
           test -f node_modules/electron/path.txt \
             || { echo "Electron binary missing — postinstall did not run"; exit 1; }
 
+      - name: Fix the Chromium sandbox helper permissions
+        # Electron's setuid sandbox helper must be owned by root with mode 4755.
+        # npm extracts it as the runner user, so Chromium refuses to start rather
+        # than run unsandboxed. Correcting the ownership keeps the sandbox ON —
+        # passing --no-sandbox would disable the very isolation these checks
+        # exist to verify.
+        run: |
+          sudo chown root:root node_modules/electron/dist/chrome-sandbox
+          sudo chmod 4755 node_modules/electron/dist/chrome-sandbox
+
       - run: npm run build
 
       # Electron needs an X server on Linux; xvfb-run provides a virtual one.

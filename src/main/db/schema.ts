@@ -217,13 +217,18 @@ export const changeSets = sqliteTable(
  * `(project_id, seq)` is the primary key, which makes ordering total within a
  * project and makes a duplicate sequence number impossible at the storage layer
  * rather than only in application code.
+ *
+ * Deliberately no foreign key to `projects`: the log is the source of truth that
+ * `projects` (and every other projected table) is derived FROM, not a dependent
+ * of it. A `project.created` event is written before any projected row exists —
+ * an FK here would make that ordering impossible, and `onDelete: 'cascade'` would
+ * mean deleting a project's projection also destroyed its own audit trail, which
+ * inverts what an append-only log is for.
  */
 export const events = sqliteTable(
   'events',
   {
-    projectId: text('project_id')
-      .notNull()
-      .references(() => projects.id, { onDelete: 'cascade' }),
+    projectId: text('project_id').notNull(),
     seq: integer('seq').notNull(),
     id: text('id').notNull().unique(),
     type: text('type').notNull(),

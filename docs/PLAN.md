@@ -128,13 +128,20 @@ react/dom     19.2
 zod           4.4
 ```
 
-Two setup gotchas, both hit during M0:
+Three gotchas, all hit and measured during M0:
 
 ```
 1. preload cannot be ESM when sandbox:true
    -> emit cjs, entryFileNames '[name].cjs', main must load .cjs
 2. `npm install` may skip electron's postinstall (no dist/, no path.txt)
    -> "Electron uninstall" at launch; fix: node node_modules/electron/install.js
+3. contextBridge serializes errors STRUCTURALLY
+   measured across the bridge:
+     throw Error + own prop  -> prop STRIPPED, name reset to "Error"
+     throw plain object      -> survives
+     RETURN result envelope  -> survives          <- chosen
+   => preload returns IpcResult; renderer unwraps and throws locally.
+      A custom Error subclass thrown from preload silently loses .code.
 ```
 
 ## Out of scope for MVP

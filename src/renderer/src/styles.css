@@ -61,3 +61,11 @@ body {
   text-align: left;
   font-variant-numeric: tabular-nums;
 }
+
+.error {
+  margin: 1.5rem 0 0;
+  max-width: 42ch;
+  color: #f87171;
+  font-size: 0.8125rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}

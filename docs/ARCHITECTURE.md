@@ -200,6 +200,52 @@ unacceptable in a read-only service operating on a repository an agent may still
 editing. Untracked paths therefore come from `status`, and each is diffed against
 the null device with `--no-index`, which exits 1 by design when the files differ.
 
+## Agent runtimes (A6)
+
+```
+application layer ──> IAgentRuntime ──> RuntimeRegistry.resolveForRole(id, role)
+                            ▲
+        ┌───────────────────┼───────────────────┐
+   MockAgentRuntime    ClaudeCliRuntime    (a second provider)
+        └──────── src/main/runtimes/ ───────────┘
+                  the ONLY place a provider may be named
+```
+
+Roles are bound by **capability, not identity**: any runtime may hold any role it
+declares the capabilities for, which is what makes planner and builder swappable. The
+check happens when a binding is made, not when a step runs — a read-only runtime bound
+as the implementer would otherwise fail only once a workflow was already in flight.
+
+Two ESLint rules enforce A6, because a comment is not a boundary:
+
+```
+no-restricted-imports   core may not import a concrete runtime
+no-restricted-syntax    no provider name as a string or template literal in core
+```
+
+Both were verified by planting a violation and confirming they fire.
+
+This indirection is what let the #20 spike's finding — Antigravity ships no headless
+CLI — become a scoping decision rather than a rewrite.
+
+### Everything an agent says is a claim
+
+```
+AgentReport.filesChanged   claimed  ──> reconciled against git diff   (#34)
+AgentReport.testsRun       claimed  ──> Forge runs the tests itself   (#33)
+AgentReport.assumptions    MUST be empty — R1 makes one a violation
+```
+
+`MockAgentRuntime` mutates a real worktree rather than only returning a report. That is
+what makes the dishonest scenarios meaningful: `liar` leaves the tree untouched while
+claiming otherwise, and a test proves it with `git diff` instead of trusting a fixture.
+
+The event stream ends on `dispose`, **not** on reaching a terminal state — a caller
+driving several steps would otherwise lose every event after the first step completed.
+The waiter is installed in the same synchronous turn as the empty-queue check; setting
+it after an `await` loses any event emitted in between, which is a lost wakeup that hung
+every scenario whose step performed no file edit.
+
 ## Rules and the effective policy
 
 ```
@@ -286,7 +332,7 @@ Two traps worth remembering:
 | Area | Issue |
 |------|-------|
 | git write operations, gated by permissions | #37 |
-| agent runtimes, `IAgentRuntime` | #21 → #26 |
+| agent runtime adapters (pty, real CLIs) | #23 → #26 |
 | workflow engine, context engine | #27 → #32 |
 | evidence, policy engine | #33 → #37 |
 | questions, decision lock, diff UI | #38 → #42 |

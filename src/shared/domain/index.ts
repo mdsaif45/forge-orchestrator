@@ -138,3 +138,5 @@ export {
   type DomainEvent,
   type EventType,
 } from './event'
+
+export { EVENT_PAYLOADS, type EventInput, type EventPayloads } from './eventPayloads'

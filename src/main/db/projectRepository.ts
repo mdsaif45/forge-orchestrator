@@ -7,12 +7,18 @@ import {
   type Repository,
 } from '@shared/domain'
 import type { ForgeDatabase } from './connection'
-import { fromJson, parseRow, toJson } from './rows'
+import { fromJson, parseRow } from './rows'
 import { projects, repositories } from './schema'
 import { z } from 'zod'
 
 /**
- * Reads and writes projects with their bound repository.
+ * Reads projects with their bound repository.
+ *
+ * **Read-only by design.** Every mutation goes through `ProjectStore`, which
+ * appends an event and then projects it. A write here would produce state with no
+ * event behind it — invisible to the audit trail, and erased by the next rebuild
+ * (axiom A1). The projection in `projections.ts` is the only writer of these
+ * tables.
  *
  * A project and its repository are always loaded together: a project without a
  * repository cannot do anything, so exposing the halves separately would invite
@@ -20,37 +26,6 @@ import { z } from 'zod'
  */
 export class ProjectRepository {
   constructor(private readonly db: ForgeDatabase) {}
-
-  /**
-   * Inserts a project and its repository in one transaction.
-   *
-   * Both or neither: a project row without its repository would be exactly the
-   * unusable state the combined read exists to avoid.
-   */
-  insert(project: Project): void {
-    this.db.transaction((tx) => {
-      tx.insert(projects)
-        .values({
-          id: project.id,
-          name: project.name,
-          createdAt: project.createdAt,
-          updatedAt: project.updatedAt,
-        })
-        .run()
-
-      tx.insert(repositories)
-        .values({
-          id: project.repository.id,
-          projectId: project.id,
-          absolutePath: project.repository.absolutePath,
-          defaultBranch: project.repository.defaultBranch,
-          buildCommand: project.repository.buildCommand,
-          testCommand: project.repository.testCommand,
-          tech: toJson(project.repository.tech),
-        })
-        .run()
-    })
-  }
 
   findById(id: ProjectId): Project | null {
     const rows = this.db
@@ -71,10 +46,6 @@ export class ProjectRepository {
       .innerJoin(repositories, eq(repositories.projectId, projects.id))
       .all()
       .map((row) => this.toDomain(row))
-  }
-
-  updateName(id: ProjectId, name: string, updatedAt: string): void {
-    this.db.update(projects).set({ name, updatedAt }).where(eq(projects.id, id)).run()
   }
 
   /**

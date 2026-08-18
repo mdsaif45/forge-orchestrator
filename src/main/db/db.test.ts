@@ -7,6 +7,7 @@ import type { Project, ProjectId } from '@shared/domain'
 import { initialiseDatabase, openDatabase, readAppliedCount, readPragmas, runMigrations } from '.'
 import { MIGRATIONS } from './migrations.generated'
 import { ProjectRepository } from './projectRepository'
+import { ProjectStore } from './projectStore'
 import { projects, repositories } from './schema'
 
 const NOW = '2026-08-18T12:00:00.000Z'
@@ -147,7 +148,7 @@ describe('foreign keys', () => {
 
     try {
       runMigrations(db, MIGRATIONS)
-      new ProjectRepository(db).insert(sampleProject())
+      new ProjectStore(db).create(sampleProject(), 'user')
 
       db.delete(projects).run()
 
@@ -158,13 +159,22 @@ describe('foreign keys', () => {
   })
 })
 
+/**
+ * `ProjectRepository` is read-only (#16): all writes go through `ProjectStore`,
+ * which appends an event and then projects it. These tests still exercise
+ * `ProjectRepository` directly for the read behaviour it owns — row assembly,
+ * validation on the way out, and lookups — while using `ProjectStore` to get data
+ * into the database in the first place.
+ */
 describe('ProjectRepository', () => {
   let database: ReturnType<typeof openDatabase>
+  let store: ProjectStore
   let repository: ProjectRepository
 
   beforeEach(() => {
     database = openDatabase({ file: ':memory:' })
     runMigrations(database.db, MIGRATIONS)
+    store = new ProjectStore(database.db)
     repository = new ProjectRepository(database.db)
   })
 
@@ -174,7 +184,7 @@ describe('ProjectRepository', () => {
 
   it('round-trips a project unchanged', () => {
     const project = sampleProject()
-    repository.insert(project)
+    store.create(project, 'user')
 
     expect(repository.findById(PROJECT_ID)).toEqual(project)
   })
@@ -183,7 +193,7 @@ describe('ProjectRepository', () => {
     const project = sampleProject({
       repository: { ...sampleProject().repository, buildCommand: null, testCommand: null },
     })
-    repository.insert(project)
+    store.create(project, 'user')
 
     const loaded = repository.findById(PROJECT_ID)
 
@@ -192,7 +202,7 @@ describe('ProjectRepository', () => {
   })
 
   it('round-trips the tech array through JSON', () => {
-    repository.insert(sampleProject())
+    store.create(sampleProject(), 'user')
 
     expect(repository.findById(PROJECT_ID)?.repository.tech).toEqual(['.NET 9', 'React'])
   })
@@ -202,35 +212,13 @@ describe('ProjectRepository', () => {
   })
 
   it('lists projects', () => {
-    repository.insert(sampleProject())
-
-    expect(repository.list()).toHaveLength(1)
-  })
-
-  it('updates a name', () => {
-    repository.insert(sampleProject())
-    repository.updateName(PROJECT_ID, 'Renamed', '2026-08-19T00:00:00.000Z')
-
-    const loaded = repository.findById(PROJECT_ID)
-
-    expect(loaded?.name).toBe('Renamed')
-    expect(loaded?.updatedAt).toBe('2026-08-19T00:00:00.000Z')
-  })
-
-  it('rolls back the project when the repository insert fails', () => {
-    // Both rows or neither: a project without its repository is unusable.
-    const project = sampleProject()
-    repository.insert(project)
-
-    expect(() => {
-      repository.insert(project)
-    }).toThrow()
+    store.create(sampleProject(), 'user')
 
     expect(repository.list()).toHaveLength(1)
   })
 
   it('rejects a row that violates a domain invariant on read', () => {
-    repository.insert(sampleProject())
+    store.create(sampleProject(), 'user')
 
     // Simulates a row written by an older version, or edited by hand. Parsing on
     // read means it fails here with a precise message rather than flowing into the
@@ -241,7 +229,7 @@ describe('ProjectRepository', () => {
   })
 
   it('rejects malformed JSON in a structured column', () => {
-    repository.insert(sampleProject())
+    store.create(sampleProject(), 'user')
     database.db.run(sql`UPDATE repositories SET tech = 'not json'`)
 
     expect(() => repository.findById(PROJECT_ID)).toThrow(/repositories\.tech/)
@@ -253,18 +241,21 @@ describe('initialiseDatabase', () => {
     const directory = mkdtempSync(join(tmpdir(), 'forge-db-'))
     const file = join(directory, 'forge.db')
 
+    const first = initialiseDatabase(file)
     try {
-      const first = initialiseDatabase(file)
       expect(first.applied).toBe(MIGRATIONS.length)
-      new ProjectRepository(first.db).insert(sampleProject())
+      new ProjectStore(first.db).create(sampleProject(), 'user')
+    } finally {
       first.close()
+    }
 
-      // Restarting the app must find its data and apply nothing.
-      const second = initialiseDatabase(file)
+    // Restarting the app must find its data and apply nothing.
+    const second = initialiseDatabase(file)
+    try {
       expect(second.applied).toBe(0)
       expect(new ProjectRepository(second.db).findById(PROJECT_ID)?.name).toBe('InTime')
-      second.close()
     } finally {
+      second.close()
       rmSync(directory, { recursive: true, force: true })
     }
   })

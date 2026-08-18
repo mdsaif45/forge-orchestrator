@@ -53,8 +53,7 @@ CREATE TABLE `events` (
 	`actor` text NOT NULL,
 	`reason` text,
 	`occurred_at` text NOT NULL,
-	PRIMARY KEY(`project_id`, `seq`),
-	FOREIGN KEY (`project_id`) REFERENCES `projects`(`id`) ON UPDATE no action ON DELETE cascade
+	PRIMARY KEY(`project_id`, `seq`)
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `events_id_unique` ON `events` (`id`);--> statement-breakpoint

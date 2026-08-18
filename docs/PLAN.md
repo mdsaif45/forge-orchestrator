@@ -116,6 +116,27 @@ P1 scaffold   P2 domain+persistence   P3 runtime   P4 engine
 P5 evidence   P6 human control        P7 hardening
 ```
 
+## Toolchain (pinned, verified together)
+
+```
+electron-vite 5.0  ─┐
+vite          7.3  ─┼─ peer ranges overlap; plugin-react 6 requires vite 8
+plugin-react  5.2  ─┘  and does NOT work with electron-vite 5
+electron      43.4
+typescript    5.9   (not 7.x — unverified against this toolchain)
+react/dom     19.2
+zod           4.4
+```
+
+Two setup gotchas, both hit during M0:
+
+```
+1. preload cannot be ESM when sandbox:true
+   -> emit cjs, entryFileNames '[name].cjs', main must load .cjs
+2. `npm install` may skip electron's postinstall (no dist/, no path.txt)
+   -> "Electron uninstall" at launch; fix: node node_modules/electron/install.js
+```
+
 ## Out of scope for MVP
 
 custom code editor · plugin marketplace · cloud sync · team collab

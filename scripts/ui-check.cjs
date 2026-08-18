@@ -50,6 +50,13 @@ app.whenReady().then(async () => {
     },
   }))
 
+  // The shell loads projects on mount. These checks cover the design system, not
+  // persistence, so the project channels are stubbed empty. Leaving them
+  // unhandled would surface as a renderer-side error that replaces the very page
+  // being asserted on.
+  ipcMain.handle('project:list', () => ({ ok: true, value: { projects: [] } }))
+  ipcMain.handle('project:get', () => ({ ok: true, value: null }))
+
   await window.loadFile(join(__dirname, '../out/renderer/index.html'))
   // Let React mount before probing the DOM.
   await evaluate(
@@ -177,8 +184,10 @@ app.whenReady().then(async () => {
   const k = JSON.parse(sink)
   check(
     'kitchen sink renders tabs, controls and overlays',
-    // Three dialogs: the sink's own host, plus the Dialog and Drawer it demos.
-    k.tabs === 4 && k.tablist === 1 && k.buttons > 15 && k.dialogs === 3,
+    // Four dialogs: the sink's own host, the Dialog and Drawer it demos, and the
+    // shell's create-project dialog. `Dialog` renders its <dialog> element even
+    // while closed, which is what lets the native top layer manage it.
+    k.tabs === 4 && k.tablist === 1 && k.buttons > 15 && k.dialogs === 4,
     sink,
   )
 
@@ -226,12 +235,26 @@ app.whenReady().then(async () => {
 
   // Close the sink before exercising navigation: it is rendered in a modal, which
   // holds focus and would intercept the clicks below.
-  await evaluate(
+  const closed = await evaluate(
     window,
     `(async () => {
-       document.querySelector('button[aria-label="Close dialog"]')?.click()
+       // Scoped to the dialog that is actually open. Several closed <dialog>
+       // elements are in the DOM — Dialog renders its element regardless of open
+       // state — and each has its own close button, so an unscoped selector can
+       // click an inert one and leave the modal holding focus.
+       const button = document.querySelector('dialog[open] button[aria-label="Close dialog"]')
+       button?.click()
        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+       return JSON.stringify({ clicked: button !== null, stillOpen: document.querySelectorAll('dialog[open]').length })
      })()`,
+  )
+  // Asserted rather than assumed: a silent no-op here previously left the modal
+  // open, and the only symptom was an unrelated focus check failing much later.
+  const cl = JSON.parse(closed)
+  check(
+    'the modal closes through its own control',
+    cl.clicked === true && cl.stillOpen === 0,
+    closed,
   )
 
   // Every nav item must resolve to a real route. This is the check that catches a
@@ -328,7 +351,10 @@ app.whenReady().then(async () => {
   const focusRing = await evaluate(
     window,
     `(() => {
-       const el = document.querySelector('button')
+       // A button inside the shell, not merely the first in document order: a
+       // closed <dialog> renders its children but they cannot take focus, so
+       // querySelector('button') would pick an unfocusable one.
+       const el = document.querySelector('header button')
        el.focus()
        const s = getComputedStyle(el)
        return JSON.stringify({ focused: document.activeElement === el, outline: s.outlineStyle })

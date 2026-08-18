@@ -1,8 +1,9 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog } from 'electron'
 import { initialiseDatabase, type ForgeDatabase } from './db'
-import { ipcHandlers } from './ipc/handlers'
+import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
+import { ProjectService } from './projects/projectService'
 import {
   applyContentSecurityPolicy,
   claimSingleInstance,
@@ -27,7 +28,7 @@ let database: { readonly db: ForgeDatabase; readonly close: () => void } | null 
  * running without persistence would mean an app that appears to work while
  * silently keeping nothing.
  */
-function startDatabase(): void {
+function startDatabase(): ForgeDatabase | null {
   const file = join(app.getPath('userData'), 'forge.db')
 
   try {
@@ -37,10 +38,13 @@ function startDatabase(): void {
     if (applied > 0) {
       console.warn(`Applied ${String(applied)} database migration(s)`)
     }
+
+    return db
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
     dialog.showErrorBox('Forge cannot start', `The database could not be opened.\n\n${detail}`)
     app.exit(1)
+    return null
   }
 }
 
@@ -95,10 +99,15 @@ if (!claimSingleInstance()) {
   })
 
   void app.whenReady().then(() => {
-    startDatabase()
+    const db = startDatabase()
     applyContentSecurityPolicy(devServerUrl)
     denyAllPermissionRequests()
-    registerIpcHandlers(ipcHandlers)
+
+    // `app.exit` inside startDatabase does not unwind this callback, so a null
+    // handle means the process is already going down and no handler should bind.
+    if (db === null) return
+
+    registerIpcHandlers(createIpcHandlers({ projects: new ProjectService(db) }))
 
     createWindow()
 

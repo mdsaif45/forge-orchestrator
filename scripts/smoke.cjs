@@ -65,6 +65,13 @@ app.whenReady().then(async () => {
     },
   }))
 
+  // The shell loads projects on mount. This check covers the process boundary,
+  // not persistence, so the project channels are stubbed empty. Leaving them
+  // unhandled would print a renderer error that has nothing to do with what is
+  // being asserted.
+  ipcMain.handle('project:list', () => ({ ok: true, value: { projects: [] } }))
+  ipcMain.handle('project:get', () => ({ ok: true, value: null }))
+
   await window.loadFile(join(__dirname, '../out/renderer/index.html'))
 
   // Asserts React mounted and produced real DOM. Deliberately structural rather
@@ -97,8 +104,10 @@ app.whenReady().then(async () => {
   const surface = await evaluate(
     window,
     `JSON.stringify({
-       keys: Object.keys(window.forge),
-       app: Object.keys(window.forge.app),
+       keys: Object.keys(window.forge).sort(),
+       methods: Object.keys(window.forge).flatMap((domain) =>
+         Object.keys(window.forge[domain]).map((method) => domain + '.' + method),
+       ).sort(),
        invoke: typeof window.forge.invoke,
        send: typeof window.forge.send,
        ipc: typeof window.forge.ipcRenderer,
@@ -110,9 +119,21 @@ app.whenReady().then(async () => {
     s.invoke === 'undefined' &&
       s.send === 'undefined' &&
       s.ipc === 'undefined' &&
-      s.keys.join(',') === 'app' &&
-      s.app.join(',') === 'getInfo',
+      s.keys.join(',') === 'app,dialog,project',
     surface,
+  )
+
+  // Every declared channel must have a named method, and every method a channel.
+  // Neither gap is visible from one file alone: a channel with no method is
+  // unreachable, and a method with no channel fails only when something calls it.
+  // Asserted against the live bridge rather than by reading the source, since the
+  // built bundle is what actually ships.
+  const { IPC_CHANNELS } = require('../out/main/router.js')
+  const expectedMethods = IPC_CHANNELS.map((channel) => channel.replace(':', '.')).sort()
+  check(
+    'every contract channel is reachable as exactly one named method',
+    s.methods.join(',') === expectedMethods.join(','),
+    `bridge: ${s.methods.join(',')}  contract: ${expectedMethods.join(',')}`,
   )
 
   // A failure must cross the bridge with its code intact. The context bridge

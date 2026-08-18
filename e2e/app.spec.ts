@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3'
-import { existsSync, mkdtempSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -57,12 +58,21 @@ test('the renderer has no Node access', async () => {
 
 test('the preload bridge exposes only named methods', async () => {
   const surface = await page.evaluate(() => ({
-    keys: Object.keys(window.forge),
+    keys: Object.keys(window.forge).sort(),
     app: Object.keys(window.forge.app),
     invoke: typeof (window.forge as unknown as Record<string, unknown>)['invoke'],
+    send: typeof (window.forge as unknown as Record<string, unknown>)['send'],
   }))
 
-  expect(surface).toEqual({ keys: ['app'], app: ['getInfo'], invoke: 'undefined' })
+  // Named methods only, and no generic passthrough: the renderer must not be able
+  // to name a channel. `scripts/smoke.cjs` additionally asserts that this surface
+  // matches the contract exactly, which is what catches a channel with no method.
+  expect(surface).toEqual({
+    keys: ['app', 'dialog', 'project'],
+    app: ['getInfo'],
+    invoke: 'undefined',
+    send: 'undefined',
+  })
 })
 
 test('app info resolves over the real IPC contract', async () => {
@@ -133,4 +143,64 @@ test('the app creates and migrates its database on startup', async () => {
   } finally {
     db.close()
   }
+})
+
+test('a project can be created, and survives a restart', async () => {
+  // The definition of done for #18, driven through the real UI: fill the form,
+  // create, then relaunch the app against the same profile and confirm the
+  // project is still there. A unit test proves the store round-trips; only this
+  // proves the app's own wiring does.
+  const repo = mkdtempSync(join(tmpdir(), 'forge-e2e-repo-'))
+  execFileSync('git', ['init', '--quiet', '--initial-branch=main', '.'], { cwd: repo })
+  execFileSync('git', ['config', 'user.email', 'test@forge.local'], { cwd: repo })
+  execFileSync('git', ['config', 'user.name', 'Forge Test'], { cwd: repo })
+  writeFileSync(join(repo, 'README.md'), '# e2e\n')
+  execFileSync('git', ['add', '-A'], { cwd: repo })
+  execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-m', 'first'], { cwd: repo })
+
+  // These tests share one app instance, and an earlier one leaves the router on
+  // another route. Navigate explicitly rather than inheriting wherever it stopped.
+  await page.getByRole('link', { name: 'Overview' }).click()
+
+  await page.getByRole('button', { name: 'New project' }).click()
+
+  // Forward slashes throughout: git reports POSIX-style paths, and the domain's
+  // `repoPath` refuses a backslash for exactly that reason.
+  const repoPosix = repo.split('\\').join('/')
+
+  await page.getByLabel('Name').fill('E2E Project')
+  await page.getByLabel('Repository').fill(repoPosix)
+  await page.getByLabel('Rules').fill('never modify migrations without approval')
+
+  // Wait for the probe to resolve rather than for a fixed delay: Create stays
+  // disabled until main confirms the folder is a repository.
+  const create = page.getByRole('button', { name: 'Create' })
+  await expect(create).toBeEnabled({ timeout: 15_000 })
+  await expect(page.getByText('Git repository')).toBeVisible()
+
+  await create.click()
+
+  // The switcher is the shell's own view of what exists, so seeing the name there
+  // means the create round-tripped through main and was re-read.
+  await expect(page.getByRole('combobox', { name: 'Active project' })).toHaveValue(/.+/)
+  await expect(page.getByRole('heading', { name: 'E2E Project' })).toBeVisible()
+  await expect(page.getByText(repoPosix)).toBeVisible()
+  await expect(page.getByText('never modify migrations without approval')).toBeVisible()
+
+  // Relaunch against the same user data directory.
+  await app.close()
+  app = await electron.launch({
+    args: ['.', `--user-data-dir=${userDataDir}`, '--disable-gpu'],
+    env: { ...process.env, NODE_ENV: 'production' },
+  })
+  page = await app.firstWindow()
+  await page.waitForLoadState('domcontentloaded')
+  await page.getByRole('link', { name: 'Overview' }).click()
+
+  await expect(page.getByRole('heading', { name: 'E2E Project' })).toBeVisible({ timeout: 15_000 })
+  // Rules are restored too, which means the rule events replayed and not just the
+  // project row.
+  await expect(page.getByText('never modify migrations without approval')).toBeVisible()
+
+  rmSync(repo, { recursive: true, force: true })
 })

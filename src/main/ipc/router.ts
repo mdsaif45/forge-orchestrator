@@ -18,6 +18,15 @@ import {
  * require a window to verify. `register.ts` binds this to `ipcMain`.
  */
 
+/**
+ * Re-exported so the checks can read the channel list from the built bundle.
+ *
+ * The smoke check compares it against the live preload bridge; without it, the
+ * check would have to restate the channel list and would then pass while drifting
+ * from the contract it exists to verify.
+ */
+export { IPC_CHANNELS } from '@shared/ipc'
+
 /** A handler receives an already-validated request and returns a typed response. */
 export type IpcHandler<C extends IpcChannel> = (
   request: IpcRequest<C>,
@@ -60,10 +69,13 @@ export async function invokeChannel(
 
   let raw: unknown
   try {
-    // The contract keys the handler map, so this lookup is total; the casts are
-    // needed only because TypeScript cannot narrow the generic through an
-    // indexed access on a mapped type.
-    const handler = handlers[channel]
+    // The contract keys the handler map, so this lookup is total. The cast is
+    // needed because `channel` is a union here: indexing the mapped type over a
+    // union produces a handler whose parameter is the *intersection* of every
+    // channel's request type, which no single request can satisfy. The pairing is
+    // correct at runtime precisely because both sides are derived from the same
+    // contract entry — and the request has already been validated against it.
+    const handler = handlers[channel] as (request: unknown) => unknown
     raw = await handler(parsedRequest.data)
   } catch (error) {
     return failure('HANDLER_FAILED', `${channel}: ${describe(error)}`)

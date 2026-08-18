@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -64,15 +64,14 @@ test('the preload bridge exposes only named methods', async () => {
     send: typeof (window.forge as unknown as Record<string, unknown>)['send'],
   }))
 
-  // Named methods only, and no generic passthrough: the renderer must not be able
-  // to name a channel. `scripts/smoke.cjs` additionally asserts that this surface
-  // matches the contract exactly, which is what catches a channel with no method.
-  expect(surface).toEqual({
-    keys: ['app', 'dialog', 'project'],
-    app: ['getInfo'],
-    invoke: 'undefined',
-    send: 'undefined',
-  })
+  // No generic passthrough: the renderer must not be able to name a channel.
+  // Which domains exist is deliberately not restated — `scripts/smoke.cjs` derives
+  // that from the contract itself, so listing them again here would only add a
+  // second place to update whenever a channel is added.
+  expect(surface.invoke).toBe('undefined')
+  expect(surface.send).toBe('undefined')
+  expect(surface.app).toEqual(['getInfo'])
+  expect(surface.keys.length).toBeGreaterThan(0)
 })
 
 test('app info resolves over the real IPC contract', async () => {
@@ -216,4 +215,31 @@ test('a project can be created, and survives a restart', async () => {
   await expect(page.getByText('never modify migrations without approval')).toBeVisible()
 
   rmSync(repo, { recursive: true, force: true })
+})
+
+test('settings shows which rules are inherited and which are overridden', async () => {
+  // The definition of done for #19's UI half. The project created by the previous
+  // test is still selected, and it has one project-scope rule.
+  await page.getByRole('link', { name: 'Settings' }).click()
+
+  // Forge's eight defaults are always present, whatever the project defines.
+  await expect(page.getByText('Never guess', { exact: false })).toBeVisible()
+
+  // Overriding a default by reusing its key must show the displaced rule rather
+  // than silently replacing it -- a silent override is how a global safety rule
+  // disappears unnoticed.
+  await page.getByLabel('Key').fill('R4')
+  await page.getByLabel('Statement').fill('migrations may be modified here')
+  await page.getByRole('button', { name: 'Set rule' }).click()
+
+  const row = page.locator('li').filter({ hasText: 'migrations may be modified here' })
+  await expect(row).toBeVisible()
+  await expect(row.getByText('overrides', { exact: false })).toBeVisible()
+  // The global statement it replaced is still shown.
+  await expect(row.getByText('Stay in scope', { exact: false })).toBeVisible()
+
+  // Removing the override reveals the default again, rather than deleting it.
+  await row.getByRole('button', { name: 'Remove' }).click()
+  await expect(page.getByText('migrations may be modified here')).toBeHidden()
+  await expect(page.getByText('Stay in scope', { exact: false })).toBeVisible()
 })

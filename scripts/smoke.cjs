@@ -71,6 +71,8 @@ app.whenReady().then(async () => {
   // being asserted.
   ipcMain.handle('project:list', () => ({ ok: true, value: { projects: [] } }))
   ipcMain.handle('project:get', () => ({ ok: true, value: null }))
+  ipcMain.handle('rule:set', () => ({ ok: true, value: null }))
+  ipcMain.handle('rule:remove', () => ({ ok: true, value: null }))
 
   await window.loadFile(join(__dirname, '../out/renderer/index.html'))
 
@@ -116,10 +118,13 @@ app.whenReady().then(async () => {
   const s = JSON.parse(surface)
   check(
     'no generic invoke/send passthrough is exposed',
+    // Only the absence of a passthrough is asserted here. Which domains exist is not
+    // restated: the parity check below derives that from the contract, and a second
+    // hardcoded list would just be another thing to update on every new channel.
     s.invoke === 'undefined' &&
       s.send === 'undefined' &&
       s.ipc === 'undefined' &&
-      s.keys.join(',') === 'app,dialog,project',
+      s.keys.length > 0,
     surface,
   )
 

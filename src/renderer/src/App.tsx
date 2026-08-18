@@ -3,6 +3,7 @@ import { NotFound } from './app/NotFound'
 import { Overview } from './app/Overview'
 import { RoutePlaceholder } from './app/RoutePlaceholder'
 import { ROUTES } from './app/routes'
+import { Settings } from './app/Settings'
 import { Shell } from './app/Shell'
 import { ToastProvider } from './ui'
 
@@ -19,12 +20,12 @@ const router = createHashRouter([
     path: '/',
     element: <Shell />,
     children: [
-      ...ROUTES.map((route) =>
+      ...ROUTES.map((route) => {
         // React Router expresses the index route as `index: true`, not as a path.
-        route.path === '/'
-          ? { index: true as const, element: <Overview /> }
-          : { path: route.path.slice(1), element: <RoutePlaceholder route={route} /> },
-      ),
+        if (route.path === '/') return { index: true as const, element: <Overview /> }
+        if (route.path === '/settings') return { path: 'settings', element: <Settings /> }
+        return { path: route.path.slice(1), element: <RoutePlaceholder route={route} /> }
+      }),
       { path: '*', element: <NotFound /> },
     ],
   },

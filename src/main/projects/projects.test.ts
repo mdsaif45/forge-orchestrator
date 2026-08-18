@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { FORGE_DEFAULT_RULE_KEYS } from '@shared/domain'
 import { initialiseDatabase } from '../db'
 import type { ForgeDatabase } from '../db'
 import { ProjectStore } from '../db/projectStore'
@@ -334,5 +335,122 @@ describe('restart', () => {
 
     expect(after?.project).toEqual(before?.project)
     expect(after?.rules).toEqual(before?.rules)
+  })
+})
+
+describe('the rules engine', () => {
+  it('resolves Forge defaults for a project with no rules of its own', async () => {
+    const service = new ProjectService(db)
+    const created = await service.create(request({ rules: [] }))
+
+    const detail = await service.get(created.id)
+
+    expect(detail?.policy.map((entry) => entry.key)).toEqual([...FORGE_DEFAULT_RULE_KEYS].sort())
+    // Nothing overrides anything, so every rule is inherited.
+    expect(detail?.policy.every((entry) => entry.shadowed.length === 0)).toBe(true)
+  })
+
+  it('merges project rules alongside the defaults', async () => {
+    const service = new ProjectService(db)
+    const created = await service.create(request())
+
+    const detail = await service.get(created.id)
+
+    expect(detail?.policy).toHaveLength(FORGE_DEFAULT_RULE_KEYS.length + 1)
+  })
+
+  it('lets a project rule override a Forge default on the same key', async () => {
+    const service = new ProjectService(db)
+    const created = await service.create(request({ rules: [] }))
+
+    const detail = await service.setRule(
+      created.id,
+      'project',
+      'R4',
+      'migrations may be modified in this project',
+    )
+
+    const r4 = detail?.policy.find((entry) => entry.key === 'R4')
+    expect(r4?.scope).toBe('project')
+    expect(r4?.statement).toBe('migrations may be modified in this project')
+    // The global rule is retained as shadowed, so the UI can show what was replaced.
+    expect(r4?.shadowed).toHaveLength(1)
+    expect(r4?.shadowed.at(0)?.scope).toBe('global')
+  })
+
+  it('never drops a default, however many overrides are set', async () => {
+    const service = new ProjectService(db)
+    const created = await service.create(request({ rules: [] }))
+
+    await service.setRule(created.id, 'project', 'R1', 'override one')
+    const detail = await service.setRule(created.id, 'project', 'R7', 'override two')
+
+    // An override replaces a statement; it cannot delete the concern.
+    expect(detail?.policy.map((entry) => entry.key)).toEqual([...FORGE_DEFAULT_RULE_KEYS].sort())
+  })
+
+  it('replaces rather than duplicates when the same key is set twice', async () => {
+    const service = new ProjectService(db)
+    const created = await service.create(request({ rules: [] }))
+
+    await service.setRule(created.id, 'project', 'custom', 'first')
+    const detail = await service.setRule(created.id, 'project', 'custom', 'second')
+
+    const matching = detail?.rules.filter((stored) => stored.key === 'custom') ?? []
+    expect(matching).toHaveLength(1)
+    expect(matching.at(0)?.statement).toBe('second')
+  })
+
+  it('restores the effective policy after a restart', async () => {
+    const service = new ProjectService(db)
+    const created = await service.create(request({ rules: [] }))
+    await service.setRule(created.id, 'project', 'R4', 'migrations are fine here')
+    closeDb()
+
+    const reopened = initialiseDatabase(dbFile)
+    closeDb = reopened.close
+
+    const detail = await new ProjectService(reopened.db).get(created.id)
+    const r4 = detail?.policy.find((entry) => entry.key === 'R4')
+
+    expect(r4?.statement).toBe('migrations are fine here')
+    expect(r4?.scope).toBe('project')
+  })
+
+  it('removes a stored rule, revealing the default it was hiding', async () => {
+    const service = new ProjectService(db)
+    const created = await service.create(request({ rules: [] }))
+
+    const withOverride = await service.setRule(created.id, 'project', 'R4', 'anything goes')
+    const ruleId = withOverride?.rules.find((stored) => stored.key === 'R4')?.id
+    expect(ruleId).toBeDefined()
+    if (ruleId === undefined) return
+
+    const detail = await service.removeRule(created.id, ruleId)
+    const r4 = detail?.policy.find((entry) => entry.key === 'R4')
+
+    // Back to Forge's own statement, not absent.
+    expect(r4?.scope).toBe('global')
+    expect(r4?.shadowed).toHaveLength(0)
+  })
+
+  it('rejects a scope that is not in the model', async () => {
+    const service = new ProjectService(db)
+    const created = await service.create(request({ rules: [] }))
+
+    await expect(service.setRule(created.id, 'universe', 'k', 'v')).rejects.toThrow(
+      /not a rule scope/,
+    )
+  })
+
+  it('declares a rule for every heading in docs/FORGE_RULES.md', () => {
+    // A document that disagrees with the enforced policy is worse than no document,
+    // so the two are compared rather than kept in sync by hand. Asserted here rather
+    // than in `shared`, which may not read the filesystem.
+    const doc = readFileSync('docs/FORGE_RULES.md', 'utf8')
+    const documented = [...doc.matchAll(/^## (R\d+) —/gm)].map((match) => match[1])
+
+    expect(documented.length).toBeGreaterThan(0)
+    expect([...FORGE_DEFAULT_RULE_KEYS].sort()).toEqual([...documented].sort())
   })
 })

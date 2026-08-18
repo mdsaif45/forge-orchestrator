@@ -209,3 +209,31 @@ export {
   type TransitionResult,
   type WorkflowTrigger,
 } from './transitions'
+
+export {
+  checkBudgets,
+  checkStopConditions,
+  decideRetry,
+  detectNoProgress,
+  failureKindSchema,
+  fingerprintChange,
+  haltCodeSchema,
+  haltStateFor,
+  HALT_CODES,
+  remainingBudget,
+  type BudgetState,
+  type FailureKind,
+  type HaltCode,
+  type HaltDecision,
+  type RemainingBudget,
+  type RetryDecision,
+  type StepOutcomeSignals,
+} from './guards'
+
+export {
+  limitRuleKey,
+  limitRuleProblemSchema,
+  resolveLimits,
+  type LimitRuleProblem,
+  type ResolvedLimits,
+} from './limitRules'

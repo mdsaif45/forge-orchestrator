@@ -34,6 +34,35 @@ export const workflowLimitsSchema = z.strictObject({
     .positive()
     .default(4 * 60 * 60 * 1000),
   maxRetries: z.number().int().nonnegative().default(3),
+  /** Backoff between retries. Fixed rather than exponential: see `retryDelayMs` in #29. */
+  retryDelayMs: z
+    .number()
+    .int()
+    .nonnegative()
+    .default(5 * 1000),
+  /**
+   * What halts a workflow rather than being absorbed as a normal outcome.
+   *
+   * Toggles rather than hardcoded behaviour because these are genuinely a matter of taste
+   * for the user: some projects want a failing build to stop everything, others expect the
+   * correction loop to deal with it. The defaults are the cautious reading.
+   */
+  stopOn: z
+    .strictObject({
+      buildFailure: z.boolean().default(false),
+      testFailure: z.boolean().default(false),
+      /** A question always pauses; this decides whether it halts outright instead. */
+      openQuestion: z.boolean().default(false),
+      /** Off by default is not an option: A7 is not a preference. */
+      permissionViolation: z.literal(true).default(true),
+      unexpectedFileModification: z.boolean().default(true),
+    })
+    // `prefault`, not `default`. In zod 4 a `default` value is used *as-is* and skips the
+    // schema entirely, so `.default({})` yielded a bare `{}` with every inner default
+    // unapplied — `stopOn.unexpectedFileModification` came back `undefined` and the guard
+    // silently stopped firing. `prefault` feeds the value through the schema, so the inner
+    // defaults apply. Measured against zod 4 rather than assumed.
+    .prefault({}),
 })
 
 export type WorkflowLimits = z.infer<typeof workflowLimitsSchema>

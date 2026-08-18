@@ -351,6 +351,35 @@ export const MALFORMED_TWICE: Scenario = scenarioSchema.parse({
   ],
 })
 
+/**
+ * Resubmits the identical change every time, forever.
+ *
+ * The scenario the no-progress detector exists for (#29): the reviewer objects, the
+ * implementer "fixes" it by writing exactly the same content, and without a guard the loop
+ * burns the whole iteration budget before stopping. Eight steps, well past the default cap
+ * of five, so a test can prove the guard fires earlier than the cap does.
+ */
+export const NO_PROGRESS: Scenario = scenarioSchema.parse({
+  name: 'noProgress',
+  description: 'Writes the same content on every iteration, making no progress',
+  capabilities: ALL,
+  steps: Array.from({ length: 8 }, () =>
+    step({
+      narration: ['Addressing the review finding'],
+      // Identical content each time, which is the whole point: the diff against the base
+      // never changes.
+      edits: [{ path: 'src/math.ts', contents: 'export const answer = 41\n' }],
+      report: report({
+        // The summary varies in wording while the work does not — an agent describing the
+        // same non-change differently each round is exactly what fools a summary-based
+        // check and is caught by a diff-based one.
+        summary: 'Fixed the constant this time',
+        filesChanged: ['src/math.ts'],
+      }),
+    }),
+  ),
+})
+
 export const SCENARIOS = {
   happy: HAPPY_PATH,
   correction: CORRECTION,
@@ -365,6 +394,7 @@ export const SCENARIOS = {
   textReply: TEXT_REPLY,
   noReport: NO_REPORT,
   malformedTwice: MALFORMED_TWICE,
+  noProgress: NO_PROGRESS,
 } as const satisfies Record<string, Scenario>
 
 export type ScenarioName = keyof typeof SCENARIOS

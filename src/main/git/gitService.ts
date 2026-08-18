@@ -1,3 +1,4 @@
+import { stat } from 'node:fs/promises'
 import { repoPathSchema, shaSchema, type ChangedFile, type Sha } from '@shared/domain'
 import { GitCommandError, runGit, splitNul, type GitExecOptions } from './exec'
 import {
@@ -24,6 +25,47 @@ import {
  * wrapper would add a dependency and a second parser without removing the need to
  * understand them.
  */
+
+/**
+ * Whether two paths name the same directory.
+ *
+ * String comparison is not enough on Windows, where one directory has several
+ * legitimate spellings: separators may be `\` or `/`, every segment is
+ * case-insensitive, and a path may be an 8.3 short name (`RUNNER~1`) or traverse a
+ * junction. `git rev-parse` answers with the long resolved form, so comparing it
+ * against whatever the caller supplied rejected perfectly valid repositories. That
+ * is what failed on the Windows CI runner, whose temp directory is a short name,
+ * while passing on a machine whose temp path is already canonical.
+ *
+ * The identity check is device plus inode, which is what the filesystem itself
+ * considers "the same directory" and is immune to spelling entirely. Measured:
+ * Node's `realpath` resolves symlinks but does **not** expand a short name
+ * (`realpathSync('C:/PROGRA~1')` returns it unchanged), so normalising strings —
+ * however carefully — cannot close this case on its own.
+ *
+ * The string comparison is kept as a fallback for the one situation `stat` cannot
+ * answer: a path that does not exist, where the question degrades to whether the
+ * two names are written the same way.
+ */
+async function sameDirectory(left: string, right: string): Promise<boolean> {
+  const [leftStat, rightStat] = await Promise.all([
+    stat(left).catch(() => null),
+    stat(right).catch(() => null),
+  ])
+
+  if (leftStat !== null && rightStat !== null) {
+    return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino
+  }
+
+  const canonical = (value: string): string => {
+    const normalised = value.split('\\').join('/').replace(/\/+$/, '')
+    // Case folded on Windows only: Linux paths are genuinely case-sensitive, and
+    // folding there would accept two different directories as one.
+    return process.platform === 'win32' ? normalised.toLowerCase() : normalised
+  }
+
+  return canonical(left) === canonical(right)
+}
 
 /** Raised when a path is not a git repository, or not its root. */
 export class NotARepositoryError extends Error {
@@ -113,10 +155,7 @@ export class GitService {
       const root = stdout.trim()
       if (root === '') return false
 
-      const normalise = (value: string): string =>
-        value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-
-      return normalise(root) === normalise(this.options.repositoryPath)
+      return await sameDirectory(root, this.options.repositoryPath)
     } catch (error) {
       if (error instanceof GitCommandError) return false
       throw error

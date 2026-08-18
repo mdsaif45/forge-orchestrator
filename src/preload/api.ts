@@ -1,4 +1,11 @@
-import type { AppInfo, IpcResult } from '@shared/ipc'
+import type {
+  AppInfo,
+  CreateProjectRequest,
+  IpcResult,
+  ProjectDetail,
+  ProjectView,
+  RepositoryProbe,
+} from '@shared/ipc'
 
 /**
  * The renderer-visible surface.
@@ -17,5 +24,22 @@ export interface ForgeApi {
   readonly app: {
     /** Resolves app identity and runtime versions from the main process. */
     getInfo: () => Promise<IpcResult<AppInfo>>
+  }
+  readonly dialog: {
+    /**
+     * Opens the native directory picker. Resolves a null path when cancelled.
+     *
+     * Main owns the dialog because the renderer is sandboxed; this is also the only
+     * way the renderer learns a filesystem path it did not receive from a project.
+     */
+    pickDirectory: () => Promise<IpcResult<{ readonly path: string | null }>>
+  }
+  readonly project: {
+    /** Reports what a candidate folder is, with named reasons when it is unusable. */
+    probeRepository: (path: string) => Promise<IpcResult<RepositoryProbe>>
+    create: (request: CreateProjectRequest) => Promise<IpcResult<ProjectView>>
+    list: () => Promise<IpcResult<{ readonly projects: readonly ProjectView[] }>>
+    /** Resolves null when the id does not exist, rather than failing. */
+    get: (projectId: string) => Promise<IpcResult<ProjectDetail | null>>
   }
 }

@@ -237,3 +237,16 @@ export {
   type LimitRuleProblem,
   type ResolvedLimits,
 } from './limitRules'
+
+export { isForbiddenPath, redactSecrets, REDACTION } from './redaction'
+
+export {
+  compileContext,
+  rankFiles,
+  truncationNotice,
+  type CompiledContext,
+  type ContextBudget,
+  type ContextInput,
+  type ContextTrace,
+  type FileCandidate,
+} from './contextEngine'

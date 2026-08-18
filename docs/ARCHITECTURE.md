@@ -200,6 +200,87 @@ unacceptable in a read-only service operating on a repository an agent may still
 editing. Untracked paths therefore come from `status`, and each is diffed against
 the null device with `--no-index`, which exits 1 by design when the files differ.
 
+## The context engine
+
+```
+task + locked decisions + rules + files + previous attempt + findings
+                          │
+                select ─> rank ─> budget ─> redact
+                          │
+                 PromptPacket  (snapshotted, content-addressed)
+```
+
+Never send the whole history. An agent given five hundred messages performs worse than one
+given the eight facts that matter, and costs more. Three properties are enforced rather than
+trusted:
+
+```
+deterministic    identical state -> byte-identical packet
+redacted         no .env, no key material, nothing secret-shaped   (A7, R7)
+decisions        locked ones verbatim, NEVER truncated             (A4)
+```
+
+Determinism comes from two specific choices: ties break on path, and comparison is by
+codepoint rather than `localeCompare` — which reads the host locale, so a packet would order
+differently on another machine and break every snapshot comparison.
+
+### Redaction is two mechanisms, not one
+
+```
+path-level    .env · *.pem · id_rsa · .aws/ · .npmrc · secrets*   excluded WHOLESALE
+value-level   bearer tokens · KEY=value · JWTs · PEM · user:pass@   scrubbed
+```
+
+A `.env` is excluded rather than scrubbed line by line, because it can hold a hostname or a
+feature flag that looks harmless and is still nobody's business. Value-level scrubbing exists
+in addition because a secret can arrive through an objective, a review finding, or an
+answered question — not only through a file.
+
+`redactSecrets` lives in `shared/domain/redaction.ts` and is used by both the packet compiler
+and the process logger (#23). Two copies would drift, and the one that drifted would be the
+one that leaked.
+
+**Forbidden paths lose to nothing.** The strongest ranking signal is "the task names this
+file", and it still loses to A7 — otherwise a task objective could be used to extract a
+credential.
+
+### Selection is per role
+
+```
+planner            12 files, no findings, no previous attempt
+implementer        25 files, both
+reviewer           15 files, both — the diff arrives as previousAttempt
+system · user       0 files — Forge performs these itself
+```
+
+A caller cannot widen a role's view past its strategy; `maxFiles` is a `min` of the two.
+
+### Truncation is explicit
+
+An agent that does not know its view was trimmed will reason as though it saw everything and
+confidently conclude something wrong. `truncationNotice()` names what was dropped and invites
+the agent to ask.
+
+### Packets are content-addressed
+
+```
+reference = sha256(canonical json)[:32]
+```
+
+The reference *is* the hash, so identical context writes one file, and a reference cannot
+resolve to a packet edited since — the hash would no longer match, and `load` returns null
+rather than the altered packet. A sequential id would only say "the packet that was here".
+
+```
+JSON.stringify trap, measured:
+  stringify(obj, sortedTopLevelKeys, 2)  ->  EVERY nested object becomes {}
+```
+
+The replacer-array form applies the key list at *every* depth, so `previousAttempt` serialised
+as `{}` and `answeredQuestions` lost its contents — a snapshot that would replay the wrong
+context with nothing to indicate anything was missing. Keys are sorted by rebuilding the
+object instead.
+
 ## Loop guards (A5)
 
 The failure mode these exist to prevent:
@@ -591,6 +672,6 @@ Two traps worth remembering:
 |------|-------|
 | git write operations, gated by permissions | #37 |
 | real CLI adapters | #24 #25 |
-| workflow engine, context engine | #27 → #32 |
+| workflow orchestrator, workflow UI | #31 #32 |
 | evidence, policy engine | #33 → #37 |
 | questions, decision lock, diff UI | #38 → #42 |

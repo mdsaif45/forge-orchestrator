@@ -1,4 +1,4 @@
-import { stat } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 import type { RepositoryProbe, RepositoryProbeProblem } from '@shared/ipc'
 import { GitService } from '../git'
@@ -41,8 +41,13 @@ export async function validateRepository(candidatePath: string): Promise<Reposit
   }
 
   let isDirectory: boolean
+  let resolved: string
   try {
     isDirectory = (await stat(trimmed)).isDirectory()
+    // Canonicalised once, here, so the path Forge stores is the same form git
+    // reports: on Windows the input may be an 8.3 short name or differ in case,
+    // and a stored variant would not match git output later.
+    resolved = await realpath(trimmed)
   } catch {
     return probe({
       problems: [{ code: 'missing', detail: `Nothing exists at ${trimmed}.` }],
@@ -55,21 +60,21 @@ export async function validateRepository(candidatePath: string): Promise<Reposit
     })
   }
 
-  const git = new GitService({ repositoryPath: trimmed })
+  const git = new GitService({ repositoryPath: resolved })
 
   if (!(await git.isRepo())) {
     // Distinguishing these two is the whole point: "run git init" and "pick the
     // parent folder" are different instructions, and a single message covering
     // both would leave the user to work out which applies.
-    const enclosing = await findEnclosingRepository(trimmed)
+    const enclosing = await findEnclosingRepository(resolved)
 
     return probe({
       problems: [
         enclosing === null
-          ? { code: 'not-a-repository', detail: `${trimmed} is not a git repository.` }
+          ? { code: 'not-a-repository', detail: `${posix(resolved)} is not a git repository.` }
           : {
               code: 'inside-repository',
-              detail: `${trimmed} is inside the repository at ${enclosing}. Bind that folder instead, so recorded paths match what git reports.`,
+              detail: `${posix(resolved)} is inside the repository at ${posix(enclosing)}. Bind that folder instead, so recorded paths match what git reports.`,
             },
       ],
     })
@@ -105,7 +110,7 @@ export async function validateRepository(candidatePath: string): Promise<Reposit
   }
 
   return {
-    path: trimmed,
+    path: posix(resolved),
     isRepository: true,
     branch,
     headSha,
@@ -114,6 +119,17 @@ export async function validateRepository(candidatePath: string): Promise<Reposit
     dirtyCount: dirtyPaths.length,
     problems,
   }
+}
+
+/**
+ * Forward slashes, even on Windows.
+ *
+ * The stored path is compared against git output, embedded in prompt packets, and
+ * shown in the UI. One spelling everywhere avoids a class of "matches in main,
+ * fails in the packet" bugs — the same reason `repoPathSchema` refuses a backslash.
+ */
+function posix(value: string): string {
+  return value.split('\\').join('/')
 }
 
 /** Fills in the "nothing was readable" shape, so callers get one consistent type. */

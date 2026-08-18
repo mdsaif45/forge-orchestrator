@@ -1,3 +1,4 @@
+import { realpath } from 'node:fs/promises'
 import { repoPathSchema, shaSchema, type ChangedFile, type Sha } from '@shared/domain'
 import { GitCommandError, runGit, splitNul, type GitExecOptions } from './exec'
 import {
@@ -24,6 +25,35 @@ import {
  * wrapper would add a dependency and a second parser without removing the need to
  * understand them.
  */
+
+/**
+ * Whether two paths name the same directory.
+ *
+ * String comparison is not enough on Windows, where one directory has several
+ * legitimate spellings: separators may be `\` or `/`, the drive letter and every
+ * segment are case-insensitive, and a path may be an 8.3 short name
+ * (`RUNNER~1`) or traverse a junction or symlink. `git rev-parse` always answers
+ * with the long, resolved form, so comparing it against whatever the caller
+ * supplied rejected a perfectly valid repository — this is exactly what failed on
+ * the Windows CI runner, whose temp directory is a short name, while passing on a
+ * developer machine whose temp path happens to already be canonical.
+ *
+ * `realpath` asks the filesystem to canonicalise both sides, which resolves all of
+ * those at once. Case is then folded on Windows only, since Linux paths are
+ * genuinely case-sensitive and folding there would accept two different
+ * directories as one.
+ */
+async function sameDirectory(left: string, right: string): Promise<boolean> {
+  const canonical = async (value: string): Promise<string> => {
+    // Falls back to the input when the path does not exist: the caller is asking
+    // whether two names match, and a missing path simply does not match.
+    const resolved = await realpath(value).catch(() => value)
+    const normalised = resolved.split('\\').join('/').replace(/\/+$/, '')
+    return process.platform === 'win32' ? normalised.toLowerCase() : normalised
+  }
+
+  return (await canonical(left)) === (await canonical(right))
+}
 
 /** Raised when a path is not a git repository, or not its root. */
 export class NotARepositoryError extends Error {
@@ -113,10 +143,7 @@ export class GitService {
       const root = stdout.trim()
       if (root === '') return false
 
-      const normalise = (value: string): string =>
-        value.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
-
-      return normalise(root) === normalise(this.options.repositoryPath)
+      return await sameDirectory(root, this.options.repositoryPath)
     } catch (error) {
       if (error instanceof GitCommandError) return false
       throw error

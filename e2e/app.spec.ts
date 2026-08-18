@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -165,8 +165,10 @@ test('a project can be created, and survives a restart', async () => {
   await page.getByRole('button', { name: 'New project' }).click()
 
   // Forward slashes throughout: git reports POSIX-style paths, and the domain's
-  // `repoPath` refuses a backslash for exactly that reason.
-  const repoPosix = repo.split('\\').join('/')
+  // `repoPath` refuses a backslash for exactly that reason. `realpath` because the
+  // runner's temp directory can be an 8.3 short name, which main canonicalises —
+  // asserting the raw value here would fail on Windows CI and pass locally.
+  const repoPosix = realpathSync(repo).split('\\').join('/')
 
   await page.getByLabel('Name').fill('E2E Project')
   await page.getByLabel('Repository').fill(repoPosix)

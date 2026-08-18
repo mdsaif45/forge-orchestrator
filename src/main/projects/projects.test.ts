@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { initialiseDatabase } from '../db'
 import type { ForgeDatabase } from '../db'
@@ -51,6 +52,11 @@ afterEach(() => {
   rmSync(repoPath, { recursive: true, force: true })
   rmSync(dbFile, { recursive: true, force: true })
 })
+
+/** The stored form: canonical and POSIX-separated, matching git output. */
+function storedPath(): string {
+  return repoPath.split(String.fromCharCode(92)).join('/')
+}
 
 function request(overrides: Record<string, unknown> = {}): Parameters<ProjectService['create']>[0] {
   return {
@@ -108,6 +114,37 @@ describe('validateRepository', () => {
     }
   })
 
+  it('accepts a path whose spelling differs from what git reports', async () => {
+    // Regression: `isRepo` compared `rev-parse --show-toplevel` against the caller's
+    // string, so any equivalent-but-differently-spelled path was rejected as "not a
+    // repository". This passed locally and failed on the Windows CI runner, whose
+    // temp directory is an 8.3 short name that git resolves to its long form.
+    // Trailing separators and mixed slashes are the same class of difference.
+    const variants = [
+      `${repoPath}${sep}`,
+      repoPath.split('\\').join('/'),
+      // Case only matters where the filesystem is case-insensitive.
+      ...(process.platform === 'win32' ? [repoPath.toUpperCase()] : []),
+    ]
+
+    for (const variant of variants) {
+      const probe = await validateRepository(variant)
+      expect(probe.isRepository, variant).toBe(true)
+    }
+  })
+
+  it('reports the canonical path, not the spelling that was typed', async () => {
+    // What gets stored must match what git reports, since scope globs and prompt
+    // packets compare against git output later.
+    const probe = await validateRepository(`${repoPath}${sep}`)
+
+    // Compared against realpath rather than the temp path as returned: mkdtemp can
+    // hand back a path that is itself a symlink (/var on macOS), so the canonical
+    // form is the only correct expectation.
+    expect(probe.path).toBe((await realpath(repoPath)).split('\\').join('/'))
+    expect(probe.path).not.toContain('\\')
+  })
+
   it('reports a dirty worktree without making it a problem', async () => {
     writeFileSync(join(repoPath, 'scratch.txt'), 'uncommitted\n')
 
@@ -152,7 +189,7 @@ describe('ProjectService.create', () => {
     const created = await service.create(request())
 
     expect(created.name).toBe('InTime')
-    expect(created.repository.absolutePath).toBe(repoPath)
+    expect(created.repository.absolutePath).toBe(storedPath())
     expect(created.repository.buildCommand).toBe('dotnet build')
 
     const detail = await service.get(created.id)
@@ -267,7 +304,7 @@ describe('restart', () => {
 
     expect(service.list()).toHaveLength(1)
     expect(detail?.project.name).toBe('InTime')
-    expect(detail?.project.repository.absolutePath).toBe(repoPath)
+    expect(detail?.project.repository.absolutePath).toBe(storedPath())
     expect(detail?.project.repository.tech).toEqual(['.NET 9', 'React'])
     expect(detail?.rules.map((rule) => rule.statement)).toEqual([
       'never modify migrations without approval',

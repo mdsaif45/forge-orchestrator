@@ -64,20 +64,29 @@ artifact to confirm something works produces false negatives — an early versio
 of `check:ui` grepped the emitted CSS and reported zero utilities while the
 browser was resolving them correctly.
 
-### Electron's binary
+### Native binaries
 
-`electron@43` ships **no postinstall of its own**, so this project's
-`postinstall` script fetches the binary. Two consequences:
+`.npmrc` sets `ignore-scripts`. This is deliberate, and worth understanding
+before removing it:
 
-- `npm rebuild electron` does **not** fetch it — only `npm install` / `npm ci` do
-- `npm ci --ignore-scripts` deliberately skips it, which is why CI's `static` job
-  can run lint, types, tests, and the build without a 100MB download
+```
+better-sqlite3   ships a binding.gyp, so npm runs `node-gyp rebuild` even though
+                 the package sets gypfile:false. It ALSO ships working N-API
+                 prebuilds, so the compile is unnecessary — and it fails outright
+                 on any machine without a C++ toolchain, including CI.
+esbuild          platform binary arrives as an optional dependency, no script.
+electron         ships no postinstall of its own, so its binary must be fetched.
+```
 
-If you see `Error: Electron uninstall`, run:
+So a fresh clone is:
 
 ```bash
-npm run postinstall
+npm ci
+npm run setup   # Electron's binary only
 ```
+
+CI's `static` job skips `setup` entirely — it never launches the app, which saves
+roughly 100MB per run. `npm rebuild electron` does **not** fetch the binary.
 
 ## Architectural boundaries, enforced by lint
 

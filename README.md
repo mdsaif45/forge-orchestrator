@@ -142,7 +142,8 @@ node-pty                   agent CLI processes  M2  (#23)
 ## Quickstart
 
 ```bash
-npm install     # also fetches Electron's binary; see the note below
+npm ci
+npm run setup   # fetches Electron's binary
 npm run dev
 ```
 
@@ -165,11 +166,17 @@ format:check → lint → typecheck → test → build
 | `npm run check:ui` | computed styles, themes, and routing |
 | `npm run test:e2e` | the real app's own startup path |
 
-If you see `Error: Electron uninstall`, the binary is missing —
-`electron@43` ships no postinstall of its own, so this project declares one:
+`.npmrc` sets `ignore-scripts`, because npm otherwise tries to compile
+`better-sqlite3` from source — it ships a `binding.gyp`, which npm acts on even
+though the package sets `gypfile: false` — and that needs a C++ toolchain nobody
+should have to install. Its bundled N-API prebuilds work as they are.
+
+That means the one binary which genuinely needs fetching is Electron's, since
+`electron@43` ships no postinstall of its own. If you see
+`Error: Electron uninstall`:
 
 ```bash
-npm run postinstall
+npm run setup
 ```
 
 `npm rebuild electron` does **not** fetch it.

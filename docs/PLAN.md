@@ -128,13 +128,23 @@ react/dom     19.2
 zod           4.4
 ```
 
-Three gotchas, all hit and measured during M0:
+Three gotchas, all hit and measured:
 
 ```
 1. preload cannot be ESM when sandbox:true
    -> emit cjs, entryFileNames '[name].cjs', main must load .cjs
-2. `npm install` may skip electron's postinstall (no dist/, no path.txt)
-   -> "Electron uninstall" at launch; fix: node node_modules/electron/install.js
+2. native binaries: three packages, three different mechanisms
+   electron@43      ships NO postinstall -> binary must be fetched explicitly
+                    (`npm rebuild electron` does NOT do it)
+   better-sqlite3   ships binding.gyp -> npm runs node-gyp even though the
+                    package sets gypfile:false. needs a C++ toolchain and fails
+                    on Windows CI. but prebuilds/win32-x64.node ships and WORKS,
+                    so the compile is pure waste.
+   esbuild          platform binary is an optional dep. nothing to do.
+   fix: .npmrc ignore-scripts + `npm run setup` (electron only)
+   NOTE: an existing node_modules hides all of this. it only appears on a clean
+   install — which is why "no rebuild needed" survived a PR review before CI
+   caught it.
 3. contextBridge serializes errors STRUCTURALLY
    measured across the bridge:
      throw Error + own prop  -> prop STRIPPED, name reset to "Error"

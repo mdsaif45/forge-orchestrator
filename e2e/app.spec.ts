@@ -1,4 +1,5 @@
-import { mkdtempSync } from 'node:fs'
+import Database from 'better-sqlite3'
+import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -19,16 +20,15 @@ import {
  */
 let app: ElectronApplication
 let page: Page
+let userDataDir: string
 
 test.beforeAll(async () => {
+  // A throwaway profile per run, so persisted state from a previous run cannot
+  // change what these tests observe.
+  userDataDir = mkdtempSync(join(tmpdir(), 'forge-e2e-'))
+
   app = await electron.launch({
-    args: [
-      '.',
-      // A throwaway profile per run, so a persisted sidebar or theme from a
-      // previous run cannot change what these tests observe.
-      `--user-data-dir=${mkdtempSync(join(tmpdir(), 'forge-e2e-'))}`,
-      '--disable-gpu',
-    ],
+    args: ['.', `--user-data-dir=${userDataDir}`, '--disable-gpu'],
     env: { ...process.env, NODE_ENV: 'production' },
   })
 
@@ -104,4 +104,33 @@ test('the sidebar collapses without losing item names', async () => {
 
   await page.getByRole('button', { name: 'Expand sidebar' }).click()
   await expect(page.getByRole('link', { name: 'Overview' })).toBeVisible()
+})
+
+test('the app creates and migrates its database on startup', async () => {
+  // Forge owns the project truth, so persistence existing is not optional. The
+  // unit tests cover the migration logic; this asserts the real startup path ran
+  // it — the app was launched, and the schema is on disk afterwards.
+  const file = join(userDataDir, 'forge.db')
+  expect(existsSync(file)).toBe(true)
+
+  // Opened from the test process rather than through app.evaluate: the bundled
+  // main process is ESM, so that context has neither `require` nor a dynamic
+  // import callback. better-sqlite3 loads here for the same reason it loads in
+  // Electron — it ships platform-keyed N-API prebuilds.
+  const db = new Database(file, { readonly: true })
+
+  try {
+    const tables = db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+      .all()
+      .map((row) => (row as { name: string }).name)
+
+    expect(tables).toContain('projects')
+    expect(tables).toContain('events')
+    expect(tables).toContain('workflows')
+    // Created by the migration runner itself, so its presence proves migrations ran.
+    expect(tables).toContain('schema_meta')
+  } finally {
+    db.close()
+  }
 })

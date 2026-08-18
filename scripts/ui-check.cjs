@@ -160,7 +160,8 @@ app.whenReady().then(async () => {
   const k = JSON.parse(sink)
   check(
     'kitchen sink renders tabs, controls and overlays',
-    k.tabs === 4 && k.tablist === 1 && k.buttons > 15 && k.dialogs === 2,
+    // Three dialogs: the sink's own host, plus the Dialog and Drawer it demos.
+    k.tabs === 4 && k.tablist === 1 && k.buttons > 15 && k.dialogs === 3,
     sink,
   )
 
@@ -204,6 +205,106 @@ app.whenReady().then(async () => {
     'kitchen sink recolours through the theme control',
     sl !== null && sl.theme === 'light' && sl.tabColour === 'rgb(20, 24, 29)',
     sinkLight,
+  )
+
+  // Close the sink before exercising navigation: it is rendered in a modal, which
+  // holds focus and would intercept the clicks below.
+  await evaluate(
+    window,
+    `(async () => {
+       document.querySelector('button[aria-label="Close dialog"]')?.click()
+       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+     })()`,
+  )
+
+  // Every nav item must resolve to a real route. This is the check that catches a
+  // dead link, which is the failure mode a hand-maintained nav list invites.
+  const navigation = await evaluate(
+    window,
+    `(async () => {
+       const settle = () =>
+         new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+
+       const links = [...document.querySelectorAll('nav[aria-label="Main"] a')]
+       const visited = []
+
+       for (const link of links) {
+         link.click()
+         await settle()
+         visited.push({
+           label: link.textContent.trim(),
+           hash: window.location.hash,
+           // The catch-all route renders this copy; reaching it means the link
+           // pointed at a path the router does not know.
+           notFound: document.body.textContent.includes('Route not found'),
+           heading: document.querySelector('main h1')?.textContent?.trim() ?? null,
+           current: link.getAttribute('aria-current'),
+         })
+       }
+
+       return JSON.stringify({ count: links.length, visited })
+     })()`,
+  )
+  const nav = JSON.parse(navigation)
+  const deadLinks = nav.visited.filter((v) => v.notFound)
+  const unheaded = nav.visited.filter((v) => v.heading === null)
+  const mislabelled = nav.visited.filter((v) => v.heading !== v.label)
+
+  check(
+    'every nav item routes to a live page (no dead links)',
+    nav.count === 8 && deadLinks.length === 0,
+    `${nav.count} links, dead: ${JSON.stringify(deadLinks)}`,
+  )
+  check(
+    'each route renders a heading matching its nav label',
+    unheaded.length === 0 && mislabelled.length === 0,
+    JSON.stringify(mislabelled.length > 0 ? mislabelled : unheaded),
+  )
+  check(
+    'the active route is marked with aria-current',
+    nav.visited.every((v) => v.current === 'page'),
+    JSON.stringify(nav.visited.map((v) => [v.label, v.current])),
+  )
+
+  // An unknown path must land on the catch-all rather than a blank frame.
+  const unknownRoute = await evaluate(
+    window,
+    `(async () => {
+       window.location.hash = '#/nonexistent'
+       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+       const found = document.body.textContent.includes('Route not found')
+       window.location.hash = '#/'
+       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+       return String(found)
+     })()`,
+  )
+  check('an unknown path renders the catch-all route', unknownRoute === 'true', unknownRoute)
+
+  // Collapsing must not drop the accessible name of a nav item.
+  const collapsed = await evaluate(
+    window,
+    `(async () => {
+       const toggle = document.querySelector('button[aria-label="Collapse sidebar"]')
+       toggle.click()
+       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+
+       const links = [...document.querySelectorAll('nav[aria-label="Main"] a')]
+       const named = links.every(
+         (a) => (a.getAttribute('aria-label') ?? a.textContent.trim()).length > 0,
+       )
+       const width = document.querySelector('nav[aria-label="Main"]').offsetWidth
+
+       document.querySelector('button[aria-label="Expand sidebar"]')?.click()
+       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+
+       return JSON.stringify({ named, width, count: links.length })
+     })()`,
+  )
+  const col = JSON.parse(collapsed)
+  check(
+    'collapsed sidebar keeps every item named',
+    col.named === true && col.width < 60 && col.count === 8,
+    collapsed,
   )
 
   // Focus rings are an accessibility requirement, not a decoration.

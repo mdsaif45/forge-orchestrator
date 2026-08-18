@@ -152,3 +152,27 @@ export {
 } from './policy'
 
 export { FORGE_DEFAULT_RULES, FORGE_DEFAULT_RULE_KEYS, type DefaultRule } from './forgeRules'
+
+export {
+  agentReportSchema,
+  canHoldRole,
+  hasDisqualifyingAssumptions,
+  missingCapabilities,
+  promptPacketSchema,
+  ROLE_REQUIRED_CAPABILITIES,
+  runtimeEventSchema,
+  runtimeIdSchema,
+  runtimeSessionStateSchema,
+  runtimeStatusSchema,
+  sessionIdSchema,
+  type AgentReport,
+  type AgentSessionId,
+  type IAgentRuntime,
+  type PromptPacket,
+  type RuntimeEvent,
+  type RuntimeId,
+  type RuntimeSessionState,
+  type RuntimeStatus,
+  type SessionHandle,
+  type SessionOptions,
+} from './runtime'

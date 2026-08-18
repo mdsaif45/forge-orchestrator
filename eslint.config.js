@@ -97,6 +97,42 @@ export default tseslint.config(
     },
   },
 
+  // ---- Axiom A6: no provider in core --------------------------------------
+  //
+  // The application layer talks to `IAgentRuntime` and resolves through
+  // `RuntimeRegistry`. Only `src/main/runtimes/*` may name a provider or reach for
+  // a concrete adapter. This is what let the #20 spike's finding — Antigravity
+  // ships no headless CLI — be a scoping decision instead of a rewrite.
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/main/runtimes/**', 'src/main/index.ts', '**/*.test.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/runtimes/mockRuntime', '**/runtimes/*CliRuntime', '**/runtimes/scenario'],
+              message:
+                'Axiom A6: core must not import a concrete runtime. Depend on IAgentRuntime and resolve through RuntimeRegistry. Only src/main/runtimes/* may name a provider.',
+            },
+          ],
+        },
+      ],
+      // Catches the other half of A6: a provider name written into core as a string
+      // literal or identifier, which an import restriction alone would not see.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            'Literal[value=/(?:^|[^a-z])(?:claude|anthropic|antigravity)(?:[^a-z]|$)/i], TemplateElement[value.raw=/(?:^|[^a-z])(?:claude|anthropic|antigravity)(?:[^a-z]|$)/i]',
+          message:
+            'Axiom A6: no provider name outside src/main/runtimes/*. Runtime and account identifiers are opaque strings to core.',
+        },
+      ],
+    },
+  },
+
   // ---- Shared -------------------------------------------------------------
   {
     files: ['src/shared/**/*.ts'],

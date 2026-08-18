@@ -28,11 +28,13 @@
     "smoke": "electron scripts/smoke.cjs",
     "check:router": "esbuild src/renderer/src/ipc.ts --bundle --format=esm --platform=node --outfile=scripts/build/renderer-ipc.js --log-level=warning && node scripts/router-check.mjs",
     "check:ui": "electron scripts/ui-check.cjs",
-    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build && npm run check:router && npm run smoke && npm run check:ui && npm run test:e2e",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build && npm run check:router && npm run check:docs && npm run smoke && npm run check:ui && npm run test:e2e",
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate && node scripts/generate-migrations.mjs",
     "db:check": "drizzle-kit check",
-    "setup:pty": "node scripts/setup-native.mjs --pty"
+    "setup:pty": "node scripts/setup-native.mjs --pty",
+    "docs:diagram": "esbuild src/shared/domain/transitions.ts --bundle --format=esm --platform=node --outfile=scripts/build/transitions.js --log-level=warning && node scripts/generate-state-diagram.mjs",
+    "check:docs": "esbuild src/shared/domain/transitions.ts --bundle --format=esm --platform=node --outfile=scripts/build/transitions.js --log-level=warning && node scripts/generate-state-diagram.mjs --check"
   },
   "dependencies": {
     "better-sqlite3": "^13.0.3",

@@ -2,9 +2,11 @@
 
 The entities Forge owns and the state machine that drives them.
 
-> **Status:** this is the specification the domain work implements. Nothing here
-> exists in code yet — `#14` defines the schemas, `#15` persists them, `#16` adds
-> the event log. Where a decision is deliberately deferred, the issue is named.
+> **Status:** the entities, the event log, and the state machine are built — `#14`
+> defines the schemas, `#15` persists them, `#16` adds the event log, `#27` the
+> transition table. Still specification: the engine that *drives* the machine (#28–#32)
+> and the evidence layer that feeds it (#33–#37). Where a decision is deliberately
+> deferred, the issue is named.
 
 ## Why Forge owns this at all
 
@@ -82,6 +84,55 @@ Terminal: `DONE` · `HALTED_LIMIT` · `HALTED_POLICY` · `CANCELLED`.
 
 `AWAITING_USER` records the state to return to, so resuming is exact rather than
 approximate.
+
+### The machine as built
+
+The ASCII diagram above is the specification, kept because it reads well. The diagram below
+is **generated from the transition table** in `src/shared/domain/transitions.ts`, so it
+cannot drift from the code — `npm run check` fails if it is stale.
+
+<!-- BEGIN GENERATED STATE DIAGRAM -->
+
+<!-- Generated from src/shared/domain/transitions.ts by npm run docs:diagram. Do not edit. -->
+
+```mermaid
+stateDiagram-v2
+    [*] --> DISCOVERY
+    DISCOVERY --> PLANNING: start
+    PLANNING --> PLAN_READY: planProduced
+    PLAN_READY --> DECISIONS_LOCKED: userApproved
+    DECISIONS_LOCKED --> IMPLEMENTING: implementationStarted
+    IMPLEMENTING --> VERIFYING: implemented
+    VERIFYING --> REVIEWING: verified
+    VERIFYING --> CORRECTION_REQUIRED: verificationFailed
+    REVIEWING --> DONE: reviewPassed
+    REVIEWING --> CORRECTION_REQUIRED: reviewFailed
+    CORRECTION_REQUIRED --> IMPLEMENTING: correctionStarted
+    AWAITING_USER --> AWAITING_USER: questionAnswered (returns to resumeState)
+    DONE --> [*]
+    HALTED_LIMIT --> [*]
+    HALTED_POLICY --> [*]
+    CANCELLED --> [*]
+
+    note right of DISCOVERY
+        From any non-terminal state:
+        questionRaised --> AWAITING_USER
+        limitReached --> HALTED_LIMIT
+        policyViolated --> HALTED_POLICY
+        cancelled --> CANCELLED
+    end note
+```
+<!-- END GENERATED STATE DIAGRAM -->
+
+Triggers are named for the *cause* rather than the destination, because several can lead to
+the same state and the reason is what the event log records. `verificationFailed` and
+`reviewFailed` both reach `CORRECTION_REQUIRED`; conflating them would lose whether the
+build broke or a reviewer objected.
+
+The iteration cap is enforced on the `correctionStarted` edge, because correction is the
+only edge that can loop (A5). Crossing it produces `HALTED_LIMIT` with `limitReached` as the
+recorded trigger, so the log says "limit" rather than showing a workflow that mysteriously
+stopped.
 
 ### Rules the machine must hold
 

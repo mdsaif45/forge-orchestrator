@@ -13,8 +13,13 @@ export interface OpenDatabaseOptions {
  * Opens the database and applies the pragmas Forge depends on.
  *
  * `better-sqlite3@13` ships N-API prebuilds keyed by platform rather than by Node
- * version, so it loads unchanged in both plain Node and Electron. No rebuild step
- * is required — verified against Node's ABI 127 and Electron's 148.
+ * version, so the same binary loads in both plain Node (ABI 127) and Electron
+ * (ABI 148) — no Electron-specific rebuild is needed.
+ *
+ * It does, however, ship a `binding.gyp`, which npm acts on regardless of the
+ * package's own `gypfile: false`, so an install would otherwise try to compile it
+ * from source and fail without a C++ toolchain. `.npmrc` sets `ignore-scripts` to
+ * prevent that; see `docs/PLAN.md`.
  */
 export interface OpenDatabaseResult {
   readonly db: ForgeDatabase

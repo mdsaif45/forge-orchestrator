@@ -92,6 +92,17 @@ puts the stack at the calling component rather than inside preload.
 4. add the method to ForgeApi in src/preload/api.ts
 ```
 
+Steps 2 and 3 cannot be verified against each other by the compiler — a channel with
+no method is unreachable, and a method with no channel fails only when something
+calls it. `scripts/smoke.cjs` compares the live bridge against `IPC_CHANNELS` from
+the built bundle, so the pair is checked at runtime instead.
+
+`handlers.ts` exports `createIpcHandlers(deps)` rather than a constant, because
+domain handlers need the database, which is opened during startup. Passing the
+dependencies in also lets the map be built against a temporary database in a test
+without an Electron process — the same reason `router.ts` takes its handlers as a
+parameter.
+
 ## Security posture
 
 App-wide guards, distinct from the per-agent permission model in #37.
@@ -126,6 +137,18 @@ question · event                  view preferences
 
 Domain state must not be mirrored into the renderer store: a persisted copy would
 diverge from the database *and* survive restarts, which is a second truth.
+
+`projectStore` is the one store holding fetched domain data, and it obeys two rules
+that keep the distinction intact:
+
+```
+mutate ──> main ──> re-read        never patch local state from the form
+persist ──> selectedProjectId only  a pointer, not the rows
+```
+
+Repository facts — branch, head SHA, dirty state — are probed on every read rather
+than stored at creation. The branch moves and commits land between one open and the
+next, so a stored copy would go stale silently.
 
 ## Git as evidence
 
@@ -227,7 +250,7 @@ Two traps worth remembering:
 
 | Area | Issue |
 |------|-------|
-| project creation, rules engine | #18 #19 |
+| rules engine with scope inheritance | #19 |
 | git write operations, gated by permissions | #37 |
 | agent runtimes, `IAgentRuntime` | #21 → #26 |
 | workflow engine, context engine | #27 → #32 |

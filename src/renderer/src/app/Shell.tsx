@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Outlet } from 'react-router'
 import { KitchenSink } from '../dev/KitchenSink'
 import { Dialog } from '../ui'
+import { CreateProjectDialog } from './CreateProjectDialog'
+import { useProjectStore } from './projectStore'
 import { Sidebar } from './Sidebar'
 import { StatusStrip } from './StatusStrip'
 
@@ -14,14 +16,40 @@ import { StatusStrip } from './StatusStrip'
  */
 export function Shell(): React.JSX.Element {
   const [sinkOpen, setSinkOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false)
+
+  const projects = useProjectStore((state) => state.projects)
+  const selectedProjectId = useProjectStore((state) => state.selectedProjectId)
+  const select = useProjectStore((state) => state.select)
+  const refresh = useProjectStore((state) => state.refresh)
+
+  // One load for the whole shell: the switcher and every page read the same store,
+  // so fetching per page would issue the same query several times per navigation.
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
 
   return (
     <div className="flex h-full flex-col bg-(--color-canvas)">
       <StatusStrip
-        projectName={null}
+        projects={projects}
+        selectedProjectId={selectedProjectId}
+        onSelectProject={(projectId) => {
+          void select(projectId)
+        }}
+        onNewProject={() => {
+          setCreateOpen(true)
+        }}
         workflowState="idle"
         onOpenKitchenSink={() => {
           setSinkOpen(true)
+        }}
+      />
+
+      <CreateProjectDialog
+        open={createOpen}
+        onClose={() => {
+          setCreateOpen(false)
         }}
       />
 

@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { changedFileSchema } from '@shared/domain'
 import { DirtyWorktreeError, GitService, NotARepositoryError } from '.'
@@ -55,6 +55,24 @@ describe('isRepo', () => {
       await expect(new GitService({ repositoryPath: plain }).isRepo()).resolves.toBe(false)
     } finally {
       rmSync(plain, { recursive: true, force: true })
+    }
+  })
+
+  it('accepts a path spelled differently from git output', async () => {
+    // Regression: the comparison was string-based, so a valid repository reached by
+    // an equivalent spelling was reported as "not a repository". This is what broke
+    // Windows CI, whose temp directory is an 8.3 short name that git resolves to the
+    // long form. Identity is now device+inode, which no spelling can change.
+    const spellings = [
+      `${repoPath}${sep}`,
+      repoPath.split('\\').join('/'),
+      ...(process.platform === 'win32' ? [repoPath.toUpperCase()] : []),
+    ]
+
+    for (const spelling of spellings) {
+      await expect(new GitService({ repositoryPath: spelling }).isRepo(), spelling).resolves.toBe(
+        true,
+      )
     }
   })
 

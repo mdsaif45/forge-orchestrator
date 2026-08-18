@@ -30,6 +30,120 @@ export const appInfoSchema = z.strictObject({
 export type AppInfo = z.infer<typeof appInfoSchema>
 
 /**
+ * Why a candidate folder cannot — or should not — be bound as a repository.
+ *
+ * Coded rather than free text so the renderer can decide presentation (a blocker
+ * versus a warning) without matching on message strings, and so a new reason
+ * cannot be added without both sides knowing about it.
+ */
+export const REPOSITORY_PROBE_CODES = [
+  'empty-path',
+  'not-absolute',
+  'missing',
+  'not-a-directory',
+  'not-a-repository',
+  'inside-repository',
+  'no-commits',
+  'detached-head',
+] as const
+
+export const repositoryProbeProblemSchema = z.strictObject({
+  code: z.enum(REPOSITORY_PROBE_CODES),
+  /** Written for the user, naming the specific thing to fix. */
+  detail: z.string().min(1),
+})
+
+export type RepositoryProbeProblem = z.infer<typeof repositoryProbeProblemSchema>
+
+/**
+ * What Forge observed about a candidate repository.
+ *
+ * `isRepository` false means nothing else here is meaningful. A dirty worktree is
+ * reported but is not a blocker: binding a repository with work in progress is
+ * normal, and the refusal that matters happens later, when a workflow captures a
+ * base SHA (`GitService.snapshot`).
+ */
+export const repositoryProbeSchema = z.strictObject({
+  path: z.string(),
+  isRepository: z.boolean(),
+  branch: z.string().nullable(),
+  headSha: z.string().nullable(),
+  dirty: z.boolean(),
+  /** Capped for display; `dirtyCount` carries the true total. */
+  dirtyPaths: z.array(z.string()).readonly(),
+  dirtyCount: z.number().int().nonnegative(),
+  problems: z.array(repositoryProbeProblemSchema).readonly(),
+})
+
+export type RepositoryProbe = z.infer<typeof repositoryProbeSchema>
+
+/** What the create-project form submits. Ids and timestamps are assigned in main. */
+export const createProjectRequestSchema = z.strictObject({
+  name: z.string().min(1),
+  repositoryPath: z.string().min(1),
+  defaultBranch: z.string().min(1),
+  buildCommand: z.string().min(1).nullable(),
+  testCommand: z.string().min(1).nullable(),
+  tech: z.array(z.string().min(1)).readonly(),
+  /** Free-text statements, one rule each, scoped to the project. */
+  rules: z.array(z.string().min(1)).readonly(),
+})
+
+export type CreateProjectRequest = z.infer<typeof createProjectRequestSchema>
+
+/**
+ * A project as the renderer sees it.
+ *
+ * Structurally the domain `Project`, redeclared here because the contract is the
+ * boundary's own type: `src/shared/domain` may not be reachable from the preload
+ * types, and a channel schema that referenced it would couple the wire format to
+ * an internal shape that is free to change. `projectSchema` remains the authority
+ * in main; this is validated against what crosses.
+ */
+export const projectViewSchema = z.strictObject({
+  id: z.string(),
+  name: z.string(),
+  repository: z.strictObject({
+    id: z.string(),
+    absolutePath: z.string(),
+    defaultBranch: z.string(),
+    buildCommand: z.string().nullable(),
+    testCommand: z.string().nullable(),
+    tech: z.array(z.string()).readonly(),
+  }),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
+
+export type ProjectView = z.infer<typeof projectViewSchema>
+
+export const ruleViewSchema = z.strictObject({
+  id: z.string(),
+  scope: z.string(),
+  key: z.string(),
+  statement: z.string(),
+  source: z.string(),
+  createdAt: z.string(),
+})
+
+export type RuleView = z.infer<typeof ruleViewSchema>
+
+/** A project plus the live repository state, which is read fresh rather than stored. */
+export const projectDetailSchema = z.strictObject({
+  project: projectViewSchema,
+  rules: z.array(ruleViewSchema).readonly(),
+  /** Null when the bound path is no longer a readable repository. */
+  probe: repositoryProbeSchema.nullable(),
+})
+
+export type ProjectDetail = z.infer<typeof projectDetailSchema>
+
+/** The result of a native directory picker. Null when the user cancelled. */
+export const pickDirectoryResponseSchema = z.strictObject({
+  path: z.string().nullable(),
+})
+
+/**
  * The channel table.
  *
  * `request` is validated in main before the handler runs; `response` is
@@ -38,6 +152,23 @@ export type AppInfo = z.infer<typeof appInfoSchema>
  */
 export const IPC_CONTRACT = {
   'app:getInfo': { request: empty, response: appInfoSchema },
+  'dialog:pickDirectory': { request: empty, response: pickDirectoryResponseSchema },
+  'project:probeRepository': {
+    request: z.strictObject({ path: z.string() }),
+    response: repositoryProbeSchema,
+  },
+  'project:create': {
+    request: createProjectRequestSchema,
+    response: projectViewSchema,
+  },
+  'project:list': {
+    request: empty,
+    response: z.strictObject({ projects: z.array(projectViewSchema).readonly() }),
+  },
+  'project:get': {
+    request: z.strictObject({ projectId: z.string() }),
+    response: projectDetailSchema.nullable(),
+  },
 } as const satisfies IpcContractShape
 
 interface IpcChannelSpec {

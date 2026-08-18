@@ -1,4 +1,5 @@
-import { Badge, Button, Separator, StatusDot } from '../ui'
+import type { ProjectView } from '@shared/ipc'
+import { Badge, Button, Select, Separator, StatusDot } from '../ui'
 import { useTheme } from '../ui'
 
 /**
@@ -11,7 +12,10 @@ import { useTheme } from '../ui'
  * the shape it renders is the real one.
  */
 export interface StatusStripProps {
-  readonly projectName: string | null
+  readonly projects: readonly ProjectView[]
+  readonly selectedProjectId: string | null
+  readonly onSelectProject: (projectId: string) => void
+  readonly onNewProject: () => void
   readonly workflowState: WorkflowStatePlaceholder
   readonly onOpenKitchenSink: () => void
 }
@@ -34,7 +38,10 @@ const STATE_PRESENTATION: Record<
 }
 
 export function StatusStrip({
-  projectName,
+  projects,
+  selectedProjectId,
+  onSelectProject,
+  onNewProject,
   workflowState,
   onOpenKitchenSink,
 }: StatusStripProps): React.JSX.Element {
@@ -47,9 +54,28 @@ export function StatusStrip({
 
       <Separator orientation="vertical" className="h-4" />
 
-      <span className="text-(length:--text-xs) text-(--color-text-muted)">
-        {projectName ?? 'No project'}
-      </span>
+      {/*
+        The switcher lives in global chrome because a project is the scope every
+        other screen is read through — moving between them should not require
+        navigating away from what you are looking at.
+      */}
+      {projects.length === 0 ? (
+        <span className="text-(length:--text-xs) text-(--color-text-muted)">No project</span>
+      ) : (
+        <Select
+          aria-label="Active project"
+          className="h-7 w-48"
+          options={projects.map((project) => ({ value: project.id, label: project.name }))}
+          value={selectedProjectId ?? ''}
+          onChange={(event) => {
+            onSelectProject(event.target.value)
+          }}
+        />
+      )}
+
+      <Button size="sm" variant="ghost" onClick={onNewProject}>
+        New project
+      </Button>
 
       {/* `aria-live` so a state change is announced without stealing focus. */}
       <span

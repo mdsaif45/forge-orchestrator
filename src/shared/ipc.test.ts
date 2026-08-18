@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { appInfoSchema, IPC_CHANNELS, IPC_CONTRACT, isIpcChannel } from './ipc'
+import {
+  appInfoSchema,
+  IPC_CHANNELS,
+  IPC_CONTRACT,
+  isIpcChannel,
+  repositoryProbeProblemSchema,
+} from './ipc'
 
 describe('IPC contract', () => {
   it('exposes every declared channel', () => {
@@ -70,5 +76,54 @@ describe('IPC contract', () => {
       const result = appInfoSchema.safeParse({ ...valid, version: 1 })
       expect(result.success).toBe(false)
     })
+  })
+})
+
+describe('project channels', () => {
+  it('rejects a create request with a blank name', () => {
+    const spec = IPC_CONTRACT['project:create']
+
+    const result = spec.request.safeParse({
+      name: '',
+      repositoryPath: 'D:/Projects/InTime',
+      defaultBranch: 'main',
+      buildCommand: null,
+      testCommand: null,
+      tech: [],
+      rules: [],
+    })
+
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts a create request with nullable commands', () => {
+    const spec = IPC_CONTRACT['project:create']
+
+    const result = spec.request.safeParse({
+      name: 'InTime',
+      repositoryPath: 'D:/Projects/InTime',
+      defaultBranch: 'main',
+      buildCommand: null,
+      testCommand: null,
+      tech: ['.NET 9'],
+      rules: ['never modify migrations'],
+    })
+
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects an unknown probe problem code', () => {
+    // The codes are a closed set so the renderer can branch on them without
+    // matching message strings; a new reason must be declared on both sides.
+    const result = repositoryProbeProblemSchema.safeParse({
+      code: 'something-new',
+      detail: 'x',
+    })
+
+    expect(result.success).toBe(false)
+  })
+
+  it('allows project:get to resolve null for an id that does not exist', () => {
+    expect(IPC_CONTRACT['project:get'].response.safeParse(null).success).toBe(true)
   })
 })

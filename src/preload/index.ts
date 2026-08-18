@@ -23,6 +23,15 @@ const api: ForgeApi = {
   app: {
     getInfo: () => call('app:getInfo', {}),
   },
+  dialog: {
+    pickDirectory: () => call('dialog:pickDirectory', {}),
+  },
+  project: {
+    probeRepository: (path) => call('project:probeRepository', { path }),
+    create: (request) => call('project:create', request),
+    list: () => call('project:list', {}),
+    get: (projectId) => call('project:get', { projectId }),
+  },
 }
 
 contextBridge.exposeInMainWorld('forge', api)

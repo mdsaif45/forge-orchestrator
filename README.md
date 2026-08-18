@@ -124,11 +124,55 @@ No agent is ever permitted to write `"I assume..."` and continue.
 
 ## Stack
 
+In use today:
+
 ```
-Electron  ·  electron-vite  ·  React + TypeScript (strict)
-Tailwind + hand-rolled primitives  ·  zustand (UI state only)
-better-sqlite3 + Drizzle  ·  node-pty  ·  zod  ·  vitest + playwright
+Electron 43 · electron-vite 5 · Vite 7 · React 19 · TypeScript 5.9 (strict)
+Tailwind 4 + hand-rolled primitives · zustand (UI state only) · zod 4
+vitest · playwright · eslint 10 · prettier
 ```
+
+Planned, per milestone:
+
+```
+better-sqlite3 + Drizzle   persistence          M1  (#15)
+node-pty                   agent CLI processes  M2  (#23)
+```
+
+## Quickstart
+
+```bash
+npm install     # also fetches Electron's binary; see the note below
+npm run dev
+```
+
+Verify everything the way CI does:
+
+```bash
+npm run check
+```
+
+```
+format:check → lint → typecheck → test → build
+            → check:router → smoke → check:ui → test:e2e
+```
+
+| Command | What it proves |
+|---------|----------------|
+| `npm run test` | logic and primitives, in Node and jsdom |
+| `npm run check:router` | IPC boundary rules, without launching Electron |
+| `npm run smoke` | process isolation, CSP, and the preload bridge |
+| `npm run check:ui` | computed styles, themes, and routing |
+| `npm run test:e2e` | the real app's own startup path |
+
+If you see `Error: Electron uninstall`, the binary is missing —
+`electron@43` ships no postinstall of its own, so this project declares one:
+
+```bash
+npm run postinstall
+```
+
+`npm rebuild electron` does **not** fetch it.
 
 ## Roadmap
 
@@ -148,9 +192,20 @@ MVP = M0 → M5. Progress is tracked in
 
 ## Status
 
-Pre-alpha. Planning and issue breakdown complete; implementation starts at M0.
+Pre-alpha, in **M0**. The app boots with a hardened process boundary, a reusable
+design system, a routed shell, and a verification gate wired into CI on Linux and
+Windows. No agent orchestration exists yet — that begins at M2.
 
-See [`docs/PLAN.md`](docs/PLAN.md) for the full build plan.
+## Documentation
+
+| Document | Contents |
+|----------|----------|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | processes, IPC contract, security posture, verification layers |
+| [`docs/DOMAIN.md`](docs/DOMAIN.md) | entities and the workflow state machine (specification) |
+| [`docs/PLAN.md`](docs/PLAN.md) | milestones, and the toolchain traps found along the way |
+| [`docs/FORGE_RULES.md`](docs/FORGE_RULES.md) | the policy set Forge enforces on its agents |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | branch flow and the lint-enforced boundaries |
+| [`CLAUDE.md`](CLAUDE.md) | conventions for coding agents working on Forge |
 
 ## Non-goals (for the MVP)
 

@@ -11,6 +11,8 @@
 
 export { IncapableRuntimeError, RuntimeRegistry, UnknownRuntimeError } from './registry'
 
+export { exchange, type ExchangeOutcome } from './exchange'
+
 export { MockAgentRuntime, type MockRuntimeOptions } from './mockRuntime'
 
 export {

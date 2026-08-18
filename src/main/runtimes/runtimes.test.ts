@@ -58,7 +58,10 @@ function packet(overrides: Partial<PromptPacket> = {}): PromptPacket {
     lockedDecisions: [],
     allowedPaths: ['src/**'],
     forbiddenPaths: [],
+    relevantFiles: [],
     reviewFindings: [],
+    previousAttempt: null,
+    completionCriteria: [],
     answeredQuestions: [],
     ...overrides,
   })
@@ -398,6 +401,11 @@ describe('every scenario', () => {
       timeout: 'working',
       crash: 'failed',
       authFailure: 'failed',
+      // A `text` ending returns to idle rather than completing: the session stays alive
+      // waiting for the next instruction, which is how a real multi-step CLI behaves.
+      textReply: 'idle',
+      noReport: 'idle',
+      malformedTwice: 'idle',
     })
   })
 })

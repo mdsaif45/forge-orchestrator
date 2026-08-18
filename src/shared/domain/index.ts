@@ -176,3 +176,20 @@ export {
   type SessionHandle,
   type SessionOptions,
 } from './runtime'
+
+export {
+  assessReport,
+  parseAgentReport,
+  protocolErrorCodeSchema,
+  renderPromptPacket,
+  REPORT_BEGIN,
+  REPORT_END,
+  REPORT_INSTRUCTIONS,
+  reportVerdictSchema,
+  type ProtocolErrorCode,
+  type ProtocolFailure,
+  type ProtocolResult,
+  type ProtocolSuccess,
+  type ReportAssessment,
+  type ReportVerdict,
+} from './protocol'

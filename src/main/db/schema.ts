@@ -212,6 +212,44 @@ export const changeSets = sqliteTable(
 )
 
 /**
+ * What Forge observed when it ran a command itself (axiom A3).
+ *
+ * The raw `stdout` and `stderr` are stored rather than a parsed summary: a parser
+ * that mis-reads a runner's format would otherwise destroy the only record of what
+ * happened, and the output is already capped at capture time.
+ *
+ * `exit_code` is nullable because a run that was killed — timed out, cancelled, or
+ * killed for flooding its output — never reported one. Null is not a pass; the
+ * verdict is computed by `evidencePassed`, never stored, so nothing can write a
+ * verdict that disagrees with the evidence beside it.
+ */
+export const evidenceArtifacts = sqliteTable(
+  'evidence_artifacts',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    workflowId: text('workflow_id').notNull(),
+    stepId: text('step_id').notNull(),
+    kind: text('kind').notNull(),
+    command: text('command').notNull(),
+    cwd: text('cwd').notNull(),
+    outcome: text('outcome').notNull(),
+    exitCode: integer('exit_code'),
+    durationMs: integer('duration_ms').notNull(),
+    stdout: text('stdout').notNull(),
+    stderr: text('stderr').notNull(),
+    truncated: integer('truncated').notNull(),
+    /** JSON `testCountsSchema`, or null when nothing could be parsed. */
+    counts: text('counts'),
+    failure: text('failure'),
+    recordedAt: text('recorded_at').notNull(),
+  },
+  (table) => [index('evidence_artifacts_step').on(table.stepId, table.recordedAt)],
+)
+
+/**
  * The append-only event log.
  *
  * `(project_id, seq)` is the primary key, which makes ordering total within a

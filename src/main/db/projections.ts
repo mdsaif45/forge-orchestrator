@@ -1,7 +1,15 @@
 import { eq } from 'drizzle-orm'
 import type { DomainEvent, EventPayloads, EventType, ProjectId } from '@shared/domain'
 import type { ForgeDatabase } from './connection'
-import { projects, repositories, rules, tasks, workflows, workflowSteps } from './schema'
+import {
+  evidenceArtifacts,
+  projects,
+  repositories,
+  rules,
+  tasks,
+  workflows,
+  workflowSteps,
+} from './schema'
 import { toJson } from './rows'
 
 /**
@@ -264,6 +272,47 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
     return
   }
 
+  if (isType(event, 'evidence.recorded')) {
+    const { artifact } = event.payload
+    db.insert(evidenceArtifacts)
+      .values({
+        id: artifact.id,
+        projectId: event.projectId,
+        workflowId: artifact.workflowId,
+        stepId: artifact.stepId,
+        kind: artifact.kind,
+        command: artifact.command,
+        cwd: artifact.cwd,
+        outcome: artifact.outcome,
+        exitCode: artifact.exitCode,
+        durationMs: artifact.durationMs,
+        stdout: artifact.stdout,
+        stderr: artifact.stderr,
+        truncated: artifact.truncated ? 1 : 0,
+        counts: artifact.counts === null ? null : toJson(artifact.counts),
+        failure: artifact.failure,
+        recordedAt: artifact.recordedAt,
+      })
+      // An absolute overwrite rather than a read-modify-write, so replaying the same
+      // event leaves the same row. An artifact is immutable once recorded, so the
+      // conflict case only arises on replay.
+      .onConflictDoUpdate({
+        target: evidenceArtifacts.id,
+        set: {
+          outcome: artifact.outcome,
+          exitCode: artifact.exitCode,
+          durationMs: artifact.durationMs,
+          stdout: artifact.stdout,
+          stderr: artifact.stderr,
+          truncated: artifact.truncated ? 1 : 0,
+          counts: artifact.counts === null ? null : toJson(artifact.counts),
+          failure: artifact.failure,
+        },
+      })
+      .run()
+    return
+  }
+
   // Everything else is recorded in the log but has no read model yet. This is a
   // deliberate no-op rather than an error: the events are still replayable, and
   // their projections arrive with the features that read them.
@@ -286,7 +335,6 @@ const PROJECTED_LATER: ReadonlySet<EventType> = new Set([
   'question.answered', // #38
   'changeset.captured', // #34
   'changeset.reviewed', // #36
-  'evidence.recorded', // #33
 ])
 
 /**

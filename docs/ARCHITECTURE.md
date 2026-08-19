@@ -720,6 +720,145 @@ The waiter is installed in the same synchronous turn as the empty-queue check; s
 it after an `await` loses any event emitted in between, which is a lost wakeup that hung
 every scenario whose step performed no file edit.
 
+## Evidence runners (A3)
+
+Forge runs the project's own build and test commands and keeps what it observed. An
+agent's report is a claim; this is the fact it gets checked against.
+
+```
+repository.buildCommand ──┐
+repository.testCommand  ──┴──> CommandRunner ──> EvidenceArtifact ──> evidence.recorded
+                                                       │
+                                              evidencePassed()  <- computed, never stored
+```
+
+Build runs before tests, and a failed build skips the tests: a suite run against a tree
+that does not compile produces output about the build failure, which is noise inside an
+artifact labelled `tests`.
+
+### Why this does not use ProcessManager
+
+`ProcessManager` is a pty, which merges stdout and stderr into one TTY-wrapped,
+colourised stream. Evidence gets parsed, and parsing a corrupted stream produces
+evidence that *looks* real — the exact failure A3 exists to prevent.
+
+```
+pty       agent CLIs      interactive, needs a TTY        ProcessManager
+execFile  build / tests   parsed, needs clean streams     CommandRunner
+```
+
+### Why this *does* use a shell, when GitService refuses one
+
+The two look contradictory until you ask what the untrusted part is.
+
+```
+GitService     a branch name / path is interpolated INTO a command
+               -> a shell would make that data executable        -> no shell
+CommandRunner  the command string IS the user's configured input
+               -> a shell executes what the user wrote           -> shell is correct
+```
+
+Tokenising the string instead was rejected: it would silently break every `&&`, pipe,
+and `VAR=x` prefix a real build command contains, and a half-written shell parser is
+its own defect source. `cmd.exe /d /s /c` on win32 (`/d` skips AutoRun, so a
+machine-local registry setting cannot alter what Forge observes), `/bin/sh -c` elsewhere.
+
+### Four abnormal endings, each measured
+
+`execFile` does not report these the way its option names imply. Measured against
+Node 22, not recalled:
+
+```
+exit N         code = N (number)                        killed = false
+timeout        code = null, signal SIGTERM              <- NOT 'ETIMEDOUT'
+abort          name 'AbortError' / code 'ABORT_ERR'
+maxBuffer      RangeError ERR_CHILD_PROCESS_STDIO_MAXBUFFER
+               child KILLED, partial output kept, EXIT CODE LOST
+missing shell  code = 'ENOENT'
+```
+
+The `maxBuffer` case is why truncation is its own outcome rather than a flag on a
+successful run: the child dies, so a command that would have exited 0 reports no code
+at all. Calling that `completed` would invent a verdict nobody observed.
+
+### The timeout must kill the tree, not the shell
+
+The bug this avoids, found by measurement rather than review:
+
+```
+execFile timeout   kills cmd.exe ONLY
+                   node grandchild survives, holds the cwd lock, runs forever
+                   -> a timed-out `npm test` keeps running against the user's repo
+```
+
+`taskkill /T` walks the tree downward *from a live parent*, so a kill attempted in the
+completion callback finds nothing to walk — by then the shell is already gone
+("process not found") while the grandchild keeps running. The fix is ordering: the
+runner owns its own timer and kills the tree **while the shell is still alive**.
+
+```
+execFile timeout   cmd.exe ✗ ... then kill tree  -> parent gone, walk fails
+own the timer      kill tree while cmd.exe ✓     -> whole tree dies
+```
+
+`killTree` is synchronous on win32 for the same reason — an async spawn would let the
+shell exit first, which is precisely the failure being prevented.
+
+### The POSIX half, which behaves differently again
+
+`detached: true` asks for the child to lead its own process group, but measured on
+Linux CI the group is **not** reliably there to kill:
+
+```
+process.kill(-pid, 'SIGKILL')  ->  ESRCH        group is not there
+process.kill(pid,  'SIGKILL')  ->  OK
+```
+
+The first version swallowed that `ESRCH` as "already gone", so nothing was killed at
+all and the child ran on. `killTree` falls back to the pid.
+
+### `execFile` completes on `close`, not `exit`
+
+Confirmed in Node's own source: it registers a `close` listener and no `exit` listener.
+`close` waits for every stdio pipe to reach EOF, which a killed tree may never deliver:
+
+```
+Linux    SIGKILLed shell   exit ✓ (signal SIGKILL)   close ✗ never
+                           -> a grandchild still holds the inherited stdout pipe
+Windows  taskkill /T       exit ✓                    close ✓  (same millisecond)
+                           -> console handles die with the tree
+```
+
+So the run settles from `exit` as well, guarded so it resolves once. That asymmetry is
+also why Windows cannot reproduce its own CI failure: the three tests that kill a
+process hung at 5s on Linux while passing locally throughout.
+
+### Parsed counts decide nothing
+
+```
+exit code  ──> the verdict          (authoritative)
+counts     ──> "3 of 214 failed"    (best-effort, for a human or a correction packet)
+```
+
+Every count field is nullable, and a parser that cannot read a format returns `null`
+rather than zero — a zero reads as "no failures" and would quietly contradict the exit
+code beside it. Formats are matched by keyword, not position, because the orderings are
+not stable: vitest prints `19 passed (19)` on a clean run but
+`1 failed | 2 passed | 1 skipped (4)` on a mixed one, so reading the first number as the
+total is wrong on one of the two. Raw `stdout`/`stderr` are always stored, so a
+mis-reading parser cannot destroy the only record of what happened.
+
+### What the liar scenario proves
+
+```
+liar claims  filesChanged: ['src/math.ts']  ──> caught by reconciliation (#34, git diff)
+             testsRun: true                 ──> caught HERE (Forge runs them itself)
+```
+
+No diff can see whether a test ran, which is why the two layers are separate. A false
+claim is reported apart from a failing build: a build failing is ordinary, an agent
+reporting tests it never ran is a trust failure.
+
 ## Rules and the effective policy
 
 ```

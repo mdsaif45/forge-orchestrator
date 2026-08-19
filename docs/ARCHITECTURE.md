@@ -200,6 +200,72 @@ unacceptable in a read-only service operating on a repository an agent may still
 editing. Untracked paths therefore come from `status`, and each is diffed against
 the null device with `--no-index`, which exits 1 by design when the files differ.
 
+## The orchestrator
+
+The point where everything built separately becomes a loop.
+
+```
+template step ──> binding ──> registry ──> runtime
+      │                                       │
+ checkpoint (write-ahead, #28)         exchange(packet, #26)
+      │                                       │
+ guards: budgets · no-progress (#29)   validated report
+      │                                       │
+      └────────> transition (#27) ──> next step
+```
+
+It **coordinates and does not decide**. Is this move legal? The transition table. Is the
+budget spent? The guards. Is this report acceptable? `assessReport`. That keeps it small
+enough to read, and means a policy question has exactly one place to be answered.
+
+### A template names roles, never runtimes
+
+```
+1  planner       ──> binding ──> some runtime
+2  user          ──> approval gate, no runtime
+3  implementer   ──> binding ──> some runtime
+4  system        ──> Forge verifies: build, test, diff scope
+5  reviewer      ──> binding ──> some runtime
+```
+
+Swapping which runtime plans and which implements is a change to **binding data**, never to
+code (A6). A test asserts exactly that: two runtimes, bindings swapped, same template, same
+result. Another asserts the template JSON mentions no provider at all.
+
+`DECISIONS_LOCKED` deliberately has no template step — arriving there *is* the locking, and
+the machine passes straight through. Giving it a step would run the implementer twice, once
+from each state.
+
+### Capability checks happen at bind time
+
+```
+bindRole()  ──> runtime lacks the capability ──> IncapableRuntimeError, naming it
+precheck()  ──> unbound role · unregistered runtime · invalid template
+```
+
+Both before any work happens. A read-only runtime bound as the implementer, or a missing
+reviewer discovered at step five, has already spent an agent's time and left a half-finished
+change.
+
+### Permissions are the intersection of role and request
+
+```
+planner     read only            a plan that could write is an implementation (#42)
+reviewer    read + tests         one that could fix what it found would not report it
+gitWrite    never                the final commit is the user's call, this MVP
+```
+
+A project may **narrow** a role but never widen it. A settings screen that could grant an
+implementer's write access to a reviewer would make the role distinction decorative (A7).
+
+### One bug worth recording
+
+The no-progress guard fingerprints the worktree diff. A planner and a reviewer legitimately
+change nothing, so their diffs are identically empty — feeding those to the detector tripped
+it on the *first* implementer step and halted a perfectly good run with "no progress". The
+guard was right and the input was wrong: fingerprinting is now limited to roles that hold
+`writeFiles`. Found by the end-to-end test, which is the only place it could surface.
+
 ## The context engine
 
 ```
@@ -672,6 +738,6 @@ Two traps worth remembering:
 |------|-------|
 | git write operations, gated by permissions | #37 |
 | real CLI adapters | #24 #25 |
-| workflow orchestrator, workflow UI | #31 #32 |
+| workflow UI (graph, live log, resume banner) | #32 |
 | evidence, policy engine | #33 → #37 |
 | questions, decision lock, diff UI | #38 → #42 |

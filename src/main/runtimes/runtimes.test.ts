@@ -407,6 +407,7 @@ describe('every scenario', () => {
       noReport: 'idle',
       malformedTwice: 'idle',
       noProgress: 'completed',
+      fullRun: 'completed',
     })
   })
 })

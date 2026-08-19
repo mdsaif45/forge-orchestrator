@@ -19,6 +19,7 @@ export {
   changeSetIdSchema,
   decisionIdSchema,
   eventIdSchema,
+  evidenceIdSchema,
   projectIdSchema,
   questionIdSchema,
   repoPathSchema,
@@ -34,6 +35,7 @@ export {
   type ChangeSetId,
   type DecisionId,
   type EventId,
+  type EvidenceId,
   type ProjectId,
   type QuestionId,
   type RepoPath,
@@ -130,6 +132,18 @@ export {
   type ChangeSet,
   type Discrepancy,
 } from './changeset'
+
+export {
+  evidenceArtifactSchema,
+  evidenceFindings,
+  evidencePassed,
+  runOutcomeSchema,
+  summariseEvidence,
+  testCountsSchema,
+  type EvidenceArtifact,
+  type RunOutcome,
+  type TestCounts,
+} from './evidence'
 
 export {
   domainEventSchema,

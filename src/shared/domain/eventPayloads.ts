@@ -3,6 +3,7 @@ import type { EventType } from './event'
 import { changeSetSchema } from './changeset'
 import { decisionSchema } from './decision'
 import { verdictSchema, workflowStateSchema } from './enums'
+import { evidenceArtifactSchema } from './evidence'
 import {
   actorSchema,
   changeSetIdSchema,
@@ -158,14 +159,16 @@ const changeSetReviewed = z.strictObject({
 /**
  * Evidence Forge gathered itself (axiom A3).
  *
- * Deliberately coarse for now: the structured artifact types arrive with the
- * runners in #33, and inventing their shape here would be a guess.
+ * The whole artifact is the payload rather than a summary of it, because the log is
+ * the authority: a projection rebuilt from a summary could not reproduce the output
+ * a reviewer read, and evidence that cannot be reproduced is not evidence. The
+ * output is capped at capture time, which is what keeps this bounded.
  */
 const evidenceRecorded = z.strictObject({
+  artifact: evidenceArtifactSchema,
+  /** Denormalised so the log can be filtered without parsing every payload. */
   workflowId: workflowIdSchema,
   stepId: stepIdSchema,
-  kind: z.string().min(1),
-  exitCode: z.number().int().nullable(),
   summary: z.string().min(1),
 })
 

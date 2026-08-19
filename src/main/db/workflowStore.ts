@@ -1,12 +1,16 @@
 import { and, asc, eq, isNotNull, isNull } from 'drizzle-orm'
 import { z } from 'zod'
 import {
+  evidenceArtifactSchema,
+  testCountsSchema,
+  summariseEvidence,
   transition,
   workflowCheckpointSchema,
   workflowLimitsSchema,
   workflowSchema,
   workflowStepSchema,
   type Actor,
+  type EvidenceArtifact,
   type ProjectId,
   type Workflow,
   type WorkflowCheckpoint,
@@ -20,7 +24,7 @@ import type { ForgeDatabase } from './connection'
 import { EventStore } from './eventStore'
 import { applyEvent } from './projections'
 import { fromJson, parseRow } from './rows'
-import { workflows, workflowSteps } from './schema'
+import { evidenceArtifacts, workflows, workflowSteps } from './schema'
 
 /**
  * The command layer for workflows.
@@ -231,6 +235,78 @@ export class WorkflowStore {
       )
       applyEvent(this.db, event)
     })
+  }
+
+  /**
+   * Records what Forge observed when it ran a command itself (axiom A3).
+   *
+   * Written after the run rather than before it, unlike a step: the artifact *is* the
+   * result, so there is nothing to write ahead of. The step's own checkpoint is what
+   * makes a crash mid-run recoverable — the command is simply re-run, which is safe
+   * because a build or test run is idempotent in the only sense that matters here
+   * (running it again produces evidence, not a second side effect on the domain).
+   */
+  recordEvidence(artifact: EvidenceArtifact, actor: Actor, occurredAt: string): void {
+    const parsed = evidenceArtifactSchema.parse(artifact)
+
+    this.db.transaction(() => {
+      const event = this.events.append(
+        {
+          type: 'evidence.recorded',
+          payload: {
+            artifact: parsed,
+            workflowId: parsed.workflowId,
+            stepId: parsed.stepId,
+            summary: summariseEvidence(parsed),
+          },
+        },
+        { projectId: this.projectIdOf(parsed.workflowId), actor, occurredAt },
+      )
+      applyEvent(this.db, event)
+    })
+  }
+
+  /**
+   * Evidence recorded for one step, oldest first.
+   *
+   * Read-only, like every other reader here: the verdict is recomputed from the
+   * artifact by `evidencePassed` rather than stored, so no row can claim a verdict
+   * that disagrees with the exit code beside it.
+   */
+  evidenceForStep(stepId: WorkflowStep['id']): readonly EvidenceArtifact[] {
+    const rows = this.db
+      .select()
+      .from(evidenceArtifacts)
+      .where(eq(evidenceArtifacts.stepId, stepId))
+      .orderBy(asc(evidenceArtifacts.recordedAt))
+      .all()
+
+    return rows.map((row) =>
+      parseRow(
+        evidenceArtifactSchema,
+        {
+          id: row.id,
+          workflowId: row.workflowId,
+          stepId: row.stepId,
+          kind: row.kind,
+          command: row.command,
+          cwd: row.cwd,
+          outcome: row.outcome,
+          exitCode: row.exitCode,
+          durationMs: row.durationMs,
+          stdout: row.stdout,
+          stderr: row.stderr,
+          truncated: row.truncated !== 0,
+          counts:
+            row.counts === null
+              ? null
+              : fromJson(testCountsSchema, row.counts, 'evidence_artifacts.counts'),
+          failure: row.failure,
+          recordedAt: row.recordedAt,
+        },
+        'evidence_artifacts',
+      ),
+    )
   }
 
   /**

@@ -34,6 +34,7 @@ export const taskIdSchema = id<'TaskId'>()
 export const workflowIdSchema = id<'WorkflowId'>()
 export const stepIdSchema = id<'StepId'>()
 export const changeSetIdSchema = id<'ChangeSetId'>()
+export const evidenceIdSchema = id<'EvidenceId'>()
 export const eventIdSchema = id<'EventId'>()
 
 export type ProjectId = z.infer<typeof projectIdSchema>
@@ -46,6 +47,7 @@ export type TaskId = z.infer<typeof taskIdSchema>
 export type WorkflowId = z.infer<typeof workflowIdSchema>
 export type StepId = z.infer<typeof stepIdSchema>
 export type ChangeSetId = z.infer<typeof changeSetIdSchema>
+export type EvidenceId = z.infer<typeof evidenceIdSchema>
 export type EventId = z.infer<typeof eventIdSchema>
 
 /**

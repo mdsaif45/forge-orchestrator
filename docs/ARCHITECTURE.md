@@ -200,6 +200,75 @@ unacceptable in a read-only service operating on a repository an agent may still
 editing. Untracked paths therefore come from `status`, and each is diffed against
 the null device with `--no-index`, which exits 1 by design when the files differ.
 
+## Reconciliation: claims against reality
+
+This is where A3 stops being a promise.
+
+```
+report.filesChanged   ──┐
+real git diff         ──┼──> reconcile
+task.scope            ──┘        ├── claimed but unchanged   discrepancy, LOOPS
+                                 ├── changed but unclaimed   discrepancy, LOOPS
+                                 └── outside allowedPaths    HALTS
+```
+
+Both directions of mismatch matter, for different reasons:
+
+```
+claimed but unchanged   the work was not done            the `liar` scenario
+changed but unclaimed   the agent does not know what it did
+```
+
+The second is worse. An agent that misreports its own edits cannot be reasoned with about
+them on the next iteration.
+
+### Dishonesty loops; a scope breach halts
+
+The distinction the design rests on. A dishonest claim goes back as a **review finding** —
+that is the correction loop working as intended. An out-of-scope edit is a **policy breach**:
+the agent touched something the task forbade, and continuing would build on a change the user
+never sanctioned (A7).
+
+So `scopeCreep` halts even though its report is perfectly *honest* — it reports the forbidden
+edit accurately. The violation is the edit, not the report.
+
+```
+one file -> one discrepancy
+```
+
+A path that is both out of scope and unreported yields **one** finding, not two: scope is the
+more serious fact and the run halts either way, so whether the agent also mentioned it is
+moot. Honesty is still judged on the unfiltered comparison, or an unreported forbidden edit
+would count as an accurate claim.
+
+### Scope policy
+
+```
+forbiddenPaths wins over allowedPaths     a prohibition is not "unless something permits it"
+empty allowedPaths = anywhere not forbidden   the common case early in a project
+```
+
+Defaulting an empty allow list to "nothing is allowed" would halt every workflow until
+someone wrote a glob.
+
+### The glob matcher is hand-written
+
+`src/shared` may not import anything environment-specific, and the one matcher already in the
+tree (`picomatch`) is a transitive dependency of a build tool — relying on it would break the
+day that tool changes its own dependencies. Every semantic was **measured against picomatch**
+rather than recalled, because a policy that quietly matches more than the user wrote lets an
+agent edit forbidden files, and one that matches less halts legitimate work. Both fail
+silently.
+
+```
+src/DS      matches src/a.ts, src/deep/b.ts, AND src itself
+src/S       matches src/a.ts but NOT src/deep/b.ts
+DS/*.ts     matches a.ts at depth ZERO as well as src/a.ts
+```
+
+(That last case is the one a naive implementation misses: the leading `**/` has nothing to
+consume.)
+
 ## The orchestrator
 
 The point where everything built separately becomes a loop.
@@ -739,5 +808,5 @@ Two traps worth remembering:
 | git write operations, gated by permissions | #37 |
 | real CLI adapters | #24 #25 |
 | workflow UI (graph, live log, resume banner) | #32 |
-| evidence, policy engine | #33 → #37 |
+| build/test runners, verdicts, policy engine | #33 #35 #36 #37 |
 | questions, decision lock, diff UI | #38 → #42 |

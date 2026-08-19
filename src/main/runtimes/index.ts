@@ -11,7 +11,25 @@
 
 export { IncapableRuntimeError, RuntimeRegistry, UnknownRuntimeError } from './registry'
 
+export {
+  bindRole,
+  BindingSet,
+  permits,
+  requiredCapabilities,
+  UnboundRoleError,
+  type CreateBindingInput,
+} from './bindings'
+
 export { exchange, type ExchangeOutcome } from './exchange'
+
+export {
+  Orchestrator,
+  UnrunnableWorkflowError,
+  type OrchestratorDeps,
+  type RunOptions,
+  type RunOutcome,
+  type StepContext,
+} from './orchestrator'
 
 export { MockAgentRuntime, type MockRuntimeOptions } from './mockRuntime'
 

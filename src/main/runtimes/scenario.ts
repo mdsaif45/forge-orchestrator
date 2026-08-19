@@ -380,6 +380,41 @@ export const NO_PROGRESS: Scenario = scenarioSchema.parse({
   ),
 })
 
+/**
+ * Enough honest turns for a whole workflow: plan, implement, review.
+ *
+ * Distinct from `happy`, which scripts a single step. A full run through the Feature
+ * Implementation template needs three *agent* turns, and a scenario that ran out partway
+ * would fail as "the agent produced no usable report" — a confusing way to discover the
+ * fixture was too short.
+ */
+export const FULL_RUN: Scenario = scenarioSchema.parse({
+  name: 'fullRun',
+  description: 'Plans, implements, and reviews — three honest turns',
+  capabilities: ALL,
+  steps: [
+    step({
+      narration: ['Reading src/math.ts', 'The constant is wrong'],
+      report: report({ summary: 'Plan: correct the constant to 42' }),
+    }),
+    step({
+      narration: ['Applying the fix'],
+      tools: [{ name: 'Edit', detail: 'src/math.ts' }],
+      edits: [{ path: 'src/math.ts', contents: 'export const answer = 42\n' }],
+      report: report({
+        summary: 'Corrected the constant',
+        filesChanged: ['src/math.ts'],
+        commandsRun: ['npm test'],
+        testsRun: true,
+      }),
+    }),
+    step({
+      narration: ['Reading the diff'],
+      report: report({ summary: 'The change is correct and in scope' }),
+    }),
+  ],
+})
+
 export const SCENARIOS = {
   happy: HAPPY_PATH,
   correction: CORRECTION,
@@ -395,6 +430,7 @@ export const SCENARIOS = {
   noReport: NO_REPORT,
   malformedTwice: MALFORMED_TWICE,
   noProgress: NO_PROGRESS,
+  fullRun: FULL_RUN,
 } as const satisfies Record<string, Scenario>
 
 export type ScenarioName = keyof typeof SCENARIOS

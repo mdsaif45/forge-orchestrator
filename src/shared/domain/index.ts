@@ -250,3 +250,15 @@ export {
   type ContextTrace,
   type FileCandidate,
 } from './contextEngine'
+
+export {
+  FEATURE_IMPLEMENTATION,
+  templateStepSchema,
+  TEMPLATES,
+  validateTemplate,
+  workflowTemplateSchema,
+  type TemplateId,
+  type TemplateProblem,
+  type TemplateStep,
+  type WorkflowTemplate,
+} from './template'

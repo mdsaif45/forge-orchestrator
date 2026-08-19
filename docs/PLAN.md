@@ -110,6 +110,58 @@ Never dump full history. Never include `.env`. Snapshot every packet for replay.
 
 MVP = M0..M5. One project, one loop, no manual copy-paste.
 
+## Execution order
+
+Milestones say *what each layer proves*; this says *what order the remaining work
+runs in*, and why a blocked M2 does not stall the MVP.
+
+```
+PHASE A  Evidence          M4   #33 -> #35 -> #36 -> #37
+PHASE B  Workflow UI       M3   #32                       (after #33)
+PHASE C  Human control     M5   #38 #39 #40 #41 #42 -> #43 MVP acceptance
+PHASE D  Real runtimes     M2   #62 #63 #64 -> #24 #25    (blocked, see below)
+PHASE E  Scale             M6   #44 #45 #46 #47 #48       (post-MVP)
+```
+
+Dependency shape — D runs sideways, not in series:
+
+```
+A (#33 -> #35 -> #36 -> #37) ──┬──> C (M5) ──> #43 MVP
+                               │
+B (#32) ───────────────────────┘
+
+D (M2) ── parallel, blocked on user decisions
+          MockAgentRuntime carries A, B and C in the meantime;
+          a real adapter plugs into the same IAgentRuntime port.
+```
+
+That last line is the whole return on A6. Core depends on the port, not on a
+provider, so the mock and a real CLI are substitutable — which is why M2 can sit
+blocked while the MVP is built. The cost of the abstraction was paid in M2; this
+is where it pays back.
+
+## Providers are an open set (decided on #63)
+
+The builder role is **not** assigned to a vendor. It is bound per project:
+
+```
+NOT   builder := Antigravity
+NOT   builder := Claude
+BUT   builder := whichever provider the project binds to that role
+```
+
+The intended provider set is open-ended and grows by adapter:
+
+```
+claude · antigravity · codex · cursor · aider · opencode · kimi · ...
+```
+
+`ClaudeCliRuntime` (#24) is first only because it is the one measured to work
+headless — not because Claude is privileged. Each further provider is its own
+adapter issue behind the same port, gated on its own capability spike.
+Antigravity's missing headless entry point is a capability gap on one provider,
+not a reason to collapse the role model onto a single vendor.
+
 ## What the #20 spike changed
 
 Measured, not assumed — full evidence in `docs/spikes/agent-cli-capability.md`.

@@ -859,6 +859,64 @@ No diff can see whether a test ran, which is why the two layers are separate. A 
 claim is reported apart from a failing build: a build failing is ordinary, an agent
 reporting tests it never ran is a trust failure.
 
+## Completion criteria (A3)
+
+Evidence says what happened. Criteria say whether that is *enough*. The evaluator is
+pure and lives in `shared/domain/completion.ts`, so the same judgement compiles into
+main and the renderer.
+
+```
+pass     the evidence shows the criterion met
+fail     the evidence shows it unmet
+unknown  there is no evidence either way        <- NOT a pass
+```
+
+`unknown` is the load-bearing case, and the reason this is a three-way verdict rather
+than a boolean. A criterion nobody could check looks *identical* to one that passed if
+the only question asked is "did anything fail?":
+
+```
+no test run    ──> unknown   not "nothing failed, therefore fine"
+no reviewer    ──> unknown   an absent review is not an approval
+reviewer said
+     unknown   ──> unknown   propagated, never collapsed to pass
+no criteria    ──> unknown   "done because nothing was asked" is the worst answer
+```
+
+So the overall verdict is a pass only when **every** criterion passed, and `unknown`
+is surfaced as its own outcome with its own count.
+
+### Ordering: fail outranks unknown
+
+A failure is actionable now; an unknown needs a different kind of fix (get the
+evidence). Both are reported, so neither hides the other:
+
+```
+FAIL: 1 of 2 criteria failed, 1 unverifiable
+```
+
+### The seven kinds and what each reads
+
+```
+build             latest `build` artifact          exit code
+tests             latest `tests` artifact          exit code
+custom-command     artifact matching params.command exit code
+diff-scope        reconciliation (#34)             inScope
+no-assumptions    the agent's report               assumptions[] must be empty (R1)
+reviewer-verdict  the review step (#36)            pass | fail | unknown
+file-exists       caller-supplied path list        params.paths
+```
+
+Two of these read the agent's report, and only because the criterion is *about* the
+report. Nothing here consults an agent's opinion of its own work.
+
+### `passed` is `verdict === 'pass'`, deliberately
+
+`VerifyResult` keeps a boolean for callers that only branch two ways, but it is
+defined as `verdict === 'pass'` and never as `verdict !== 'fail'` — an `unknown` must
+not advance a workflow. A mutation test covers this: collapsing `unknown` into `pass`
+fails 11 assertions.
+
 ## Rules and the effective policy
 
 ```

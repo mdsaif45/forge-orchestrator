@@ -91,6 +91,16 @@ export async function runCommand(input: RunCommandInput): Promise<EvidenceArtifa
      * ```
      */
     let ending: 'timeout' | 'cancelled' | null = null
+    let settled = false
+
+    /** Resolves once, whichever of `close` or `exit` gets here first. */
+    function finish(result: RawResult): void {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      input.signal?.removeEventListener('abort', onAbort)
+      resolve(result)
+    }
 
     const child = execFile(
       file,
@@ -107,13 +117,10 @@ export async function runCommand(input: RunCommandInput): Promise<EvidenceArtifa
         ...(process.platform === 'win32' ? {} : { detached: true }),
       },
       (error, stdout, stderr) => {
-        clearTimeout(timer)
-        input.signal?.removeEventListener('abort', onAbort)
-
         // An ending this runner imposed takes precedence over whatever `execFile`
         // reports, because the kill is why the command stopped.
         if (ending === 'timeout') {
-          resolve({
+          finish({
             outcome: 'timeout',
             exitCode: null,
             stdout,
@@ -125,7 +132,7 @@ export async function runCommand(input: RunCommandInput): Promise<EvidenceArtifa
         }
 
         if (ending === 'cancelled') {
-          resolve({
+          finish({
             outcome: 'cancelled',
             exitCode: null,
             stdout,
@@ -137,7 +144,7 @@ export async function runCommand(input: RunCommandInput): Promise<EvidenceArtifa
         }
 
         if (error === null) {
-          resolve({
+          finish({
             outcome: 'completed',
             exitCode: 0,
             stdout,
@@ -156,7 +163,7 @@ export async function runCommand(input: RunCommandInput): Promise<EvidenceArtifa
           // Overflow kills the child, so its exit code is gone. The tree needs the
           // same treatment as a timeout, and for the same reason.
           killTree(child.pid)
-          resolve({
+          finish({
             outcome: 'spawn-failed',
             exitCode: null,
             stdout,
@@ -168,7 +175,7 @@ export async function runCommand(input: RunCommandInput): Promise<EvidenceArtifa
         }
 
         if (typeof code === 'number') {
-          resolve({
+          finish({
             outcome: 'completed',
             exitCode: code,
             stdout,
@@ -183,7 +190,7 @@ export async function runCommand(input: RunCommandInput): Promise<EvidenceArtifa
         // the numeric and null cases returned above — but an error carrying no code
         // at all is still possible, so it is named rather than stringified to
         // "undefined".
-        resolve({
+        finish({
           outcome: 'spawn-failed',
           exitCode: null,
           stdout,
@@ -193,6 +200,41 @@ export async function runCommand(input: RunCommandInput): Promise<EvidenceArtifa
         })
       },
     )
+
+    /**
+     * A killed tree still has to produce a result.
+     *
+     * `execFile` completes on the child's `close` event, which fires only once every
+     * stdio pipe has reached EOF — not on `exit`. Confirmed in Node's own source:
+     * `execFile` registers a `close` listener and no `exit` listener.
+     *
+     * That distinction is invisible until the tree is killed. A grandchild inherits
+     * the shell's stdout pipe, so on Linux the write end can outlive the SIGKILL long
+     * enough that EOF never arrives and the callback never runs — the command is dead
+     * and the promise waits forever. CI caught exactly this: the three tests that kill
+     * a process hung at 5s on Linux while passing on Windows, where `taskkill /T`
+     * tears the console handles down with the tree.
+     *
+     * Settling from `exit` as well makes the result depend on the process being gone
+     * rather than on its pipes closing. Whichever fires first wins; `settled` keeps it
+     * to one.
+     */
+    child.on('exit', () => {
+      if (settled || ending === null) return
+      // Only for an ending this runner imposed. A natural exit is left to the normal
+      // callback, which has the captured output the caller needs.
+      finish({
+        outcome: ending === 'timeout' ? 'timeout' : 'cancelled',
+        exitCode: null,
+        stdout: '',
+        stderr: '',
+        failure:
+          ending === 'timeout'
+            ? `no result within ${String(timeoutMs)}ms`
+            : 'cancelled before the command finished',
+        truncated: false,
+      })
+    })
 
     const timer = setTimeout(() => {
       ending = 'timeout'

@@ -8,6 +8,7 @@ import {
   stepIdSchema,
   validateTemplate,
   type AgentReport,
+  type Discrepancy,
   type HaltCode,
   type PromptPacket,
   type Role,
@@ -70,6 +71,22 @@ export interface OrchestratorDeps {
   readonly measureChange: () => Promise<{
     readonly files: readonly { path: string; insertions: number; deletions: number }[]
     readonly patch: string
+  } | null>
+  /**
+   * Checks the agent's claim against the repository, and the edits against the task scope.
+   *
+   * Injected because building a real changeset needs a `GitService` and a snapshot SHA, which
+   * are main-process concerns — while the reconciliation itself is pure (#34). Returning null
+   * skips the check, which is what a step with nothing to measure does.
+   *
+   * Called for a *write* step only, and called before the transition: an out-of-scope edit must
+   * halt at the step that made it, not after the workflow has moved on.
+   */
+  readonly reconcileStep?: (report: AgentReport) => Promise<{
+    readonly discrepancies: readonly Discrepancy[]
+    readonly outOfScope: readonly string[]
+    readonly claimAccurate: boolean
+    readonly inScope: boolean
   } | null>
   /** Injected so a test asserts an event sequence without depending on the wall clock. */
   readonly now?: () => Date
@@ -448,6 +465,28 @@ export class Orchestrator {
       // and feeding those to the detector tripped it on the first implementer step, halting
       // a perfectly good run with "no progress". Found by the end-to-end test; the guard was
       // right and the input was wrong.
+      // Reconciled before the transition, so an out-of-scope edit halts at the step that made
+      // it rather than after the workflow has already advanced (#34). Only for a write step: a
+      // planner or reviewer changing nothing has nothing to reconcile.
+      if (permits(binding, 'writeFiles') && this.deps.reconcileStep !== undefined) {
+        const reconciliation = await this.deps.reconcileStep(report)
+
+        if (reconciliation !== null && !reconciliation.inScope) {
+          workflow = this.halt(
+            options.workflowId,
+            'unexpected-file-modification',
+            `The agent modified ${String(reconciliation.outOfScope.length)} file(s) outside the task scope: ${reconciliation.outOfScope.join(', ')}`,
+          )
+          break
+        }
+
+        // A dishonest claim is a review finding rather than a halt: it goes back to the agent
+        // as a correction, which is the loop working as intended.
+        if (reconciliation !== null && !reconciliation.claimAccurate) {
+          reviewFindings = reconciliation.discrepancies.map((entry) => entry.detail)
+        }
+      }
+
       const change = permits(binding, 'writeFiles') ? await this.deps.measureChange() : null
 
       if (change !== null) {

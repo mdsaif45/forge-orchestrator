@@ -262,3 +262,16 @@ export {
   type TemplateStep,
   type WorkflowTemplate,
 } from './template'
+
+export { firstMatching, matchesAny, matchesGlob } from './glob'
+
+export {
+  correctionFindings,
+  isPathAllowed,
+  reconcile,
+  scopeRefusalFor,
+  shouldHalt,
+  summariseDiscrepancies,
+  type ReconcileInput,
+  type ReconcileResult,
+} from './reconcile'

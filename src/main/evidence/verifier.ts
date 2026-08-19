@@ -1,11 +1,16 @@
 import {
+  assessCompletion,
   evidenceFindings,
   evidencePassed,
   summariseEvidence,
   type AgentReport,
   type EvidenceArtifact,
+  type CriterionResult,
+  type ReconcileResult,
   type Repository,
   type StepId,
+  type Task,
+  type Verdict,
   type WorkflowId,
 } from '@shared/domain'
 import { runCommand, type RunCommandInput } from './commandRunner'
@@ -29,6 +34,20 @@ export interface VerifyInput {
    * contradicts — never to decide the verdict.
    */
   readonly report: AgentReport | null
+  /**
+   * The task whose completion criteria decide the verdict (#35).
+   *
+   * Optional so a caller that only wants the build and test evidence can still get
+   * it, but supplying it is what turns "nothing failed" into "every criterion the
+   * task actually asked for was met".
+   */
+  readonly task?: Task | undefined
+  /** Reconciliation of the diff against the claim, for a `diff-scope` criterion. */
+  readonly reconciliation?: ReconcileResult | undefined
+  /** The reviewer's verdict, for a `reviewer-verdict` criterion (#36). */
+  readonly reviewVerdict?: Verdict | undefined
+  /** Repository-relative paths that exist, for a `file-exists` criterion. */
+  readonly existingPaths?: readonly string[] | undefined
   readonly timeoutMs?: number | undefined
   readonly now?: (() => number) | undefined
   readonly signal?: AbortSignal | undefined
@@ -37,7 +56,21 @@ export interface VerifyInput {
 }
 
 export interface VerifyResult {
+  /**
+   * True only for a `pass`. Deliberately not `verdict !== 'fail'` — an `unknown`
+   * must not advance a workflow, which is the distinction #35 exists to preserve.
+   */
   readonly passed: boolean
+  /**
+   * The three-way verdict.
+   *
+   * `unknown` when no task was supplied (nothing defined what "done" means) or when
+   * a criterion could not be checked. Callers that need to distinguish "verified bad"
+   * from "not verified" must read this rather than `passed`.
+   */
+  readonly verdict: Verdict
+  /** Per-criterion outcomes, when a task supplied criteria to evaluate. */
+  readonly criteria: readonly CriterionResult[]
   /** One line, suitable for a step log or a transition reason. */
   readonly detail: string
   /** Everything Forge ran, in order. Persisted by the caller. */
@@ -91,14 +124,40 @@ export async function verifyStep(input: VerifyInput): Promise<VerifyResult> {
   const findings = artifacts.flatMap((artifact) => [...evidenceFindings(artifact)])
   const falseClaims = detectFalseClaims(input.report, repository, artifacts)
 
+  // With a task, the task's own criteria decide the verdict — that is the point of
+  // #35, and it is what lets a criterion nobody could check report `unknown` instead
+  // of disappearing. Without one, the evidence alone is all there is to go on, and
+  // "nothing was run" is still not a pass.
+  const assessment =
+    input.task === undefined
+      ? null
+      : assessCompletion({
+          task: input.task,
+          evidence: artifacts,
+          ...(input.reconciliation === undefined ? {} : { reconciliation: input.reconciliation }),
+          ...(input.report === null ? {} : { report: input.report }),
+          ...(input.reviewVerdict === undefined ? {} : { reviewVerdict: input.reviewVerdict }),
+          ...(input.existingPaths === undefined ? {} : { existingPaths: input.existingPaths }),
+        })
+
+  const verdict: Verdict =
+    assessment !== null
+      ? assessment.verdict
+      : artifacts.length === 0
+        ? 'unknown'
+        : artifacts.every((artifact) => evidencePassed(artifact))
+          ? 'pass'
+          : 'fail'
+
   return {
-    // Unverifiable is not passing. With no commands configured there is no evidence,
-    // and treating an absence of failure as success is exactly the inference A3
-    // forbids — so this passes only when something was actually run and succeeded.
-    passed: artifacts.length > 0 && artifacts.every((artifact) => evidencePassed(artifact)),
-    detail: detailFor(artifacts, falseClaims),
+    // Only a `pass` advances. An `unknown` is explicitly not passing: treating an
+    // absence of failure as success is exactly the inference A3 forbids.
+    passed: verdict === 'pass',
+    verdict,
+    criteria: assessment?.results ?? [],
+    detail: assessment === null ? detailFor(artifacts, falseClaims) : assessment.summary,
     artifacts,
-    findings: [...findings, ...falseClaims],
+    findings: [...findings, ...(assessment?.findings ?? []), ...falseClaims],
     falseClaims,
   }
 }

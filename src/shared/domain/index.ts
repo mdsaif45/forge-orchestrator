@@ -146,6 +146,14 @@ export {
 } from './evidence'
 
 export {
+  assessCompletion,
+  criterionResultSchema,
+  type CompletionAssessment,
+  type CompletionInput,
+  type CriterionResult,
+} from './completion'
+
+export {
   domainEventSchema,
   eventTypeSchema,
   EVENT_TYPES,

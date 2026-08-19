@@ -179,13 +179,16 @@ export async function runCommand(input: RunCommandInput): Promise<EvidenceArtifa
           return
         }
 
-        // ENOENT and friends: the shell itself never ran.
+        // ENOENT and friends: the shell itself never ran. `code` is a string here —
+        // the numeric and null cases returned above — but an error carrying no code
+        // at all is still possible, so it is named rather than stringified to
+        // "undefined".
         resolve({
           outcome: 'spawn-failed',
           exitCode: null,
           stdout,
           stderr,
-          failure: `${String(code ?? 'unknown')}: ${error.message}`,
+          failure: `${code ?? 'unknown'}: ${error.message}`,
           truncated: false,
         })
       },
@@ -320,7 +323,7 @@ function killTree(pid: number | undefined): void {
  */
 function shellInvocation(command: string): { file: string; args: readonly string[] } {
   if (process.platform === 'win32') {
-    return { file: process.env['COMSPEC'] ?? 'cmd.exe', args: ['/d', '/s', '/c', command] }
+    return { file: process.env.COMSPEC ?? 'cmd.exe', args: ['/d', '/s', '/c', command] }
   }
   return { file: '/bin/sh', args: ['-c', command] }
 }
@@ -342,11 +345,11 @@ function buildEnv(extra: Readonly<Record<string, string>>): Record<string, strin
     env[name] = value
   }
 
-  env['CI'] = '1'
-  env['NO_COLOR'] = '1'
-  env['FORCE_COLOR'] = '0'
+  env.CI = '1'
+  env.NO_COLOR = '1'
+  env.FORCE_COLOR = '0'
   // A build must never stall waiting for a git credential prompt it cannot answer.
-  env['GIT_TERMINAL_PROMPT'] = '0'
+  env.GIT_TERMINAL_PROMPT = '0'
 
   return { ...env, ...extra }
 }

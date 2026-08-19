@@ -47,7 +47,7 @@ function parseVitestOrJest(text: string): TestCounts | null {
   const parenthesised = /\((\d+)\)\s*$/.exec(line)
   const labelledTotal = labelledCount(line, 'total')
   const total =
-    parenthesised !== null && parenthesised[1] !== undefined
+    parenthesised?.[1] !== undefined
       ? Number(parenthesised[1])
       : (labelledTotal ?? sumOf([passed, failed, skipped]))
 

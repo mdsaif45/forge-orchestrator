@@ -802,8 +802,36 @@ own the timer      kill tree while cmd.exe ✓     -> whole tree dies
 ```
 
 `killTree` is synchronous on win32 for the same reason — an async spawn would let the
-shell exit first, which is precisely the failure being prevented. On POSIX the child is
-spawned `detached`, so it leads a process group and a negated pid reaches every member.
+shell exit first, which is precisely the failure being prevented.
+
+### The POSIX half, which behaves differently again
+
+`detached: true` asks for the child to lead its own process group, but measured on
+Linux CI the group is **not** reliably there to kill:
+
+```
+process.kill(-pid, 'SIGKILL')  ->  ESRCH        group is not there
+process.kill(pid,  'SIGKILL')  ->  OK
+```
+
+The first version swallowed that `ESRCH` as "already gone", so nothing was killed at
+all and the child ran on. `killTree` falls back to the pid.
+
+### `execFile` completes on `close`, not `exit`
+
+Confirmed in Node's own source: it registers a `close` listener and no `exit` listener.
+`close` waits for every stdio pipe to reach EOF, which a killed tree may never deliver:
+
+```
+Linux    SIGKILLed shell   exit ✓ (signal SIGKILL)   close ✗ never
+                           -> a grandchild still holds the inherited stdout pipe
+Windows  taskkill /T       exit ✓                    close ✓  (same millisecond)
+                           -> console handles die with the tree
+```
+
+So the run settles from `exit` as well, guarded so it resolves once. That asymmetry is
+also why Windows cannot reproduce its own CI failure: the three tests that kill a
+process hung at 5s on Linux while passing locally throughout.
 
 ### Parsed counts decide nothing
 

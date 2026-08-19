@@ -111,9 +111,10 @@ export async function runCommand(input: RunCommandInput): Promise<EvidenceArtifa
         encoding: 'utf8',
         windowsHide: true,
         env: buildEnv(input.env ?? {}),
-        // POSIX only: the child leads its own process group, so a kill can target
-        // the group and take the whole tree. Windows has no equivalent option and is
-        // handled by `killTree` walking the tree with `taskkill /T`.
+        // POSIX only: asks for the child to lead its own process group, so a kill
+        // can target the group. Measured on Linux, the group is not always there to
+        // kill — `killTree` falls back to the pid. Windows has no equivalent option
+        // and is handled by `taskkill /T`.
         ...(process.platform === 'win32' ? {} : { detached: true }),
       },
       (error, stdout, stderr) => {
@@ -208,12 +209,12 @@ export async function runCommand(input: RunCommandInput): Promise<EvidenceArtifa
      * stdio pipe has reached EOF — not on `exit`. Confirmed in Node's own source:
      * `execFile` registers a `close` listener and no `exit` listener.
      *
-     * That distinction is invisible until the tree is killed. A grandchild inherits
-     * the shell's stdout pipe, so on Linux the write end can outlive the SIGKILL long
-     * enough that EOF never arrives and the callback never runs — the command is dead
-     * and the promise waits forever. CI caught exactly this: the three tests that kill
-     * a process hung at 5s on Linux while passing on Windows, where `taskkill /T`
-     * tears the console handles down with the tree.
+     * That distinction is invisible until the tree is killed. Measured on Linux: a
+     * SIGKILLed shell fires `exit` (signal SIGKILL) while `close` never arrives,
+     * because a grandchild still holds the inherited stdout pipe open. Windows does
+     * not reach this — `taskkill /T` tears the console handles down with the tree, so
+     * both events land in the same millisecond, which is why the platform cannot
+     * reproduce its own CI failure.
      *
      * Settling from `exit` as well makes the result depend on the process being gone
      * rather than on its pipes closing. Whichever fires first wins; `settled` keeps it
@@ -349,10 +350,19 @@ function killTree(pid: number | undefined): void {
   }
 
   try {
-    // Negative pid targets the process group created by `detached: true`.
+    // Negative pid targets the process group. Measured on Linux CI: this throws
+    // ESRCH even with `detached: true`, so the group cannot be relied on — and
+    // swallowing that error meant nothing was killed at all, leaving the child
+    // running and the run unsettled.
     process.kill(-pid, 'SIGKILL')
   } catch {
-    /* Already gone, or never became a group leader. */
+    try {
+      // Kill the shell directly instead. Measured to succeed exactly where the
+      // group kill throws.
+      process.kill(pid, 'SIGKILL')
+    } catch {
+      /* Already gone, which is the desired state. */
+    }
   }
 }
 

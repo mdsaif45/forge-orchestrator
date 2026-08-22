@@ -917,6 +917,76 @@ defined as `verdict === 'pass'` and never as `verdict !== 'fail'` — an `unknow
 not advance a workflow. A mutation test covers this: collapsing `unknown` into `pass`
 fails 11 assertions.
 
+## The review step (A3)
+
+A reviewer is an agent, so its verdict is a claim like any other. But it is the one
+claim that could *close* a workflow, so it gets checked:
+
+```
+reviewer says FAIL  ->  believed.  nobody argues a change into being good.
+reviewer says PASS  ->  checked against the evidence, and OVERRIDDEN if a
+                        completion criterion is failing.
+```
+
+That asymmetry looks inconsistent until the two mistakes are priced. A false FAIL
+costs one iteration. A false PASS closes a workflow over a red build — which is the
+whole failure this exists to prevent. So a favourable claim earns scrutiny an
+unfavourable one does not.
+
+### What Forge records versus what the reviewer said
+
+```
+claimed   criteria           recorded    overridden
+─────────────────────────────────────────────────────
+pass      one failing        fail        yes
+pass      one unknown        unknown     yes     <- not closed on unverified work
+pass      + own blocker      fail        yes     <- self-contradiction, read pessimistically
+pass      + own nit          pass        no      <- or naming opinions loop the workflow
+fail      all passing        fail        no
+unknown   any                unknown     no
+```
+
+`changeset.reviewed` stores `claimedVerdict` alongside `verdict`, so the log shows
+that a disagreement happened rather than only its outcome.
+
+### The override runs before the transition, not after
+
+A reviewer approving a red build must not reach `DONE` *at all*. Advancing first and
+correcting afterwards would mean the terminal state had already been recorded:
+
+```
+reviewer report ──> assessReview(report, criteria) ──> verdict of record
+                                                            │
+                                              pass ─────────┴───────── not pass
+                                                │                          │
+                                        advanceTrigger              reviewFailed
+                                              DONE               CORRECTION_REQUIRED
+```
+
+An unusable review — no parseable report — halts rather than passing. An unusable
+review is not an approval.
+
+### Findings are structured, and a fail must name one
+
+```
+Finding { severity, file, line, issue, requiredChange }
+```
+
+`issue` and `requiredChange` are separate because they serve different readers: the
+issue explains the problem to a human, the required change becomes a constraint on the
+correction task. One prose blob would force the next agent to infer its own
+instructions, which is where "fixed something adjacent" comes from.
+
+A failing review with no findings is rejected by the schema — it would give the
+correction step nothing to act on, re-run the same work, and rely on the iteration cap
+to stop it.
+
+### Corrections cannot widen their remit
+
+`correctionConstraints` puts the original task's constraints *first*, then the review
+instructions, then an explicit "fix only what the findings name". Whatever bounded the
+first attempt still bounds the fix.
+
 ## Rules and the effective policy
 
 ```

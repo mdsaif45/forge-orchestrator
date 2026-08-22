@@ -17,6 +17,7 @@ import {
 } from './ids'
 import { agentBindingSchema, repositorySchema, ruleSchema } from './project'
 import { openQuestionSchema } from './question'
+import { findingSchema } from './review'
 import { taskSchema } from './task'
 import { workflowCheckpointSchema, workflowLimitsSchema, workflowStepSchema } from './workflow'
 
@@ -150,9 +151,22 @@ const changeSetCaptured = z.strictObject({
   changeSet: changeSetSchema,
 })
 
+/**
+ * A completed review.
+ *
+ * Carries the reviewer's own claim alongside the verdict of record, because the two
+ * can differ: Forge overrides a PASS that the evidence contradicts (#36), and a log
+ * that kept only the outcome could not show that the disagreement happened.
+ */
 const changeSetReviewed = z.strictObject({
   changeSetId: changeSetIdSchema,
+  /** The verdict of record, after any override. */
   verdict: verdictSchema,
+  /** What the reviewer claimed, before Forge checked it against the evidence. */
+  claimedVerdict: verdictSchema,
+  overridden: z.boolean(),
+  reason: z.string().min(1),
+  findings: z.array(findingSchema).readonly(),
   reviewedBy: actorSchema,
 })
 

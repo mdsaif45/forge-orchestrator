@@ -8,9 +8,11 @@ import {
   stepIdSchema,
   validateTemplate,
   type AgentReport,
+  type CriterionResult,
   type Discrepancy,
   type HaltCode,
   type PromptPacket,
+  type ReviewOutcome,
   type Role,
   type WorkflowId,
   type WorkflowLimits,
@@ -120,9 +122,30 @@ export interface RunOptions {
    * The evidence layer (#33–#35) will supply this. Until then a caller provides it, which is
    * what lets the loop be exercised end to end before the runners exist.
    */
-  readonly verify: (
+  readonly verify: (step: WorkflowStep) => Promise<{
+    readonly passed: boolean
+    readonly detail: string
+    /**
+     * Per-criterion outcomes, when the evidence layer computed them (#35).
+     *
+     * Carried forward so the review step can be checked against the same criteria
+     * rather than re-deriving them, which would risk two answers.
+     */
+    readonly criteria?: readonly CriterionResult[]
+  }>
+  /**
+   * Turns a reviewer's report into the verdict of record (#36).
+   *
+   * Injected rather than computed here because the report has to be parsed from the
+   * agent's output and linked to the changeset it reviewed, both of which need the
+   * main process. Returning null means the reviewer produced nothing reviewable, which
+   * is treated as an unusable review rather than as a pass.
+   */
+  readonly reviewStep?: (
     step: WorkflowStep,
-  ) => Promise<{ readonly passed: boolean; readonly detail: string }>
+    report: AgentReport,
+    criteria: readonly CriterionResult[],
+  ) => Promise<ReviewOutcome | null>
   readonly signal?: AbortSignal
 }
 
@@ -197,6 +220,8 @@ export class Orchestrator {
     const startedAt = this.now().getTime()
     const fingerprints: string[] = []
     let reviewFindings: readonly string[] = []
+    // Set by the verify step, read by the review step (#35 -> #36).
+    let criteria: readonly CriterionResult[] = []
     let previousAttempt: StepContext['previousAttempt'] = null
     let stepCounter = 0
 
@@ -333,6 +358,10 @@ export class Orchestrator {
       if (templateStep.role === 'system') {
         this.deps.workflows.startStep(options.workflowId, step, 'system', this.timestamp())
         const result = await options.verify(step)
+
+        // Kept for the review step, which is checked against the same criteria rather
+        // than re-deriving them — asking twice would risk two answers.
+        criteria = result.criteria ?? []
 
         this.deps.workflows.finishStep(
           options.workflowId,
@@ -500,6 +529,45 @@ export class Orchestrator {
         if (stalled !== null) {
           workflow = this.halt(options.workflowId, stalled.code, stalled.reason)
           break
+        }
+      }
+
+      // The reviewer's verdict is a claim like any other (A3), and it is the one claim
+      // that could close the workflow. So it is checked against the evidence before the
+      // advance rather than after: a reviewer approving a red build must not reach
+      // `DONE` at all, and letting it advance first and correcting afterwards would
+      // mean the terminal state had already been recorded.
+      if (templateStep.role === 'reviewer' && options.reviewStep !== undefined) {
+        const outcome = await options.reviewStep(step, report, criteria)
+
+        if (outcome === null) {
+          workflow = this.halt(
+            options.workflowId,
+            'test-failure',
+            'The reviewer produced no reviewable report, so the change is unreviewed. An unusable review is not an approval.',
+          )
+          break
+        }
+
+        this.deps.workflows.finishStep(
+          options.workflowId,
+          step.id,
+          { verdict: outcome.verdict, changeSetId: null },
+          `agent:${binding.runtimeId}`,
+          this.timestamp(),
+        )
+
+        if (outcome.verdict !== 'pass') {
+          reviewFindings = outcome.corrections
+          workflow = this.deps.workflows.apply(
+            options.workflowId,
+            'reviewFailed',
+            outcome.overridden ? 'system' : `agent:${binding.runtimeId}`,
+            this.timestamp(),
+            { reason: outcome.reason },
+          )
+          workflow = this.advanceCorrection(options, workflow.state)
+          continue
         }
       }
 

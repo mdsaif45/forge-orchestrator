@@ -542,3 +542,70 @@ describe('what stops a run', () => {
     expect(outcome.haltReason).not.toBeNull()
   })
 })
+
+describe('the review step decides nothing on its own (#36)', () => {
+  /** A reviewer outcome the test controls, standing in for a parsed review report. */
+  function outcomeOf(verdict, overridden, corrections) {
+    return {
+      verdict,
+      overridden,
+      reason: overridden ? 'Forge overrode the reviewer' : 'the reviewer decided',
+      rejectingFindings: [],
+      corrections,
+    }
+  }
+
+  it('does not close the workflow when a reviewer passes a red build', async () => {
+    // The definition of done for #36. The reviewer says PASS; a completion criterion is
+    // failing; the workflow must not reach DONE.
+    const { registry, bindings } = registryFor()
+
+    const outcome = await orchestrator(registry).run(
+      runOptions(registry, bindings, {
+        limits: workflowLimitsSchema.parse({ maxIterations: 1 }),
+        verify: () =>
+          Promise.resolve({
+            passed: true,
+            detail: 'build ok',
+            criteria: [
+              {
+                kind: 'tests',
+                description: 'the test suite passes',
+                verdict: 'fail',
+                reason: 'npm test exited 1',
+                evidenceId: null,
+              },
+            ],
+          }),
+        // Forge substitutes FAIL for the reviewer PASS, exactly as assessReview would.
+        reviewStep: () =>
+          Promise.resolve(outcomeOf('fail', true, ['Failing criterion — the test suite passes'])),
+      }),
+    )
+
+    expect(outcome.state).not.toBe('DONE')
+  })
+
+  it('treats an unusable review as unreviewed rather than as an approval', async () => {
+    const { registry, bindings } = registryFor()
+
+    const outcome = await orchestrator(registry).run(
+      runOptions(registry, bindings, { reviewStep: () => Promise.resolve(null) }),
+    )
+
+    expect(outcome.state).not.toBe('DONE')
+    expect(outcome.haltReason).toMatch(/unreviewed|not an approval/i)
+  })
+
+  it('reaches DONE when the reviewer passes and the criteria agree', async () => {
+    const { registry, bindings } = registryFor()
+
+    const outcome = await orchestrator(registry).run(
+      runOptions(registry, bindings, {
+        reviewStep: () => Promise.resolve(outcomeOf('pass', false, [])),
+      }),
+    )
+
+    expect(outcome.state).toBe('DONE')
+  })
+})

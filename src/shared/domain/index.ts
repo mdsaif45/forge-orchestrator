@@ -154,6 +154,18 @@ export {
 } from './completion'
 
 export {
+  assessReview,
+  correctionConstraints,
+  findingSchema,
+  findingSeveritySchema,
+  reviewReportSchema,
+  type Finding,
+  type FindingSeverity,
+  type ReviewOutcome,
+  type ReviewReport,
+} from './review'
+
+export {
   domainEventSchema,
   eventTypeSchema,
   EVENT_TYPES,

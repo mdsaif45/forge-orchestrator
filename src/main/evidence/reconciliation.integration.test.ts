@@ -192,14 +192,16 @@ function registryFor(scenario: (typeof SCENARIOS)[keyof typeof SCENARIOS]): {
   bindings: BindingSet
 } {
   const registry = new RuntimeRegistry()
-  registry.register(new MockAgentRuntime({ scenario, id: 'mock:all' }))
+  registry.register(new MockAgentRuntime({ scenario: SCENARIOS.fullRun, id: 'mock:planner' }))
+  registry.register(new MockAgentRuntime({ scenario, id: 'mock:implementer' }))
+  registry.register(new MockAgentRuntime({ scenario: SCENARIOS.fullRun, id: 'mock:reviewer' }))
 
   return {
     registry,
     bindings: new BindingSet([
-      bindRole(registry, { role: 'planner', runtimeId: 'mock:all' }),
-      bindRole(registry, { role: 'implementer', runtimeId: 'mock:all' }),
-      bindRole(registry, { role: 'reviewer', runtimeId: 'mock:all' }),
+      bindRole(registry, { role: 'planner', runtimeId: 'mock:planner' }),
+      bindRole(registry, { role: 'implementer', runtimeId: 'mock:implementer' }),
+      bindRole(registry, { role: 'reviewer', runtimeId: 'mock:reviewer' }),
     ]),
   }
 }

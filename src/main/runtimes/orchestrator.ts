@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto'
 import {
   assessReport,
+  assessStepPolicy,
   checkBudgets,
   detectNoProgress,
   fingerprintChange,
+  formatPolicyHaltReason,
   haltStateFor,
   stepIdSchema,
   validateTemplate,
@@ -482,6 +484,22 @@ export class Orchestrator {
           options.workflowId,
           assessment.verdict === 'halt-assumption' ? 'permission-violation' : 'test-failure',
           assessment.reason,
+        )
+        break
+      }
+
+      // Axiom A7: Least privilege policy check on permissions, dangerous commands, and forbidden paths (#37)
+      const policyAssessment = assessStepPolicy({
+        binding,
+        report,
+        forbiddenPaths: packet.forbiddenPaths,
+      })
+
+      if (!policyAssessment.allowed) {
+        workflow = this.halt(
+          options.workflowId,
+          'permission-violation',
+          formatPolicyHaltReason(policyAssessment.violations),
         )
         break
       }

@@ -1022,6 +1022,55 @@ Ordering is by codepoint, not `localeCompare`: the resolved text goes into promp
 packets that are snapshotted and compared, and `localeCompare` reads the host's
 locale, so the same policy could order one way locally and another in CI.
 
+## Policy engine and security boundaries
+
+Implements Axiom **A7: least privilege** (`src/shared/domain/policyEngine.ts`).
+
+```
+Role         repo read   file write   terminal   git write   network
+planner          ✓            ✗           ✗          ✗          ✗
+implementer      ✓            ✓           ✓          ✗          ✗
+reviewer         ✓            ✗       tests only     ✗          ✗
+```
+
+Prompts are suggestions; the policy engine is a boundary. It evaluates claims,
+commands, and changesets before they are accepted into project state.
+
+### Dangerous command guards
+
+Forge blocks high-risk operations regardless of role:
+- `git push --force` / `git push -f`
+- `git reset --hard`
+- `git clean -fd` / `-fdx`
+- `git branch -D`
+- `rm -rf /` / `rm -rf *`
+- `npm publish` / `yarn publish`
+- `curl | bash` / `wget | sh`
+
+Any attempt halts the workflow with `HALTED_POLICY` (`permission-violation`).
+
+### Secret exclusion and redaction
+
+- `.env`, `.env.*`, `.pem`, `.key`, `id_rsa`, `.npmrc`, `.netrc`, `.aws/`, and credential files are excluded from prompt packets by default (`isForbiddenPath`).
+- Secret-shaped values (bearer tokens, API keys, private keys, database connection strings) are scrubbed from process outputs and prompt packets before storage (`redactSecrets`).
+- Direct modification of forbidden secret paths halts the workflow immediately.
+
+### Honest enforcement limits (guardrails vs sandbox)
+
+Forge runs agent CLIs with the user's own OS privileges. It is a **guardrail**, not a containerized sandbox:
+
+```
+Forge CONTROLS:
+  ✓ The environment variables passed to the child process (stripped of host secrets)
+  ✓ The context and files compiled into the prompt packet
+  ✓ What file mutations are accepted (diff reconciliation against task scope)
+  ✓ What commands and roles Forge permits in workflow execution
+
+Forge CANNOT CONTROL:
+  ✗ Arbitrary internal syscalls/subprocesses spawned within an unconstrained CLI
+  ✗ Direct filesystem reads performed by an agent process with host OS permissions
+```
+
 ## Design system
 
 ```
@@ -1072,8 +1121,7 @@ Two traps worth remembering:
 
 | Area | Issue |
 |------|-------|
-| git write operations, gated by permissions | #37 |
 | real CLI adapters | #24 #25 |
 | workflow UI (graph, live log, resume banner) | #32 |
-| build/test runners, verdicts, policy engine | #33 #35 #36 #37 |
 | questions, decision lock, diff UI | #38 → #42 |
+

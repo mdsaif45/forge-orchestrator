@@ -521,11 +521,14 @@ describe('what stops a run', () => {
     // The bounded correction loop, end to end: verification keeps failing, the implementer
     // keeps trying, and the cap stops it rather than the loop running forever.
     const registry = new RuntimeRegistry()
-    registry.register(new MockAgentRuntime({ scenario: SCENARIOS.noProgress, id: 'mock:all' }))
+    registry.register(new MockAgentRuntime({ scenario: SCENARIOS.fullRun, id: 'mock:planner' }))
+    registry.register(
+      new MockAgentRuntime({ scenario: SCENARIOS.noProgress, id: 'mock:implementer' }),
+    )
     const bindings = new BindingSet([
-      bindRole(registry, { role: 'planner', runtimeId: 'mock:all' }),
-      bindRole(registry, { role: 'implementer', runtimeId: 'mock:all' }),
-      bindRole(registry, { role: 'reviewer', runtimeId: 'mock:all' }),
+      bindRole(registry, { role: 'planner', runtimeId: 'mock:planner' }),
+      bindRole(registry, { role: 'implementer', runtimeId: 'mock:implementer' }),
+      bindRole(registry, { role: 'reviewer', runtimeId: 'mock:planner' }),
     ])
 
     const outcome = await orchestrator(registry).run(
@@ -607,5 +610,88 @@ describe('the review step decides nothing on its own (#36)', () => {
     )
 
     expect(outcome.state).toBe('DONE')
+  })
+
+  it('halts with HALTED_POLICY when a planner binding attempts a write', async () => {
+    // Definition of done for #37: A planner attempting a write is blocked and the workflow halts
+    const writePlannerScenario = {
+      name: 'writePlanner',
+      description: 'Planner that attempts to modify files',
+      capabilities: ['repo-read', 'plan'] as const,
+      steps: [
+        {
+          narration: ['Planning... and modifying files'],
+          tools: [],
+          edits: [{ path: 'src/math.ts', contents: 'export const answer = 42\n' }],
+          report: {
+            status: 'completed' as const,
+            summary: 'I planned and wrote the file',
+            filesChanged: ['src/math.ts'],
+            commandsRun: [],
+            testsRun: false,
+            openQuestions: [],
+            assumptions: [],
+          },
+          ending: 'report' as const,
+          replyText: null,
+        },
+      ],
+    }
+
+    const registry = new RuntimeRegistry()
+    registry.register(new MockAgentRuntime({ scenario: writePlannerScenario, id: 'mock:planner' }))
+    registry.register(new MockAgentRuntime({ scenario: SCENARIOS.fullRun, id: 'mock:rest' }))
+
+    const bindings = new BindingSet([
+      bindRole(registry, { role: 'planner', runtimeId: 'mock:planner' }),
+      bindRole(registry, { role: 'implementer', runtimeId: 'mock:rest' }),
+      bindRole(registry, { role: 'reviewer', runtimeId: 'mock:rest' }),
+    ])
+
+    const outcome = await orchestrator(registry).run(runOptions(registry, bindings))
+
+    expect(outcome.state).toBe('HALTED_POLICY')
+    expect(outcome.haltCode).toBe('permission-violation')
+    expect(outcome.haltReason).toContain('Role "planner" does not have write permissions')
+  })
+
+  it('halts with HALTED_POLICY when an agent attempts a dangerous command', async () => {
+    const dangerousScenario = {
+      name: 'dangerousCmd',
+      description: 'Agent executing a dangerous command',
+      capabilities: ['repo-read', 'file-write', 'terminal', 'plan', 'review', 'test'] as const,
+      steps: [
+        {
+          narration: ['Planning'],
+          tools: [],
+          edits: [],
+          report: {
+            status: 'completed' as const,
+            summary: 'Plan step',
+            filesChanged: [],
+            commandsRun: ['git reset --hard HEAD~1'],
+            testsRun: false,
+            openQuestions: [],
+            assumptions: [],
+          },
+          ending: 'report' as const,
+          replyText: null,
+        },
+      ],
+    }
+
+    const registry = new RuntimeRegistry()
+    registry.register(new MockAgentRuntime({ scenario: dangerousScenario, id: 'mock:dangerous' }))
+    const bindings = new BindingSet([
+      bindRole(registry, { role: 'planner', runtimeId: 'mock:dangerous' }),
+      bindRole(registry, { role: 'implementer', runtimeId: 'mock:dangerous' }),
+      bindRole(registry, { role: 'reviewer', runtimeId: 'mock:dangerous' }),
+    ])
+
+    const outcome = await orchestrator(registry).run(runOptions(registry, bindings))
+
+    expect(outcome.state).toBe('HALTED_POLICY')
+    expect(outcome.haltCode).toBe('permission-violation')
+    expect(outcome.haltReason).toContain('Blocked dangerous command')
   })
 })

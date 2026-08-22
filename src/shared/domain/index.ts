@@ -309,3 +309,17 @@ export {
   type ReconcileInput,
   type ReconcileResult,
 } from './reconcile'
+
+export {
+  assessCommandPolicy,
+  assessStepPolicy,
+  DANGEROUS_COMMANDS,
+  formatPolicyHaltReason,
+  policyViolationKindSchema,
+  policyViolationSchema,
+  type DangerousCommandPattern,
+  type PolicyViolation,
+  type PolicyViolationKind,
+  type StepPolicyAssessment,
+  type StepPolicyInput,
+} from './policyEngine'

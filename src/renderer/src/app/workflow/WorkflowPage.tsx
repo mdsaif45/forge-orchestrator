@@ -6,7 +6,7 @@ import type {
   WorkflowLogPayload,
   WorkflowStepView,
 } from '@shared/ipc'
-import { Button, Spinner, StatusDot } from '@renderer/ui'
+import { Badge, Button, Spinner, StatusDot, useToast } from '@renderer/ui'
 import { unwrap } from '@renderer/ipc'
 import { useProjectStore } from '../projectStore'
 import { LiveLogViewer, type LogLine } from './LiveLogViewer'
@@ -14,6 +14,7 @@ import { StepInspector } from './StepInspector'
 import { WorkflowGraph } from './WorkflowGraph'
 
 export function WorkflowPage(): React.JSX.Element {
+  const { show } = useToast()
   const detail = useProjectStore((state) => state.detail)
   const project: ProjectView | null = detail?.project ?? null
 
@@ -98,7 +99,7 @@ export function WorkflowPage(): React.JSX.Element {
         {
           id: `log-${String(Date.now())}-${String(Math.random())}`,
           timestamp: new Date(payload.at).toLocaleTimeString(),
-          text: payload.text,
+          text: `[STEP ${String(payload.stepIndex)}] ${payload.text}`,
         },
       ])
     })
@@ -109,7 +110,7 @@ export function WorkflowPage(): React.JSX.Element {
     }
   }, [project, selectedStep])
 
-  const handleStartWorkflow = async () => {
+  const handleStartWorkflow = async (): Promise<void> => {
     if (project === null) return
     const pId = project.id
     setActionInProgress(true)
@@ -124,7 +125,7 @@ export function WorkflowPage(): React.JSX.Element {
         {
           id: `init-${String(Date.now())}`,
           timestamp: new Date().toLocaleTimeString(),
-          text: `[START] Workflow ${started.id} initiated for project ${project.name}`,
+          text: `[START] Workflow ${started.id} initiated in Discussion Mode (Plan & Brainstorm)`,
         },
       ])
     } catch (err: unknown) {
@@ -134,7 +135,34 @@ export function WorkflowPage(): React.JSX.Element {
     }
   }
 
-  const handleCancelWorkflow = async () => {
+  const handleApproveAndImplement = async (): Promise<void> => {
+    if (workflow === null || project === null) return
+    const pId = project.id
+    setActionInProgress(true)
+    try {
+      const res = await window.forge.workflow.approveAndStartImplementation(workflow.id)
+      const updated = unwrap(res)
+      setWorkflowState({ projectId: pId, workflow: updated })
+      show({
+        tone: 'success',
+        title: 'Entered Implementation Mode',
+        description: 'Decisions locked. Agents now authorized to write changes in worktree.',
+      })
+    } catch (err: unknown) {
+      show({
+        tone: 'danger',
+        title: 'Transition Blocked',
+        description:
+          err instanceof Error
+            ? err.message
+            : 'At least one locked decision is required before entering implementation.',
+      })
+    } finally {
+      setActionInProgress(false)
+    }
+  }
+
+  const handleCancelWorkflow = async (): Promise<void> => {
     if (workflow === null || project === null) return
     const pId = project.id
     setActionInProgress(true)
@@ -156,6 +184,18 @@ export function WorkflowPage(): React.JSX.Element {
     workflow.state !== 'CANCELLED' &&
     !workflow.state.startsWith('HALTED')
 
+  const isAwaitingApproval =
+    workflow !== null &&
+    (workflow.state === 'AWAITING_APPROVAL' ||
+      workflow.state === 'AWAITING_USER' ||
+      workflow.state === 'PLANNING')
+
+  const isDiscussionMode =
+    workflow !== null &&
+    (workflow.state === 'PLANNING' ||
+      workflow.state === 'AWAITING_APPROVAL' ||
+      workflow.state === 'AWAITING_USER')
+
   const status: 'idle' | 'running' | 'waiting' | 'passed' | 'failed' | 'halted' =
     workflow === null
       ? 'idle'
@@ -163,7 +203,7 @@ export function WorkflowPage(): React.JSX.Element {
         ? 'passed'
         : workflow.state === 'CANCELLED' || workflow.state.startsWith('HALTED')
           ? 'failed'
-          : workflow.state === 'AWAITING_USER'
+          : workflow.state === 'AWAITING_USER' || workflow.state === 'AWAITING_APPROVAL'
             ? 'waiting'
             : 'running'
 
@@ -203,19 +243,27 @@ export function WorkflowPage(): React.JSX.Element {
           </div>
 
           {workflow !== null && (
-            <div className="flex items-center gap-2 rounded-full border border-neutral-800 bg-neutral-900 px-3 py-1 text-xs">
-              <StatusDot status={status} pulse={isRunning} />
-              <span className="font-semibold text-neutral-200">{workflow.state}</span>
-              <span className="text-neutral-500">
-                ({String(workflow.iteration)}/{String(workflow.limits.maxIterations)})
-              </span>
-            </div>
+            <>
+              <div className="flex items-center gap-2 rounded-full border border-neutral-800 bg-neutral-900 px-3 py-1 text-xs">
+                <StatusDot status={status} pulse={isRunning} />
+                <span className="font-semibold text-neutral-200">{workflow.state}</span>
+                <span className="text-neutral-500">
+                  ({String(workflow.iteration)}/{String(workflow.limits.maxIterations)})
+                </span>
+              </div>
+
+              <Badge tone={isDiscussionMode ? 'warning' : 'accent'} size="sm">
+                {isDiscussionMode
+                  ? 'DISCUSSION MODE (Read-only)'
+                  : 'IMPLEMENTATION MODE (Decision Locked)'}
+              </Badge>
+            </>
           )}
         </div>
 
         {/* Action Controls */}
         <div className="flex items-center gap-2">
-          {!isRunning ? (
+          {workflow === null || (!isRunning && workflow.finishedAt !== null) ? (
             <Button
               variant="primary"
               onClick={() => {
@@ -225,6 +273,27 @@ export function WorkflowPage(): React.JSX.Element {
             >
               Start Workflow
             </Button>
+          ) : isAwaitingApproval ? (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="primary"
+                onClick={() => {
+                  void handleApproveAndImplement()
+                }}
+                disabled={actionInProgress}
+              >
+                Continue to Implementation
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  void handleCancelWorkflow()
+                }}
+                disabled={actionInProgress}
+              >
+                Cancel
+              </Button>
+            </div>
           ) : (
             <Button
               variant="danger"

@@ -564,6 +564,20 @@ export class Orchestrator {
         }
       }
 
+      // Structural enforcement: a role without write permission (e.g. discussion / planner)
+      // must not have modified any files in the repository.
+      if (!permits(binding, 'writeFiles')) {
+        const readOnlyChange = await this.deps.measureChange()
+        if (readOnlyChange !== null && readOnlyChange.files.length > 0) {
+          workflow = this.halt(
+            options.workflowId,
+            'permission-violation',
+            `Role "${binding.role}" in read-only mode modified ${String(readOnlyChange.files.length)} file(s) in the worktree: ${readOnlyChange.files.map((f) => f.path).join(', ')}`,
+          )
+          break
+        }
+      }
+
       const change = permits(binding, 'writeFiles') ? await this.deps.measureChange() : null
 
       if (change !== null) {

@@ -77,6 +77,9 @@ export function createIpcHandlers({
 
     'workflow:resume': ({ workflowId }) => workflows.resume(workflowId),
 
+    'workflow:approveAndStartImplementation': ({ workflowId }) =>
+      workflows.approveAndStartImplementation(workflowId),
+
     'workflow:getPacket': ({ packetRef }) => workflows.getPacket(packetRef),
 
     'question:list': ({ projectId, unansweredOnly }) => ({

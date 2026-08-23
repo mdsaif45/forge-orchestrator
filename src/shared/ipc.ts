@@ -428,6 +428,10 @@ export const IPC_CONTRACT = {
     request: z.strictObject({ workflowId: z.string() }),
     response: workflowDetailViewSchema.nullable(),
   },
+  'workflow:approveAndStartImplementation': {
+    request: z.strictObject({ workflowId: z.string() }),
+    response: workflowDetailViewSchema,
+  },
   'workflow:getPacket': {
     request: z.strictObject({ packetRef: z.string() }),
     response: promptPacketViewSchema.nullable(),

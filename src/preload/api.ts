@@ -81,6 +81,7 @@ export interface ForgeApi {
     }) => Promise<IpcResult<WorkflowDetailView>>
     cancel: (workflowId: string, reason?: string) => Promise<IpcResult<WorkflowDetailView | null>>
     resume: (workflowId: string) => Promise<IpcResult<WorkflowDetailView | null>>
+    approveAndStartImplementation: (workflowId: string) => Promise<IpcResult<WorkflowDetailView>>
     getPacket: (packetRef: string) => Promise<IpcResult<PromptPacketView | null>>
   }
   readonly question: {

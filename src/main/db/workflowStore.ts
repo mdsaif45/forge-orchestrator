@@ -356,7 +356,7 @@ export class WorkflowStore {
     return workflow
   }
 
-  private projectIdOf(workflowId: WorkflowId): ProjectId {
+  projectIdOf(workflowId: WorkflowId): ProjectId {
     const row = this.db
       .select({ projectId: workflows.projectId })
       .from(workflows)

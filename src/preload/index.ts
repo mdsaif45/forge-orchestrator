@@ -46,6 +46,12 @@ const api: ForgeApi = {
     resume: (workflowId) => call('workflow:resume', { workflowId }),
     getPacket: (packetRef) => call('workflow:getPacket', { packetRef }),
   },
+  question: {
+    list: (projectId, unansweredOnly) => call('question:list', { projectId, unansweredOnly }),
+    get: (questionId) => call('question:get', { questionId }),
+    answer: (questionId, answer, promoteToDecision) =>
+      call('question:answer', { questionId, answer, promoteToDecision }),
+  },
   onWorkflowEvent: (listener) => {
     const handler = (_event: unknown, payload: unknown) => {
       listener(payload as Parameters<typeof listener>[0])

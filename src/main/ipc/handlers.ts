@@ -7,6 +7,7 @@ import type { WorkflowService } from '../workflows/workflowService'
 import type { QuestionService } from '../questions/questionService'
 import type { DecisionService } from '../decisions/decisionService'
 import type { ChangeSetService } from '../changesets/changeSetService'
+import type { AccountService } from '../accounts/accountService'
 
 export interface IpcDependencies {
   readonly projects: ProjectService
@@ -14,6 +15,7 @@ export interface IpcDependencies {
   readonly questions: QuestionService
   readonly decisions: DecisionService
   readonly changeSets: ChangeSetService
+  readonly accounts: AccountService
 }
 
 export function createIpcHandlers({
@@ -22,6 +24,7 @@ export function createIpcHandlers({
   questions,
   decisions,
   changeSets,
+  accounts,
 }: IpcDependencies): IpcHandlerMap {
   return {
     'app:getInfo': () => ({
@@ -117,5 +120,18 @@ export function createIpcHandlers({
 
     'git:writeFile': (request) =>
       changeSets.writeFile(request.projectId, request.path, request.content),
+
+    'account:list': ({ provider }) => ({
+      accounts: accounts.list(provider),
+    }),
+
+    'account:register': (request) => accounts.register(request),
+
+    'account:updateStatus': (request) => accounts.updateStatus(request),
+
+    'account:remove': ({ accountId }) => {
+      accounts.remove(accountId)
+      return { success: true }
+    },
   }
 }

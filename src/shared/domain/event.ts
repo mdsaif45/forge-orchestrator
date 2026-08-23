@@ -32,6 +32,9 @@ export const EVENT_TYPES = [
   'changeset.captured',
   'changeset.reviewed',
   'evidence.recorded',
+  'account.registered',
+  'account.status_updated',
+  'account.removed',
 ] as const
 
 export const eventTypeSchema = z.enum(EVENT_TYPES)

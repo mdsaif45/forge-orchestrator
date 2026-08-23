@@ -65,6 +65,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('question:list', () => ({ ok: true, value: { questions: [] } }))
   ipcMain.handle('question:get', () => ({ ok: true, value: null }))
   ipcMain.handle('question:answer', () => ({ ok: true, value: null }))
+  ipcMain.handle('account:list', () => ({ ok: true, value: { accounts: [] } }))
 
   await window.loadFile(join(__dirname, '../out/renderer/index.html'))
   // Let React mount before probing the DOM.

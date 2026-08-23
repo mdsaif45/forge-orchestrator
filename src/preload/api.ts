@@ -1,4 +1,5 @@
 import type {
+  AccountView,
   AppInfo,
   ChangedFileView,
   ChangeSetView,
@@ -125,6 +126,18 @@ export interface ForgeApi {
       projectId: string,
     ) => Promise<IpcResult<{ readonly changeSets: readonly ChangeSetView[] }>>
     get: (changeSetId: string) => Promise<IpcResult<ChangeSetView | null>>
+  }
+  readonly account: {
+    list: (provider?: string) => Promise<IpcResult<{ readonly accounts: readonly AccountView[] }>>
+    register: (request: {
+      readonly provider: string
+      readonly label: string
+    }) => Promise<IpcResult<AccountView>>
+    updateStatus: (request: {
+      readonly accountId: string
+      readonly status: 'connected' | 'expired' | 'rate_limited' | 'disconnected'
+    }) => Promise<IpcResult<AccountView>>
+    remove: (accountId: string) => Promise<IpcResult<{ readonly success: boolean }>>
   }
   readonly git: {
     getWorkingDiff: (projectId: string) => Promise<

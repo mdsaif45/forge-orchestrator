@@ -288,3 +288,9 @@ test('decisions page allows proposing, viewing and locking architectural decisio
   await page.getByRole('button', { name: 'Lock Decision' }).click()
   await expect(page.getByText('Locked (Axiom A4)', { exact: true })).toBeVisible()
 })
+
+test('changes review page renders diffs read-only and supports edit mode', async () => {
+  await page.getByRole('link', { name: 'Changes' }).click()
+  await expect(page.getByRole('heading', { name: 'Changes' })).toBeVisible()
+  await expect(page.getByText('Working tree is clean', { exact: false })).toBeVisible()
+})

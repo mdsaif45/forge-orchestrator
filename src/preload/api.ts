@@ -1,5 +1,7 @@
 import type {
   AppInfo,
+  ChangedFileView,
+  ChangeSetView,
   CreateProjectRequest,
   DecisionView,
   IpcResult,
@@ -116,6 +118,26 @@ export interface ForgeApi {
         readonly replacement: DecisionView
       }>
     >
+  }
+  readonly changeset: {
+    list: (
+      projectId: string,
+    ) => Promise<IpcResult<{ readonly changeSets: readonly ChangeSetView[] }>>
+    get: (changeSetId: string) => Promise<IpcResult<ChangeSetView | null>>
+  }
+  readonly git: {
+    getWorkingDiff: (projectId: string) => Promise<
+      IpcResult<{
+        readonly files: readonly ChangedFileView[]
+        readonly patch: string
+      }>
+    >
+    readFile: (projectId: string, path: string) => Promise<IpcResult<{ readonly content: string }>>
+    writeFile: (
+      projectId: string,
+      path: string,
+      content: string,
+    ) => Promise<IpcResult<{ readonly success: boolean }>>
   }
   readonly onWorkflowEvent: (listener: (event: WorkflowEventPayload) => void) => () => void
   readonly onWorkflowLog: (listener: (log: WorkflowLogPayload) => void) => () => void

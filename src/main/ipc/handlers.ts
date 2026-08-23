@@ -6,12 +6,14 @@ import type { IpcHandlerMap } from './router'
 import type { WorkflowService } from '../workflows/workflowService'
 import type { QuestionService } from '../questions/questionService'
 import type { DecisionService } from '../decisions/decisionService'
+import type { ChangeSetService } from '../changesets/changeSetService'
 
 export interface IpcDependencies {
   readonly projects: ProjectService
   readonly workflows: WorkflowService
   readonly questions: QuestionService
   readonly decisions: DecisionService
+  readonly changeSets: ChangeSetService
 }
 
 export function createIpcHandlers({
@@ -19,6 +21,7 @@ export function createIpcHandlers({
   workflows,
   questions,
   decisions,
+  changeSets,
 }: IpcDependencies): IpcHandlerMap {
   return {
     'app:getInfo': () => ({
@@ -98,5 +101,18 @@ export function createIpcHandlers({
     'decision:lock': ({ decisionId }) => decisions.lock(decisionId),
 
     'decision:supersede': (request) => decisions.supersede(request),
+
+    'changeset:list': ({ projectId }) => ({
+      changeSets: changeSets.list(projectId),
+    }),
+
+    'changeset:get': ({ changeSetId }) => changeSets.get(changeSetId),
+
+    'git:getWorkingDiff': (request) => changeSets.getWorkingDiff(request.projectId),
+
+    'git:readFile': (request) => changeSets.readFile(request.projectId, request.path),
+
+    'git:writeFile': (request) =>
+      changeSets.writeFile(request.projectId, request.path, request.content),
   }
 }

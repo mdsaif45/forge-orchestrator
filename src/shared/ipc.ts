@@ -301,6 +301,42 @@ export const decisionViewSchema = z.strictObject({
 
 export type DecisionView = z.infer<typeof decisionViewSchema>
 
+export const changedFileViewSchema = z.strictObject({
+  path: z.string(),
+  changeType: z.enum(['added', 'modified', 'deleted', 'renamed']),
+  previousPath: z.string().nullable(),
+  insertions: z.number().int().nonnegative(),
+  deletions: z.number().int().nonnegative(),
+})
+
+export type ChangedFileView = z.infer<typeof changedFileViewSchema>
+
+export const discrepancyViewSchema = z.strictObject({
+  path: z.string(),
+  kind: z.enum(['claimed-but-unchanged', 'changed-but-unclaimed', 'outside-scope']),
+  detail: z.string(),
+})
+
+export type DiscrepancyView = z.infer<typeof discrepancyViewSchema>
+
+export const changeSetViewSchema = z.strictObject({
+  id: z.string(),
+  projectId: z.string().optional(),
+  baseSha: z.string(),
+  headSha: z.string().nullable(),
+  files: z.array(changedFileViewSchema).readonly(),
+  patch: z.string(),
+  authorActor: z.string(),
+  stepId: z.string(),
+  taskId: z.string(),
+  correctsChangeSetId: z.string().nullable(),
+  reviewVerdict: z.string().nullable(),
+  discrepancies: z.array(discrepancyViewSchema).readonly(),
+  capturedAt: z.string(),
+})
+
+export type ChangeSetView = z.infer<typeof changeSetViewSchema>
+
 export const workflowEventPayloadSchema = z.strictObject({
   workflowId: z.string(),
   type: z.string(),
@@ -446,6 +482,33 @@ export const IPC_CONTRACT = {
       superseded: decisionViewSchema,
       replacement: decisionViewSchema,
     }),
+  },
+  'changeset:list': {
+    request: z.strictObject({ projectId: z.string() }),
+    response: z.strictObject({ changeSets: z.array(changeSetViewSchema).readonly() }),
+  },
+  'changeset:get': {
+    request: z.strictObject({ changeSetId: z.string() }),
+    response: changeSetViewSchema.nullable(),
+  },
+  'git:getWorkingDiff': {
+    request: z.strictObject({ projectId: z.string() }),
+    response: z.strictObject({
+      files: z.array(changedFileViewSchema).readonly(),
+      patch: z.string(),
+    }),
+  },
+  'git:readFile': {
+    request: z.strictObject({ projectId: z.string(), path: z.string() }),
+    response: z.strictObject({ content: z.string() }),
+  },
+  'git:writeFile': {
+    request: z.strictObject({
+      projectId: z.string(),
+      path: z.string(),
+      content: z.string(),
+    }),
+    response: z.strictObject({ success: z.boolean() }),
   },
 } as const satisfies IpcContractShape
 

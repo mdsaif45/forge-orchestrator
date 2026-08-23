@@ -86,6 +86,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('decision:approve', () => ({ ok: true, value: null }))
   ipcMain.handle('decision:lock', () => ({ ok: true, value: null }))
   ipcMain.handle('decision:supersede', () => ({ ok: true, value: null }))
+  ipcMain.handle('changeset:list', () => ({ ok: true, value: { changeSets: [] } }))
+  ipcMain.handle('changeset:get', () => ({ ok: true, value: null }))
+  ipcMain.handle('git:getWorkingDiff', () => ({ ok: true, value: { files: [], patch: '' } }))
+  ipcMain.handle('git:readFile', () => ({ ok: true, value: { content: '' } }))
+  ipcMain.handle('git:writeFile', () => ({ ok: true, value: { success: true } }))
 
   await window.loadFile(join(__dirname, '../out/renderer/index.html'))
 

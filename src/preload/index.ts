@@ -60,6 +60,15 @@ const api: ForgeApi = {
     lock: (decisionId) => call('decision:lock', { decisionId }),
     supersede: (request) => call('decision:supersede', request),
   },
+  changeset: {
+    list: (projectId) => call('changeset:list', { projectId }),
+    get: (changeSetId) => call('changeset:get', { changeSetId }),
+  },
+  git: {
+    getWorkingDiff: (projectId) => call('git:getWorkingDiff', { projectId }),
+    readFile: (projectId, path) => call('git:readFile', { projectId, path }),
+    writeFile: (projectId, path, content) => call('git:writeFile', { projectId, path, content }),
+  },
   onWorkflowEvent: (listener) => {
     const handler = (_event: unknown, payload: unknown) => {
       listener(payload as Parameters<typeof listener>[0])

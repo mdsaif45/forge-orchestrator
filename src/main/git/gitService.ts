@@ -1,4 +1,5 @@
-import { stat } from 'node:fs/promises'
+import { readFile, stat, writeFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import { repoPathSchema, shaSchema, type ChangedFile, type Sha } from '@shared/domain'
 import { GitCommandError, runGit, splitNul, type GitExecOptions } from './exec'
 import {
@@ -420,5 +421,25 @@ export class GitService {
     const result = head === undefined ? await this.diffWorktree(base) : await this.diff(base, head)
 
     return result.files.map(({ binary: _binary, ...file }) => file)
+  }
+
+  /**
+   * Reads the current contents of a file in the working tree.
+   */
+  async readFileInWorktree(path: string): Promise<string> {
+    await this.assertRepo()
+    const repoPath = repoPathSchema.parse(path)
+    const fullPath = resolve(this.options.repositoryPath, repoPath)
+    return readFile(fullPath, 'utf8')
+  }
+
+  /**
+   * Writes contents directly to a file in the working tree (user edit mode).
+   */
+  async writeFileInWorktree(path: string, content: string): Promise<void> {
+    await this.assertRepo()
+    const repoPath = repoPathSchema.parse(path)
+    const fullPath = resolve(this.options.repositoryPath, repoPath)
+    await writeFile(fullPath, content, 'utf8')
   }
 }

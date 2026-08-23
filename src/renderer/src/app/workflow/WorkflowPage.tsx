@@ -195,6 +195,26 @@ export function WorkflowPage(): React.JSX.Element {
     }
   }
 
+  const handleExportReport = async (): Promise<void> => {
+    if (workflow === null) return
+    try {
+      const res = await window.forge.workflow.exportReport(workflow.id)
+      const data = unwrap(res)
+      await navigator.clipboard.writeText(data.reportMarkdown)
+      show({
+        tone: 'success',
+        title: 'Audit Report Copied',
+        description: 'Self-contained Markdown audit report copied to clipboard.',
+      })
+    } catch (err: unknown) {
+      show({
+        tone: 'danger',
+        title: 'Export Failed',
+        description: err instanceof Error ? err.message : 'Could not export audit report',
+      })
+    }
+  }
+
   const isRunning =
     workflow !== null &&
     workflow.finishedAt === null &&
@@ -333,6 +353,17 @@ export function WorkflowPage(): React.JSX.Element {
               disabled={actionInProgress}
             >
               Cancel Workflow
+            </Button>
+          )}
+          {workflow !== null && (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                void handleExportReport()
+              }}
+              disabled={actionInProgress}
+            >
+              Export Report
             </Button>
           )}
         </div>

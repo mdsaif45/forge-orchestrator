@@ -120,6 +120,14 @@ export class WorkflowService {
     return this.toDetailView(wf)
   }
 
+  getProjectId(workflowId: string): string | null {
+    try {
+      return this.workflows.projectIdOf(workflowIdSchema.parse(workflowId))
+    } catch {
+      return null
+    }
+  }
+
   getActive(projectId: string): WorkflowDetailView | null {
     const list = this.workflows.listForProject(projectIdSchema.parse(projectId))
     const active = list.find((wf) => wf.finishedAt === null)

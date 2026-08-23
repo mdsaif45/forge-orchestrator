@@ -85,6 +85,12 @@ export interface ForgeApi {
     resume: (workflowId: string) => Promise<IpcResult<WorkflowDetailView | null>>
     approveAndStartImplementation: (workflowId: string) => Promise<IpcResult<WorkflowDetailView>>
     getPacket: (packetRef: string) => Promise<IpcResult<PromptPacketView | null>>
+    exportReport: (workflowId: string) => Promise<
+      IpcResult<{
+        readonly reportMarkdown: string
+        readonly exportedAt: string
+      }>
+    >
   }
   readonly question: {
     list: (

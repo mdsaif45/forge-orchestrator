@@ -15,6 +15,8 @@ import {
   ScrollArea,
   Select,
   Separator,
+  TabPanel,
+  Tabs,
   Textarea,
   useToast,
 } from '../ui'
@@ -23,18 +25,18 @@ import { ROUTES } from './routes'
 
 const SETTINGS = ROUTES[7]
 
+type SettingsTab = 'rules' | 'accounts' | 'limits' | 'security' | 'storage'
+
 /**
- * Settings — the effective policy, and where each rule came from.
+ * Settings — the effective policy, provenance, accounts, limits, and security configuration.
  *
  * ```
  * global ──> workspace ──> project ──> workflow ──> agent ──> task
  *                  most-specific scope wins on conflict
  * ```
  *
- * Provenance is the point of this screen. A resolved rule alone would not tell the
- * user whether a value is inherited from Forge's defaults or overridden here, and an
- * override that looks identical to an original is how a global safety rule
- * disappears without anyone noticing.
+ * Provenance is always visible: every field indicates its effective value and the
+ * exact scope that defined it (Axiom A1, A4, A7).
  */
 export function Settings(): React.JSX.Element {
   const detail = useProjectStore((state) => state.detail)
@@ -42,6 +44,9 @@ export function Settings(): React.JSX.Element {
   const removeRule = useProjectStore((state) => state.removeRule)
   const { show } = useToast()
 
+  const [activeTab, setActiveTab] = useState<SettingsTab>('rules')
+
+  // Rule override state
   const [key, setKey] = useState('')
   const [scope, setScope] = useState('project')
   const [statement, setStatement] = useState('')
@@ -52,6 +57,11 @@ export function Settings(): React.JSX.Element {
   const [accountProvider, setAccountProvider] = useState('default')
   const [accountLabel, setAccountLabel] = useState('')
   const [registeringAccount, setRegisteringAccount] = useState(false)
+
+  // Runtime limits state (Project overrides)
+  const [maxIterations, setMaxIterations] = useState('10')
+  const [stepTimeoutMs, setStepTimeoutMs] = useState('300000')
+  const [idleTimeoutMs, setIdleTimeoutMs] = useState('60000')
 
   useEffect(() => {
     window.forge.account
@@ -70,7 +80,7 @@ export function Settings(): React.JSX.Element {
     setRegisteringAccount(true)
     try {
       const res = await window.forge.account.register({
-        provider: accountProvider,
+        provider: accountProvider.trim() || 'default',
         label: accountLabel.trim(),
       })
       const created = unwrap(res)
@@ -103,7 +113,7 @@ export function Settings(): React.JSX.Element {
     }
   }
 
-  async function save(): Promise<void> {
+  async function saveRule(): Promise<void> {
     if (key.trim() === '' || statement.trim() === '') return
 
     setSaving(true)
@@ -127,9 +137,53 @@ export function Settings(): React.JSX.Element {
     <ScrollArea className="h-full">
       <div className="flex h-full flex-col">
         <div className="border-b border-(--color-border) px-6 py-4">
-          <h1 className="text-(length:--text-lg) font-semibold text-(--color-text)">
-            {SETTINGS.label}
-          </h1>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-(length:--text-lg) font-semibold text-(--color-text)">
+                {SETTINGS.label}
+              </h1>
+              <p className="text-(length:--text-xs) text-(--color-text-muted)">
+                Provenance & Configuration: Global ➔ Workspace ➔ Project ➔ Workflow ➔ Agent ➔ Task
+              </p>
+            </div>
+            {detail !== null && (
+              <Badge tone="neutral" size="sm">
+                Project: {detail.project.name}
+              </Badge>
+            )}
+          </div>
+
+          <Tabs
+            aria-label="Settings Categories"
+            className="mt-4"
+            value={activeTab}
+            onChange={(val) => {
+              setActiveTab(val)
+            }}
+            items={[
+              {
+                value: 'rules',
+                label: 'Rules & Policy',
+                adornment: detail ? (
+                  <Badge tone="neutral" size="sm">
+                    {detail.policy.length}
+                  </Badge>
+                ) : undefined,
+              },
+              {
+                value: 'accounts',
+                label: 'Agent Accounts',
+                adornment: (
+                  <Badge tone="neutral" size="sm">
+                    {accounts.length}
+                  </Badge>
+                ),
+              },
+              { value: 'limits', label: 'Runtime & Limits' },
+              { value: 'security', label: 'Security & Scope' },
+              { value: 'storage', label: 'Storage & Diagnostics' },
+            ]}
+          />
         </div>
 
         {detail === null ? (
@@ -137,220 +191,394 @@ export function Settings(): React.JSX.Element {
             <EmptyState title={SETTINGS.empty.title} description={SETTINGS.empty.description} />
           </div>
         ) : (
-          <div className="grid gap-4 p-6">
-            <Card tone="raised">
-              <CardHeader>
-                <div>
-                  <CardTitle>Effective policy</CardTitle>
-                  <CardDescription>
-                    Every rule an agent in this project receives, after inheritance
-                  </CardDescription>
-                </div>
-                <Badge tone="neutral" size="sm">
-                  {detail.policy.length}
-                </Badge>
-              </CardHeader>
+          <div className="p-6">
+            {/* TAB 1: Rules & Policy */}
+            <TabPanel active={activeTab === 'rules'}>
+              <div className="grid gap-4">
+                <Card tone="raised">
+                  <CardHeader>
+                    <div>
+                      <CardTitle>Effective policy & Scope Provenance</CardTitle>
+                      <CardDescription>
+                        Every resolved rule an agent receives. Inherited defaults are traceable to
+                        their origin scope.
+                      </CardDescription>
+                    </div>
+                    <Badge tone="neutral" size="sm">
+                      {detail.policy.length} active
+                    </Badge>
+                  </CardHeader>
 
-              <ul className="mt-3 grid list-none gap-2 p-0">
-                {detail.policy.map((rule) => (
-                  <PolicyRow
-                    key={rule.key}
-                    rule={rule}
-                    onRemove={
-                      // Only a stored rule can be removed. Forge's own defaults are
-                      // code constants: a narrower scope may override one, but nothing
-                      // deletes it.
-                      detail.rules.find(
-                        (stored) => stored.key === rule.key && stored.scope === rule.scope,
-                      )?.id
-                    }
-                    remove={removeRule}
-                  />
-                ))}
-              </ul>
-            </Card>
-
-            <Card tone="raised">
-              <CardHeader>
-                <div>
-                  <CardTitle>Set a rule</CardTitle>
-                  <CardDescription>
-                    Reuse a key to override that concern at a narrower scope
-                  </CardDescription>
-                </div>
-              </CardHeader>
-
-              <div className="mt-3 grid gap-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Key" required hint="R4 to override a Forge default">
-                    {(bind) => (
-                      <Input
-                        {...bind}
-                        mono
-                        value={key}
-                        placeholder="R4"
-                        onChange={(event) => {
-                          setKey(event.target.value)
-                        }}
+                  <ul className="mt-3 grid list-none gap-2 p-0">
+                    {detail.policy.map((rule) => (
+                      <PolicyRow
+                        key={rule.key}
+                        rule={rule}
+                        onRemove={
+                          detail.rules.find(
+                            (stored) => stored.key === rule.key && stored.scope === rule.scope,
+                          )?.id
+                        }
+                        remove={removeRule}
                       />
-                    )}
-                  </Field>
-
-                  <Field label="Scope" required>
-                    {(bind) => (
-                      <Select
-                        {...bind}
-                        // Only the scopes that exist today can be written: workflow,
-                        // agent, and task rules are set by the thing they belong to,
-                        // which does not exist yet.
-                        options={[
-                          { value: 'project', label: 'project' },
-                          { value: 'workspace', label: 'workspace' },
-                        ]}
-                        value={scope}
-                        onChange={(event) => {
-                          setScope(event.target.value)
-                        }}
-                      />
-                    )}
-                  </Field>
-                </div>
-
-                <Field label="Statement" required>
-                  {(bind) => (
-                    <Textarea
-                      {...bind}
-                      rows={3}
-                      value={statement}
-                      placeholder="migrations may be modified in this project"
-                      onChange={(event) => {
-                        setStatement(event.target.value)
-                      }}
-                    />
-                  )}
-                </Field>
-
-                <div className="flex justify-end">
-                  <Button
-                    onClick={() => {
-                      void save()
-                    }}
-                    disabled={saving || key.trim() === '' || statement.trim() === ''}
-                  >
-                    {saving ? 'Saving…' : 'Set rule'}
-                  </Button>
-                </div>
-              </div>
-            </Card>
-
-            {/* Multi-Account Registry (#44) */}
-            <Card tone="raised">
-              <CardHeader>
-                <div>
-                  <CardTitle>Provider Accounts</CardTitle>
-                  <CardDescription>
-                    Manage connected agent accounts across providers. Hot-swapping accounts
-                    preserves full workflow state and history.
-                  </CardDescription>
-                </div>
-                <Badge tone="accent" size="sm">
-                  {accounts.length}
-                </Badge>
-              </CardHeader>
-
-              <div className="mt-3 grid gap-3">
-                {accounts.length === 0 ? (
-                  <p className="m-0 text-xs text-neutral-400">
-                    No external accounts registered yet.
-                  </p>
-                ) : (
-                  <ul className="grid list-none gap-2 p-0">
-                    {accounts.map((acc) => (
-                      <li
-                        key={acc.id}
-                        className="flex items-center justify-between rounded-md bg-neutral-900/60 p-3 border border-neutral-800"
-                      >
-                        <div className="flex items-center gap-3">
-                          <Badge tone="neutral" size="sm">
-                            {acc.provider}
-                          </Badge>
-                          <div>
-                            <p className="m-0 text-sm font-medium text-neutral-200">{acc.label}</p>
-                            <p className="m-0 text-xs text-neutral-500">
-                              Status:{' '}
-                              <span
-                                className={
-                                  acc.status === 'connected'
-                                    ? 'text-emerald-400'
-                                    : acc.status === 'rate_limited'
-                                      ? 'text-amber-400'
-                                      : 'text-rose-400'
-                                }
-                              >
-                                {acc.status}
-                              </span>
-                              {acc.lastUsedAt !== null &&
-                                ` · Last used: ${new Date(acc.lastUsedAt).toLocaleTimeString()}`}
-                            </p>
-                          </div>
-                        </div>
-
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            void removeAccount(acc.id)
-                          }}
-                        >
-                          Remove
-                        </Button>
-                      </li>
                     ))}
                   </ul>
-                )}
+                </Card>
 
-                <Separator className="my-2" />
+                <Card tone="raised">
+                  <CardHeader>
+                    <div>
+                      <CardTitle>Set a Rule Override</CardTitle>
+                      <CardDescription>
+                        Reuse a key (e.g. R4, R7) to override safety or operational rules at project
+                        or workspace scope.
+                      </CardDescription>
+                    </div>
+                  </CardHeader>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Provider ID" required hint="e.g. cli-adapter, api-service">
-                    {(bind) => (
-                      <Input
-                        {...bind}
-                        value={accountProvider}
-                        placeholder="provider-id"
-                        onChange={(e) => {
-                          setAccountProvider(e.target.value)
+                  <div className="mt-3 grid gap-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="Key" required hint="e.g. R4 to override a Forge default">
+                        {(bind) => (
+                          <Input
+                            {...bind}
+                            mono
+                            value={key}
+                            placeholder="R4"
+                            onChange={(event) => {
+                              setKey(event.target.value)
+                            }}
+                          />
+                        )}
+                      </Field>
+
+                      <Field label="Scope" required>
+                        {(bind) => (
+                          <Select
+                            {...bind}
+                            options={[
+                              { value: 'project', label: 'project' },
+                              { value: 'workspace', label: 'workspace' },
+                            ]}
+                            value={scope}
+                            onChange={(event) => {
+                              setScope(event.target.value)
+                            }}
+                          />
+                        )}
+                      </Field>
+                    </div>
+
+                    <Field label="Statement" required>
+                      {(bind) => (
+                        <Textarea
+                          {...bind}
+                          rows={3}
+                          value={statement}
+                          placeholder="migrations may be modified in this project"
+                          onChange={(event) => {
+                            setStatement(event.target.value)
+                          }}
+                        />
+                      )}
+                    </Field>
+
+                    <div className="flex justify-end">
+                      <Button
+                        onClick={() => {
+                          void saveRule()
                         }}
-                      />
-                    )}
-                  </Field>
-
-                  <Field label="Account Label" required hint="e.g. Work Pro, Personal Max">
-                    {(bind) => (
-                      <Input
-                        {...bind}
-                        value={accountLabel}
-                        placeholder="Work Pro (Tier 4)"
-                        onChange={(e) => {
-                          setAccountLabel(e.target.value)
-                        }}
-                      />
-                    )}
-                  </Field>
-                </div>
-
-                <div className="flex justify-end">
-                  <Button
-                    onClick={() => {
-                      void registerAccount()
-                    }}
-                    disabled={registeringAccount || accountLabel.trim() === ''}
-                  >
-                    {registeringAccount ? 'Registering…' : 'Register Account'}
-                  </Button>
-                </div>
+                        disabled={saving || key.trim() === '' || statement.trim() === ''}
+                      >
+                        {saving ? 'Saving…' : 'Set rule'}
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
               </div>
-            </Card>
+            </TabPanel>
+
+            {/* TAB 2: Agent Accounts */}
+            <TabPanel active={activeTab === 'accounts'}>
+              <Card tone="raised">
+                <CardHeader>
+                  <div>
+                    <CardTitle>Provider Accounts Registry</CardTitle>
+                    <CardDescription>
+                      Manage agent execution credentials and runtime accounts. Hot-swapping accounts
+                      mid-workflow never loses project state or decisions.
+                    </CardDescription>
+                  </div>
+                  <Badge tone="accent" size="sm">
+                    {accounts.length}
+                  </Badge>
+                </CardHeader>
+
+                <div className="mt-3 grid gap-3">
+                  {accounts.length === 0 ? (
+                    <p className="m-0 text-(length:--text-xs) text-(--color-text-muted)">
+                      No provider accounts registered yet.
+                    </p>
+                  ) : (
+                    <ul className="grid list-none gap-2 p-0">
+                      {accounts.map((acc) => (
+                        <li
+                          key={acc.id}
+                          className="flex items-center justify-between rounded-(--radius-md) bg-(--color-surface-inset) p-3 border border-(--color-border)"
+                        >
+                          <div className="flex items-center gap-3">
+                            <Badge tone="neutral" size="sm">
+                              {acc.provider}
+                            </Badge>
+                            <div>
+                              <p className="m-0 text-(length:--text-sm) font-medium text-(--color-text)">
+                                {acc.label}
+                              </p>
+                              <p className="m-0 text-(length:--text-xs) text-(--color-text-muted)">
+                                Status:{' '}
+                                <span
+                                  className={
+                                    acc.status === 'connected'
+                                      ? 'text-emerald-400'
+                                      : acc.status === 'rate_limited'
+                                        ? 'text-amber-400'
+                                        : 'text-rose-400'
+                                  }
+                                >
+                                  {acc.status}
+                                </span>
+                                {acc.lastUsedAt !== null &&
+                                  ` · Last used: ${new Date(acc.lastUsedAt).toLocaleTimeString()}`}
+                              </p>
+                            </div>
+                          </div>
+
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              void removeAccount(acc.id)
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  <Separator className="my-2" />
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Provider ID" required hint="e.g. cli-adapter, api-runner">
+                      {(bind) => (
+                        <Input
+                          {...bind}
+                          value={accountProvider}
+                          placeholder="provider-id"
+                          onChange={(e) => {
+                            setAccountProvider(e.target.value)
+                          }}
+                        />
+                      )}
+                    </Field>
+
+                    <Field label="Account Label" required hint="e.g. Work Pro, Primary Team">
+                      {(bind) => (
+                        <Input
+                          {...bind}
+                          value={accountLabel}
+                          placeholder="Primary Account"
+                          onChange={(e) => {
+                            setAccountLabel(e.target.value)
+                          }}
+                        />
+                      )}
+                    </Field>
+                  </div>
+
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={() => {
+                        void registerAccount()
+                      }}
+                      disabled={registeringAccount || accountLabel.trim() === ''}
+                    >
+                      {registeringAccount ? 'Registering…' : 'Register Account'}
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            </TabPanel>
+
+            {/* TAB 3: Runtime & Limits */}
+            <TabPanel active={activeTab === 'limits'}>
+              <Card tone="raised">
+                <CardHeader>
+                  <div>
+                    <CardTitle>Runtime & Loop Circuit Breakers</CardTitle>
+                    <CardDescription>
+                      Control workflow timeouts and iteration ceilings to prevent runaway agent
+                      loops (Axiom A5).
+                    </CardDescription>
+                  </div>
+                  <Badge tone="neutral" size="sm">
+                    Axiom A5
+                  </Badge>
+                </CardHeader>
+
+                <div className="mt-3 grid gap-4">
+                  <div className="grid grid-cols-3 gap-3">
+                    <Field label="Max Iterations" required hint="Inherited from Forge Default: 10">
+                      {(bind) => (
+                        <Input
+                          {...bind}
+                          type="number"
+                          value={maxIterations}
+                          onChange={(e) => {
+                            setMaxIterations(e.target.value)
+                          }}
+                        />
+                      )}
+                    </Field>
+
+                    <Field
+                      label="Step Timeout (ms)"
+                      required
+                      hint="Inherited from Forge Default: 300,000"
+                    >
+                      {(bind) => (
+                        <Input
+                          {...bind}
+                          type="number"
+                          value={stepTimeoutMs}
+                          onChange={(e) => {
+                            setStepTimeoutMs(e.target.value)
+                          }}
+                        />
+                      )}
+                    </Field>
+
+                    <Field
+                      label="Idle Timeout (ms)"
+                      required
+                      hint="Inherited from Forge Default: 60,000"
+                    >
+                      {(bind) => (
+                        <Input
+                          {...bind}
+                          type="number"
+                          value={idleTimeoutMs}
+                          onChange={(e) => {
+                            setIdleTimeoutMs(e.target.value)
+                          }}
+                        />
+                      )}
+                    </Field>
+                  </div>
+
+                  <div className="rounded-(--radius-md) bg-(--color-surface-inset) p-3 text-(length:--text-xs) text-(--color-text-muted)">
+                    <p className="m-0 font-medium text-(--color-text)">Circuit Breaker Policy:</p>
+                    <ul className="m-0 mt-1 list-disc pl-4">
+                      <li>Halt with HALTED_LIMIT when iteration ceiling is reached.</li>
+                      <li>Halt with HALTED_POLICY on permission or command violations.</li>
+                      <li>
+                        Write-ahead checkpoints before every side-effect ensure clean crash
+                        recovery.
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </Card>
+            </TabPanel>
+
+            {/* TAB 4: Security & Scope */}
+            <TabPanel active={activeTab === 'security'}>
+              <Card tone="raised">
+                <CardHeader>
+                  <div>
+                    <CardTitle>Security & Redaction Engine</CardTitle>
+                    <CardDescription>
+                      Proactive command filtering, forbidden path enforcement, and secret masking
+                      rules (Axiom A7).
+                    </CardDescription>
+                  </div>
+                  <Badge tone="warning" size="sm">
+                    Least Privilege
+                  </Badge>
+                </CardHeader>
+
+                <div className="mt-3 grid gap-3">
+                  <div className="rounded-(--radius-md) bg-(--color-surface-inset) p-3 text-(length:--text-xs)">
+                    <p className="m-0 font-medium text-(--color-text)">
+                      Forbidden Paths & Secrets Masking:
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Badge tone="danger" size="sm">
+                        .env*
+                      </Badge>
+                      <Badge tone="danger" size="sm">
+                        *.pem
+                      </Badge>
+                      <Badge tone="danger" size="sm">
+                        *.key
+                      </Badge>
+                      <Badge tone="danger" size="sm">
+                        id_rsa*
+                      </Badge>
+                      <Badge tone="danger" size="sm">
+                        .git/*
+                      </Badge>
+                      <Badge tone="danger" size="sm">
+                        node_modules/*
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <div className="rounded-(--radius-md) bg-(--color-surface-inset) p-3 text-(length:--text-xs)">
+                    <p className="m-0 font-medium text-(--color-text)">Dangerous Command Policy:</p>
+                    <p className="m-0 mt-1 text-(--color-text-muted)">
+                      Commands matching destructive patterns (e.g. rm -rf /, git push --force, dd,
+                      mkfs) are blocked immediately and trigger a HALTED_POLICY transition with an
+                      immutable audit trail.
+                    </p>
+                  </div>
+                </div>
+              </Card>
+            </TabPanel>
+
+            {/* TAB 5: Storage & Diagnostics */}
+            <TabPanel active={activeTab === 'storage'}>
+              <Card tone="raised">
+                <CardHeader>
+                  <div>
+                    <CardTitle>Storage & Diagnostics</CardTitle>
+                    <CardDescription>
+                      Database persistence path, event log storage, and prompt cache maintenance.
+                    </CardDescription>
+                  </div>
+                </CardHeader>
+
+                <div className="mt-3 grid gap-3">
+                  <div className="rounded-(--radius-md) bg-(--color-surface-inset) p-3 text-(length:--text-xs)">
+                    <p className="m-0 text-(--color-text-muted)">Repository Path:</p>
+                    <Code className="mt-1 block">{detail.project.repository.absolutePath}</Code>
+                  </div>
+
+                  <div className="rounded-(--radius-md) bg-(--color-surface-inset) p-3 text-(length:--text-xs)">
+                    <p className="m-0 text-(--color-text-muted)">Database Storage:</p>
+                    <Code className="mt-1 block">SQLite WAL (UserData / forge.db)</Code>
+                  </div>
+
+                  <div className="rounded-(--radius-md) bg-(--color-surface-inset) p-3 text-(length:--text-xs)">
+                    <p className="m-0 text-(--color-text-muted)">Event Log Retention:</p>
+                    <p className="m-0 mt-1 text-(--color-text)">
+                      Append-only, permanent audit history for all workflows and decisions.
+                    </p>
+                  </div>
+                </div>
+              </Card>
+            </TabPanel>
           </div>
         )}
       </div>

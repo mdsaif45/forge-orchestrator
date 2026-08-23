@@ -37,6 +37,7 @@ import { applyEvent } from '../db/projections'
 import { WorkflowStore } from '../db/workflowStore'
 import { QuestionStore } from '../db/questionStore'
 import { DecisionStore } from '../db/decisionStore'
+import { ChangeSetStore } from '../db/changeSetStore'
 import { PacketStore } from '../context/packetStore'
 import { GitService } from '../git'
 import { buildChangeSet } from '../evidence/changeSetBuilder'
@@ -59,6 +60,7 @@ export class WorkflowService {
   private readonly workflows: WorkflowStore
   private readonly questions: QuestionStore
   private readonly decisions: DecisionStore
+  private readonly changeSets: ChangeSetStore
   private readonly packets: PacketStore
   private readonly events: EventStore
   private readonly registry: RuntimeRegistry
@@ -69,6 +71,7 @@ export class WorkflowService {
     this.events = new EventStore(options.db)
     this.questions = new QuestionStore(options.db, this.events)
     this.decisions = new DecisionStore(options.db, this.events)
+    this.changeSets = new ChangeSetStore(options.db, this.events)
     this.packets = new PacketStore({ directory: options.packetDir })
     this.registry = options.registry
   }
@@ -79,6 +82,10 @@ export class WorkflowService {
 
   getDecisionStore(): DecisionStore {
     return this.decisions
+  }
+
+  getChangeSetStore(): ChangeSetStore {
+    return this.changeSets
   }
 
   list(projectId: string): readonly WorkflowSummaryView[] {
@@ -382,15 +389,17 @@ export class WorkflowService {
       },
       reconcileStep: async (report) => {
         try {
+          const now = new Date().toISOString()
           const built = await buildChangeSet(gitService, {
             baseSha: baseSha ?? 'HEAD',
             report,
             scope: task.scope,
-            authorActor: 'system',
+            authorActor: 'agent:implementer',
             stepId: stepIdSchema.parse(randomUUID()),
             taskId: task.id,
-            capturedAt: new Date().toISOString(),
+            capturedAt: now,
           })
+          this.changeSets.record(built.changeSet, projectId, 'agent:implementer', now)
           return built.reconciliation
         } catch {
           return null

@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import type { DomainEvent, EventPayloads, EventType, ProjectId } from '@shared/domain'
 import type { ForgeDatabase } from './connection'
 import {
+  changeSets,
   decisions,
   evidenceArtifacts,
   openQuestions,
@@ -433,6 +434,55 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
     return
   }
 
+  if (isType(event, 'changeset.captured')) {
+    const cs = event.payload.changeSet
+    db.insert(changeSets)
+      .values({
+        id: cs.id,
+        projectId: event.projectId,
+        baseSha: cs.baseSha,
+        headSha: cs.headSha,
+        files: toJson(cs.files),
+        patch: cs.patch,
+        authorActor: cs.authorActor,
+        stepId: cs.stepId,
+        taskId: cs.taskId,
+        correctsChangeSetId: cs.correctsChangeSetId,
+        reviewVerdict: cs.reviewVerdict,
+        discrepancies: toJson(cs.discrepancies),
+        capturedAt: cs.capturedAt,
+      })
+      .onConflictDoUpdate({
+        target: changeSets.id,
+        set: {
+          baseSha: cs.baseSha,
+          headSha: cs.headSha,
+          files: toJson(cs.files),
+          patch: cs.patch,
+          authorActor: cs.authorActor,
+          stepId: cs.stepId,
+          taskId: cs.taskId,
+          correctsChangeSetId: cs.correctsChangeSetId,
+          reviewVerdict: cs.reviewVerdict,
+          discrepancies: toJson(cs.discrepancies),
+          capturedAt: cs.capturedAt,
+        },
+      })
+      .run()
+    return
+  }
+
+  if (isType(event, 'changeset.reviewed')) {
+    const payload = event.payload
+    db.update(changeSets)
+      .set({
+        reviewVerdict: payload.verdict,
+      })
+      .where(eq(changeSets.id, payload.changeSetId))
+      .run()
+    return
+  }
+
   // Everything else is recorded in the log but has no read model yet. This is a
   // deliberate no-op rather than an error: the events are still replayable, and
   // their projections arrive with the features that read them.
@@ -447,8 +497,6 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
  */
 const PROJECTED_LATER: ReadonlySet<EventType> = new Set([
   'binding.set', // #31
-  'changeset.captured', // #34
-  'changeset.reviewed', // #36
 ])
 
 /**

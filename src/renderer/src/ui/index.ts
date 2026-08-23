@@ -44,3 +44,5 @@ export {
 export { WorkflowEdge, type WorkflowEdgeProps } from './primitives/WorkflowEdge'
 export { QuestionCard, type QuestionCardProps } from './primitives/QuestionCard'
 export { DecisionCard, type DecisionCardProps } from './primitives/DecisionCard'
+export { FileTree, type FileTreeProps } from './primitives/FileTree'
+export { DiffViewer, type DiffViewerProps } from './primitives/DiffViewer'

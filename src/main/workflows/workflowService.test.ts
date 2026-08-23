@@ -1,8 +1,10 @@
+import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { decisionIdSchema, projectIdSchema, workflowIdSchema } from '@shared/domain'
 import type { ProjectView, WorkflowDetailView } from '@shared/ipc'
 import { initialiseDatabase, type ForgeDatabase } from '../db'
 import { ProjectService } from '../projects/projectService'
@@ -158,6 +160,65 @@ describe('WorkflowService', () => {
       if (current?.finishedAt !== null) break
       await new Promise((resolve) => setTimeout(resolve, 50))
     }
+    workflows.cancel(started.id)
+  })
+
+  it('enforces that transitioning to implementation requires at least one locked decision', async () => {
+    const repoPath = join(tempDir, 'repo-mode')
+    mkdirSync(repoPath, { recursive: true })
+    initRepository(repoPath)
+
+    const project: ProjectView = await projects.create({
+      name: 'Mode Test Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'main',
+      buildCommand: null,
+      testCommand: null,
+      tech: [],
+      rules: [],
+    })
+
+    const started: WorkflowDetailView = await workflows.start({
+      projectId: project.id,
+      autoRun: false,
+    })
+
+    // Advance from DISCOVERY to PLANNING, then to AWAITING_APPROVAL
+    const now = new Date().toISOString()
+    const wId = workflowIdSchema.parse(started.id)
+    const pId = projectIdSchema.parse(project.id)
+    workflows.getWorkflowStore().apply(wId, 'start', 'system', now)
+    workflows.getWorkflowStore().apply(wId, 'planProduced', 'agent:planner', now)
+
+    // Attempt to enter implementation without decisions -> throws
+    expect(() => workflows.approveAndStartImplementation(started.id)).toThrow(
+      /at least one approved or locked architectural decision is required/,
+    )
+
+    // Now lock a decision
+    const decId = decisionIdSchema.parse(randomUUID())
+    workflows.getDecisionStore().propose(
+      {
+        id: decId,
+        statement: 'Use SQLite WAL mode',
+        rationale: 'Concurrency',
+        status: 'proposed',
+        proposedBy: 'user',
+        proposedAt: now,
+        lockedAt: null,
+        lockedBy: null,
+        supersededBy: null,
+        originQuestionId: null,
+      },
+      pId,
+      'user',
+      now,
+    )
+    workflows.getDecisionStore().lock(decId, 'user', now)
+
+    // Now transitioning succeeds to DECISIONS_LOCKED
+    const implementing = workflows.approveAndStartImplementation(started.id)
+    expect(implementing.state).toBe('DECISIONS_LOCKED')
     workflows.cancel(started.id)
   })
 })

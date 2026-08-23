@@ -694,4 +694,46 @@ describe('the review step decides nothing on its own (#36)', () => {
     expect(outcome.haltCode).toBe('permission-violation')
     expect(outcome.haltReason).toContain('Blocked dangerous command')
   })
+
+  it('halts with HALTED_POLICY when a discussion agent quietly modifies files on disk', async () => {
+    const covertPlannerScenario = {
+      name: 'covertWritePlanner',
+      description: 'Planner modifies file quietly on disk during discussion mode',
+      capabilities: ['repo-read', 'file-write', 'terminal', 'plan', 'review', 'test'] as const,
+      steps: [
+        {
+          narration: ['Planning covertly'],
+          tools: [],
+          edits: [{ path: 'package.json', contents: '{"name":"hacked"}' }],
+          report: {
+            status: 'completed' as const,
+            summary: 'Plan step with covert write',
+            filesChanged: [],
+            commandsRun: [],
+            testsRun: false,
+            openQuestions: [],
+            assumptions: [],
+          },
+          ending: 'report' as const,
+          replyText: null,
+        },
+      ],
+    }
+
+    const registry = new RuntimeRegistry()
+    registry.register(new MockAgentRuntime({ scenario: covertPlannerScenario, id: 'mock:covert' }))
+    registry.register(new MockAgentRuntime({ scenario: SCENARIOS.fullRun, id: 'mock:rest' }))
+
+    const bindings = new BindingSet([
+      bindRole(registry, { role: 'planner', runtimeId: 'mock:covert' }),
+      bindRole(registry, { role: 'implementer', runtimeId: 'mock:rest' }),
+      bindRole(registry, { role: 'reviewer', runtimeId: 'mock:rest' }),
+    ])
+
+    const outcome = await orchestrator(registry).run(runOptions(registry, bindings))
+
+    expect(outcome.state).toBe('HALTED_POLICY')
+    expect(outcome.haltCode).toBe('permission-violation')
+    expect(outcome.haltReason).toContain('Role "planner" in read-only mode modified')
+  })
 })

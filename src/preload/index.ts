@@ -44,6 +44,8 @@ const api: ForgeApi = {
     start: (request) => call('workflow:start', request),
     cancel: (workflowId, reason) => call('workflow:cancel', { workflowId, reason }),
     resume: (workflowId) => call('workflow:resume', { workflowId }),
+    approveAndStartImplementation: (workflowId) =>
+      call('workflow:approveAndStartImplementation', { workflowId }),
     getPacket: (packetRef) => call('workflow:getPacket', { packetRef }),
   },
   question: {

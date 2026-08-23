@@ -47,6 +47,7 @@ const api: ForgeApi = {
     approveAndStartImplementation: (workflowId) =>
       call('workflow:approveAndStartImplementation', { workflowId }),
     getPacket: (packetRef) => call('workflow:getPacket', { packetRef }),
+    exportReport: (workflowId) => call('workflow:exportReport', { workflowId }),
   },
   question: {
     list: (projectId, unansweredOnly) => call('question:list', { projectId, unansweredOnly }),

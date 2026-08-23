@@ -1,6 +1,9 @@
+import { useCallback, useEffect, useState } from 'react'
 import { NavLink } from 'react-router'
-import { cn, IconButton, Separator, Tooltip } from '../ui'
+import { unwrap } from '../ipc'
+import { Badge, cn, IconButton, Separator, Tooltip } from '../ui'
 import { CollapseIcon, ExpandIcon } from './icons'
+import { useProjectStore } from './projectStore'
 import { ROUTES } from './routes'
 import { useUiStore } from './uiStore'
 
@@ -15,6 +18,44 @@ import { useUiStore } from './uiStore'
 export function Sidebar(): React.JSX.Element {
   const collapsed = useUiStore((state) => state.sidebarCollapsed)
   const toggleSidebar = useUiStore((state) => state.toggleSidebar)
+  const projects = useProjectStore((state) => state.projects)
+  const selectedProjectId = useProjectStore((state) => state.selectedProjectId)
+  const [unansweredCount, setUnansweredCount] = useState(0)
+
+  const refreshCount = useCallback(() => {
+    if (selectedProjectId !== null) {
+      window.forge.question
+        .list(selectedProjectId, true)
+        .then((res) => {
+          setUnansweredCount(unwrap(res).questions.length)
+        })
+        .catch(() => {
+          // Non-fatal if IPC fails during init
+        })
+    } else {
+      Promise.all(projects.map((p) => window.forge.question.list(p.id, true).then(unwrap)))
+        .then((results) => {
+          let count = 0
+          for (const res of results) {
+            count += res.questions.length
+          }
+          setUnansweredCount(count)
+        })
+        .catch(() => {
+          // Non-fatal
+        })
+    }
+  }, [projects, selectedProjectId])
+
+  useEffect(() => {
+    refreshCount()
+    const unsubscribe = window.forge.onWorkflowEvent(() => {
+      refreshCount()
+    })
+    return () => {
+      unsubscribe()
+    }
+  }, [refreshCount])
 
   return (
     <nav
@@ -30,10 +71,20 @@ export function Sidebar(): React.JSX.Element {
           <li key={route.path}>
             {collapsed ? (
               <Tooltip content={route.label} side="right">
-                <NavItem route={route} collapsed />
+                <NavItem
+                  route={route}
+                  collapsed
+                  badge={
+                    route.path === '/questions' && unansweredCount > 0 ? unansweredCount : null
+                  }
+                />
               </Tooltip>
             ) : (
-              <NavItem route={route} collapsed={false} />
+              <NavItem
+                route={route}
+                collapsed={false}
+                badge={route.path === '/questions' && unansweredCount > 0 ? unansweredCount : null}
+              />
             )}
           </li>
         ))}
@@ -56,9 +107,11 @@ export function Sidebar(): React.JSX.Element {
 function NavItem({
   route,
   collapsed,
+  badge = null,
 }: {
   readonly route: (typeof ROUTES)[number]
   readonly collapsed: boolean
+  readonly badge?: number | null | undefined
 }): React.JSX.Element {
   return (
     <NavLink
@@ -83,6 +136,18 @@ function NavItem({
     >
       {route.icon}
       {collapsed ? null : <span className="truncate">{route.label}</span>}
+      {badge !== null && badge > 0 ? (
+        <Badge
+          tone="warning"
+          size="sm"
+          className={cn(
+            'ml-auto shrink-0 animate-pulse font-bold',
+            collapsed && 'absolute right-1 top-1 size-2 rounded-full p-0 text-[0px]',
+          )}
+        >
+          {badge}
+        </Badge>
+      ) : null}
     </NavLink>
   )
 }

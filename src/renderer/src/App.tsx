@@ -8,6 +8,7 @@ import { Shell } from './app/Shell'
 import { ToastProvider } from './ui'
 
 import { WorkflowPage } from './app/workflow/WorkflowPage'
+import { QuestionsPage } from './app/QuestionsPage'
 
 /**
  * Routes are generated from the route table, so navigation and routing cannot
@@ -26,6 +27,7 @@ const router = createHashRouter([
         // React Router expresses the index route as `index: true`, not as a path.
         if (route.path === '/') return { index: true as const, element: <Overview /> }
         if (route.path === '/workflows') return { path: 'workflows', element: <WorkflowPage /> }
+        if (route.path === '/questions') return { path: 'questions', element: <QuestionsPage /> }
         if (route.path === '/settings') return { path: 'settings', element: <Settings /> }
         return { path: route.path.slice(1), element: <RoutePlaceholder route={route} /> }
       }),

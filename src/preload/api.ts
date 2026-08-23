@@ -4,7 +4,12 @@ import type {
   IpcResult,
   ProjectDetail,
   ProjectView,
+  PromptPacketView,
   RepositoryProbe,
+  WorkflowDetailView,
+  WorkflowEventPayload,
+  WorkflowLogPayload,
+  WorkflowSummaryView,
 } from '@shared/ipc'
 
 /**
@@ -58,4 +63,22 @@ export interface ForgeApi {
     ) => Promise<IpcResult<ProjectDetail | null>>
     remove: (projectId: string, ruleId: string) => Promise<IpcResult<ProjectDetail | null>>
   }
+  readonly workflow: {
+    list: (
+      projectId: string,
+    ) => Promise<IpcResult<{ readonly workflows: readonly WorkflowSummaryView[] }>>
+    get: (workflowId: string) => Promise<IpcResult<WorkflowDetailView | null>>
+    getActive: (projectId: string) => Promise<IpcResult<WorkflowDetailView | null>>
+    start: (request: {
+      readonly projectId: string
+      readonly taskId?: string
+      readonly templateId?: string
+      readonly objective?: string
+    }) => Promise<IpcResult<WorkflowDetailView>>
+    cancel: (workflowId: string, reason?: string) => Promise<IpcResult<WorkflowDetailView | null>>
+    resume: (workflowId: string) => Promise<IpcResult<WorkflowDetailView | null>>
+    getPacket: (packetRef: string) => Promise<IpcResult<PromptPacketView | null>>
+  }
+  readonly onWorkflowEvent: (listener: (event: WorkflowEventPayload) => void) => () => void
+  readonly onWorkflowLog: (listener: (log: WorkflowLogPayload) => void) => () => void
 }

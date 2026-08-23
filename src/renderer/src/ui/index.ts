@@ -28,3 +28,9 @@ export { StatusDot, type StatusDotProps } from './primitives/StatusDot'
 export { TabPanel, Tabs, type TabItem, type TabPanelProps, type TabsProps } from './primitives/Tabs'
 export { ToastProvider, useToast, type ToastMessage, type ToastTone } from './primitives/Toast'
 export { Tooltip, type TooltipProps } from './primitives/Tooltip'
+export {
+  WorkflowNode,
+  type WorkflowNodeProps,
+  type WorkflowNodeState,
+} from './primitives/WorkflowNode'
+export { WorkflowEdge, type WorkflowEdgeProps } from './primitives/WorkflowEdge'

@@ -166,10 +166,118 @@ export const projectDetailSchema = z.strictObject({
 
 export type ProjectDetail = z.infer<typeof projectDetailSchema>
 
-/** The result of a native directory picker. Null when the user cancelled. */
 export const pickDirectoryResponseSchema = z.strictObject({
   path: z.string().nullable(),
 })
+
+export type PickDirectoryResponse = z.infer<typeof pickDirectoryResponseSchema>
+
+export const workflowStepViewSchema = z.strictObject({
+  id: z.string(),
+  index: z.number().int().nonnegative(),
+  role: z.string(),
+  runtimeId: z.string().nullable(),
+  state: z.string(),
+  contextRef: z.string().nullable(),
+  reportStatus: z.string().nullable(),
+  verdict: z.string().nullable(),
+  changeSetId: z.string().nullable(),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+})
+
+export type WorkflowStepView = z.infer<typeof workflowStepViewSchema>
+
+export const workflowCheckpointViewSchema = z.strictObject({
+  stepIndex: z.number().int().nonnegative(),
+  state: z.string(),
+  startedAt: z.string(),
+  lastOperation: z.string(),
+  inputRef: z.string().nullable(),
+})
+
+export type WorkflowCheckpointView = z.infer<typeof workflowCheckpointViewSchema>
+
+export const workflowSummaryViewSchema = z.strictObject({
+  id: z.string(),
+  taskId: z.string(),
+  templateId: z.string(),
+  state: z.string(),
+  iteration: z.number().int().nonnegative(),
+  maxIterations: z.number().int().positive(),
+  haltReason: z.string().nullable(),
+  startedAt: z.string(),
+  finishedAt: z.string().nullable(),
+  stepCount: z.number().int().nonnegative(),
+})
+
+export type WorkflowSummaryView = z.infer<typeof workflowSummaryViewSchema>
+
+export const workflowDetailViewSchema = z.strictObject({
+  id: z.string(),
+  taskId: z.string(),
+  templateId: z.string(),
+  state: z.string(),
+  iteration: z.number().int().nonnegative(),
+  limits: z.strictObject({
+    maxIterations: z.number().int().positive(),
+    stepTimeoutMs: z.number().int().positive(),
+    idleTimeoutMs: z.number().int().positive(),
+    totalTimeoutMs: z.number().int().positive(),
+  }),
+  steps: z.array(workflowStepViewSchema).readonly(),
+  checkpoint: workflowCheckpointViewSchema.nullable(),
+  resumeState: z.string().nullable(),
+  blockedByQuestionId: z.string().nullable(),
+  haltReason: z.string().nullable(),
+  startedAt: z.string(),
+  finishedAt: z.string().nullable(),
+})
+
+export type WorkflowDetailView = z.infer<typeof workflowDetailViewSchema>
+
+export const promptPacketViewSchema = z.strictObject({
+  role: z.string(),
+  objective: z.string(),
+  constraints: z.array(z.string()).readonly(),
+  rules: z.array(z.string()).readonly(),
+  lockedDecisions: z.array(z.string()).readonly(),
+  allowedPaths: z.array(z.string()).readonly(),
+  forbiddenPaths: z.array(z.string()).readonly(),
+  relevantFiles: z.array(z.string()).readonly(),
+  reviewFindings: z.array(z.string()).readonly(),
+  previousAttempt: z
+    .strictObject({
+      summary: z.string(),
+      diffStat: z.string(),
+    })
+    .nullable(),
+  completionCriteria: z.array(z.string()).readonly(),
+  answeredQuestions: z
+    .array(z.strictObject({ question: z.string(), answer: z.string() }))
+    .readonly(),
+})
+
+export type PromptPacketView = z.infer<typeof promptPacketViewSchema>
+
+export const workflowEventPayloadSchema = z.strictObject({
+  workflowId: z.string(),
+  type: z.string(),
+  state: z.string().optional(),
+  detail: z.string().optional(),
+  at: z.string(),
+})
+
+export type WorkflowEventPayload = z.infer<typeof workflowEventPayloadSchema>
+
+export const workflowLogPayloadSchema = z.strictObject({
+  workflowId: z.string(),
+  stepIndex: z.number().int().nonnegative(),
+  text: z.string(),
+  at: z.string(),
+})
+
+export type WorkflowLogPayload = z.infer<typeof workflowLogPayloadSchema>
 
 /**
  * The channel table.
@@ -213,6 +321,39 @@ export const IPC_CONTRACT = {
   'rule:remove': {
     request: z.strictObject({ projectId: z.string(), ruleId: z.string() }),
     response: projectDetailSchema.nullable(),
+  },
+  'workflow:list': {
+    request: z.strictObject({ projectId: z.string() }),
+    response: z.strictObject({ workflows: z.array(workflowSummaryViewSchema).readonly() }),
+  },
+  'workflow:get': {
+    request: z.strictObject({ workflowId: z.string() }),
+    response: workflowDetailViewSchema.nullable(),
+  },
+  'workflow:getActive': {
+    request: z.strictObject({ projectId: z.string() }),
+    response: workflowDetailViewSchema.nullable(),
+  },
+  'workflow:start': {
+    request: z.strictObject({
+      projectId: z.string(),
+      taskId: z.string().optional(),
+      templateId: z.string().optional(),
+      objective: z.string().optional(),
+    }),
+    response: workflowDetailViewSchema,
+  },
+  'workflow:cancel': {
+    request: z.strictObject({ workflowId: z.string(), reason: z.string().optional() }),
+    response: workflowDetailViewSchema.nullable(),
+  },
+  'workflow:resume': {
+    request: z.strictObject({ workflowId: z.string() }),
+    response: workflowDetailViewSchema.nullable(),
+  },
+  'workflow:getPacket': {
+    request: z.strictObject({ packetRef: z.string() }),
+    response: promptPacketViewSchema.nullable(),
   },
 } as const satisfies IpcContractShape
 

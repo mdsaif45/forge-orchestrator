@@ -121,3 +121,8 @@ export const criterionKindSchema = z.enum([
   'custom-command',
 ])
 export type CriterionKind = z.infer<typeof criterionKindSchema>
+
+/** Account health and connection status (#44). */
+export const ACCOUNT_STATUSES = ['connected', 'expired', 'rate_limited', 'disconnected'] as const
+export const accountStatusSchema = z.enum(ACCOUNT_STATUSES)
+export type AccountStatus = z.infer<typeof accountStatusSchema>

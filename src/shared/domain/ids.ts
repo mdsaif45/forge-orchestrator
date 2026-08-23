@@ -36,6 +36,7 @@ export const stepIdSchema = id<'StepId'>()
 export const changeSetIdSchema = id<'ChangeSetId'>()
 export const evidenceIdSchema = id<'EvidenceId'>()
 export const eventIdSchema = id<'EventId'>()
+export const accountIdSchema = id<'AccountId'>()
 
 export type ProjectId = z.infer<typeof projectIdSchema>
 export type RepositoryId = z.infer<typeof repositoryIdSchema>
@@ -49,6 +50,7 @@ export type StepId = z.infer<typeof stepIdSchema>
 export type ChangeSetId = z.infer<typeof changeSetIdSchema>
 export type EvidenceId = z.infer<typeof evidenceIdSchema>
 export type EventId = z.infer<typeof eventIdSchema>
+export type AccountId = z.infer<typeof accountIdSchema>
 
 /**
  * An ISO-8601 timestamp, stored as a string.

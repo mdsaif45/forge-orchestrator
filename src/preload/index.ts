@@ -66,6 +66,12 @@ const api: ForgeApi = {
     list: (projectId) => call('changeset:list', { projectId }),
     get: (changeSetId) => call('changeset:get', { changeSetId }),
   },
+  account: {
+    list: (provider) => call('account:list', { provider }),
+    register: (request) => call('account:register', request),
+    updateStatus: (request) => call('account:updateStatus', request),
+    remove: (accountId) => call('account:remove', { accountId }),
+  },
   git: {
     getWorkingDiff: (projectId) => call('git:getWorkingDiff', { projectId }),
     readFile: (projectId, path) => call('git:readFile', { projectId, path }),

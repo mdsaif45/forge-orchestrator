@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import type { DomainEvent, EventPayloads, EventType, ProjectId } from '@shared/domain'
 import type { ForgeDatabase } from './connection'
 import {
+  accounts,
   changeSets,
   decisions,
   evidenceArtifacts,
@@ -480,6 +481,47 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
       })
       .where(eq(changeSets.id, payload.changeSetId))
       .run()
+    return
+  }
+
+  if (isType(event, 'account.registered')) {
+    const a = event.payload.account
+    db.insert(accounts)
+      .values({
+        id: a.id,
+        provider: a.provider,
+        label: a.label,
+        status: a.status,
+        lastUsedAt: a.lastUsedAt,
+        createdAt: a.createdAt,
+      })
+      .onConflictDoUpdate({
+        target: accounts.id,
+        set: {
+          provider: a.provider,
+          label: a.label,
+          status: a.status,
+          lastUsedAt: a.lastUsedAt,
+        },
+      })
+      .run()
+    return
+  }
+
+  if (isType(event, 'account.status_updated')) {
+    const payload = event.payload
+    const updateData: { status: string; lastUsedAt?: string | null } = {
+      status: payload.status,
+    }
+    if (payload.lastUsedAt !== undefined) {
+      updateData.lastUsedAt = payload.lastUsedAt
+    }
+    db.update(accounts).set(updateData).where(eq(accounts.id, payload.accountId)).run()
+    return
+  }
+
+  if (isType(event, 'account.removed')) {
+    db.delete(accounts).where(eq(accounts.id, event.payload.accountId)).run()
     return
   }
 

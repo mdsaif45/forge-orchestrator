@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import type { EffectiveRuleView } from '@shared/ipc'
+import { useEffect, useState } from 'react'
+import type { AccountView, EffectiveRuleView } from '@shared/ipc'
+import { unwrap } from '@renderer/ipc'
 import {
   Badge,
   Button,
@@ -45,6 +46,62 @@ export function Settings(): React.JSX.Element {
   const [scope, setScope] = useState('project')
   const [statement, setStatement] = useState('')
   const [saving, setSaving] = useState(false)
+
+  // Account management state (#44)
+  const [accounts, setAccounts] = useState<readonly AccountView[]>([])
+  const [accountProvider, setAccountProvider] = useState('default')
+  const [accountLabel, setAccountLabel] = useState('')
+  const [registeringAccount, setRegisteringAccount] = useState(false)
+
+  useEffect(() => {
+    window.forge.account
+      .list()
+      .then((res) => {
+        const data = unwrap(res)
+        setAccounts(data.accounts)
+      })
+      .catch((err: unknown) => {
+        console.error('Failed to load accounts:', err)
+      })
+  }, [])
+
+  async function registerAccount(): Promise<void> {
+    if (accountLabel.trim() === '') return
+    setRegisteringAccount(true)
+    try {
+      const res = await window.forge.account.register({
+        provider: accountProvider,
+        label: accountLabel.trim(),
+      })
+      const created = unwrap(res)
+      setAccounts((prev) => [...prev, created])
+      setAccountLabel('')
+      show({ tone: 'success', title: `Account "${created.label}" registered` })
+    } catch (cause) {
+      show({
+        tone: 'danger',
+        title: 'Could not register account',
+        description: cause instanceof Error ? cause.message : 'Unknown error',
+      })
+    } finally {
+      setRegisteringAccount(false)
+    }
+  }
+
+  async function removeAccount(accountId: string): Promise<void> {
+    try {
+      const res = await window.forge.account.remove(accountId)
+      unwrap(res)
+      setAccounts((prev) => prev.filter((a) => a.id !== accountId))
+      show({ tone: 'success', title: 'Account removed' })
+    } catch (cause) {
+      show({
+        tone: 'danger',
+        title: 'Could not remove account',
+        description: cause instanceof Error ? cause.message : 'Unknown error',
+      })
+    }
+  }
 
   async function save(): Promise<void> {
     if (key.trim() === '' || statement.trim() === '') return
@@ -181,6 +238,115 @@ export function Settings(): React.JSX.Element {
                     disabled={saving || key.trim() === '' || statement.trim() === ''}
                   >
                     {saving ? 'Saving…' : 'Set rule'}
+                  </Button>
+                </div>
+              </div>
+            </Card>
+
+            {/* Multi-Account Registry (#44) */}
+            <Card tone="raised">
+              <CardHeader>
+                <div>
+                  <CardTitle>Provider Accounts</CardTitle>
+                  <CardDescription>
+                    Manage connected agent accounts across providers. Hot-swapping accounts
+                    preserves full workflow state and history.
+                  </CardDescription>
+                </div>
+                <Badge tone="accent" size="sm">
+                  {accounts.length}
+                </Badge>
+              </CardHeader>
+
+              <div className="mt-3 grid gap-3">
+                {accounts.length === 0 ? (
+                  <p className="m-0 text-xs text-neutral-400">
+                    No external accounts registered yet.
+                  </p>
+                ) : (
+                  <ul className="grid list-none gap-2 p-0">
+                    {accounts.map((acc) => (
+                      <li
+                        key={acc.id}
+                        className="flex items-center justify-between rounded-md bg-neutral-900/60 p-3 border border-neutral-800"
+                      >
+                        <div className="flex items-center gap-3">
+                          <Badge tone="neutral" size="sm">
+                            {acc.provider}
+                          </Badge>
+                          <div>
+                            <p className="m-0 text-sm font-medium text-neutral-200">{acc.label}</p>
+                            <p className="m-0 text-xs text-neutral-500">
+                              Status:{' '}
+                              <span
+                                className={
+                                  acc.status === 'connected'
+                                    ? 'text-emerald-400'
+                                    : acc.status === 'rate_limited'
+                                      ? 'text-amber-400'
+                                      : 'text-rose-400'
+                                }
+                              >
+                                {acc.status}
+                              </span>
+                              {acc.lastUsedAt !== null &&
+                                ` · Last used: ${new Date(acc.lastUsedAt).toLocaleTimeString()}`}
+                            </p>
+                          </div>
+                        </div>
+
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            void removeAccount(acc.id)
+                          }}
+                        >
+                          Remove
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <Separator className="my-2" />
+
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Provider ID" required hint="e.g. cli-adapter, api-service">
+                    {(bind) => (
+                      <Input
+                        {...bind}
+                        value={accountProvider}
+                        placeholder="provider-id"
+                        onChange={(e) => {
+                          setAccountProvider(e.target.value)
+                        }}
+                      />
+                    )}
+                  </Field>
+
+                  <Field label="Account Label" required hint="e.g. Work Pro, Personal Max">
+                    {(bind) => (
+                      <Input
+                        {...bind}
+                        value={accountLabel}
+                        placeholder="Work Pro (Tier 4)"
+                        onChange={(e) => {
+                          setAccountLabel(e.target.value)
+                        }}
+                      />
+                    )}
+                  </Field>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button
+                    onClick={() => {
+                      void registerAccount()
+                    }}
+                    disabled={registeringAccount || accountLabel.trim() === ''}
+                  >
+                    {registeringAccount ? 'Registering…' : 'Register Account'}
                   </Button>
                 </div>
               </div>

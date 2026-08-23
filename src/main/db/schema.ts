@@ -282,6 +282,15 @@ export const events = sqliteTable(
   ],
 )
 
+export const accounts = sqliteTable('accounts', {
+  id: text('id').primaryKey(),
+  provider: text('provider').notNull(),
+  label: text('label').notNull(),
+  status: text('status').notNull(),
+  lastUsedAt: text('last_used_at'),
+  createdAt: text('created_at').notNull(),
+})
+
 /**
  * `schema_meta` is deliberately absent from this schema.
  *

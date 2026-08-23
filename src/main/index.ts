@@ -4,6 +4,9 @@ import { initialiseDatabase, type ForgeDatabase } from './db'
 import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
 import { OrphanTracker, ProcessManager } from './process'
+import { AccountService } from './accounts/accountService'
+import { AccountStore } from './db/accountStore'
+import { EventStore } from './db/eventStore'
 import { ChangeSetService } from './changesets/changeSetService'
 import { DecisionService } from './decisions/decisionService'
 import { ProjectService } from './projects/projectService'
@@ -183,6 +186,10 @@ if (!claimSingleInstance()) {
       projects: projectService,
     })
 
+    const eventStore = new EventStore(db)
+    const accountStore = new AccountStore(db, eventStore)
+    const accountService = new AccountService(accountStore)
+
     registerIpcHandlers(
       createIpcHandlers({
         projects: projectService,
@@ -190,6 +197,7 @@ if (!claimSingleInstance()) {
         questions: questionService,
         decisions: decisionService,
         changeSets: changeSetService,
+        accounts: accountService,
       }),
     )
 

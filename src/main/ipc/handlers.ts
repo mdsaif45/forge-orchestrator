@@ -1,5 +1,6 @@
 import { app, dialog, BrowserWindow } from 'electron'
 import { APP_NAME } from '@shared/app'
+import { TEMPLATES } from '@shared/domain'
 import type { ProjectService } from '../projects/projectService'
 import { validateRepository } from '../projects/validateRepository'
 import type { IpcHandlerMap } from './router'
@@ -133,5 +134,12 @@ export function createIpcHandlers({
       accounts.remove(accountId)
       return { success: true }
     },
+
+    'template:list': () => ({
+      templates: Object.values(TEMPLATES),
+    }),
+
+    'template:get': ({ templateId }) =>
+      Object.hasOwn(TEMPLATES, templateId) ? TEMPLATES[templateId as keyof typeof TEMPLATES] : null,
   }
 }

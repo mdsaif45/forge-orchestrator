@@ -236,6 +236,22 @@ export const workflowDetailViewSchema = z.strictObject({
 
 export type WorkflowDetailView = z.infer<typeof workflowDetailViewSchema>
 
+export const templateStepViewSchema = z.strictObject({
+  role: z.string(),
+  label: z.string(),
+  advanceTrigger: z.string(),
+  performedByForge: z.boolean(),
+})
+
+export const workflowTemplateViewSchema = z.strictObject({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  steps: z.array(templateStepViewSchema).readonly(),
+})
+
+export type WorkflowTemplateView = z.infer<typeof workflowTemplateViewSchema>
+
 export const promptPacketViewSchema = z.strictObject({
   role: z.string(),
   objective: z.string(),
@@ -546,6 +562,14 @@ export const IPC_CONTRACT = {
   'account:remove': {
     request: z.strictObject({ accountId: z.string() }),
     response: z.strictObject({ success: z.boolean() }),
+  },
+  'template:list': {
+    request: empty,
+    response: z.strictObject({ templates: z.array(workflowTemplateViewSchema).readonly() }),
+  },
+  'template:get': {
+    request: z.strictObject({ templateId: z.string() }),
+    response: workflowTemplateViewSchema.nullable(),
   },
 } as const satisfies IpcContractShape
 

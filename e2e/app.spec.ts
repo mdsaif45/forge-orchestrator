@@ -260,3 +260,9 @@ test('workflow page renders graph, starts workflow and allows step inspection', 
   await plannerNode.click()
   await expect(page.getByRole('tab', { name: 'Prompt Packet' })).toBeVisible()
 })
+
+test('question queue displays open questions and allows answering to unblock', async () => {
+  await page.getByRole('link', { name: 'Questions' }).click()
+  await expect(page.getByRole('heading', { name: 'Questions' })).toBeVisible()
+  await expect(page.getByText('One place for every interruption', { exact: false })).toBeVisible()
+})

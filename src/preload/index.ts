@@ -77,6 +77,10 @@ const api: ForgeApi = {
     readFile: (projectId, path) => call('git:readFile', { projectId, path }),
     writeFile: (projectId, path, content) => call('git:writeFile', { projectId, path, content }),
   },
+  template: {
+    list: () => call('template:list', {}),
+    get: (templateId) => call('template:get', { templateId }),
+  },
   onWorkflowEvent: (listener) => {
     const handler = (_event: unknown, payload: unknown) => {
       listener(payload as Parameters<typeof listener>[0])

@@ -5,6 +5,10 @@ import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
 import { OrphanTracker, ProcessManager } from './process'
 import { ProjectService } from './projects/projectService'
+import { WorkflowService } from './workflows/workflowService'
+import { MockAgentRuntime } from './runtimes/mockRuntime'
+import { RuntimeRegistry } from './runtimes/registry'
+import { SCENARIOS } from './runtimes/scenario'
 import {
   applyContentSecurityPolicy,
   claimSingleInstance,
@@ -138,7 +142,37 @@ if (!claimSingleInstance()) {
       orphans,
     })
 
-    registerIpcHandlers(createIpcHandlers({ projects: new ProjectService(db) }))
+    const registry = new RuntimeRegistry()
+    registry.register(new MockAgentRuntime({ scenario: SCENARIOS.fullRun, id: 'mock:default' }))
+
+    const projectService = new ProjectService(db)
+    const workflowService = new WorkflowService({
+      db,
+      projects: projectService,
+      packetDir: join(app.getPath('userData'), 'packets'),
+      registry,
+      emitEvent: (payload) => {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) {
+            win.webContents.send('workflow:event', payload)
+          }
+        }
+      },
+      emitLog: (payload) => {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) {
+            win.webContents.send('workflow:log', payload)
+          }
+        }
+      },
+    })
+
+    registerIpcHandlers(
+      createIpcHandlers({
+        projects: projectService,
+        workflows: workflowService,
+      }),
+    )
 
     createWindow()
 

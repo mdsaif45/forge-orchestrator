@@ -7,13 +7,17 @@ import {
   fingerprintChange,
   formatPolicyHaltReason,
   haltStateFor,
+  questionIdSchema,
   stepIdSchema,
   validateTemplate,
+  type Actor,
   type AgentReport,
   type CriterionResult,
   type Discrepancy,
   type HaltCode,
+  type OpenQuestion,
   type PromptPacket,
+  type QuestionId,
   type ReviewOutcome,
   type Role,
   type WorkflowId,
@@ -148,6 +152,7 @@ export interface RunOptions {
     report: AgentReport,
     criteria: readonly CriterionResult[],
   ) => Promise<ReviewOutcome | null>
+  readonly onQuestion?: (question: OpenQuestion) => Promise<void> | void
   readonly signal?: AbortSignal
 }
 
@@ -469,12 +474,37 @@ export class Orchestrator {
       )
 
       if (assessment.verdict === 'await-user') {
+        let questionId: QuestionId | undefined
+        if (report.openQuestions.length > 0) {
+          const first = report.openQuestions[0]
+          if (first !== undefined) {
+            const qId = questionIdSchema.parse(randomUUID())
+            const openQ: OpenQuestion = {
+              id: qId,
+              question: first.question,
+              whyUndetermined: first.whyUndetermined,
+              evidence: first.evidence,
+              options: first.options,
+              recommendation: first.recommendation,
+              askedBy: `agent:${binding.runtimeId}` as Actor,
+              askedAt: this.timestamp(),
+              answer: null,
+              answeredAt: null,
+              answeredBy: null,
+            }
+            if (options.onQuestion !== undefined) {
+              await options.onQuestion(openQ)
+            }
+            questionId = qId
+          }
+        }
+
         workflow = this.deps.workflows.apply(
           options.workflowId,
           'questionRaised',
           `agent:${binding.runtimeId}`,
           this.timestamp(),
-          { reason: assessment.reason },
+          { reason: assessment.reason, questionId },
         )
         break
       }

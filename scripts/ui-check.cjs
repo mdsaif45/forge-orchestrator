@@ -62,6 +62,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('workflow:get', () => ({ ok: true, value: null }))
   ipcMain.handle('workflow:getActive', () => ({ ok: true, value: null }))
   ipcMain.handle('workflow:getPacket', () => ({ ok: true, value: null }))
+  ipcMain.handle('question:list', () => ({ ok: true, value: { questions: [] } }))
+  ipcMain.handle('question:get', () => ({ ok: true, value: null }))
+  ipcMain.handle('question:answer', () => ({ ok: true, value: null }))
 
   await window.loadFile(join(__dirname, '../out/renderer/index.html'))
   // Let React mount before probing the DOM.

@@ -5,6 +5,7 @@ import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
 import { OrphanTracker, ProcessManager } from './process'
 import { ProjectService } from './projects/projectService'
+import { QuestionService } from './questions/questionService'
 import { WorkflowService } from './workflows/workflowService'
 import { MockAgentRuntime } from './runtimes/mockRuntime'
 import { RuntimeRegistry } from './runtimes/registry'
@@ -167,10 +168,15 @@ if (!claimSingleInstance()) {
       },
     })
 
+    const questionService = new QuestionService({
+      questions: workflowService.getQuestionStore(),
+    })
+
     registerIpcHandlers(
       createIpcHandlers({
         projects: projectService,
         workflows: workflowService,
+        questions: questionService,
       }),
     )
 

@@ -260,6 +260,31 @@ export const promptPacketViewSchema = z.strictObject({
 
 export type PromptPacketView = z.infer<typeof promptPacketViewSchema>
 
+export const evidenceRefViewSchema = z.strictObject({
+  path: z.string(),
+  line: z.number().int().positive().nullable(),
+  note: z.string(),
+})
+
+export type EvidenceRefView = z.infer<typeof evidenceRefViewSchema>
+
+export const openQuestionViewSchema = z.strictObject({
+  id: z.string(),
+  projectId: z.string().optional(),
+  question: z.string(),
+  whyUndetermined: z.string(),
+  evidence: z.array(evidenceRefViewSchema).readonly(),
+  options: z.array(z.string()).readonly(),
+  recommendation: z.string().nullable(),
+  askedBy: z.string(),
+  askedAt: z.string(),
+  answer: z.string().nullable(),
+  answeredAt: z.string().nullable(),
+  answeredBy: z.string().nullable(),
+})
+
+export type OpenQuestionView = z.infer<typeof openQuestionViewSchema>
+
 export const workflowEventPayloadSchema = z.strictObject({
   workflowId: z.string(),
   type: z.string(),
@@ -354,6 +379,22 @@ export const IPC_CONTRACT = {
   'workflow:getPacket': {
     request: z.strictObject({ packetRef: z.string() }),
     response: promptPacketViewSchema.nullable(),
+  },
+  'question:list': {
+    request: z.strictObject({ projectId: z.string(), unansweredOnly: z.boolean().optional() }),
+    response: z.strictObject({ questions: z.array(openQuestionViewSchema).readonly() }),
+  },
+  'question:get': {
+    request: z.strictObject({ questionId: z.string() }),
+    response: openQuestionViewSchema.nullable(),
+  },
+  'question:answer': {
+    request: z.strictObject({
+      questionId: z.string(),
+      answer: z.string().min(1),
+      promoteToDecision: z.boolean().optional(),
+    }),
+    response: openQuestionViewSchema,
   },
 } as const satisfies IpcContractShape
 

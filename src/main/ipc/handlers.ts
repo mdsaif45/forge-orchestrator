@@ -3,26 +3,20 @@ import { APP_NAME } from '@shared/app'
 import type { ProjectService } from '../projects/projectService'
 import { validateRepository } from '../projects/validateRepository'
 import type { IpcHandlerMap } from './router'
-
-/**
- * The concrete handler for every declared channel.
- *
- * A factory rather than a constant because domain handlers need the database, which
- * is opened during startup. The dependencies are passed in rather than imported so
- * the map can be built against a temporary database in a test without an Electron
- * process — the same reason `router.ts` takes its handlers as a parameter.
- *
- * The type is exhaustive over the contract, so declaring a channel without
- * implementing it here is a compile error.
- */
 import type { WorkflowService } from '../workflows/workflowService'
+import type { QuestionService } from '../questions/questionService'
 
 export interface IpcDependencies {
   readonly projects: ProjectService
   readonly workflows: WorkflowService
+  readonly questions: QuestionService
 }
 
-export function createIpcHandlers({ projects, workflows }: IpcDependencies): IpcHandlerMap {
+export function createIpcHandlers({
+  projects,
+  workflows,
+  questions,
+}: IpcDependencies): IpcHandlerMap {
   return {
     'app:getInfo': () => ({
       name: APP_NAME,
@@ -78,5 +72,14 @@ export function createIpcHandlers({ projects, workflows }: IpcDependencies): Ipc
     'workflow:resume': ({ workflowId }) => workflows.resume(workflowId),
 
     'workflow:getPacket': ({ packetRef }) => workflows.getPacket(packetRef),
+
+    'question:list': ({ projectId, unansweredOnly }) => ({
+      questions: questions.list(projectId, unansweredOnly),
+    }),
+
+    'question:get': ({ questionId }) => questions.get(questionId),
+
+    'question:answer': ({ questionId, answer, promoteToDecision }) =>
+      workflows.answerQuestion(questionId, answer, promoteToDecision),
   }
 }

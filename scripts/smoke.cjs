@@ -77,6 +77,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('workflow:get', () => ({ ok: true, value: null }))
   ipcMain.handle('workflow:getActive', () => ({ ok: true, value: null }))
   ipcMain.handle('workflow:getPacket', () => ({ ok: true, value: null }))
+  ipcMain.handle('question:list', () => ({ ok: true, value: { questions: [] } }))
+  ipcMain.handle('question:get', () => ({ ok: true, value: null }))
+  ipcMain.handle('question:answer', () => ({ ok: true, value: null }))
 
   await window.loadFile(join(__dirname, '../out/renderer/index.html'))
 
@@ -111,9 +114,12 @@ app.whenReady().then(async () => {
     window,
     `JSON.stringify({
        keys: Object.keys(window.forge).sort(),
-       methods: Object.keys(window.forge).flatMap((domain) =>
-         Object.keys(window.forge[domain]).map((method) => domain + '.' + method),
-       ).sort(),
+       methods: Object.keys(window.forge)
+         .filter((domain) => typeof window.forge[domain] === 'object' && window.forge[domain] !== null)
+         .flatMap((domain) =>
+           Object.keys(window.forge[domain]).map((method) => domain + '.' + method),
+         )
+         .sort(),
        invoke: typeof window.forge.invoke,
        send: typeof window.forge.send,
        ipc: typeof window.forge.ipcRenderer,

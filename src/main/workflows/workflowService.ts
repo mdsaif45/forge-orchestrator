@@ -6,11 +6,13 @@ import {
   FEATURE_IMPLEMENTATION,
   FORGE_DEFAULT_RULES,
   projectIdSchema,
+  questionIdSchema,
   repositoryIdSchema,
   resolveEffectivePolicy,
   stepIdSchema,
   taskIdSchema,
   workflowIdSchema,
+  type OpenQuestion,
   type ProjectId,
   type PromptPacket,
   type ResolvableRule,
@@ -20,6 +22,7 @@ import {
   type WorkflowId,
 } from '@shared/domain'
 import type {
+  OpenQuestionView,
   PromptPacketView,
   WorkflowDetailView,
   WorkflowEventPayload,
@@ -30,6 +33,7 @@ import type { ForgeDatabase } from '../db/connection'
 import { EventStore } from '../db/eventStore'
 import { applyEvent } from '../db/projections'
 import { WorkflowStore } from '../db/workflowStore'
+import { QuestionStore } from '../db/questionStore'
 import { PacketStore } from '../context/packetStore'
 import { GitService } from '../git'
 import { buildChangeSet } from '../evidence/changeSetBuilder'
@@ -50,6 +54,7 @@ export interface WorkflowServiceOptions {
 
 export class WorkflowService {
   private readonly workflows: WorkflowStore
+  private readonly questions: QuestionStore
   private readonly packets: PacketStore
   private readonly events: EventStore
   private readonly registry: RuntimeRegistry
@@ -57,9 +62,14 @@ export class WorkflowService {
 
   constructor(private readonly options: WorkflowServiceOptions) {
     this.workflows = new WorkflowStore(options.db)
-    this.packets = new PacketStore({ directory: options.packetDir })
     this.events = new EventStore(options.db)
+    this.questions = new QuestionStore(options.db, this.events)
+    this.packets = new PacketStore({ directory: options.packetDir })
     this.registry = options.registry
+  }
+
+  getQuestionStore(): QuestionStore {
+    return this.questions
   }
 
   list(projectId: string): readonly WorkflowSummaryView[] {
@@ -207,6 +217,82 @@ export class WorkflowService {
     return this.toDetailView(wf)
   }
 
+  answerQuestion(
+    questionId: string,
+    answer: string,
+    _promoteToDecision?: boolean,
+  ): OpenQuestionView {
+    const qId = questionIdSchema.parse(questionId)
+    const now = new Date().toISOString()
+    const updated = this.questions.answer(qId, answer, 'user', now)
+
+    // Find any workflow in this project waiting on this question or awaiting user
+    const q = this.questions.find(qId)
+    if (q !== null) {
+      const projectsList = this.options.projects.list()
+      for (const prj of projectsList) {
+        const pId = projectIdSchema.parse(prj.id)
+        const list = this.workflows.listForProject(pId)
+        const waiting = list.find(
+          (wf) =>
+            wf.state === 'AWAITING_USER' &&
+            (wf.blockedByQuestionId === null || wf.blockedByQuestionId === qId),
+        )
+
+        if (waiting !== undefined) {
+          const resumed = this.workflows.apply(waiting.id, 'questionAnswered', 'user', now)
+          this.notifyEvent({
+            workflowId: waiting.id,
+            type: 'workflow.resumed',
+            state: resumed.state,
+            at: now,
+          })
+
+          void this.options.projects.get(pId).then((projectDetail) => {
+            if (projectDetail !== null) {
+              const task: Task = {
+                id: waiting.taskId,
+                objective: `Continue task ${waiting.taskId}`,
+                constraints: [],
+                completionCriteria: [
+                  { kind: 'tests', description: 'Test suite passes', params: {} },
+                ],
+                scope: { allowedPaths: [], forbiddenPaths: [] },
+                lockedDecisionIds: [],
+                correctsTaskId: null,
+                createdAt: waiting.startedAt,
+              }
+              void this.executeWorkflow(
+                pId,
+                waiting.id,
+                task,
+                projectDetail.project.repository.absolutePath,
+              )
+            }
+          })
+        }
+      }
+    }
+
+    return {
+      id: updated.id,
+      question: updated.question,
+      whyUndetermined: updated.whyUndetermined,
+      evidence: updated.evidence.map((e) => ({
+        path: e.path,
+        line: e.line,
+        note: e.note,
+      })),
+      options: [...updated.options],
+      recommendation: updated.recommendation,
+      askedBy: updated.askedBy,
+      askedAt: updated.askedAt,
+      answer: updated.answer,
+      answeredAt: updated.answeredAt,
+      answeredBy: updated.answeredBy,
+    }
+  }
+
   private async executeWorkflow(
     projectId: ProjectId,
     workflowId: WorkflowId,
@@ -239,6 +325,11 @@ export class WorkflowService {
         ]
         const effectivePolicy = resolveEffectivePolicy(rawRules)
 
+        const allProjectQuestions = this.questions.listForProject(projectId)
+        const answeredQuestions = allProjectQuestions
+          .filter((q): q is OpenQuestion & { answer: string } => q.answer !== null)
+          .map((q) => ({ question: q.question, answer: q.answer }))
+
         const compiled = compileContext({
           role: ctx.role,
           task,
@@ -247,7 +338,7 @@ export class WorkflowService {
           files: [],
           previousAttempt: ctx.previousAttempt,
           reviewFindings: ctx.reviewFindings,
-          answeredQuestions: [],
+          answeredQuestions,
         })
         return compiled.packet
       },
@@ -336,6 +427,16 @@ export class WorkflowService {
             criteria,
           )
           return Promise.resolve(outcome)
+        },
+        onQuestion: (question: OpenQuestion) => {
+          this.questions.ask(question, projectId, question.askedBy, question.askedAt)
+          this.notifyEvent({
+            workflowId,
+            type: 'question.asked',
+            state: 'AWAITING_USER',
+            detail: question.question,
+            at: question.askedAt,
+          })
         },
         signal: controller.signal,
       })

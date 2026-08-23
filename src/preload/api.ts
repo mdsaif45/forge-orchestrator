@@ -2,6 +2,7 @@ import type {
   AppInfo,
   CreateProjectRequest,
   IpcResult,
+  OpenQuestionView,
   ProjectDetail,
   ProjectView,
   PromptPacketView,
@@ -78,6 +79,18 @@ export interface ForgeApi {
     cancel: (workflowId: string, reason?: string) => Promise<IpcResult<WorkflowDetailView | null>>
     resume: (workflowId: string) => Promise<IpcResult<WorkflowDetailView | null>>
     getPacket: (packetRef: string) => Promise<IpcResult<PromptPacketView | null>>
+  }
+  readonly question: {
+    list: (
+      projectId: string,
+      unansweredOnly?: boolean,
+    ) => Promise<IpcResult<{ readonly questions: readonly OpenQuestionView[] }>>
+    get: (questionId: string) => Promise<IpcResult<OpenQuestionView | null>>
+    answer: (
+      questionId: string,
+      answer: string,
+      promoteToDecision?: boolean,
+    ) => Promise<IpcResult<OpenQuestionView>>
   }
   readonly onWorkflowEvent: (listener: (event: WorkflowEventPayload) => void) => () => void
   readonly onWorkflowLog: (listener: (log: WorkflowLogPayload) => void) => () => void

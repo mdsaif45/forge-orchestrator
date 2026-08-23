@@ -5,8 +5,9 @@ import type {
   WorkflowEventPayload,
   WorkflowLogPayload,
   WorkflowStepView,
+  WorkflowTemplateView,
 } from '@shared/ipc'
-import { Badge, Button, Spinner, StatusDot, useToast } from '@renderer/ui'
+import { Badge, Button, Select, Spinner, StatusDot, useToast } from '@renderer/ui'
 import { unwrap } from '@renderer/ipc'
 import { useProjectStore } from '../projectStore'
 import { LiveLogViewer, type LogLine } from './LiveLogViewer'
@@ -25,6 +26,8 @@ export function WorkflowPage(): React.JSX.Element {
   const [selectedStep, setSelectedStep] = useState<WorkflowStepView | null>(null)
   const [logs, setLogs] = useState<readonly LogLine[]>([])
   const [actionInProgress, setActionInProgress] = useState(false)
+  const [templates, setTemplates] = useState<readonly WorkflowTemplateView[]>([])
+  const [selectedTemplateId, setSelectedTemplateId] = useState('feature')
 
   const loading = project !== null && workflowState?.projectId !== project.id
 
@@ -110,14 +113,29 @@ export function WorkflowPage(): React.JSX.Element {
     }
   }, [project, selectedStep])
 
+  // Load available templates (#45)
+  useEffect(() => {
+    window.forge.template
+      .list()
+      .then((res) => {
+        const data = unwrap(res)
+        setTemplates(data.templates)
+      })
+      .catch((err: unknown) => {
+        console.error('Failed to load templates:', err)
+      })
+  }, [])
+
   const handleStartWorkflow = async (): Promise<void> => {
     if (project === null) return
     const pId = project.id
     setActionInProgress(true)
     try {
+      const template = templates.find((t) => t.id === selectedTemplateId)
       const res = await window.forge.workflow.start({
         projectId: pId,
-        objective: `Feature build in ${project.name}`,
+        templateId: selectedTemplateId,
+        objective: `${template ? template.name : 'Workflow'} in ${project.name}`,
       })
       const started = unwrap(res)
       setWorkflowState({ projectId: pId, workflow: started })
@@ -125,7 +143,7 @@ export function WorkflowPage(): React.JSX.Element {
         {
           id: `init-${String(Date.now())}`,
           timestamp: new Date().toLocaleTimeString(),
-          text: `[START] Workflow ${started.id} initiated in Discussion Mode (Plan & Brainstorm)`,
+          text: `[START] Workflow ${started.id} (${started.templateId}) initiated`,
         },
       ])
     } catch (err: unknown) {
@@ -264,15 +282,27 @@ export function WorkflowPage(): React.JSX.Element {
         {/* Action Controls */}
         <div className="flex items-center gap-2">
           {workflow === null || (!isRunning && workflow.finishedAt !== null) ? (
-            <Button
-              variant="primary"
-              onClick={() => {
-                void handleStartWorkflow()
-              }}
-              disabled={actionInProgress}
-            >
-              Start Workflow
-            </Button>
+            <div className="flex items-center gap-2">
+              {templates.length > 0 && (
+                <Select
+                  options={templates.map((t) => ({ value: t.id, label: t.name }))}
+                  value={selectedTemplateId}
+                  onChange={(e) => {
+                    setSelectedTemplateId(e.target.value)
+                  }}
+                  disabled={actionInProgress}
+                />
+              )}
+              <Button
+                variant="primary"
+                onClick={() => {
+                  void handleStartWorkflow()
+                }}
+                disabled={actionInProgress}
+              >
+                Start Workflow
+              </Button>
+            </div>
           ) : isAwaitingApproval ? (
             <div className="flex items-center gap-2">
               <Button

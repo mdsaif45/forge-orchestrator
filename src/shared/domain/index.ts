@@ -293,9 +293,15 @@ export {
 } from './contextEngine'
 
 export {
+  BUG_FIX,
+  exportTemplateJson,
   FEATURE_IMPLEMENTATION,
+  importTemplateJson,
+  REFACTOR,
+  SECURITY_AUDIT,
   templateStepSchema,
   TEMPLATES,
+  TEST_COVERAGE,
   validateTemplate,
   workflowTemplateSchema,
   type TemplateId,

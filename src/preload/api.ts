@@ -15,6 +15,7 @@ import type {
   WorkflowEventPayload,
   WorkflowLogPayload,
   WorkflowSummaryView,
+  WorkflowTemplateView,
 } from '@shared/ipc'
 
 /**
@@ -152,6 +153,10 @@ export interface ForgeApi {
       path: string,
       content: string,
     ) => Promise<IpcResult<{ readonly success: boolean }>>
+  }
+  readonly template: {
+    list: () => Promise<IpcResult<{ readonly templates: readonly WorkflowTemplateView[] }>>
+    get: (templateId: string) => Promise<IpcResult<WorkflowTemplateView | null>>
   }
   readonly onWorkflowEvent: (listener: (event: WorkflowEventPayload) => void) => () => void
   readonly onWorkflowLog: (listener: (log: WorkflowLogPayload) => void) => () => void

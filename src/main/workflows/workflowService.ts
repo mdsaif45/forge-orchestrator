@@ -3,6 +3,7 @@ import {
   assessReview,
   changeSetIdSchema,
   compileContext,
+  decisionIdSchema,
   FEATURE_IMPLEMENTATION,
   FORGE_DEFAULT_RULES,
   projectIdSchema,
@@ -12,6 +13,7 @@ import {
   stepIdSchema,
   taskIdSchema,
   workflowIdSchema,
+  type LockedDecision,
   type OpenQuestion,
   type ProjectId,
   type PromptPacket,
@@ -34,6 +36,7 @@ import { EventStore } from '../db/eventStore'
 import { applyEvent } from '../db/projections'
 import { WorkflowStore } from '../db/workflowStore'
 import { QuestionStore } from '../db/questionStore'
+import { DecisionStore } from '../db/decisionStore'
 import { PacketStore } from '../context/packetStore'
 import { GitService } from '../git'
 import { buildChangeSet } from '../evidence/changeSetBuilder'
@@ -55,6 +58,7 @@ export interface WorkflowServiceOptions {
 export class WorkflowService {
   private readonly workflows: WorkflowStore
   private readonly questions: QuestionStore
+  private readonly decisions: DecisionStore
   private readonly packets: PacketStore
   private readonly events: EventStore
   private readonly registry: RuntimeRegistry
@@ -64,12 +68,17 @@ export class WorkflowService {
     this.workflows = new WorkflowStore(options.db)
     this.events = new EventStore(options.db)
     this.questions = new QuestionStore(options.db, this.events)
+    this.decisions = new DecisionStore(options.db, this.events)
     this.packets = new PacketStore({ directory: options.packetDir })
     this.registry = options.registry
   }
 
   getQuestionStore(): QuestionStore {
     return this.questions
+  }
+
+  getDecisionStore(): DecisionStore {
+    return this.decisions
   }
 
   list(projectId: string): readonly WorkflowSummaryView[] {
@@ -220,7 +229,7 @@ export class WorkflowService {
   answerQuestion(
     questionId: string,
     answer: string,
-    _promoteToDecision?: boolean,
+    promoteToDecision?: boolean,
   ): OpenQuestionView {
     const qId = questionIdSchema.parse(questionId)
     const now = new Date().toISOString()
@@ -232,6 +241,20 @@ export class WorkflowService {
       const projectsList = this.options.projects.list()
       for (const prj of projectsList) {
         const pId = projectIdSchema.parse(prj.id)
+
+        if (promoteToDecision) {
+          const decId = decisionIdSchema.parse(randomUUID())
+          this.decisions.promoteFromQuestion(
+            qId,
+            answer,
+            `Promoted from answered question: ${updated.question}`,
+            'user',
+            now,
+            pId,
+            decId,
+          )
+        }
+
         const list = this.workflows.listForProject(pId)
         const waiting = list.find(
           (wf) =>
@@ -330,11 +353,18 @@ export class WorkflowService {
           .filter((q): q is OpenQuestion & { answer: string } => q.answer !== null)
           .map((q) => ({ question: q.question, answer: q.answer }))
 
+        const locked = this.decisions.listLocked(projectId)
+        const lockedDecisions: LockedDecision[] = locked.map((d) => ({
+          id: d.id,
+          statement: d.statement,
+          rationale: d.rationale,
+        }))
+
         const compiled = compileContext({
           role: ctx.role,
           task,
           rules: effectivePolicy,
-          lockedDecisions: [],
+          lockedDecisions,
           files: [],
           previousAttempt: ctx.previousAttempt,
           reviewFindings: ctx.reviewFindings,

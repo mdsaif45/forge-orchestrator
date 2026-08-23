@@ -285,6 +285,22 @@ export const openQuestionViewSchema = z.strictObject({
 
 export type OpenQuestionView = z.infer<typeof openQuestionViewSchema>
 
+export const decisionViewSchema = z.strictObject({
+  id: z.string(),
+  projectId: z.string().optional(),
+  statement: z.string(),
+  rationale: z.string(),
+  status: z.enum(['proposed', 'approved', 'locked', 'superseded']),
+  proposedBy: z.string(),
+  proposedAt: z.string(),
+  lockedAt: z.string().nullable(),
+  lockedBy: z.string().nullable(),
+  supersededBy: z.string().nullable(),
+  originQuestionId: z.string().nullable(),
+})
+
+export type DecisionView = z.infer<typeof decisionViewSchema>
+
 export const workflowEventPayloadSchema = z.strictObject({
   workflowId: z.string(),
   type: z.string(),
@@ -395,6 +411,41 @@ export const IPC_CONTRACT = {
       promoteToDecision: z.boolean().optional(),
     }),
     response: openQuestionViewSchema,
+  },
+  'decision:list': {
+    request: z.strictObject({ projectId: z.string(), status: z.string().optional() }),
+    response: z.strictObject({ decisions: z.array(decisionViewSchema).readonly() }),
+  },
+  'decision:get': {
+    request: z.strictObject({ decisionId: z.string() }),
+    response: decisionViewSchema.nullable(),
+  },
+  'decision:propose': {
+    request: z.strictObject({
+      projectId: z.string(),
+      statement: z.string().min(1),
+      rationale: z.string().min(1),
+    }),
+    response: decisionViewSchema,
+  },
+  'decision:approve': {
+    request: z.strictObject({ decisionId: z.string() }),
+    response: decisionViewSchema,
+  },
+  'decision:lock': {
+    request: z.strictObject({ decisionId: z.string() }),
+    response: decisionViewSchema,
+  },
+  'decision:supersede': {
+    request: z.strictObject({
+      decisionId: z.string(),
+      replacementStatement: z.string().min(1),
+      replacementRationale: z.string().min(1),
+    }),
+    response: z.strictObject({
+      superseded: decisionViewSchema,
+      replacement: decisionViewSchema,
+    }),
   },
 } as const satisfies IpcContractShape
 

@@ -266,3 +266,25 @@ test('question queue displays open questions and allows answering to unblock', a
   await expect(page.getByRole('heading', { name: 'Questions' })).toBeVisible()
   await expect(page.getByText('One place for every interruption', { exact: false })).toBeVisible()
 })
+
+test('decisions page allows proposing, viewing and locking architectural decisions', async () => {
+  await page.getByRole('link', { name: 'Decisions' }).click()
+  await expect(page.getByRole('heading', { name: 'Decisions' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '+ Propose Decision' })).toBeVisible()
+
+  // Open propose dialog
+  await page.getByRole('button', { name: '+ Propose Decision' }).click()
+  await expect(page.getByRole('heading', { name: 'Propose Architectural Decision' })).toBeVisible()
+
+  await page.getByLabel('Decision Statement').fill('Use PostgreSQL for multi-tenant data')
+  await page.getByLabel('Rationale & Justification').fill('Row-level security and ACID compliance')
+  await page.getByRole('button', { name: 'Record Proposal' }).click()
+
+  // Appears in list
+  await expect(page.getByText('Use PostgreSQL for multi-tenant data')).toBeVisible()
+  await expect(page.getByText('Proposed', { exact: true })).toBeVisible()
+
+  // Lock decision
+  await page.getByRole('button', { name: 'Lock Decision' }).click()
+  await expect(page.getByText('Locked (Axiom A4)', { exact: true })).toBeVisible()
+})

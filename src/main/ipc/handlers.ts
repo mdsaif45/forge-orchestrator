@@ -5,17 +5,20 @@ import { validateRepository } from '../projects/validateRepository'
 import type { IpcHandlerMap } from './router'
 import type { WorkflowService } from '../workflows/workflowService'
 import type { QuestionService } from '../questions/questionService'
+import type { DecisionService } from '../decisions/decisionService'
 
 export interface IpcDependencies {
   readonly projects: ProjectService
   readonly workflows: WorkflowService
   readonly questions: QuestionService
+  readonly decisions: DecisionService
 }
 
 export function createIpcHandlers({
   projects,
   workflows,
   questions,
+  decisions,
 }: IpcDependencies): IpcHandlerMap {
   return {
     'app:getInfo': () => ({
@@ -81,5 +84,19 @@ export function createIpcHandlers({
 
     'question:answer': ({ questionId, answer, promoteToDecision }) =>
       workflows.answerQuestion(questionId, answer, promoteToDecision),
+
+    'decision:list': ({ projectId, status }) => ({
+      decisions: decisions.list(projectId, status),
+    }),
+
+    'decision:get': ({ decisionId }) => decisions.get(decisionId),
+
+    'decision:propose': (request) => decisions.propose(request),
+
+    'decision:approve': ({ decisionId }) => decisions.approve(decisionId),
+
+    'decision:lock': ({ decisionId }) => decisions.lock(decisionId),
+
+    'decision:supersede': (request) => decisions.supersede(request),
   }
 }

@@ -61,3 +61,17 @@ export function CardDescription({
     <p className={cn('text-(length:--text-xs) text-(--color-text-muted)', className)} {...props} />
   )
 }
+
+export function CardContent({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>): React.JSX.Element {
+  return <div className={cn('flex flex-col gap-3', className)} {...props} />
+}
+
+export function CardFooter({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>): React.JSX.Element {
+  return <div className={cn('flex items-center justify-between gap-3', className)} {...props} />
+}

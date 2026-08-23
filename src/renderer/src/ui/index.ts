@@ -11,7 +11,15 @@ export { useTheme, type Theme } from './theme'
 
 export { Badge, type BadgeProps } from './primitives/Badge'
 export { Button, type ButtonProps } from './primitives/Button'
-export { Card, CardDescription, CardHeader, CardTitle, type CardProps } from './primitives/Card'
+export {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+  type CardProps,
+} from './primitives/Card'
 export { Checkbox, type CheckboxProps } from './primitives/Checkbox'
 export { Code, CodeBlock, type CodeBlockProps } from './primitives/Code'
 export { Dialog, type DialogProps } from './primitives/Dialog'
@@ -34,3 +42,4 @@ export {
   type WorkflowNodeState,
 } from './primitives/WorkflowNode'
 export { WorkflowEdge, type WorkflowEdgeProps } from './primitives/WorkflowEdge'
+export { QuestionCard, type QuestionCardProps } from './primitives/QuestionCard'

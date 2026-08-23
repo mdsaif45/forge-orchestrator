@@ -15,11 +15,14 @@ import type { IpcHandlerMap } from './router'
  * The type is exhaustive over the contract, so declaring a channel without
  * implementing it here is a compile error.
  */
+import type { WorkflowService } from '../workflows/workflowService'
+
 export interface IpcDependencies {
   readonly projects: ProjectService
+  readonly workflows: WorkflowService
 }
 
-export function createIpcHandlers({ projects }: IpcDependencies): IpcHandlerMap {
+export function createIpcHandlers({ projects, workflows }: IpcDependencies): IpcHandlerMap {
   return {
     'app:getInfo': () => ({
       name: APP_NAME,
@@ -61,5 +64,19 @@ export function createIpcHandlers({ projects }: IpcDependencies): IpcHandlerMap 
       projects.setRule(projectId, scope, key, statement),
 
     'rule:remove': ({ projectId, ruleId }) => projects.removeRule(projectId, ruleId),
+
+    'workflow:list': ({ projectId }) => ({ workflows: workflows.list(projectId) }),
+
+    'workflow:get': ({ workflowId }) => workflows.get(workflowId),
+
+    'workflow:getActive': ({ projectId }) => workflows.getActive(projectId),
+
+    'workflow:start': (request) => workflows.start(request),
+
+    'workflow:cancel': ({ workflowId, reason }) => workflows.cancel(workflowId, reason),
+
+    'workflow:resume': ({ workflowId }) => workflows.resume(workflowId),
+
+    'workflow:getPacket': ({ packetRef }) => workflows.getPacket(packetRef),
   }
 }

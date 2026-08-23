@@ -7,6 +7,8 @@ import { Settings } from './app/Settings'
 import { Shell } from './app/Shell'
 import { ToastProvider } from './ui'
 
+import { WorkflowPage } from './app/workflow/WorkflowPage'
+
 /**
  * Routes are generated from the route table, so navigation and routing cannot
  * disagree and a nav item cannot point at a dead link.
@@ -23,6 +25,7 @@ const router = createHashRouter([
       ...ROUTES.map((route) => {
         // React Router expresses the index route as `index: true`, not as a path.
         if (route.path === '/') return { index: true as const, element: <Overview /> }
+        if (route.path === '/workflows') return { path: 'workflows', element: <WorkflowPage /> }
         if (route.path === '/settings') return { path: 'settings', element: <Settings /> }
         return { path: route.path.slice(1), element: <RoutePlaceholder route={route} /> }
       }),

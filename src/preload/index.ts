@@ -37,6 +37,33 @@ const api: ForgeApi = {
       call('rule:set', { projectId, scope, key, statement }),
     remove: (projectId, ruleId) => call('rule:remove', { projectId, ruleId }),
   },
+  workflow: {
+    list: (projectId) => call('workflow:list', { projectId }),
+    get: (workflowId) => call('workflow:get', { workflowId }),
+    getActive: (projectId) => call('workflow:getActive', { projectId }),
+    start: (request) => call('workflow:start', request),
+    cancel: (workflowId, reason) => call('workflow:cancel', { workflowId, reason }),
+    resume: (workflowId) => call('workflow:resume', { workflowId }),
+    getPacket: (packetRef) => call('workflow:getPacket', { packetRef }),
+  },
+  onWorkflowEvent: (listener) => {
+    const handler = (_event: unknown, payload: unknown) => {
+      listener(payload as Parameters<typeof listener>[0])
+    }
+    ipcRenderer.on('workflow:event', handler)
+    return () => {
+      ipcRenderer.removeListener('workflow:event', handler)
+    }
+  },
+  onWorkflowLog: (listener) => {
+    const handler = (_event: unknown, payload: unknown) => {
+      listener(payload as Parameters<typeof listener>[0])
+    }
+    ipcRenderer.on('workflow:log', handler)
+    return () => {
+      ipcRenderer.removeListener('workflow:log', handler)
+    }
+  },
 }
 
 contextBridge.exposeInMainWorld('forge', api)

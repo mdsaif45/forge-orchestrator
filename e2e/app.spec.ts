@@ -243,3 +243,20 @@ test('settings shows which rules are inherited and which are overridden', async 
   await expect(page.getByText('migrations may be modified here')).toBeHidden()
   await expect(page.getByText('Stay in scope', { exact: false })).toBeVisible()
 })
+
+test('workflow page renders graph, starts workflow and allows step inspection', async () => {
+  await page.getByRole('link', { name: 'Workflows' }).click()
+  await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible()
+
+  // Start a workflow run
+  await page.getByRole('button', { name: 'Start Workflow' }).click()
+
+  // The state machine graph and live log are visible
+  await expect(page.getByText('LIVE LOG')).toBeVisible()
+  const plannerNode = page.getByRole('button', { name: /planner/i })
+  await expect(plannerNode).toBeVisible()
+
+  // Click a node to open step inspector
+  await plannerNode.click()
+  await expect(page.getByRole('tab', { name: 'Prompt Packet' })).toBeVisible()
+})

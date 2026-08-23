@@ -5,7 +5,7 @@ import { Dialog } from '../ui'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { useProjectStore } from './projectStore'
 import { Sidebar } from './Sidebar'
-import { StatusStrip } from './StatusStrip'
+import { StatusStrip, type WorkflowStatePlaceholder } from './StatusStrip'
 
 /**
  * The application frame: status strip on top, sidebar beside routed content.
@@ -29,6 +29,45 @@ export function Shell(): React.JSX.Element {
     void refresh()
   }, [refresh])
 
+  const [activeWorkflowState, setActiveWorkflowState] = useState<WorkflowStatePlaceholder>('idle')
+
+  // Listen to live workflow updates for the status pill
+  useEffect(() => {
+    if (selectedProjectId === null) return
+
+    const checkActive = () => {
+      window.forge.workflow
+        .getActive(selectedProjectId)
+        .then((res) => {
+          const wf = res.ok ? res.value : null
+          if (wf?.finishedAt !== null) {
+            if (wf?.state === 'DONE') setActiveWorkflowState('passed')
+            else if (wf?.state === 'CANCELLED' || (wf?.state.startsWith('HALTED') ?? false))
+              setActiveWorkflowState('failed')
+            else setActiveWorkflowState('idle')
+          } else if (wf.state === 'AWAITING_USER') {
+            setActiveWorkflowState('waiting')
+          } else {
+            setActiveWorkflowState('running')
+          }
+        })
+        .catch(() => {
+          setActiveWorkflowState('idle')
+        })
+    }
+
+    checkActive()
+    const unsub = window.forge.onWorkflowEvent(() => {
+      checkActive()
+    })
+    return () => {
+      unsub()
+    }
+  }, [selectedProjectId])
+
+  const workflowState: WorkflowStatePlaceholder =
+    selectedProjectId === null ? 'idle' : activeWorkflowState
+
   return (
     <div className="flex h-full flex-col bg-(--color-canvas)">
       <StatusStrip
@@ -40,24 +79,15 @@ export function Shell(): React.JSX.Element {
         onNewProject={() => {
           setCreateOpen(true)
         }}
-        workflowState="idle"
+        workflowState={workflowState}
         onOpenKitchenSink={() => {
           setSinkOpen(true)
         }}
       />
 
-      <CreateProjectDialog
-        open={createOpen}
-        onClose={() => {
-          setCreateOpen(false)
-        }}
-      />
-
       <div className="flex min-h-0 flex-1">
         <Sidebar />
-
-        {/* The routed region is the live area, so it is the landmark that matters. */}
-        <main className="min-w-0 flex-1">
+        <main className="min-h-0 min-w-0 flex-1">
           <Outlet />
         </main>
       </div>
@@ -67,15 +97,18 @@ export function Shell(): React.JSX.Element {
         onClose={() => {
           setSinkOpen(false)
         }}
-        title="Kitchen sink"
-        description="Every primitive in every variant — the design system's regression surface."
+        title="Kitchen Sink"
         size="xl"
-        className="h-[85vh]"
       >
-        <div className="h-[calc(85vh-9rem)]">
-          <KitchenSink />
-        </div>
+        <KitchenSink />
       </Dialog>
+
+      <CreateProjectDialog
+        open={createOpen}
+        onClose={() => {
+          setCreateOpen(false)
+        }}
+      />
     </div>
   )
 }

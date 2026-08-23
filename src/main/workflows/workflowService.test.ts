@@ -6,7 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ProjectView, WorkflowDetailView } from '@shared/ipc'
 import { initialiseDatabase, type ForgeDatabase } from '../db'
 import { ProjectService } from '../projects/projectService'
+import { MockAgentRuntime } from '../runtimes/mockRuntime'
 import { RuntimeRegistry } from '../runtimes/registry'
+import { SCENARIOS } from '../runtimes/scenario'
 import { WorkflowService } from './workflowService'
 
 function initRepository(directory: string): void {
@@ -24,17 +26,21 @@ describe('WorkflowService', () => {
   let dbHandle: { readonly db: ForgeDatabase; readonly close: () => void }
   let projects: ProjectService
   let workflows: WorkflowService
+  let registry: RuntimeRegistry
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'forge-workflow-service-test-'))
     const dbFile = join(tempDir, 'test.db')
     dbHandle = initialiseDatabase(dbFile)
     projects = new ProjectService(dbHandle.db)
+    registry = new RuntimeRegistry()
+    registry.register(new MockAgentRuntime({ scenario: SCENARIOS.question, id: 'mock:default' }))
+
     workflows = new WorkflowService({
       db: dbHandle.db,
       projects,
       packetDir: join(tempDir, 'packets'),
-      registry: new RuntimeRegistry(),
+      registry,
     })
   })
 
@@ -106,5 +112,52 @@ describe('WorkflowService', () => {
 
     const fetched = workflows.get(started.id)
     expect(fetched?.state).toBe('CANCELLED')
+  })
+
+  it('handles question pause and resume when answered', async () => {
+    const repoPath = join(tempDir, 'repo3')
+    mkdirSync(repoPath, { recursive: true })
+    initRepository(repoPath)
+
+    const project: ProjectView = await projects.create({
+      name: 'Question Test Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'main',
+      buildCommand: null,
+      testCommand: null,
+      tech: [],
+      rules: [],
+    })
+
+    const started: WorkflowDetailView = await workflows.start({
+      projectId: project.id,
+      autoRun: true,
+    })
+
+    // Wait for the mock question scenario to run and pause the workflow
+    let paused: WorkflowDetailView | null = null
+    for (let i = 0; i < 20; i += 1) {
+      paused = workflows.get(started.id)
+      if (paused?.state === 'AWAITING_USER') break
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+
+    expect(paused?.state).toBe('AWAITING_USER')
+    expect(paused?.resumeState).toBe('PLANNING')
+    expect(paused?.blockedByQuestionId).toBeTruthy()
+
+    // Answer the question
+    const questionId = paused?.blockedByQuestionId ?? ''
+    expect(questionId).not.toBe('')
+    const answered = workflows.answerQuestion(questionId, 'Use 403 Forbidden')
+    expect(answered.answer).toBe('Use 403 Forbidden')
+
+    // Wait for resumed workflow or cancel before teardown
+    for (let i = 0; i < 30; i += 1) {
+      const current = workflows.get(started.id)
+      if (current?.finishedAt !== null) break
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    workflows.cancel(started.id)
   })
 })

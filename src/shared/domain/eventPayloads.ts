@@ -115,6 +115,7 @@ const workflowTransitioned = z.strictObject({
   from: workflowStateSchema,
   to: workflowStateSchema,
   iteration: z.number().int().nonnegative(),
+  blockedByQuestionId: questionIdSchema.nullable().optional(),
 })
 
 const workflowCheckpointed = z.strictObject({

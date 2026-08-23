@@ -12,6 +12,7 @@ import {
   type Actor,
   type EvidenceArtifact,
   type ProjectId,
+  type QuestionId,
   type Workflow,
   type WorkflowCheckpoint,
   type WorkflowId,
@@ -105,7 +106,10 @@ export class WorkflowStore {
     trigger: WorkflowTrigger,
     actor: Actor,
     occurredAt: string,
-    options: { readonly reason?: string } = {},
+    options: {
+      readonly reason?: string | undefined
+      readonly questionId?: QuestionId | undefined
+    } = {},
   ): Workflow {
     const workflow = this.require(workflowId)
 
@@ -124,6 +128,8 @@ export class WorkflowStore {
             from: result.from,
             to: result.to,
             iteration: result.iteration,
+            blockedByQuestionId:
+              result.to === 'AWAITING_USER' ? (options.questionId ?? null) : null,
           },
         },
         {

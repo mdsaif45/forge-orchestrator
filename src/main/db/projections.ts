@@ -3,6 +3,7 @@ import type { DomainEvent, EventPayloads, EventType, ProjectId } from '@shared/d
 import type { ForgeDatabase } from './connection'
 import {
   evidenceArtifacts,
+  openQuestions,
   projects,
   repositories,
   rules,
@@ -195,7 +196,8 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
         // Recorded on the way in and cleared on the way out, matching the invariant
         // `workflowSchema` enforces: only AWAITING_USER may name a resume state.
         resumeState: payload.to === 'AWAITING_USER' ? payload.from : null,
-        ...(payload.to === 'AWAITING_USER' ? {} : { blockedByQuestionId: null }),
+        blockedByQuestionId:
+          payload.to === 'AWAITING_USER' ? (payload.blockedByQuestionId ?? null) : null,
       })
       .where(eq(workflows.id, payload.workflowId))
       .run()
@@ -313,6 +315,53 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
     return
   }
 
+  if (isType(event, 'question.asked')) {
+    const q = event.payload.question
+    db.insert(openQuestions)
+      .values({
+        id: q.id,
+        projectId: event.projectId,
+        question: q.question,
+        whyUndetermined: q.whyUndetermined,
+        evidence: toJson(q.evidence),
+        options: toJson(q.options),
+        recommendation: q.recommendation,
+        askedBy: q.askedBy,
+        askedAt: q.askedAt,
+        answer: q.answer,
+        answeredAt: q.answeredAt,
+        answeredBy: q.answeredBy,
+      })
+      .onConflictDoUpdate({
+        target: openQuestions.id,
+        set: {
+          question: q.question,
+          whyUndetermined: q.whyUndetermined,
+          evidence: toJson(q.evidence),
+          options: toJson(q.options),
+          recommendation: q.recommendation,
+          answer: q.answer,
+          answeredAt: q.answeredAt,
+          answeredBy: q.answeredBy,
+        },
+      })
+      .run()
+    return
+  }
+
+  if (isType(event, 'question.answered')) {
+    const payload = event.payload
+    db.update(openQuestions)
+      .set({
+        answer: payload.answer,
+        answeredAt: payload.answeredAt,
+        answeredBy: 'user',
+      })
+      .where(eq(openQuestions.id, payload.questionId))
+      .run()
+    return
+  }
+
   // Everything else is recorded in the log but has no read model yet. This is a
   // deliberate no-op rather than an error: the events are still replayable, and
   // their projections arrive with the features that read them.
@@ -331,8 +380,6 @@ const PROJECTED_LATER: ReadonlySet<EventType> = new Set([
   'decision.approved', // #40
   'decision.locked', // #40
   'decision.superseded', // #40
-  'question.asked', // #38
-  'question.answered', // #38
   'changeset.captured', // #34
   'changeset.reviewed', // #36
 ])

@@ -80,6 +80,12 @@ app.whenReady().then(async () => {
   ipcMain.handle('question:list', () => ({ ok: true, value: { questions: [] } }))
   ipcMain.handle('question:get', () => ({ ok: true, value: null }))
   ipcMain.handle('question:answer', () => ({ ok: true, value: null }))
+  ipcMain.handle('decision:list', () => ({ ok: true, value: { decisions: [] } }))
+  ipcMain.handle('decision:get', () => ({ ok: true, value: null }))
+  ipcMain.handle('decision:propose', () => ({ ok: true, value: null }))
+  ipcMain.handle('decision:approve', () => ({ ok: true, value: null }))
+  ipcMain.handle('decision:lock', () => ({ ok: true, value: null }))
+  ipcMain.handle('decision:supersede', () => ({ ok: true, value: null }))
 
   await window.loadFile(join(__dirname, '../out/renderer/index.html'))
 

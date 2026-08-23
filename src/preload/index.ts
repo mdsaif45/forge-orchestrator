@@ -52,6 +52,14 @@ const api: ForgeApi = {
     answer: (questionId, answer, promoteToDecision) =>
       call('question:answer', { questionId, answer, promoteToDecision }),
   },
+  decision: {
+    list: (projectId, status) => call('decision:list', { projectId, status }),
+    get: (decisionId) => call('decision:get', { decisionId }),
+    propose: (request) => call('decision:propose', request),
+    approve: (decisionId) => call('decision:approve', { decisionId }),
+    lock: (decisionId) => call('decision:lock', { decisionId }),
+    supersede: (request) => call('decision:supersede', request),
+  },
   onWorkflowEvent: (listener) => {
     const handler = (_event: unknown, payload: unknown) => {
       listener(payload as Parameters<typeof listener>[0])

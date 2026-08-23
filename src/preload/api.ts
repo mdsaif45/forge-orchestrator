@@ -1,6 +1,7 @@
 import type {
   AppInfo,
   CreateProjectRequest,
+  DecisionView,
   IpcResult,
   OpenQuestionView,
   ProjectDetail,
@@ -91,6 +92,30 @@ export interface ForgeApi {
       answer: string,
       promoteToDecision?: boolean,
     ) => Promise<IpcResult<OpenQuestionView>>
+  }
+  readonly decision: {
+    list: (
+      projectId: string,
+      status?: string,
+    ) => Promise<IpcResult<{ readonly decisions: readonly DecisionView[] }>>
+    get: (decisionId: string) => Promise<IpcResult<DecisionView | null>>
+    propose: (request: {
+      readonly projectId: string
+      readonly statement: string
+      readonly rationale: string
+    }) => Promise<IpcResult<DecisionView>>
+    approve: (decisionId: string) => Promise<IpcResult<DecisionView>>
+    lock: (decisionId: string) => Promise<IpcResult<DecisionView>>
+    supersede: (request: {
+      readonly decisionId: string
+      readonly replacementStatement: string
+      readonly replacementRationale: string
+    }) => Promise<
+      IpcResult<{
+        readonly superseded: DecisionView
+        readonly replacement: DecisionView
+      }>
+    >
   }
   readonly onWorkflowEvent: (listener: (event: WorkflowEventPayload) => void) => () => void
   readonly onWorkflowLog: (listener: (log: WorkflowLogPayload) => void) => () => void

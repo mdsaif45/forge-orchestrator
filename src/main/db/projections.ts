@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm'
 import type { DomainEvent, EventPayloads, EventType, ProjectId } from '@shared/domain'
 import type { ForgeDatabase } from './connection'
 import {
+  decisions,
   evidenceArtifacts,
   openQuestions,
   projects,
@@ -362,6 +363,76 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
     return
   }
 
+  if (isType(event, 'decision.proposed')) {
+    const d = event.payload.decision
+    db.insert(decisions)
+      .values({
+        id: d.id,
+        projectId: event.projectId,
+        statement: d.statement,
+        rationale: d.rationale,
+        status: d.status,
+        proposedBy: d.proposedBy,
+        proposedAt: d.proposedAt,
+        lockedAt: d.lockedAt,
+        lockedBy: d.lockedBy,
+        supersededBy: d.supersededBy,
+        originQuestionId: d.originQuestionId,
+      })
+      .onConflictDoUpdate({
+        target: decisions.id,
+        set: {
+          statement: d.statement,
+          rationale: d.rationale,
+          status: d.status,
+          proposedBy: d.proposedBy,
+          proposedAt: d.proposedAt,
+          lockedAt: d.lockedAt,
+          lockedBy: d.lockedBy,
+          supersededBy: d.supersededBy,
+          originQuestionId: d.originQuestionId,
+        },
+      })
+      .run()
+    return
+  }
+
+  if (isType(event, 'decision.approved')) {
+    const payload = event.payload
+    db.update(decisions)
+      .set({
+        status: 'approved',
+      })
+      .where(eq(decisions.id, payload.decisionId))
+      .run()
+    return
+  }
+
+  if (isType(event, 'decision.locked')) {
+    const payload = event.payload
+    db.update(decisions)
+      .set({
+        status: 'locked',
+        lockedAt: payload.lockedAt,
+        lockedBy: 'user',
+      })
+      .where(eq(decisions.id, payload.decisionId))
+      .run()
+    return
+  }
+
+  if (isType(event, 'decision.superseded')) {
+    const payload = event.payload
+    db.update(decisions)
+      .set({
+        status: 'superseded',
+        supersededBy: payload.supersededBy,
+      })
+      .where(eq(decisions.id, payload.decisionId))
+      .run()
+    return
+  }
+
   // Everything else is recorded in the log but has no read model yet. This is a
   // deliberate no-op rather than an error: the events are still replayable, and
   // their projections arrive with the features that read them.
@@ -376,10 +447,6 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
  */
 const PROJECTED_LATER: ReadonlySet<EventType> = new Set([
   'binding.set', // #31
-  'decision.proposed', // #40
-  'decision.approved', // #40
-  'decision.locked', // #40
-  'decision.superseded', // #40
   'changeset.captured', // #34
   'changeset.reviewed', // #36
 ])

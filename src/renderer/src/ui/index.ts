@@ -43,3 +43,4 @@ export {
 } from './primitives/WorkflowNode'
 export { WorkflowEdge, type WorkflowEdgeProps } from './primitives/WorkflowEdge'
 export { QuestionCard, type QuestionCardProps } from './primitives/QuestionCard'
+export { DecisionCard, type DecisionCardProps } from './primitives/DecisionCard'

@@ -9,6 +9,7 @@ import { ToastProvider } from './ui'
 
 import { WorkflowPage } from './app/workflow/WorkflowPage'
 import { QuestionsPage } from './app/QuestionsPage'
+import { DecisionsPage } from './app/DecisionsPage'
 
 /**
  * Routes are generated from the route table, so navigation and routing cannot
@@ -28,6 +29,7 @@ const router = createHashRouter([
         if (route.path === '/') return { index: true as const, element: <Overview /> }
         if (route.path === '/workflows') return { path: 'workflows', element: <WorkflowPage /> }
         if (route.path === '/questions') return { path: 'questions', element: <QuestionsPage /> }
+        if (route.path === '/decisions') return { path: 'decisions', element: <DecisionsPage /> }
         if (route.path === '/settings') return { path: 'settings', element: <Settings /> }
         return { path: route.path.slice(1), element: <RoutePlaceholder route={route} /> }
       }),

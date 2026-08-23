@@ -4,6 +4,7 @@ import { initialiseDatabase, type ForgeDatabase } from './db'
 import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
 import { OrphanTracker, ProcessManager } from './process'
+import { DecisionService } from './decisions/decisionService'
 import { ProjectService } from './projects/projectService'
 import { QuestionService } from './questions/questionService'
 import { WorkflowService } from './workflows/workflowService'
@@ -172,11 +173,16 @@ if (!claimSingleInstance()) {
       questions: workflowService.getQuestionStore(),
     })
 
+    const decisionService = new DecisionService({
+      decisions: workflowService.getDecisionStore(),
+    })
+
     registerIpcHandlers(
       createIpcHandlers({
         projects: projectService,
         workflows: workflowService,
         questions: questionService,
+        decisions: decisionService,
       }),
     )
 

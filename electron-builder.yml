@@ -1,0 +1,44 @@
+appId: com.forge.orchestrator
+productName: Forge
+copyright: Copyright © 2026 MD SAIF
+
+directories:
+  output: dist
+  buildResources: resources
+
+files:
+  - out/**/*
+  - package.json
+  - node_modules/**/*
+  - '!node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}'
+  - '!node_modules/*/{test,__tests__,tests,powered-test,example,examples}'
+  - '!node_modules/*.d.ts'
+  - '!node_modules/.bin'
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+  artifactName: '${productName}-${version}-windows-${arch}.${ext}'
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Forge
+
+portable:
+  artifactName: '${productName}-${version}-portable-${arch}.exe'
+
+publish:
+  provider: github
+  owner: mdsaif45
+  repo: forge-orchestrator
+  releaseType: draft

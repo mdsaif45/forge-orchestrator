@@ -4,6 +4,7 @@ import { initialiseDatabase, type ForgeDatabase } from './db'
 import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
 import { OrphanTracker, ProcessManager } from './process'
+import { ChangeSetService } from './changesets/changeSetService'
 import { DecisionService } from './decisions/decisionService'
 import { ProjectService } from './projects/projectService'
 import { QuestionService } from './questions/questionService'
@@ -177,12 +178,18 @@ if (!claimSingleInstance()) {
       decisions: workflowService.getDecisionStore(),
     })
 
+    const changeSetService = new ChangeSetService({
+      changeSets: workflowService.getChangeSetStore(),
+      projects: projectService,
+    })
+
     registerIpcHandlers(
       createIpcHandlers({
         projects: projectService,
         workflows: workflowService,
         questions: questionService,
         decisions: decisionService,
+        changeSets: changeSetService,
       }),
     )
 

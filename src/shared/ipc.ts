@@ -463,6 +463,13 @@ export const IPC_CONTRACT = {
     request: z.strictObject({ packetRef: z.string() }),
     response: promptPacketViewSchema.nullable(),
   },
+  'workflow:exportReport': {
+    request: z.strictObject({ workflowId: z.string() }),
+    response: z.strictObject({
+      reportMarkdown: z.string(),
+      exportedAt: z.string(),
+    }),
+  },
   'question:list': {
     request: z.strictObject({ projectId: z.string(), unansweredOnly: z.boolean().optional() }),
     response: z.strictObject({ questions: z.array(openQuestionViewSchema).readonly() }),

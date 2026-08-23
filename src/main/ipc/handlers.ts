@@ -1,6 +1,7 @@
 import { app, dialog, BrowserWindow } from 'electron'
 import { APP_NAME } from '@shared/app'
 import { TEMPLATES } from '@shared/domain'
+import { generateWorkflowReportMarkdown } from '../audit/workflowReportGenerator'
 import type { ProjectService } from '../projects/projectService'
 import { validateRepository } from '../projects/validateRepository'
 import type { IpcHandlerMap } from './router'
@@ -85,6 +86,29 @@ export function createIpcHandlers({
       workflows.approveAndStartImplementation(workflowId),
 
     'workflow:getPacket': ({ packetRef }) => workflows.getPacket(packetRef),
+
+    'workflow:exportReport': ({ workflowId }) => {
+      const wfView = workflows.get(workflowId)
+      if (wfView === null) throw new Error(`Workflow ${workflowId} not found`)
+      const projectId = workflows.getProjectId(workflowId)
+      const projectList = projects.list()
+      const project = projectList.find((p) => p.id === projectId)
+      const projectName = project ? project.name : 'Unknown Project'
+      const decList = projectId !== null ? decisions.list(projectId) : []
+      const qList = projectId !== null ? questions.list(projectId) : []
+
+      const reportMarkdown = generateWorkflowReportMarkdown({
+        workflow: wfView,
+        projectName,
+        decisions: decList,
+        questions: qList,
+      })
+
+      return {
+        reportMarkdown,
+        exportedAt: new Date().toISOString(),
+      }
+    },
 
     'question:list': ({ projectId, unansweredOnly }) => ({
       questions: questions.list(projectId, unansweredOnly),

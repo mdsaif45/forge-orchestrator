@@ -191,4 +191,16 @@ CREATE INDEX \`workflows_project_state\` ON \`workflows\` (\`project_id\`,\`stat
 --> statement-breakpoint
 CREATE INDEX \`evidence_artifacts_step\` ON \`evidence_artifacts\` (\`step_id\`,\`recorded_at\`);`,
   },
+  {
+    tag: '0002_accounts',
+    sql: `CREATE TABLE \`accounts\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`provider\` text NOT NULL,
+	\`label\` text NOT NULL,
+	\`status\` text NOT NULL,
+	\`last_used_at\` text,
+	\`created_at\` text NOT NULL
+);
+`,
+  },
 ]

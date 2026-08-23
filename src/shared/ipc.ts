@@ -337,6 +337,17 @@ export const changeSetViewSchema = z.strictObject({
 
 export type ChangeSetView = z.infer<typeof changeSetViewSchema>
 
+export const accountViewSchema = z.strictObject({
+  id: z.string(),
+  provider: z.string().min(1),
+  label: z.string().min(1),
+  status: z.enum(['connected', 'expired', 'rate_limited', 'disconnected']),
+  lastUsedAt: z.string().nullable(),
+  createdAt: z.string(),
+})
+
+export type AccountView = z.infer<typeof accountViewSchema>
+
 export const workflowEventPayloadSchema = z.strictObject({
   workflowId: z.string(),
   type: z.string(),
@@ -512,6 +523,28 @@ export const IPC_CONTRACT = {
       path: z.string(),
       content: z.string(),
     }),
+    response: z.strictObject({ success: z.boolean() }),
+  },
+  'account:list': {
+    request: z.strictObject({ provider: z.string().optional() }),
+    response: z.strictObject({ accounts: z.array(accountViewSchema).readonly() }),
+  },
+  'account:register': {
+    request: z.strictObject({
+      provider: z.string().min(1),
+      label: z.string().min(1),
+    }),
+    response: accountViewSchema,
+  },
+  'account:updateStatus': {
+    request: z.strictObject({
+      accountId: z.string(),
+      status: z.enum(['connected', 'expired', 'rate_limited', 'disconnected']),
+    }),
+    response: accountViewSchema,
+  },
+  'account:remove': {
+    request: z.strictObject({ accountId: z.string() }),
     response: z.strictObject({ success: z.boolean() }),
   },
 } as const satisfies IpcContractShape

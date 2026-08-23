@@ -1,10 +1,12 @@
 import { z } from 'zod'
 import type { EventType } from './event'
+import { accountSchema } from './account'
 import { changeSetSchema } from './changeset'
 import { decisionSchema } from './decision'
-import { verdictSchema, workflowStateSchema } from './enums'
+import { accountStatusSchema, verdictSchema, workflowStateSchema } from './enums'
 import { evidenceArtifactSchema } from './evidence'
 import {
+  accountIdSchema,
   actorSchema,
   changeSetIdSchema,
   decisionIdSchema,
@@ -187,6 +189,20 @@ const evidenceRecorded = z.strictObject({
   summary: z.string().min(1),
 })
 
+const accountRegistered = z.strictObject({
+  account: accountSchema,
+})
+
+const accountStatusUpdated = z.strictObject({
+  accountId: accountIdSchema,
+  status: accountStatusSchema,
+  lastUsedAt: timestampSchema.nullable().optional(),
+})
+
+const accountRemoved = z.strictObject({
+  accountId: accountIdSchema,
+})
+
 /**
  * The payload map.
  *
@@ -217,6 +233,9 @@ export const EVENT_PAYLOADS = {
   'changeset.captured': changeSetCaptured,
   'changeset.reviewed': changeSetReviewed,
   'evidence.recorded': evidenceRecorded,
+  'account.registered': accountRegistered,
+  'account.status_updated': accountStatusUpdated,
+  'account.removed': accountRemoved,
 } as const
 
 // Every event type must have a payload schema. A missing entry is a compile error

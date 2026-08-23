@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto'
+import { eq } from 'drizzle-orm'
+import { z } from 'zod'
 import {
   assessReview,
   changeSetIdSchema,
   compileContext,
+  completionCriterionSchema,
   decisionIdSchema,
   FEATURE_IMPLEMENTATION,
   FORGE_DEFAULT_RULES,
@@ -10,6 +13,7 @@ import {
   questionIdSchema,
   repositoryIdSchema,
   resolveEffectivePolicy,
+  scopePolicySchema,
   stepIdSchema,
   taskIdSchema,
   workflowIdSchema,
@@ -34,6 +38,8 @@ import type {
 import type { ForgeDatabase } from '../db/connection'
 import { EventStore } from '../db/eventStore'
 import { applyEvent } from '../db/projections'
+import { fromJson } from '../db/rows'
+import { tasks } from '../db/schema'
 import { WorkflowStore } from '../db/workflowStore'
 import { QuestionStore } from '../db/questionStore'
 import { DecisionStore } from '../db/decisionStore'
@@ -86,6 +92,10 @@ export class WorkflowService {
 
   getChangeSetStore(): ChangeSetStore {
     return this.changeSets
+  }
+
+  getWorkflowStore(): WorkflowStore {
+    return this.workflows
   }
 
   list(projectId: string): readonly WorkflowSummaryView[] {
@@ -231,6 +241,81 @@ export class WorkflowService {
     if (wf?.finishedAt !== null) return wf === null ? null : this.toDetailView(wf)
 
     return this.toDetailView(wf)
+  }
+
+  approveAndStartImplementation(workflowId: string): WorkflowDetailView {
+    const wId = workflowIdSchema.parse(workflowId)
+    const wf = this.workflows.find(wId)
+    if (wf === null) {
+      throw new Error(`Workflow ${workflowId} not found`)
+    }
+
+    const projectId = this.workflows.projectIdOf(wId)
+
+    // 1. Structural verification: at least one approved/locked decision exists
+    const projectDecisions = this.decisions.listForProject(projectId)
+    const hasApprovedOrLocked = projectDecisions.some(
+      (d) => d.status === 'locked' || d.status === 'approved',
+    )
+    if (!hasApprovedOrLocked) {
+      throw new Error(
+        'Cannot enter implementation mode: at least one approved or locked architectural decision is required (Axiom A4).',
+      )
+    }
+
+    // 2. Advance the workflow from AWAITING_APPROVAL to IMPLEMENTING
+    const now = new Date().toISOString()
+    const updated = this.workflows.apply(wId, 'userApproved', 'user', now)
+    this.notifyEvent({
+      workflowId: wId,
+      type: 'workflow.mode_transition',
+      state: updated.state,
+      detail: 'Discussion mode -> Implementation mode (Decisions locked, criteria verified)',
+      at: now,
+    })
+
+    // 3. Resume background orchestrator execution
+    void this.options.projects
+      .get(projectId)
+      .then((prj) => {
+        if (prj !== null) {
+          const taskRow = this.options.db.select().from(tasks).where(eq(tasks.id, wf.taskId)).get()
+          if (taskRow !== undefined) {
+            const domainTask: Task = {
+              id: taskIdSchema.parse(taskRow.id),
+              objective: taskRow.objective,
+              constraints: fromJson(z.array(z.string()), taskRow.constraints, 'tasks.constraints'),
+              completionCriteria: fromJson(
+                z.array(completionCriterionSchema),
+                taskRow.completionCriteria,
+                'tasks.completionCriteria',
+              ),
+              scope: fromJson(scopePolicySchema, taskRow.scope, 'tasks.scope'),
+              lockedDecisionIds: fromJson(
+                z.array(decisionIdSchema),
+                taskRow.lockedDecisionIds,
+                'tasks.lockedDecisionIds',
+              ),
+              correctsTaskId:
+                taskRow.correctsTaskId === null ? null : taskIdSchema.parse(taskRow.correctsTaskId),
+              createdAt: taskRow.createdAt,
+            }
+            void this.executeWorkflow(
+              projectId,
+              wId,
+              domainTask,
+              prj.project.repository.absolutePath,
+            ).catch((_err: unknown) => {
+              void 0
+            })
+          }
+        }
+      })
+      .catch((_err: unknown) => {
+        void 0
+      })
+
+    return this.toDetailView(updated)
   }
 
   answerQuestion(

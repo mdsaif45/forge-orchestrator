@@ -66,6 +66,8 @@ function fixedClock(): () => string {
 
 export class MockAgentRuntime implements IAgentRuntime {
   readonly id
+  /** Scripted by construction: every reply comes from a scenario, not an agent. */
+  readonly simulated = true
   readonly capabilities: readonly Capability[]
 
   private readonly scenario: Scenario

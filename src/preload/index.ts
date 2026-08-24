@@ -29,6 +29,9 @@ const api: ForgeApi = {
   clipboard: {
     writeText: (text) => call('clipboard:writeText', { text }),
   },
+  runtime: {
+    list: () => call('runtime:list', {}),
+  },
   project: {
     probeRepository: (path) => call('project:probeRepository', { path }),
     create: (request) => call('project:create', request),

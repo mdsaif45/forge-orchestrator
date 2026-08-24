@@ -604,6 +604,21 @@ export class WorkflowService {
     this.options.emitEvent?.(event)
   }
 
+  /**
+   * Whether a step's runtime produces scripted output.
+   *
+   * Null rather than false for an unbound or unknown runtime: "no runtime yet" and
+   * "confirmed to be a real one" are different claims, and collapsing them would let
+   * the UI reassure the user about a step nothing has been bound to (#101). A runtime
+   * that has since been unregistered is unknown for the same reason.
+   */
+  private isSimulated(runtimeId: string | null): boolean | null {
+    if (runtimeId === null) return null
+    if (!this.registry.has(runtimeId)) return null
+
+    return this.registry.resolve(runtimeId).simulated
+  }
+
   private toDetailView(wf: Workflow): WorkflowDetailView {
     return {
       id: wf.id,
@@ -622,6 +637,7 @@ export class WorkflowService {
         index: s.index,
         role: s.role,
         runtimeId: s.runtimeId,
+        simulated: this.isSimulated(s.runtimeId),
         state: s.state,
         contextRef: s.contextRef,
         reportStatus: s.reportStatus,

@@ -267,6 +267,25 @@ export interface IAgentRuntime {
    * is renamed. A required field cannot be forgotten by a new runtime.
    */
   readonly simulated: boolean
+  /**
+   * Whether two concurrent sessions of this runtime can hold different accounts.
+   *
+   * Measured per provider in #111, and the two differ, which is why this is declared
+   * rather than assumed globally:
+   *
+   * ```
+   * claude  credential at ~/.claude/.credentials.json  -> a redirected home isolates
+   * agy     credential in the Windows Credential Manager under one fixed target name
+   *         -> every process reads the same identity, whatever environment it is given
+   * ```
+   *
+   * A single global assumption is wrong in both directions. Assuming isolation works
+   * would let two nominally different Antigravity accounts silently be one identity —
+   * parallel work quietly running serial, at a third of the expected throughput, with
+   * no visible cause. Assuming it does not would needlessly serialise Claude accounts
+   * that demonstrably run in parallel.
+   */
+  readonly supportsAccountIsolation: boolean
 
   start(options: SessionOptions): Promise<SessionHandle>
   send(session: SessionHandle, packet: PromptPacket): Promise<void>

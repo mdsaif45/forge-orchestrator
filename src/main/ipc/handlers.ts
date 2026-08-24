@@ -115,6 +115,7 @@ export function createIpcHandlers({
       runtimes: registry.list().map((runtime) => ({
         id: runtime.id,
         simulated: runtime.simulated,
+        supportsAccountIsolation: runtime.supportsAccountIsolation,
         capabilities: [...runtime.capabilities],
       })),
     }),

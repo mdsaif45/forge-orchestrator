@@ -138,7 +138,12 @@ describe('WorkflowService', () => {
 
     // Wait for the mock question scenario to run and pause the workflow
     let paused: WorkflowDetailView | null = null
-    for (let i = 0; i < 20; i += 1) {
+    // 3s, not 1s: the orchestrator runs a real scenario here, and under the full
+    // parallel suite it needs seconds. Kept well inside vitest's 5s per-test timeout —
+    // a longer budget than that makes the test time out instead of failing, which is
+    // how an earlier attempt at this made things worse. Still bounded, so a workflow
+    // that never pauses fails rather than hanging.
+    for (let i = 0; i < 60; i += 1) {
       paused = workflows.get(started.id)
       if (paused?.state === 'AWAITING_USER') break
       await new Promise((resolve) => setTimeout(resolve, 50))

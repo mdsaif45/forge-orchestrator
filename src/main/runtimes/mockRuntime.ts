@@ -68,6 +68,8 @@ export class MockAgentRuntime implements IAgentRuntime {
   readonly id
   /** Scripted by construction: every reply comes from a scenario, not an agent. */
   readonly simulated = true
+  /** Nothing real to isolate, so concurrency is never constrained by an account. */
+  readonly supportsAccountIsolation = true
   readonly capabilities: readonly Capability[]
 
   private readonly scenario: Scenario

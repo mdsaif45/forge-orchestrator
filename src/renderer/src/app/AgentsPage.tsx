@@ -136,13 +136,25 @@ export function AgentsPage(): React.JSX.Element {
                   />
                 )}
 
-                {binding?.simulated === true && (
-                  // Same rule as the workflow graph (#101): a simulated runtime is
-                  // never allowed to look like a real one.
-                  <Badge tone="warning" size="sm">
-                    simulated
-                  </Badge>
-                )}
+                <div className="flex items-center gap-2">
+                  {binding?.simulated === true && (
+                    // Same rule as the workflow graph (#101): a simulated runtime is
+                    // never allowed to look like a real one.
+                    <Badge tone="warning" size="sm">
+                      simulated
+                    </Badge>
+                  )}
+
+                  {binding !== null &&
+                    eligibleRuntimes.find((runtime) => runtime.id === binding.runtimeId)
+                      ?.supportsAccountIsolation === false && (
+                      // Stated where the runtime is chosen, not discovered later from
+                      // throughput arriving at a fraction of what was expected (#111).
+                      <Badge tone="neutral" size="sm">
+                        one account at a time
+                      </Badge>
+                    )}
+                </div>
               </div>
             ))}
           </div>

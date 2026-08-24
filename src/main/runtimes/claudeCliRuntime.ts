@@ -64,6 +64,11 @@ export class ClaudeCliRuntime implements IAgentRuntime {
   readonly capabilities = CLAUDE_CAPABILITIES
   /** Spawns a real CLI process; its output is the agent's actual work. */
   readonly simulated = false
+  /**
+   * The credential lives at `~/.claude/.credentials.json`, so a spawned process given
+   * its own home directory authenticates as a different account (measured in #111).
+   */
+  readonly supportsAccountIsolation = true
 
   private readonly executable: string
   private readonly runner: ProcessRunner | null

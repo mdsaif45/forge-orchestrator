@@ -39,6 +39,7 @@ export class BindingService {
           eligibleRuntimes: this.registry.candidatesForRole(role).map((runtime) => ({
             id: runtime.id,
             simulated: runtime.simulated,
+            supportsAccountIsolation: runtime.supportsAccountIsolation,
           })),
         }
       }),

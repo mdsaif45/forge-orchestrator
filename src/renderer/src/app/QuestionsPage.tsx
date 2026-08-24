@@ -128,10 +128,14 @@ export function QuestionsPage(): React.JSX.Element {
           <EmptyState
             icon={<QuestionsIcon />}
             title={tab === 'unanswered' ? 'No questions waiting' : 'No questions recorded'}
+            // "Nothing has happened yet" and "everything has been dealt with" are
+            // different states, and saying the second when the first is true claims a
+            // history that does not exist (#108). On a fresh install the old copy read
+            // "All agent inquiries have been answered" when none had ever been asked.
             description={
-              tab === 'unanswered'
-                ? 'All agent inquiries have been answered. Workflows are running or completed.'
-                : 'When an agent cannot resolve something from the repository, it asks here with its evidence.'
+              tab !== 'unanswered' || questions.length === 0
+                ? 'When an agent cannot resolve something from the repository, it asks here with its evidence — and the workflow waits for your answer.'
+                : 'Every question raised so far has been answered.'
             }
           />
         ) : (

@@ -213,7 +213,7 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
             <Input
               {...bind}
               value={name}
-              placeholder="InTime"
+              placeholder="my-service"
               onChange={(event) => {
                 setName(event.target.value)
               }}
@@ -233,7 +233,7 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
                 {...bind}
                 mono
                 value={path}
-                placeholder="D:/Projects/InTime"
+                placeholder="D:/code/my-service"
                 onChange={(event) => {
                   setPath(event.target.value)
                 }}

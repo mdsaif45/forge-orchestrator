@@ -119,11 +119,11 @@ export function KitchenSink(): React.JSX.Element {
           <Section title="Fields">
             <div className="grid max-w-md gap-4">
               <Field label="Project name" hint="Shown throughout Forge" required>
-                {(bind) => <Input placeholder="InTime" {...bind} />}
+                {(bind) => <Input placeholder="my-service" {...bind} />}
               </Field>
 
               <Field label="Repository path" error="Not a git repository">
-                {(bind) => <Input defaultValue="D:/Projects/InTime" invalid mono {...bind} />}
+                {(bind) => <Input defaultValue="D:/code/my-service" invalid mono {...bind} />}
               </Field>
 
               <Field label="Default branch">

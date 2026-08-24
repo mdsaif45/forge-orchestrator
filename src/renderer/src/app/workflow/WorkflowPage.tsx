@@ -6,6 +6,7 @@ import type {
   WorkflowLogPayload,
   WorkflowStepView,
   WorkflowTemplateView,
+  RoleBindingsView,
 } from '@shared/ipc'
 import { Badge, Button, Select, Spinner, StatusDot, useToast } from '@renderer/ui'
 import { unwrap } from '@renderer/ipc'
@@ -13,6 +14,7 @@ import { useProjectStore } from '../projectStore'
 import { LiveLogViewer, type LogLine } from './LiveLogViewer'
 import { StepInspector } from './StepInspector'
 import { WorkflowGraph } from './WorkflowGraph'
+import { WorkflowPreflight } from './WorkflowPreflight'
 
 /**
  * The workflow's state as a sentence rather than an enum.
@@ -66,6 +68,7 @@ export function WorkflowPage(): React.JSX.Element {
   const [actionInProgress, setActionInProgress] = useState(false)
   const [templates, setTemplates] = useState<readonly WorkflowTemplateView[]>([])
   const [onlySimulated, setOnlySimulated] = useState(false)
+  const [bindings, setBindings] = useState<RoleBindingsView | null>(null)
   const [selectedTemplateId, setSelectedTemplateId] = useState('feature')
 
   const loading = project !== null && workflowState?.projectId !== project.id
@@ -181,6 +184,21 @@ export function WorkflowPage(): React.JSX.Element {
         console.error('Failed to load runtimes:', err)
       })
   }, [])
+
+  // Which roles have a runtime bound, so the preflight can say what is unconfigured
+  // before the run rather than after it falls back (#105).
+  useEffect(() => {
+    if (project === null) return
+
+    window.forge.binding
+      .list(project.id)
+      .then((res) => {
+        setBindings(unwrap(res))
+      })
+      .catch((err: unknown) => {
+        console.error('Failed to load bindings:', err)
+      })
+  }, [project])
 
   const handleStartWorkflow = async (): Promise<void> => {
     if (project === null) return
@@ -439,48 +457,52 @@ export function WorkflowPage(): React.JSX.Element {
         </div>
       </div>
 
-      {onlySimulated && (
-        // Shown before the run, not discovered from its results. The whole point of
-        // #101 is that a scripted PASS must never be mistaken for verified work, and
-        // the honest moment to say so is while the user is deciding to press Start.
-        <div className="rounded-lg border border-(--color-warning) bg-(--color-warning-muted) px-4 py-2 text-xs text-(--color-warning)">
-          <span className="font-semibold">Simulated runtime only.</span> No real agent is
-          configured, so a workflow started here replays a scripted scenario. Its results are not
-          evidence of any work being done.
-        </div>
-      )}
-
-      {/* Workflow Graph View */}
-      <div className="rounded-lg border border-neutral-800 bg-neutral-900/40">
-        <WorkflowGraph
-          workflow={workflow}
-          selectedStepId={selectedStep?.id ?? null}
-          onSelectStep={(step) => {
-            setSelectedStep(step)
-          }}
+      {workflow === null ? (
+        // Nothing has run yet, so the running-state chrome is not shown: a log with
+        // four controls and no possible content, beside an inspector describing an
+        // interaction that is not yet available, was the substance of #105. What the
+        // reader needs here is what pressing Start will cause.
+        <WorkflowPreflight
+          template={templates.find((candidate) => candidate.id === selectedTemplateId) ?? null}
+          project={project}
+          bindings={bindings}
+          onlySimulated={onlySimulated}
         />
-      </div>
+      ) : (
+        <>
+          {/* Workflow Graph View */}
+          <div className="rounded-lg border border-neutral-800 bg-neutral-900/40">
+            <WorkflowGraph
+              workflow={workflow}
+              selectedStepId={selectedStep?.id ?? null}
+              onSelectStep={(step) => {
+                setSelectedStep(step)
+              }}
+            />
+          </div>
 
-      {/* Main split view: Live Log & Step Inspector */}
-      <div className="grid flex-1 grid-cols-1 gap-4 overflow-hidden lg:grid-cols-2">
-        <div className="h-full overflow-hidden">
-          <LiveLogViewer
-            logs={logs}
-            onClear={() => {
-              setLogs([])
-            }}
-          />
-        </div>
+          {/* Main split view: Live Log & Step Inspector */}
+          <div className="grid flex-1 grid-cols-1 gap-4 overflow-hidden lg:grid-cols-2">
+            <div className="h-full overflow-hidden">
+              <LiveLogViewer
+                logs={logs}
+                onClear={() => {
+                  setLogs([])
+                }}
+              />
+            </div>
 
-        <div className="h-full overflow-hidden">
-          <StepInspector
-            step={selectedStep}
-            onClose={() => {
-              setSelectedStep(null)
-            }}
-          />
-        </div>
-      </div>
+            <div className="h-full overflow-hidden">
+              <StepInspector
+                step={selectedStep}
+                onClose={() => {
+                  setSelectedStep(null)
+                }}
+              />
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

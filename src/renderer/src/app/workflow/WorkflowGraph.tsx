@@ -48,6 +48,7 @@ export function WorkflowGraph({
       label: stage.label,
       state,
       runtimeId: matchingStep?.runtimeId ?? null,
+      simulated: matchingStep?.simulated ?? null,
       verdict: matchingStep?.verdict ?? null,
       step: matchingStep,
       active: activeStep?.id === matchingStep?.id,
@@ -65,6 +66,7 @@ export function WorkflowGraph({
               label={item.label}
               state={item.state}
               runtimeId={item.runtimeId}
+              simulated={item.simulated}
               verdict={item.verdict}
               selected={isSelected}
               active={item.active}
@@ -75,6 +77,7 @@ export function WorkflowGraph({
                     index: idx,
                     role: item.role,
                     runtimeId: item.runtimeId,
+                    simulated: item.simulated,
                     state: item.state,
                     contextRef: null,
                     reportStatus: null,

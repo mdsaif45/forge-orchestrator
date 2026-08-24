@@ -15,6 +15,8 @@ import {
 } from '@shared/domain'
 import { GitService } from '../git'
 import { IncapableRuntimeError, RuntimeRegistry, UnknownRuntimeError } from './registry'
+import { AntigravityCliRuntime } from './antigravityCliRuntime'
+import { ClaudeCliRuntime } from './claudeCliRuntime'
 import { MockAgentRuntime } from './mockRuntime'
 import { SCENARIOS, type Scenario } from './scenario'
 
@@ -435,5 +437,16 @@ describe('axiom A6', () => {
 
     await runtime.dispose(session)
     expect(existsSync(repoPath)).toBe(true)
+  })
+})
+
+describe('simulated declaration', () => {
+  it('marks the mock as simulated and the CLI adapters as real', () => {
+    // Declared on the runtime rather than inferred from its id (#101). The UI needs a
+    // reliable answer to "was this real work?", and matching on an id prefix would put
+    // a provider-specific literal in core (A6) and break silently on a rename.
+    expect(new MockAgentRuntime({ scenario: SCENARIOS.fullRun }).simulated).toBe(true)
+    expect(new ClaudeCliRuntime().simulated).toBe(false)
+    expect(new AntigravityCliRuntime().simulated).toBe(false)
   })
 })

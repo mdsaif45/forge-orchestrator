@@ -11,6 +11,13 @@ export interface WorkflowNodeProps extends React.HTMLAttributes<HTMLButtonElemen
   readonly state: WorkflowNodeState
   readonly runtimeId?: string | null
   readonly verdict?: string | null
+  /**
+   * Whether this step's runtime replays scripted output instead of doing real work.
+   *
+   * Null means no runtime is bound, or its identity is unknown — deliberately not
+   * treated as "real", because absence of evidence is not evidence of verification.
+   */
+  readonly simulated?: boolean | null
   readonly selected?: boolean
   readonly active?: boolean
 }
@@ -23,6 +30,7 @@ export const WorkflowNode = React.forwardRef<HTMLButtonElement, WorkflowNodeProp
       state,
       runtimeId,
       verdict,
+      simulated = null,
       selected = false,
       active = false,
       className,
@@ -76,23 +84,45 @@ export const WorkflowNode = React.forwardRef<HTMLButtonElement, WorkflowNodeProp
           </span>
         </div>
 
-        <div className="mt-1 flex w-full items-center justify-between text-[11px] text-neutral-400">
+        <div className="mt-1 flex w-full items-center justify-between gap-1.5 text-[11px] text-neutral-400">
           <span className="truncate">{runtimeId ?? state}</span>
           {verdict !== undefined && verdict !== null && (
             <span
+              // A simulated verdict never borrows the success or failure colour. The
+              // whole defect in #101 was that a mock's scripted "pass" was rendered
+              // identically to evidence Forge had actually gathered — the same
+              // substitution of a claim for a verified fact that A3 exists to prevent.
+              // Neutral styling and a "sim" prefix keep the outcome legible without
+              // letting it read as proof.
               className={cn(
-                'rounded px-1 py-0.5 font-mono text-[10px] uppercase',
-                verdict === 'pass'
-                  ? 'bg-emerald-950/60 text-emerald-400'
-                  : verdict === 'fail'
-                    ? 'bg-red-950/60 text-red-400'
-                    : 'bg-neutral-800 text-neutral-300',
+                'shrink-0 rounded px-1 py-0.5 font-mono text-[10px] uppercase',
+                simulated === true
+                  ? 'bg-(--color-surface-inset) text-(--color-text-muted) ring-1 ring-(--color-border)'
+                  : verdict === 'pass'
+                    ? 'bg-(--color-success-muted) text-(--color-success)'
+                    : verdict === 'fail'
+                      ? 'bg-(--color-danger-muted) text-(--color-danger)'
+                      : 'bg-(--color-surface-inset) text-(--color-text-muted)',
               )}
+              title={
+                simulated === true
+                  ? 'Simulated: replayed from a scripted scenario, not real work'
+                  : undefined
+              }
             >
-              {verdict}
+              {simulated === true ? `sim ${verdict}` : verdict}
             </span>
           )}
         </div>
+
+        {simulated === true && (
+          // Stated on the node itself, not left to the small runtime id underneath.
+          // That id ("mock:default") carried the entire weight of "none of this is
+          // real" and lost, which is how a scripted run read as a completed one.
+          <div className="mt-1 w-full rounded bg-(--color-warning-muted) px-1.5 py-0.5 text-center text-[10px] font-medium uppercase tracking-wide text-(--color-warning)">
+            simulated
+          </div>
+        )}
       </button>
     )
   },

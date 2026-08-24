@@ -11,6 +11,7 @@ import type { QuestionService } from '../questions/questionService'
 import type { DecisionService } from '../decisions/decisionService'
 import type { ChangeSetService } from '../changesets/changeSetService'
 import type { AccountService } from '../accounts/accountService'
+import type { RuntimeRegistry } from '../runtimes/registry'
 
 export interface IpcDependencies {
   readonly projects: ProjectService
@@ -19,6 +20,7 @@ export interface IpcDependencies {
   readonly decisions: DecisionService
   readonly changeSets: ChangeSetService
   readonly accounts: AccountService
+  readonly registry: RuntimeRegistry
 }
 
 export function createIpcHandlers({
@@ -28,6 +30,7 @@ export function createIpcHandlers({
   decisions,
   changeSets,
   accounts,
+  registry,
 }: IpcDependencies): IpcHandlerMap {
   /**
    * Gathers everything a report needs and renders it.
@@ -104,6 +107,14 @@ export function createIpcHandlers({
       clipboard.writeText(text)
       return {}
     },
+
+    'runtime:list': () => ({
+      runtimes: registry.list().map((runtime) => ({
+        id: runtime.id,
+        simulated: runtime.simulated,
+        capabilities: [...runtime.capabilities],
+      })),
+    }),
 
     'project:probeRepository': ({ path }) => validateRepository(path),
 

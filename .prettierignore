@@ -1,5 +1,7 @@
 out/
 out-dev/
+graphify-out/
+.code-review-graph/
 dist/
 coverage/
 scripts/build/

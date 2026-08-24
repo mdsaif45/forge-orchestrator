@@ -152,8 +152,15 @@ if (!claimSingleInstance()) {
       orphans,
     })
 
+    const accountHomes = new AccountHomes(join(app.getPath('userData'), 'accounts'))
+
     const registry = new RuntimeRegistry()
     registry.register(new MockAgentRuntime({ scenario: SCENARIOS.fullRun, id: 'mock:default' }))
+
+    // ClaudeCliRuntime is deliberately not registered yet: nothing in the app supplies
+    // a real ProcessRunner, so every send would fail loudly (correctly, per #95) while
+    // offering the user a runtime that cannot work. It is registered once the runner
+    // exists — the account plumbing below is what it will use when that happens.
 
     const projectService = new ProjectService(db)
     const workflowService = new WorkflowService({
@@ -204,11 +211,7 @@ if (!claimSingleInstance()) {
         accounts: accountService,
         registry,
         bindings: new BindingService(new BindingStore(db, eventStore), registry),
-        enrollment: new EnrollmentService(
-          new AccountHomes(join(app.getPath('userData'), 'accounts')),
-          registry,
-          runtimeExecutable,
-        ),
+        enrollment: new EnrollmentService(accountHomes, registry, runtimeExecutable),
       }),
     )
 

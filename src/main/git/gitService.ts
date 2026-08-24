@@ -523,6 +523,33 @@ export class GitService {
   /**
    * Reads the current contents of a file in the working tree.
    */
+  /**
+   * Every file git tracks or would track, for browsing the repository (#107).
+   *
+   * Uses `ls-files` rather than walking the filesystem, so `.gitignore` is honoured by
+   * git itself instead of by a matcher of ours that would drift from it. `--cached`
+   * covers tracked files and `--others --exclude-standard` covers untracked ones that
+   * are not ignored, which together are exactly the files a reviewer might want to
+   * open — including a new file an agent just created and has not committed.
+   *
+   * `-z` because a path may contain a newline, and splitting on one would corrupt it.
+   */
+  async listWorktreeFiles(): Promise<readonly string[]> {
+    await this.assertRepo()
+
+    const { stdout } = await runGit(
+      ['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+      this.exec,
+    )
+
+    // `ls-files` can list the same path twice when it is both tracked and modified.
+    const unique = new Set(stdout.split('\0').filter((entry) => entry !== ''))
+
+    // Codepoint order, not `localeCompare`: this list is rendered, so its order is
+    // observable, and a host-locale-dependent sort is not reproducible across machines.
+    return [...unique].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
+  }
+
   async readFileInWorktree(path: string): Promise<string> {
     await this.assertRepo()
     const repoPath = repoPathSchema.parse(path)

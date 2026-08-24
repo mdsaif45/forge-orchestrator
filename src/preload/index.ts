@@ -86,6 +86,7 @@ const api: ForgeApi = {
   },
   git: {
     getWorkingDiff: (projectId) => call('git:getWorkingDiff', { projectId }),
+    listFiles: (projectId) => call('git:listFiles', { projectId }),
     readFile: (projectId, path) => call('git:readFile', { projectId, path }),
     writeFile: (projectId, path, content) => call('git:writeFile', { projectId, path, content }),
   },

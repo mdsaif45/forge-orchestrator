@@ -187,6 +187,8 @@ export interface ForgeApi {
         readonly patch: string
       }>
     >
+    /** Every file git tracks or would track, for the Explorer view. */
+    listFiles: (projectId: string) => Promise<IpcResult<{ readonly files: readonly string[] }>>
     readFile: (projectId: string, path: string) => Promise<IpcResult<{ readonly content: string }>>
     writeFile: (
       projectId: string,

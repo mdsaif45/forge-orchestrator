@@ -650,6 +650,16 @@ export const IPC_CONTRACT = {
       patch: z.string(),
     }),
   },
+  /**
+   * Every file git tracks or would track, for browsing the repository (#107).
+   *
+   * Ignored files are excluded by git itself, so the list cannot drift from
+   * `.gitignore` the way a matcher of ours would.
+   */
+  'git:listFiles': {
+    request: z.strictObject({ projectId: z.string() }),
+    response: z.strictObject({ files: z.array(z.string()).readonly() }),
+  },
   'git:readFile': {
     request: z.strictObject({ projectId: z.string(), path: z.string() }),
     response: z.strictObject({ content: z.string() }),

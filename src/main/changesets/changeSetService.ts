@@ -44,6 +44,12 @@ export class ChangeSetService {
     }
   }
 
+  /** Every file git tracks or would track, for browsing the repository (#107). */
+  async listFiles(projectId: string): Promise<{ readonly files: readonly string[] }> {
+    const git = await this.getGitService(projectId)
+    return { files: await git.listWorktreeFiles() }
+  }
+
   async readFile(projectId: string, relativePath: string): Promise<{ readonly content: string }> {
     const git = await this.getGitService(projectId)
     const content = await git.readFileInWorktree(relativePath)

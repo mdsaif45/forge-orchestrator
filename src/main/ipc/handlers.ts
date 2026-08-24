@@ -220,6 +220,8 @@ export function createIpcHandlers({
 
     'git:getWorkingDiff': (request) => changeSets.getWorkingDiff(request.projectId),
 
+    'git:listFiles': (request) => changeSets.listFiles(request.projectId),
+
     'git:readFile': (request) => changeSets.readFile(request.projectId, request.path),
 
     'git:writeFile': (request) =>

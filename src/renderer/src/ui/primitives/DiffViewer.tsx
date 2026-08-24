@@ -64,7 +64,13 @@ export function DiffViewer({
         </div>
 
         <div className="flex items-center gap-2">
-          {!isEditMode ? (
+          {onSaveFile === undefined ? (
+            // No save handler means this file cannot be written — browsing for context
+            // in the Explorer view, or a workflow holding the worktree (#107). Offering
+            // "Edit File" here would let the user type into a buffer that `handleSave`
+            // then silently discards, which is worse than not offering it.
+            <span className="text-(length:--text-xs) text-(--color-text-muted)">read-only</span>
+          ) : !isEditMode ? (
             <Button
               size="sm"
               variant="secondary"

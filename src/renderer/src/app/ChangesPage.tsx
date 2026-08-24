@@ -20,6 +20,8 @@ export function ChangesPage(): React.JSX.Element {
   const [fileContent, setFileContent] = useState<string>('')
   const [isSaving, setIsSaving] = useState(false)
   const [reloadTrigger, setReloadTrigger] = useState(0)
+  const [view, setView] = useState<'changes' | 'explorer'>('changes')
+  const [allFiles, setAllFiles] = useState<readonly string[]>([])
 
   // 1. Fetch ChangeSets and Working Tree diff
   useEffect(() => {
@@ -48,6 +50,18 @@ export function ChangesPage(): React.JSX.Element {
       })
       .catch((err: unknown) => {
         console.error('Failed to load working tree diff:', err)
+      })
+
+    // The whole tree, for browsing context a diff does not contain (#107). Loaded
+    // alongside the diff rather than on tab switch, so switching views is instant and
+    // a workflow event refreshes both.
+    window.forge.git
+      .listFiles(activeProjectId)
+      .then((res) => {
+        if (!cancelled) setAllFiles(unwrap(res).files)
+      })
+      .catch((err: unknown) => {
+        console.error('Failed to list repository files:', err)
       })
 
     const unsubscribe = window.forge.onWorkflowEvent(() => {
@@ -154,7 +168,9 @@ export function ChangesPage(): React.JSX.Element {
       </header>
 
       {/* Main Split Layout */}
-      {currentFiles.length === 0 && changeSets.length === 0 ? (
+      {/* The Explorer stays reachable on a clean tree: browsing the repository for
+          context is useful precisely when there is nothing to review yet (#107). */}
+      {currentFiles.length === 0 && changeSets.length === 0 && allFiles.length === 0 ? (
         <div className="flex-1 p-6">
           <EmptyState
             icon={<ChangesIcon />}
@@ -166,8 +182,34 @@ export function ChangesPage(): React.JSX.Element {
         <div className="flex flex-1 overflow-hidden">
           {/* Left Sidebar: Source Selector & FileTree */}
           <div className="flex w-80 shrink-0 flex-col border-r border-(--color-border) bg-(--color-surface)">
+            {/* View switcher: the diff, or the whole tree for context (#107). */}
+            <div
+              role="tablist"
+              aria-label="File source"
+              className="flex border-b border-(--color-border)"
+            >
+              {(['changes', 'explorer'] as const).map((candidate) => (
+                <button
+                  key={candidate}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === candidate}
+                  onClick={() => {
+                    setView(candidate)
+                  }}
+                  className={
+                    view === candidate
+                      ? 'flex-1 border-b-2 border-(--color-accent) px-3 py-2 text-(length:--text-xs) font-semibold text-(--color-text)'
+                      : 'flex-1 px-3 py-2 text-(length:--text-xs) text-(--color-text-muted) hover:text-(--color-text)'
+                  }
+                >
+                  {candidate === 'changes' ? 'Changes' : 'Explorer'}
+                </button>
+              ))}
+            </div>
+
             {/* Source Switcher */}
-            <div className="border-b border-(--color-border) p-3">
+            <div className={view === 'changes' ? 'border-b border-(--color-border) p-3' : 'hidden'}>
               <label className="mb-1.5 block text-(length:--text-2xs) font-semibold uppercase tracking-wider text-(--color-text-muted)">
                 Changeset / Source
               </label>
@@ -216,14 +258,46 @@ export function ChangesPage(): React.JSX.Element {
 
             {/* Changed Files Tree */}
             <div className="flex-1 overflow-y-auto p-2">
-              <FileTree
-                files={currentFiles}
-                selectedPath={effectiveSelectedPath}
-                discrepancies={currentDiscrepancies}
-                onSelectFile={(path) => {
-                  setSelectedFilePath(path)
-                }}
-              />
+              {view === 'changes' ? (
+                <FileTree
+                  files={currentFiles}
+                  selectedPath={effectiveSelectedPath}
+                  discrepancies={currentDiscrepancies}
+                  onSelectFile={(path) => {
+                    setSelectedFilePath(path)
+                  }}
+                />
+              ) : (
+                <ul className="grid gap-0.5">
+                  {allFiles.map((path) => {
+                    const changed = currentFiles.some((file) => file.path === path)
+                    return (
+                      <li key={path}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedFilePath(path)
+                          }}
+                          className={
+                            effectiveSelectedPath === path
+                              ? 'flex w-full items-center gap-2 rounded-(--radius-sm) bg-(--color-surface-inset) px-2 py-1 text-left text-(length:--text-xs) text-(--color-text)'
+                              : 'flex w-full items-center gap-2 rounded-(--radius-sm) px-2 py-1 text-left text-(length:--text-xs) text-(--color-text-muted) hover:bg-(--color-surface-inset) hover:text-(--color-text)'
+                          }
+                        >
+                          <span className="truncate">{path}</span>
+                          {changed && (
+                            // Marked so a reviewer can tell, while browsing for context,
+                            // which files the current changeset actually touched.
+                            <Badge tone="accent" size="sm">
+                              changed
+                            </Badge>
+                          )}
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
             </div>
           </div>
 
@@ -236,7 +310,11 @@ export function ChangesPage(): React.JSX.Element {
                 fileContent={fileContent}
                 discrepancies={currentDiscrepancies}
                 isSaving={isSaving}
-                onSaveFile={handleSaveFile}
+                // Omitted in the Explorer view, which makes the viewer read-only.
+                // Browsing the tree for context must not become a general-purpose
+                // editor: A2 says the agent owns the worktree during a run, and the
+                // opt-in edit affordance belongs to the reviewed changeset (#41).
+                {...(view === 'changes' ? { onSaveFile: handleSaveFile } : {})}
               />
             ) : (
               <div className="flex h-full items-center justify-center p-6 text-(--color-text-muted)">

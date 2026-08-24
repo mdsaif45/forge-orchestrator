@@ -14,6 +14,8 @@ import { QuestionService } from './questions/questionService'
 import { WorkflowService } from './workflows/workflowService'
 import { MockAgentRuntime } from './runtimes/mockRuntime'
 import { RuntimeRegistry, runtimeExecutable } from './runtimes/registry'
+import { ClaudeCliRuntime } from './runtimes/claudeCliRuntime'
+import { createPtyProcessRunner } from './runtimes/ptyProcessRunner'
 import { BindingService } from './bindings/bindingService'
 import { AccountHomes } from './accounts/accountHomes'
 import { EnrollmentService } from './accounts/enrollmentService'
@@ -157,10 +159,15 @@ if (!claimSingleInstance()) {
     const registry = new RuntimeRegistry()
     registry.register(new MockAgentRuntime({ scenario: SCENARIOS.fullRun, id: 'mock:default' }))
 
-    // ClaudeCliRuntime is deliberately not registered yet: nothing in the app supplies
-    // a real ProcessRunner, so every send would fail loudly (correctly, per #95) while
-    // offering the user a runtime that cannot work. It is registered once the runner
-    // exists — the account plumbing below is what it will use when that happens.
+    // The real CLI, driven through the pty. `homeForAccount` resolves a bound account
+    // to its enrolled home and returns null when there is none, which the adapter turns
+    // into a spawn-time failure rather than a run as the machine's default identity.
+    registry.register(
+      new ClaudeCliRuntime({
+        runner: createPtyProcessRunner({ processes }),
+        homeForAccount: (accountId) => accountHomes.resolveExisting(accountId),
+      }),
+    )
 
     const projectService = new ProjectService(db)
     const workflowService = new WorkflowService({

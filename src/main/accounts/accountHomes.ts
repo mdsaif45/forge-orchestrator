@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs'
 import { mkdir, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 
@@ -52,6 +53,25 @@ export class AccountHomes {
       return (await stat(this.pathFor(accountId))).isDirectory()
     } catch {
       return false
+    }
+  }
+
+  /**
+   * The home, or null when the account was never enrolled.
+   *
+   * Synchronous because it answers a runtime's `homeForAccount`, which runs inside
+   * `send` and cannot await. Returning null rather than an unchecked path is what
+   * makes the adapter fail loudly instead of spawning against a directory that does
+   * not exist — where the CLI would find no credential and quietly use the machine's
+   * default identity.
+   */
+  resolveExisting(accountId: string): string | null {
+    const home = this.pathFor(accountId)
+
+    try {
+      return statSync(home).isDirectory() ? home : null
+    } catch {
+      return null
     }
   }
 

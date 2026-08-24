@@ -26,6 +26,9 @@ const api: ForgeApi = {
   dialog: {
     pickDirectory: () => call('dialog:pickDirectory', {}),
   },
+  clipboard: {
+    writeText: (text) => call('clipboard:writeText', { text }),
+  },
   project: {
     probeRepository: (path) => call('project:probeRepository', { path }),
     create: (request) => call('project:create', request),
@@ -48,6 +51,7 @@ const api: ForgeApi = {
       call('workflow:approveAndStartImplementation', { workflowId }),
     getPacket: (packetRef) => call('workflow:getPacket', { packetRef }),
     exportReport: (workflowId) => call('workflow:exportReport', { workflowId }),
+    saveReport: (workflowId) => call('workflow:saveReport', { workflowId }),
   },
   question: {
     list: (projectId, unansweredOnly) => call('question:list', { projectId, unansweredOnly }),

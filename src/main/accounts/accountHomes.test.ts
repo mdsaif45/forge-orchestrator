@@ -115,3 +115,19 @@ describe('probeAccountAuth', () => {
     expect(state.loggedIn).toBe(false)
   })
 })
+
+describe('resolveExisting', () => {
+  it('returns the home for an enrolled account', async () => {
+    const homes = new AccountHomes(root)
+    const created = await homes.ensure('acct-1')
+
+    expect(homes.resolveExisting('acct-1')).toBe(created)
+  })
+
+  it('returns null for an account that was never enrolled', () => {
+    // The spawn path depends on this: an unchecked path would let the adapter launch
+    // against a directory with no credential, where the CLI falls back to the
+    // machine's own identity and the work is attributed to the wrong account (#111).
+    expect(new AccountHomes(root).resolveExisting('never-enrolled')).toBeNull()
+  })
+})

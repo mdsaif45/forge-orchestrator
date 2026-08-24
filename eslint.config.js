@@ -11,7 +11,18 @@ import prettier from 'eslint-config-prettier'
  * across the process boundary rather than only within a file.
  */
 export default tseslint.config(
-  { ignores: ['out/**', 'dist/**', 'scripts/build/**', 'coverage/**', 'node_modules/**'] },
+  {
+    ignores: [
+      'out/**',
+      // The development-mode renderer built for check:ui (#103). Generated output,
+      // same as out/ — linting a bundle reports on the bundler, not on this codebase.
+      'out-dev/**',
+      'dist/**',
+      'scripts/build/**',
+      'coverage/**',
+      'node_modules/**',
+    ],
+  },
 
   js.configs.recommended,
 

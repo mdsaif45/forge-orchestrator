@@ -1,11 +1,23 @@
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { Outlet } from 'react-router'
-import { KitchenSink } from '../dev/KitchenSink'
 import { Dialog } from '../ui'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { useProjectStore } from './projectStore'
 import { Sidebar } from './Sidebar'
 import { StatusStrip, type WorkflowStatePlaceholder } from './StatusStrip'
+
+/**
+ * The kitchen sink is a development tool, and must not reach a released build.
+ *
+ * Loaded through a dynamic import rather than a static one so the bundler can drop
+ * the chunk entirely: a static import stays in the graph even when the JSX using it
+ * is unreachable, so gating the render alone would still ship the code (#103).
+ * `import.meta.env.DEV` is statically replaced at build time, which is what lets the
+ * whole branch — and everything under `dev/` — be eliminated.
+ */
+const KitchenSink = import.meta.env.DEV
+  ? lazy(async () => ({ default: (await import('../dev/KitchenSink')).KitchenSink }))
+  : null
 
 /**
  * The application frame: status strip on top, sidebar beside routed content.
@@ -92,16 +104,20 @@ export function Shell(): React.JSX.Element {
         </main>
       </div>
 
-      <Dialog
-        open={sinkOpen}
-        onClose={() => {
-          setSinkOpen(false)
-        }}
-        title="Kitchen Sink"
-        size="xl"
-      >
-        <KitchenSink />
-      </Dialog>
+      {KitchenSink !== null && (
+        <Dialog
+          open={sinkOpen}
+          onClose={() => {
+            setSinkOpen(false)
+          }}
+          title="Kitchen Sink"
+          size="xl"
+        >
+          <Suspense fallback={null}>
+            <KitchenSink />
+          </Suspense>
+        </Dialog>
+      )}
 
       <CreateProjectDialog
         open={createOpen}

@@ -1,6 +1,9 @@
 node_modules/
 dist/
 out/
+# Development-mode renderer, built only for check:ui (#103). Never packaged:
+# electron-builder.yml includes out/**/* alone.
+out-dev/
 build/
 release/
 *.log

@@ -70,6 +70,19 @@ app.whenReady().then(async () => {
   ipcMain.handle('question:get', () => ({ ok: true, value: null }))
   ipcMain.handle('question:answer', () => ({ ok: true, value: null }))
   ipcMain.handle('account:list', () => ({ ok: true, value: { accounts: [] } }))
+  ipcMain.handle('account:enrollmentStatus', () => ({
+    ok: true,
+    value: {
+      accountId: 'a',
+      isolatable: true,
+      home: null,
+      loggedIn: false,
+      authMethod: 'none',
+      email: null,
+    },
+  }))
+  ipcMain.handle('account:beginEnrollment', () => ({ ok: true, value: { home: 'x' } }))
+  ipcMain.handle('account:revokeEnrollment', () => ({ ok: true, value: {} }))
   ipcMain.handle('template:list', () => ({ ok: true, value: { templates: [] } }))
   ipcMain.handle('template:get', () => ({ ok: true, value: null }))
 

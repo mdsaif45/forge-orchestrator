@@ -11,6 +11,7 @@ import {
   type SessionHandle,
   type SessionOptions,
 } from '@shared/domain'
+import { accountEnv } from '../accounts/accountAuth'
 
 export interface ProcessRunnerResult {
   readonly exitCode: number
@@ -23,6 +24,8 @@ export type ProcessRunner = (
   args: readonly string[],
   options: {
     readonly cwd: string
+    /** Added to the child's environment. Carries the account's home when one is bound. */
+    readonly env?: Readonly<Record<string, string>>
     readonly onStdout?: (chunk: string) => void
     readonly onStderr?: (chunk: string) => void
     readonly signal?: AbortSignal
@@ -33,6 +36,16 @@ export interface ClaudeCliRuntimeOptions {
   readonly executablePath?: string
   readonly runner?: ProcessRunner
   readonly now?: () => string
+  /**
+   * Resolves an account id to the isolated home holding its credential.
+   *
+   * Injected rather than resolved here so the adapter keeps no filesystem knowledge:
+   * it knows a session may name an account, not where Forge stores one. Returns null
+   * for an account that was never enrolled, which is a spawn-time failure rather than
+   * a silent fall back to the machine's default identity — running as the wrong
+   * account is the failure mode #111 exists to prevent.
+   */
+  readonly homeForAccount?: (accountId: string) => string | null
 }
 
 interface ActiveSession {
@@ -73,12 +86,14 @@ export class ClaudeCliRuntime implements IAgentRuntime {
   private readonly executable: string
   private readonly runner: ProcessRunner | null
   private readonly now: () => string
+  private readonly homeForAccount: ((accountId: string) => string | null) | null
   private readonly sessions = new Map<string, ActiveSession>()
 
   constructor(options: ClaudeCliRuntimeOptions = {}) {
     this.executable = options.executablePath ?? 'claude'
     this.runner = options.runner ?? null
     this.now = options.now ?? (() => new Date().toISOString())
+    this.homeForAccount = options.homeForAccount ?? null
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await
@@ -138,10 +153,35 @@ export class ClaudeCliRuntime implements IAgentRuntime {
       return
     }
 
-    void this.executeWithRunner(session, promptText)
+    // Resolved before spawning, and fatal when it fails. A session naming an account
+    // Forge cannot locate must not quietly run as the machine's default identity: the
+    // work would succeed, be attributed to the wrong account, and consume the wrong
+    // quota — invisibly. Same reasoning as the missing-runner case above.
+    let accountHome: string | null = null
+    if (session.options.accountId !== undefined) {
+      accountHome = this.homeForAccount?.(session.options.accountId) ?? null
+
+      if (accountHome === null) {
+        session.state = 'failed'
+        session.failure = `Account "${session.options.accountId}" has no enrolled home; sign in to it before running work as that account`
+        this.pushEvent(session, {
+          type: 'error',
+          at: this.now(),
+          message: session.failure,
+          retryable: false,
+        })
+        return
+      }
+    }
+
+    void this.executeWithRunner(session, promptText, accountHome)
   }
 
-  private async executeWithRunner(session: ActiveSession, promptText: string): Promise<void> {
+  private async executeWithRunner(
+    session: ActiveSession,
+    promptText: string,
+    accountHome: string | null,
+  ): Promise<void> {
     if (!this.runner) return
 
     let accumulatedOutput = ''
@@ -152,6 +192,10 @@ export class ClaudeCliRuntime implements IAgentRuntime {
         ['-p', promptText, '--output-format', 'json'],
         {
           cwd: session.options.repositoryPath,
+          // `accountEnv` rather than the two variables inline: it is the one place that
+          // decides what isolating a process to an account means, and enrolment already
+          // depends on it. Two copies would be two places to get Windows wrong.
+          ...(accountHome === null ? {} : { env: accountEnv(accountHome) }),
           signal: session.abortController.signal,
           onStdout: (chunk) => {
             accumulatedOutput += chunk

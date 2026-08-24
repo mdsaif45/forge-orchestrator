@@ -45,6 +45,15 @@ export interface ForgeApi {
      */
     pickDirectory: () => Promise<IpcResult<{ readonly path: string | null }>>
   }
+  readonly clipboard: {
+    /**
+     * Writes text to the system clipboard through main.
+     *
+     * `navigator.clipboard` is unavailable to a packaged renderer, which loads from
+     * `file://` and is therefore not a secure context (#104).
+     */
+    writeText: (text: string) => Promise<IpcResult<Record<string, never>>>
+  }
   readonly project: {
     /** Reports what a candidate folder is, with named reasons when it is unusable. */
     probeRepository: (path: string) => Promise<IpcResult<RepositoryProbe>>
@@ -91,6 +100,8 @@ export interface ForgeApi {
         readonly exportedAt: string
       }>
     >
+    /** `savedPath` is null when the user cancels the save dialog. */
+    saveReport: (workflowId: string) => Promise<IpcResult<{ readonly savedPath: string | null }>>
   }
   readonly question: {
     list: (

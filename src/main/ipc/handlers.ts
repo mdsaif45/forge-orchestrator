@@ -1,4 +1,5 @@
-import { app, dialog, BrowserWindow } from 'electron'
+import { writeFile } from 'node:fs/promises'
+import { app, clipboard, dialog, BrowserWindow } from 'electron'
 import { APP_NAME } from '@shared/app'
 import { TEMPLATES } from '@shared/domain'
 import { generateWorkflowReportMarkdown } from '../audit/workflowReportGenerator'
@@ -28,6 +29,40 @@ export function createIpcHandlers({
   changeSets,
   accounts,
 }: IpcDependencies): IpcHandlerMap {
+  /**
+   * Gathers everything a report needs and renders it.
+   *
+   * Shared by the two export channels so the copy and the saved file cannot drift
+   * apart — a report that differs depending on how it was delivered would undermine
+   * the point of an audit artifact.
+   */
+  const buildReport = (
+    workflowId: string,
+  ): { readonly reportMarkdown: string; readonly suggestedFileName: string } => {
+    const wfView = workflows.get(workflowId)
+    if (wfView === null) throw new Error(`Workflow ${workflowId} not found`)
+
+    const projectId = workflows.getProjectId(workflowId)
+    const project = projects.list().find((candidate) => candidate.id === projectId)
+    const projectName = project ? project.name : 'Unknown Project'
+
+    const reportMarkdown = generateWorkflowReportMarkdown({
+      workflow: wfView,
+      projectName,
+      decisions: projectId !== null ? decisions.list(projectId) : [],
+      questions: projectId !== null ? questions.list(projectId) : [],
+    })
+
+    // Colons are illegal in a Windows filename, so the timestamp cannot go in raw.
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const slug = projectName.replace(/[^a-zA-Z0-9-_]+/g, '-').replace(/^-+|-+$/g, '')
+
+    return {
+      reportMarkdown,
+      suggestedFileName: `forge-audit-${slug === '' ? 'workflow' : slug}-${stamp}.md`,
+    }
+  }
+
   return {
     'app:getInfo': () => ({
       name: APP_NAME,
@@ -55,6 +90,19 @@ export function createIpcHandlers({
         : dialog.showOpenDialog(parent, { properties: ['openDirectory'] }))
 
       return { path: result.canceled ? null : (result.filePaths.at(0) ?? null) }
+    },
+
+    /**
+     * The clipboard, via main.
+     *
+     * `navigator.clipboard` needs a secure context, and a packaged renderer loads
+     * from `file://` — the log viewer's copy button failed there silently, because
+     * the rejected promise was discarded (#104). Electron's clipboard has no origin
+     * restriction.
+     */
+    'clipboard:writeText': ({ text }) => {
+      clipboard.writeText(text)
+      return {}
     },
 
     'project:probeRepository': ({ path }) => validateRepository(path),
@@ -87,27 +135,40 @@ export function createIpcHandlers({
 
     'workflow:getPacket': ({ packetRef }) => workflows.getPacket(packetRef),
 
-    'workflow:exportReport': ({ workflowId }) => {
-      const wfView = workflows.get(workflowId)
-      if (wfView === null) throw new Error(`Workflow ${workflowId} not found`)
-      const projectId = workflows.getProjectId(workflowId)
-      const projectList = projects.list()
-      const project = projectList.find((p) => p.id === projectId)
-      const projectName = project ? project.name : 'Unknown Project'
-      const decList = projectId !== null ? decisions.list(projectId) : []
-      const qList = projectId !== null ? questions.list(projectId) : []
+    'workflow:exportReport': ({ workflowId }) => ({
+      reportMarkdown: buildReport(workflowId).reportMarkdown,
+      exportedAt: new Date().toISOString(),
+    }),
 
-      const reportMarkdown = generateWorkflowReportMarkdown({
-        workflow: wfView,
-        projectName,
-        decisions: decList,
-        questions: qList,
-      })
+    /**
+     * Writes the report to a file, because the renderer cannot.
+     *
+     * A packaged renderer loads from `file://`, which is not a secure context, so
+     * `navigator.clipboard.writeText` rejects there — the original delivery path
+     * worked in `npm run dev` over http and failed in the shipped app (#104). The
+     * sandboxed renderer also has no filesystem access, so both the dialog and the
+     * write belong here.
+     */
+    'workflow:saveReport': async ({ workflowId }) => {
+      const { reportMarkdown, suggestedFileName } = buildReport(workflowId)
 
-      return {
-        reportMarkdown,
-        exportedAt: new Date().toISOString(),
+      const parent = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows().at(0)
+      const options = {
+        defaultPath: suggestedFileName,
+        filters: [
+          { name: 'Markdown', extensions: ['md'] },
+          { name: 'All files', extensions: ['*'] },
+        ],
       }
+
+      const result = await (parent === undefined
+        ? dialog.showSaveDialog(options)
+        : dialog.showSaveDialog(parent, options))
+
+      if (result.canceled || result.filePath === '') return { savedPath: null }
+
+      await writeFile(result.filePath, reportMarkdown, 'utf8')
+      return { savedPath: result.filePath }
     },
 
     'question:list': ({ projectId, unansweredOnly }) => ({

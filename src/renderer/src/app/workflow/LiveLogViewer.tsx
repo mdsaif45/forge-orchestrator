@@ -33,7 +33,14 @@ export function LiveLogViewer({ logs, onClear }: LiveLogViewerProps): React.JSX.
 
   const handleCopy = () => {
     const content = filteredLogs.map((l) => `[${l.timestamp}] ${l.text}`).join('\n')
-    void navigator.clipboard.writeText(content)
+    // Through main: `navigator.clipboard` needs a secure context, and a packaged
+    // renderer loads from `file://`, so the previous direct call rejected — silently,
+    // because the promise was discarded with `void` (#104).
+    window.forge.clipboard.writeText(content).catch((cause: unknown) => {
+      // Reported rather than swallowed. A copy button that does nothing and says
+      // nothing is the failure this issue was filed about.
+      console.error('Could not copy the log to the clipboard', cause)
+    })
   }
 
   const handleTogglePause = () => {

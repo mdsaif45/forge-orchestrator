@@ -53,7 +53,10 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           draft: true
-          prerelease: false
+          # A tag with a prerelease identifier (v0.1.0-alpha.1, -beta.1, -rc.1) is not GA and
+          # must not be flagged "Latest" or trigger stable-channel auto-update — hardcoding
+          # `false` here would have marked an alpha as a general release.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           files: |
             dist/*.exe

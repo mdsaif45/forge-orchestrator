@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -531,5 +531,48 @@ describe('the read-only guarantee', () => {
       status: git('status', '--porcelain=v2', '--branch'),
       reflog: git('reflog', '--format=%H %gs'),
     }).toEqual(before)
+  })
+})
+
+describe('listWorktreeFiles', () => {
+  beforeEach(() => {
+    write('a.txt', 'one\n')
+    git('add', '-A')
+    git('commit', '--quiet', '-m', 'first')
+  })
+
+  it('lists tracked and new files, and excludes ignored ones', async () => {
+    write('.gitignore', 'secrets.env\nbuild/\n')
+    write('secrets.env', 'TOKEN=nope\n')
+    write('untracked.ts', 'export const x = 1\n')
+    mkdirSync(join(repoPath, 'build'), { recursive: true })
+    write('build/out.js', 'compiled\n')
+
+    const files = await service().listWorktreeFiles()
+
+    // A new file an agent just created is exactly what a reviewer needs to open, so
+    // untracked-but-not-ignored has to be included.
+    expect(files).toContain('a.txt')
+    expect(files).toContain('untracked.ts')
+    expect(files).toContain('.gitignore')
+
+    // Ignored paths are excluded by git itself rather than by a matcher of ours, which
+    // is the point: a secret the user told git to ignore must not surface in the UI.
+    expect(files).not.toContain('secrets.env')
+    expect(files.some((path) => path.startsWith('build/'))).toBe(false)
+  })
+
+  it('sorts by codepoint, so the rendered order is reproducible', async () => {
+    write('Zebra.ts', '')
+    write('apple.ts', '')
+    git('add', '-A')
+
+    const files = await service().listWorktreeFiles()
+    const sorted = [...files].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
+
+    // Not localeCompare: an order that varies by host locale is not reproducible, and
+    // this list is shown to the user.
+    expect(files).toEqual(sorted)
+    expect(files.indexOf('Zebra.ts')).toBeLessThan(files.indexOf('apple.ts'))
   })
 })

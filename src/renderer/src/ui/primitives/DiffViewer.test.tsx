@@ -11,6 +11,29 @@ describe('DiffViewer', () => {
     expect(screen.getByText('src/App.tsx')).toBeInTheDocument()
     expect(screen.getByText('READ-ONLY')).toBeInTheDocument()
     expect(screen.getByText(/import \{ New \} from '\.\/new'/)).toBeInTheDocument()
+  })
+
+  it('offers no edit affordance when the file cannot be saved', () => {
+    // This case previously asserted an "Edit File" button with no `onSaveFile` passed,
+    // which encoded a real defect: the button opened an editor whose save handler
+    // returned silently, so typed changes were discarded without a word. Used by the
+    // Explorer view, where browsing for context must not become an editor (#107).
+    render(<DiffViewer filePath="src/App.tsx" patch={samplePatch} fileContent="original code" />)
+
+    expect(screen.queryByRole('button', { name: 'Edit File' })).not.toBeInTheDocument()
+    expect(screen.getByText('read-only')).toBeInTheDocument()
+  })
+
+  it('offers editing when a save handler is supplied', () => {
+    render(
+      <DiffViewer
+        filePath="src/App.tsx"
+        patch={samplePatch}
+        fileContent="original code"
+        onSaveFile={() => undefined}
+      />,
+    )
+
     expect(screen.getByRole('button', { name: 'Edit File' })).toBeInTheDocument()
   })
 

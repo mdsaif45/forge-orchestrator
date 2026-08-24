@@ -406,6 +406,17 @@ export type WorkflowLogPayload = z.infer<typeof workflowLogPayloadSchema>
 export const IPC_CONTRACT = {
   'app:getInfo': { request: empty, response: appInfoSchema },
   'dialog:pickDirectory': { request: empty, response: pickDirectoryResponseSchema },
+  /**
+   * Writes text to the system clipboard.
+   *
+   * Owned by main because `navigator.clipboard` requires a secure context and a
+   * packaged renderer loads from `file://`, where it rejects with a permission error
+   * (#104). Electron's own clipboard module has no such restriction.
+   */
+  'clipboard:writeText': {
+    request: z.strictObject({ text: z.string() }),
+    response: empty,
+  },
   'project:probeRepository': {
     request: z.strictObject({ path: z.string() }),
     response: repositoryProbeSchema,
@@ -481,6 +492,21 @@ export const IPC_CONTRACT = {
     response: z.strictObject({
       reportMarkdown: z.string(),
       exportedAt: z.string(),
+    }),
+  },
+  /**
+   * Writes the audit report to a file the user chooses.
+   *
+   * Separate from `exportReport` because delivery belongs in main: the renderer
+   * loads from `file://` in a packaged build, which is not a secure context, so
+   * `navigator.clipboard` rejects there and the sandbox has no filesystem access
+   * either (#104). `savedPath` is null when the user cancels the dialog, which is an
+   * ordinary outcome rather than an error.
+   */
+  'workflow:saveReport': {
+    request: z.strictObject({ workflowId: z.string() }),
+    response: z.strictObject({
+      savedPath: z.string().nullable(),
     }),
   },
   'question:list': {

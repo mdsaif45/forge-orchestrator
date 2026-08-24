@@ -86,6 +86,46 @@ test('app info resolves over the real IPC contract', async () => {
   }
 })
 
+test('the clipboard works from the packaged file:// renderer', async () => {
+  // The #104 regression, at the boundary where it actually happened. The renderer
+  // here loads from `file://`, which is not a secure context, so
+  // `navigator.clipboard.writeText` rejects — it worked under `npm run dev` over
+  // http and failed only in the shipped app, which is why it reached a release.
+  // Asserting the read-back rather than merely that the call resolved: a channel
+  // that silently wrote nothing would satisfy the weaker check.
+  const written = await page.evaluate(async () => {
+    const result = await window.forge.clipboard.writeText('forge-e2e-clipboard')
+    return result.ok
+  })
+
+  expect(written).toBe(true)
+
+  // Read back in main, polled: the write crosses an IPC boundary and the OS clipboard
+  // is a shared resource that settles asynchronously, so a single immediate read races
+  // it. Bounded, so a channel that genuinely writes nothing still fails.
+  let readBack = ''
+  for (let attempt = 0; attempt < 60 && readBack !== 'forge-e2e-clipboard'; attempt += 1) {
+    readBack = await app.evaluate(({ clipboard }) => clipboard.readText())
+    if (readBack !== 'forge-e2e-clipboard') await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+
+  expect(readBack).toBe('forge-e2e-clipboard')
+
+  // The direct renderer API is expected to be unavailable here — this documents the
+  // constraint that makes the main-side channel necessary, so a future "simplify"
+  // does not undo it.
+  const direct = await page.evaluate(async () => {
+    try {
+      await navigator.clipboard.writeText('should-not-work')
+      return 'resolved'
+    } catch {
+      return 'rejected'
+    }
+  })
+
+  expect(direct).toBe('rejected')
+})
+
 test('every navigation item reaches a live route', async () => {
   const links = page.getByRole('navigation', { name: 'Main' }).getByRole('link')
   const labels = await links.allInnerTexts()

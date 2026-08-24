@@ -198,13 +198,19 @@ export function WorkflowPage(): React.JSX.Element {
   const handleExportReport = async (): Promise<void> => {
     if (workflow === null) return
     try {
-      const res = await window.forge.workflow.exportReport(workflow.id)
-      const data = unwrap(res)
-      await navigator.clipboard.writeText(data.reportMarkdown)
+      // Saved through main rather than copied to the clipboard: a packaged renderer
+      // loads from `file://`, which is not a secure context, so
+      // `navigator.clipboard.writeText` rejects there (#104). An audit report is also
+      // a document — a file is the more useful delivery than a paste buffer.
+      const { savedPath } = unwrap(await window.forge.workflow.saveReport(workflow.id))
+
+      // Cancelling the dialog is an ordinary outcome, not a failure to report.
+      if (savedPath === null) return
+
       show({
         tone: 'success',
-        title: 'Audit Report Copied',
-        description: 'Self-contained Markdown audit report copied to clipboard.',
+        title: 'Audit Report Saved',
+        description: savedPath,
       })
     } catch (err: unknown) {
       show({

@@ -1,10 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import {
-  parseAgentReport,
   renderPromptPacket,
   runtimeIdSchema,
   sessionIdSchema,
-  type AgentReport,
   type Capability,
   type IAgentRuntime,
   type PromptPacket,
@@ -116,32 +114,24 @@ export class ClaudeCliRuntime implements IAgentRuntime {
 
     const promptText = renderPromptPacket(packet)
 
-    if (this.runner !== null) {
-      // Execute via provided runner (mock or subprocess)
-      void this.executeWithRunner(session, promptText)
-    } else {
-      // Default execution fallback
-      const report: AgentReport = {
-        status: 'completed',
-        summary: `Claude CLI executed step for ${packet.role}`,
-        filesChanged: [],
-        commandsRun: [],
-        testsRun: false,
-        openQuestions: [],
-        assumptions: [],
-      }
+    // A2/A3: there is no meaning to "run the Claude CLI" without something that actually
+    // spawns it. A runtime built without a runner previously reported synthetic success for
+    // work it never did, which is the exact failure mode this product exists to catch in
+    // agents — it cannot be acceptable in Forge's own adapter. Misconfiguration must fail
+    // loudly, not degrade into a fabricated report.
+    if (this.runner === null) {
+      session.state = 'failed'
+      session.failure = 'ClaudeCliRuntime has no process runner configured; cannot execute'
       this.pushEvent(session, {
-        type: 'chunk',
+        type: 'error',
         at: this.now(),
-        text: `[Claude] Task executed for role ${packet.role}\n`,
+        message: session.failure,
+        retryable: false,
       })
-      this.pushEvent(session, {
-        type: 'result',
-        at: this.now(),
-        report,
-      })
-      session.state = 'completed'
+      return
     }
+
+    void this.executeWithRunner(session, promptText)
   }
 
   private async executeWithRunner(session: ActiveSession, promptText: string): Promise<void> {
@@ -188,33 +178,20 @@ export class ClaudeCliRuntime implements IAgentRuntime {
         return
       }
 
-      // Parse structured agent report
-      const parsed = parseAgentReport(accumulatedOutput)
-      if (parsed.ok) {
-        session.state = 'completed'
-        this.pushEvent(session, {
-          type: 'result',
-          at: this.now(),
-          report: parsed.report,
-        })
-      } else {
-        // Synthesize standard completed report from raw transcript
-        const report: AgentReport = {
-          status: 'completed',
-          summary: 'Completed Claude CLI turn',
-          filesChanged: [],
-          commandsRun: [],
-          testsRun: false,
-          openQuestions: [],
-          assumptions: [],
-        }
-        session.state = 'completed'
-        this.pushEvent(session, {
-          type: 'result',
-          at: this.now(),
-          report,
-        })
-      }
+      // The turn's raw transcript has already reached the caller as `chunk` events above.
+      // Parsing it into an `AgentReport` and re-prompting once on a malformed reply is
+      // `exchange()`'s job (`shared/domain/protocol.ts`, `runtimes/exchange.ts`) — it is the
+      // one place that logic exists, and duplicating a parse here previously meant a
+      // malformed report from a real CLI was silently replaced with a fabricated "completed"
+      // result instead of failing or getting the correction retry the protocol promises.
+      // Ending the turn on `state: 'completed'` is exactly what tells `exchange()`'s
+      // `collectTurn` to parse the accumulated text itself.
+      session.state = 'completed'
+      this.pushEvent(session, {
+        type: 'state',
+        at: this.now(),
+        state: 'completed',
+      })
     } catch (err: unknown) {
       if (session.abortController.signal.aborted) {
         session.state = 'cancelled'

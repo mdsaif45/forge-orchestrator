@@ -1,10 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import {
-  parseAgentReport,
   renderPromptPacket,
   runtimeIdSchema,
   sessionIdSchema,
-  type AgentReport,
   type Capability,
   type IAgentRuntime,
   type PromptPacket,
@@ -100,30 +98,21 @@ export class AntigravityCliRuntime implements IAgentRuntime {
 
     const promptText = renderPromptPacket(packet)
 
-    if (this.runner !== null) {
-      void this.executeWithRunner(session, promptText)
-    } else {
-      const report: AgentReport = {
-        status: 'completed',
-        summary: `Antigravity CLI executed step for ${packet.role}`,
-        filesChanged: [],
-        commandsRun: [],
-        testsRun: false,
-        openQuestions: [],
-        assumptions: [],
-      }
+    // A2/A3: see ClaudeCliRuntime.send for why a missing runner must fail loudly rather
+    // than report synthetic success for work that never happened.
+    if (this.runner === null) {
+      session.state = 'failed'
+      session.failure = 'AntigravityCliRuntime has no process runner configured; cannot execute'
       this.pushEvent(session, {
-        type: 'chunk',
+        type: 'error',
         at: this.now(),
-        text: `[Antigravity] Task executed for role ${packet.role}\n`,
+        message: session.failure,
+        retryable: false,
       })
-      this.pushEvent(session, {
-        type: 'result',
-        at: this.now(),
-        report,
-      })
-      session.state = 'completed'
+      return
     }
+
+    void this.executeWithRunner(session, promptText)
   }
 
   private async executeWithRunner(session: ActiveSession, promptText: string): Promise<void> {
@@ -166,31 +155,17 @@ export class AntigravityCliRuntime implements IAgentRuntime {
         return
       }
 
-      const parsed = parseAgentReport(accumulatedOutput)
-      if (parsed.ok) {
-        session.state = 'completed'
-        this.pushEvent(session, {
-          type: 'result',
-          at: this.now(),
-          report: parsed.report,
-        })
-      } else {
-        const report: AgentReport = {
-          status: 'completed',
-          summary: 'Completed Antigravity CLI turn',
-          filesChanged: [],
-          commandsRun: [],
-          testsRun: false,
-          openQuestions: [],
-          assumptions: [],
-        }
-        session.state = 'completed'
-        this.pushEvent(session, {
-          type: 'result',
-          at: this.now(),
-          report,
-        })
-      }
+      // See ClaudeCliRuntime.executeWithRunner: parsing and the single re-prompt on a
+      // malformed reply belong to `exchange()`, which reads the `chunk` events already
+      // pushed above. A `state: 'completed'` here is what tells its `collectTurn` to parse
+      // the accumulated transcript itself, instead of this adapter fabricating a report when
+      // parsing fails.
+      session.state = 'completed'
+      this.pushEvent(session, {
+        type: 'state',
+        at: this.now(),
+        state: 'completed',
+      })
     } catch (err: unknown) {
       if (session.abortController.signal.aborted) {
         session.state = 'cancelled'

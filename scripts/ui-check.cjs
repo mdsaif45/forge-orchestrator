@@ -73,7 +73,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('template:list', () => ({ ok: true, value: { templates: [] } }))
   ipcMain.handle('template:get', () => ({ ok: true, value: null }))
 
-  await window.loadFile(join(__dirname, '../out/renderer/index.html'))
+  // The development-mode bundle, not `out/renderer`: these checks exercise the kitchen
+  // sink, which is a development tool and is eliminated from a release build (#103).
+  // Asserting against the shipped bundle would mean testing a screen users cannot reach
+  // — and, worse, failing to notice if a primitive broke only in the build they can.
+  await window.loadFile(join(__dirname, '../out-dev/renderer/index.html'))
   // Let React mount before probing the DOM.
   await evaluate(
     window,
@@ -162,10 +166,21 @@ app.whenReady().then(async () => {
        const dark = 'rgb(11, 13, 16)'
        const light = 'rgb(255, 255, 255)'
 
+       // Toggled through the app's own control, not by writing data-theme directly:
+       // useTheme owns that attribute and reasserts it in an effect, so a manual
+       // write is racing a re-render that overwrites it. That race is why this check
+       // failed intermittently on the slower CI runner while passing locally.
+       const toggle = () => {
+         const button = [...document.querySelectorAll('button')]
+           .find((b) => b.textContent === 'Light' || b.textContent === 'Dark')
+         if (!button) throw new Error('theme toggle button not found')
+         button.click()
+       }
+
        const before = await readUntil(dark)
-       document.documentElement.dataset.theme = 'light'
+       toggle()
        const after = await readUntil(light)
-       document.documentElement.dataset.theme = 'dark'
+       toggle()
        const restored = await readUntil(dark)
 
        return JSON.stringify({ before, after, restored })

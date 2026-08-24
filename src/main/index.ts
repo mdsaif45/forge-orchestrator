@@ -13,8 +13,10 @@ import { ProjectService } from './projects/projectService'
 import { QuestionService } from './questions/questionService'
 import { WorkflowService } from './workflows/workflowService'
 import { MockAgentRuntime } from './runtimes/mockRuntime'
-import { RuntimeRegistry } from './runtimes/registry'
+import { RuntimeRegistry, runtimeExecutable } from './runtimes/registry'
 import { BindingService } from './bindings/bindingService'
+import { AccountHomes } from './accounts/accountHomes'
+import { EnrollmentService } from './accounts/enrollmentService'
 import { BindingStore } from './db/bindingStore'
 import { SCENARIOS } from './runtimes/scenario'
 import {
@@ -202,6 +204,11 @@ if (!claimSingleInstance()) {
         accounts: accountService,
         registry,
         bindings: new BindingService(new BindingStore(db, eventStore), registry),
+        enrollment: new EnrollmentService(
+          new AccountHomes(join(app.getPath('userData'), 'accounts')),
+          registry,
+          runtimeExecutable,
+        ),
       }),
     )
 

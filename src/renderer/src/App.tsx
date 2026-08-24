@@ -1,7 +1,6 @@
 import { createHashRouter, RouterProvider } from 'react-router'
 import { NotFound } from './app/NotFound'
 import { Overview } from './app/Overview'
-import { RoutePlaceholder } from './app/RoutePlaceholder'
 import { ROUTES } from './app/routes'
 import { Settings } from './app/Settings'
 import { Shell } from './app/Shell'
@@ -11,6 +10,7 @@ import { WorkflowPage } from './app/workflow/WorkflowPage'
 import { QuestionsPage } from './app/QuestionsPage'
 import { DecisionsPage } from './app/DecisionsPage'
 import { ChangesPage } from './app/ChangesPage'
+import { AgentsPage } from './app/AgentsPage'
 
 /**
  * Routes are generated from the route table, so navigation and routing cannot
@@ -32,8 +32,11 @@ const router = createHashRouter([
         if (route.path === '/questions') return { path: 'questions', element: <QuestionsPage /> }
         if (route.path === '/decisions') return { path: 'decisions', element: <DecisionsPage /> }
         if (route.path === '/changes') return { path: 'changes', element: <ChangesPage /> }
-        if (route.path === '/settings') return { path: 'settings', element: <Settings /> }
-        return { path: route.path.slice(1), element: <RoutePlaceholder route={route} /> }
+        if (route.path === '/agents') return { path: 'agents', element: <AgentsPage /> }
+        // Every route resolves to a real page. There is deliberately no fall-through
+        // placeholder any more: a nav item that led to an unbuilt screen read as a
+        // broken feature rather than an absent one (#102).
+        return { path: 'settings', element: <Settings /> }
       }),
       { path: '*', element: <NotFound /> },
     ],

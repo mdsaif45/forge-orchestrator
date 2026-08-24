@@ -323,7 +323,10 @@ app.whenReady().then(async () => {
 
   check(
     'every nav item routes to a live page (no dead links)',
-    nav.count === 8 && deadLinks.length === 0,
+    // Every nav item leads somewhere real, whatever the table holds. Asserting a
+    // fixed count duplicated the route table and broke when a route was removed
+    // (#102) — the useful claim is 'no dead links', not 'exactly eight of them'.
+    nav.count > 0 && deadLinks.length === 0,
     `${nav.count} links, dead: ${JSON.stringify(deadLinks)}`,
   )
   check(
@@ -374,7 +377,7 @@ app.whenReady().then(async () => {
   const col = JSON.parse(collapsed)
   check(
     'collapsed sidebar keeps every item named',
-    col.named === true && col.width < 60 && col.count === 8,
+    col.named === true && col.width < 60 && col.count === nav.count,
     collapsed,
   )
 

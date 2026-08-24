@@ -23,7 +23,17 @@ import {
 import { useProjectStore } from './projectStore'
 import { ROUTES } from './routes'
 
-const SETTINGS = ROUTES[7]
+/**
+ * Found by path, not by position.
+ *
+ * This was `ROUTES[7]`, which broke silently the moment a route was removed from the
+ * table (#102) — it pointed at nothing and every read of it became undefined.
+ */
+const SETTINGS = ((): (typeof ROUTES)[number] => {
+  const route = ROUTES.find((candidate) => candidate.path === '/settings')
+  if (route === undefined) throw new Error('The settings route is missing from ROUTES')
+  return route
+})()
 
 type SettingsTab = 'rules' | 'accounts' | 'limits' | 'security' | 'storage'
 

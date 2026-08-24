@@ -3,6 +3,7 @@ import type { DomainEvent, EventPayloads, EventType, ProjectId } from '@shared/d
 import type { ForgeDatabase } from './connection'
 import {
   accounts,
+  agentBindings,
   changeSets,
   decisions,
   evidenceArtifacts,
@@ -525,6 +526,36 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
     return
   }
 
+  if (isType(event, 'binding.set')) {
+    const b = event.payload.binding
+    // Conflict on (project, role) rather than on the id: a role has exactly one
+    // binding, so re-binding it replaces the existing row instead of accumulating
+    // history in the read model. The history lives in the event log, which is where
+    // A1 says it belongs.
+    db.insert(agentBindings)
+      .values({
+        id: b.id,
+        projectId: event.projectId,
+        role: b.role,
+        runtimeId: b.runtimeId,
+        accountId: b.accountId,
+        capabilities: JSON.stringify(b.capabilities),
+        permissions: JSON.stringify(b.permissions),
+      })
+      .onConflictDoUpdate({
+        target: [agentBindings.projectId, agentBindings.role],
+        set: {
+          id: b.id,
+          runtimeId: b.runtimeId,
+          accountId: b.accountId,
+          capabilities: JSON.stringify(b.capabilities),
+          permissions: JSON.stringify(b.permissions),
+        },
+      })
+      .run()
+    return
+  }
+
   // Everything else is recorded in the log but has no read model yet. This is a
   // deliberate no-op rather than an error: the events are still replayable, and
   // their projections arrive with the features that read them.
@@ -537,9 +568,7 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
  * Event types that are logged now and projected later, with the issue that will
  * do it. Listing them explicitly means a genuinely unknown type still throws.
  */
-const PROJECTED_LATER: ReadonlySet<EventType> = new Set([
-  'binding.set', // #31
-])
+const PROJECTED_LATER: ReadonlySet<EventType> = new Set([])
 
 /**
  * Rebuilds every read model for a project from its events.

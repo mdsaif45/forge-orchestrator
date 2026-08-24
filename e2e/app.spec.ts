@@ -130,7 +130,9 @@ test('every navigation item reaches a live route', async () => {
   const links = page.getByRole('navigation', { name: 'Main' }).getByRole('link')
   const labels = await links.allInnerTexts()
 
-  expect(labels).toHaveLength(8)
+  // Every item leads somewhere real, whatever the table holds. A hardcoded count
+  // duplicated the route table and broke when a route was removed (#102).
+  expect(labels.length).toBeGreaterThan(0)
 
   for (const label of labels) {
     await links.filter({ hasText: label }).click()
@@ -141,10 +143,18 @@ test('every navigation item reaches a live route', async () => {
 })
 
 test('the sidebar collapses without losing item names', async () => {
+  // Counted while expanded, so the assertion below is about collapsing rather than
+  // about how many routes happen to exist.
+  const expandedLinkCount = await page
+    .getByRole('navigation', { name: 'Main' })
+    .getByRole('link')
+    .count()
+
   await page.getByRole('button', { name: 'Collapse sidebar' }).click()
 
   const links = page.getByRole('navigation', { name: 'Main' }).getByRole('link')
-  await expect(links).toHaveCount(8)
+  // Collapsing must not drop items; the claim is "same as expanded", not "eight".
+  await expect(links).toHaveCount(expandedLinkCount)
 
   // Labels move into aria-label rather than disappearing.
   for (const link of await links.all()) {

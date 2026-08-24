@@ -1,6 +1,6 @@
 {
   "name": "forge-orchestrator",
-  "version": "0.0.1",
+  "version": "0.1.0-alpha.1",
   "description": "Forge - an AI engineering control plane where multiple coding agents collaborate on one repository under a shared execution protocol.",
   "license": "MIT",
   "author": "mdsaif45",

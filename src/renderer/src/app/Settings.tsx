@@ -20,6 +20,7 @@ import {
   Textarea,
   useToast,
 } from '../ui'
+import { AccountEnrollment } from './AccountEnrollment'
 import { useProjectStore } from './projectStore'
 import { ROUTES } from './routes'
 
@@ -82,6 +83,22 @@ export function Settings(): React.JSX.Element {
       })
       .catch((err: unknown) => {
         console.error('Failed to load accounts:', err)
+      })
+  }, [])
+
+  const [runtimes, setRuntimes] = useState<readonly { id: string; simulated: boolean }[]>([])
+
+  // The registered runtimes, so an account is bound to a CLI that actually exists.
+  useEffect(() => {
+    window.forge.runtime
+      .list()
+      .then((res) => {
+        const list = unwrap(res).runtimes
+        setRuntimes(list.map((r) => ({ id: r.id, simulated: r.simulated })))
+        setAccountProvider((current) => (current === '' ? (list[0]?.id ?? '') : current))
+      })
+      .catch((err: unknown) => {
+        console.error('Failed to load runtimes:', err)
       })
   }, [])
 
@@ -363,15 +380,18 @@ export function Settings(): React.JSX.Element {
                             </div>
                           </div>
 
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => {
-                              void removeAccount(acc.id)
-                            }}
-                          >
-                            Remove
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <AccountEnrollment accountId={acc.id} runtimeId={acc.provider} />
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => {
+                                void removeAccount(acc.id)
+                              }}
+                            >
+                              Remove
+                            </Button>
+                          </div>
                         </li>
                       ))}
                     </ul>
@@ -380,17 +400,34 @@ export function Settings(): React.JSX.Element {
                   <Separator className="my-2" />
 
                   <div className="grid grid-cols-2 gap-3">
-                    <Field label="Provider ID" required hint="e.g. cli-adapter, api-runner">
-                      {(bind) => (
-                        <Input
-                          {...bind}
-                          value={accountProvider}
-                          placeholder="provider-id"
-                          onChange={(e) => {
-                            setAccountProvider(e.target.value)
-                          }}
-                        />
-                      )}
+                    <Field label="Provider" required hint="Which CLI this account signs into">
+                      {(bind) =>
+                        // A registered runtime, not free text: an account exists to be
+                        // signed into a specific CLI, and a typed value that matches no
+                        // runtime could never be enrolled.
+                        runtimes.length > 0 ? (
+                          <Select
+                            {...bind}
+                            options={runtimes.map((runtime) => ({
+                              value: runtime.id,
+                              label: runtime.simulated ? `${runtime.id} (simulated)` : runtime.id,
+                            }))}
+                            value={accountProvider}
+                            onChange={(e) => {
+                              setAccountProvider(e.target.value)
+                            }}
+                          />
+                        ) : (
+                          <Input
+                            {...bind}
+                            value={accountProvider}
+                            placeholder="provider-id"
+                            onChange={(e) => {
+                              setAccountProvider(e.target.value)
+                            }}
+                          />
+                        )
+                      }
                     </Field>
 
                     <Field label="Account Label" required hint="e.g. Work Pro, Primary Team">

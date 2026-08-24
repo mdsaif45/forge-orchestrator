@@ -83,6 +83,11 @@ const api: ForgeApi = {
     register: (request) => call('account:register', request),
     updateStatus: (request) => call('account:updateStatus', request),
     remove: (accountId) => call('account:remove', { accountId }),
+    enrollmentStatus: (accountId, runtimeId) =>
+      call('account:enrollmentStatus', { accountId, runtimeId }),
+    beginEnrollment: (accountId, runtimeId) =>
+      call('account:beginEnrollment', { accountId, runtimeId }),
+    revokeEnrollment: (accountId) => call('account:revokeEnrollment', { accountId }),
   },
   git: {
     getWorkingDiff: (projectId) => call('git:getWorkingDiff', { projectId }),

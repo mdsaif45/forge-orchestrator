@@ -154,70 +154,79 @@ describe('MVP Acceptance: Multi-Agent Closed Loop with Zero Copy-Paste (#43)', (
     expect(completed?.finishedAt).not.toBeNull()
   })
 
-  it('pauses cleanly when an agent raises an open question, and resumes on user answer', async () => {
-    const questionRegistry = new RuntimeRegistry()
-    questionRegistry.register(
-      new MockAgentRuntime({
-        scenario: SCENARIOS.question,
-        id: 'mock:default',
-      }),
-    )
+  // 30s, not the 5s default: this drives a real orchestrator run, and its own poll
+  // budget is 3s — leaving under two seconds for the work itself under a full parallel
+  // suite, which is what made it time out rather than fail. The timeout bounds the
+  // test; the poll bounds the wait. Confusing the two is what produced a flake that
+  // looked like a logic error.
+  it(
+    'pauses cleanly when an agent raises an open question, and resumes on user answer',
+    { timeout: 30_000 },
+    async () => {
+      const questionRegistry = new RuntimeRegistry()
+      questionRegistry.register(
+        new MockAgentRuntime({
+          scenario: SCENARIOS.question,
+          id: 'mock:default',
+        }),
+      )
 
-    const questionWorkflows = new WorkflowService({
-      db: dbHandle.db,
-      projects,
-      packetDir,
-      registry: questionRegistry,
-    })
+      const questionWorkflows = new WorkflowService({
+        db: dbHandle.db,
+        projects,
+        packetDir,
+        registry: questionRegistry,
+      })
 
-    const project = await projects.create({
-      name: 'Question Pause Test',
-      repositoryPath: repoDir,
-      defaultBranch: 'main',
-      buildCommand: null,
-      testCommand: null,
-      tech: [],
-      rules: [],
-    })
+      const project = await projects.create({
+        name: 'Question Pause Test',
+        repositoryPath: repoDir,
+        defaultBranch: 'main',
+        buildCommand: null,
+        testCommand: null,
+        tech: [],
+        rules: [],
+      })
 
-    const started = await questionWorkflows.start({
-      projectId: project.id,
-      autoRun: true,
-    })
+      const started = await questionWorkflows.start({
+        projectId: project.id,
+        autoRun: true,
+      })
 
-    // Poll until question pauses workflow in AWAITING_USER
-    let paused = questionWorkflows.get(started.id)
-    // 3s, not 1s: the orchestrator runs a real scenario here, and under the full
-    // parallel suite it needs seconds. Kept well inside vitest's 5s per-test timeout —
-    // a longer budget than that makes the test time out instead of failing, which is
-    // how an earlier attempt at this made things worse. Still bounded, so a workflow
-    // that never pauses fails rather than hanging.
-    for (let i = 0; i < 60; i += 1) {
-      paused = questionWorkflows.get(started.id)
-      if (paused?.state === 'AWAITING_USER') break
-      await new Promise((resolve) => setTimeout(resolve, 50))
-    }
+      // Poll until question pauses workflow in AWAITING_USER
+      let paused = questionWorkflows.get(started.id)
+      // 3s, not 1s: the orchestrator runs a real scenario here, and under the full
+      // parallel suite it needs seconds. Kept well inside vitest's 5s per-test timeout —
+      // a longer budget than that makes the test time out instead of failing, which is
+      // how an earlier attempt at this made things worse. Still bounded, so a workflow
+      // that never pauses fails rather than hanging.
+      for (let i = 0; i < 60; i += 1) {
+        paused = questionWorkflows.get(started.id)
+        if (paused?.state === 'AWAITING_USER') break
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
 
-    expect(paused?.state).toBe('AWAITING_USER')
-    expect(paused?.blockedByQuestionId).toBeTruthy()
+      expect(paused?.state).toBe('AWAITING_USER')
+      expect(paused?.blockedByQuestionId).toBeTruthy()
 
-    // User answers the question
-    const qId = paused?.blockedByQuestionId ?? ''
-    const answered = questionWorkflows.answerQuestion(qId, 'Return 404 Not Found', true)
-    expect(answered.answer).toBe('Return 404 Not Found')
+      // User answers the question
+      const qId = paused?.blockedByQuestionId ?? ''
+      const answered = questionWorkflows.answerQuestion(qId, 'Return 404 Not Found', true)
+      expect(answered.answer).toBe('Return 404 Not Found')
 
-    // Verified question was promoted to decision
-    const pId = projectIdSchema.parse(project.id)
-    const decisionsList = questionWorkflows.getDecisionStore().listForProject(pId)
-    expect(decisionsList.length).toBeGreaterThan(0)
+      // Verified question was promoted to decision
+      const pId = projectIdSchema.parse(project.id)
+      const decisionsList = questionWorkflows.getDecisionStore().listForProject(pId)
+      expect(decisionsList.length).toBeGreaterThan(0)
 
-    for (let i = 0; i < 30; i += 1) {
-      const current = questionWorkflows.get(started.id)
-      if (current?.finishedAt !== null) break
-      await new Promise((resolve) => setTimeout(resolve, 50))
-    }
-    questionWorkflows.cancel(started.id)
-  })
+      for (let i = 0; i < 30; i += 1) {
+        const current = questionWorkflows.get(started.id)
+        if (current?.finishedAt !== null) break
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+      questionWorkflows.cancel(started.id)
+    },
+  )
 
   it('recovers workflow state and checkpoint after an abrupt kill or restart', async () => {
     const project = await projects.create({

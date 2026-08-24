@@ -13,6 +13,8 @@ import type { ChangeSetService } from '../changesets/changeSetService'
 import type { AccountService } from '../accounts/accountService'
 import type { RuntimeRegistry } from '../runtimes/registry'
 import type { BindingService } from '../bindings/bindingService'
+import type { EnrollmentService } from '../accounts/enrollmentService'
+import { openTerminal } from '../accounts/terminalLauncher'
 
 export interface IpcDependencies {
   readonly projects: ProjectService
@@ -23,6 +25,7 @@ export interface IpcDependencies {
   readonly accounts: AccountService
   readonly registry: RuntimeRegistry
   readonly bindings: BindingService
+  readonly enrollment: EnrollmentService
 }
 
 export function createIpcHandlers({
@@ -34,6 +37,7 @@ export function createIpcHandlers({
   accounts,
   registry,
   bindings,
+  enrollment,
 }: IpcDependencies): IpcHandlerMap {
   /**
    * Gathers everything a report needs and renders it.
@@ -227,6 +231,35 @@ export function createIpcHandlers({
 
     'git:writeFile': (request) =>
       changeSets.writeFile(request.projectId, request.path, request.content),
+
+    'account:enrollmentStatus': async ({ accountId, runtimeId }) => {
+      const status = await enrollment.status(runtimeId, accountId)
+      return {
+        accountId: status.accountId,
+        isolatable: status.isolatable,
+        home: status.home,
+        loggedIn: status.auth.loggedIn,
+        authMethod: status.auth.authMethod,
+        email: status.auth.email,
+      }
+    },
+
+    /**
+     * Prepares the home, then hands the sign-in to a terminal the user owns.
+     *
+     * `prepare` throws when the runtime cannot isolate accounts, which surfaces as a
+     * failure envelope rather than a window that would sign in as the wrong identity.
+     */
+    'account:beginEnrollment': async ({ accountId, runtimeId }) => {
+      const home = await enrollment.prepare(runtimeId, accountId)
+      openTerminal(enrollment.enrollmentCommand(runtimeId, home))
+      return { home }
+    },
+
+    'account:revokeEnrollment': async ({ accountId }) => {
+      await enrollment.revoke(accountId)
+      return {}
+    },
 
     'account:list': ({ provider }) => ({
       accounts: accounts.list(provider),

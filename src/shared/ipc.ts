@@ -681,6 +681,40 @@ export const IPC_CONTRACT = {
     }),
     response: z.strictObject({ success: z.boolean() }),
   },
+  /**
+   * What Forge can establish about an account right now.
+   *
+   * `isolatable` false means the provider cannot hold more than one identity on this
+   * machine, which is a different problem from "not signed in" and has a different
+   * remedy — so the two are reported separately rather than collapsed (#111).
+   */
+  'account:enrollmentStatus': {
+    request: z.strictObject({ accountId: z.string(), runtimeId: z.string() }),
+    response: z.strictObject({
+      accountId: z.string(),
+      isolatable: z.boolean(),
+      home: z.string().nullable(),
+      loggedIn: z.boolean(),
+      authMethod: z.string(),
+      email: z.string().nullable(),
+    }),
+  },
+  /**
+   * Opens the user's terminal to sign in, isolated to this account's home.
+   *
+   * Forge prepares the environment and hands the window over; the vendor CLI performs
+   * the login and writes its own credential. Nothing here returns or transports a
+   * secret, and the outcome is learned by probing status afterwards.
+   */
+  'account:beginEnrollment': {
+    request: z.strictObject({ accountId: z.string(), runtimeId: z.string() }),
+    response: z.strictObject({ home: z.string() }),
+  },
+  /** Deletes the account's home, which is the whole of revoking its local access. */
+  'account:revokeEnrollment': {
+    request: z.strictObject({ accountId: z.string() }),
+    response: empty,
+  },
   'account:list': {
     request: z.strictObject({ provider: z.string().optional() }),
     response: z.strictObject({ accounts: z.array(accountViewSchema).readonly() }),

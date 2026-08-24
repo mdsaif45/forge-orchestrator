@@ -124,3 +124,20 @@ export class RuntimeRegistry {
     return this.list().filter((runtime) => canHoldRole(runtime.capabilities, role))
   }
 }
+
+/**
+ * The CLI a runtime is driven through, for the enrolment flow.
+ *
+ * Kept beside the registry rather than in the adapters because it answers a different
+ * question: an adapter knows how to *run* its CLI, while enrolment needs to name the
+ * executable a user signs into before any session exists. Unknown runtimes fall back
+ * to their own id, which fails visibly at spawn rather than silently doing nothing.
+ */
+export function runtimeExecutable(runtimeId: string): string {
+  const KNOWN: Record<string, string> = {
+    'claude-cli': 'claude',
+    'antigravity-cli': 'agy',
+  }
+
+  return KNOWN[runtimeId] ?? runtimeId
+}

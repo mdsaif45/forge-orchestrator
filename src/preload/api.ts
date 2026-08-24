@@ -180,6 +180,26 @@ export interface ForgeApi {
       readonly status: 'connected' | 'expired' | 'rate_limited' | 'disconnected'
     }) => Promise<IpcResult<AccountView>>
     remove: (accountId: string) => Promise<IpcResult<{ readonly success: boolean }>>
+    /** What Forge can establish about an account: isolatable, enrolled, signed in. */
+    enrollmentStatus: (
+      accountId: string,
+      runtimeId: string,
+    ) => Promise<
+      IpcResult<{
+        readonly accountId: string
+        readonly isolatable: boolean
+        readonly home: string | null
+        readonly loggedIn: boolean
+        readonly authMethod: string
+        readonly email: string | null
+      }>
+    >
+    /** Opens the user own terminal to sign in, isolated to this account. */
+    beginEnrollment: (
+      accountId: string,
+      runtimeId: string,
+    ) => Promise<IpcResult<{ readonly home: string }>>
+    revokeEnrollment: (accountId: string) => Promise<IpcResult<Record<string, never>>>
   }
   readonly git: {
     getWorkingDiff: (projectId: string) => Promise<

@@ -96,9 +96,13 @@ export function StatusStrip({
         pre-alpha
       </Badge>
 
-      <Button size="sm" variant="ghost" onClick={onOpenKitchenSink}>
-        Kitchen sink
-      </Button>
+      {/* Development only, and statically eliminated from a release build — a button
+          that opens nothing is worse than no button (#103). */}
+      {import.meta.env.DEV && (
+        <Button size="sm" variant="ghost" onClick={onOpenKitchenSink}>
+          Kitchen sink
+        </Button>
+      )}
 
       <Button size="sm" variant="ghost" onClick={toggleTheme}>
         {theme === 'dark' ? 'Light' : 'Dark'}

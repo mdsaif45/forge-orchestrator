@@ -73,7 +73,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('template:list', () => ({ ok: true, value: { templates: [] } }))
   ipcMain.handle('template:get', () => ({ ok: true, value: null }))
 
-  await window.loadFile(join(__dirname, '../out/renderer/index.html'))
+  // The development-mode bundle, not `out/renderer`: these checks exercise the kitchen
+  // sink, which is a development tool and is eliminated from a release build (#103).
+  // Asserting against the shipped bundle would mean testing a screen users cannot reach
+  // — and, worse, failing to notice if a primitive broke only in the build they can.
+  await window.loadFile(join(__dirname, '../out-dev/renderer/index.html'))
   // Let React mount before probing the DOM.
   await evaluate(
     window,

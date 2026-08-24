@@ -51,7 +51,18 @@ export default defineConfig({
         '@shared': shared,
       },
     },
+    // `check:ui` exercises the kitchen sink, which is development-only and eliminated
+    // from a release build (#103), so it needs a bundle with `import.meta.env.DEV`
+    // true. `--mode development` alone does not do that: for any `build` command Vite
+    // keeps `DEV` false regardless of mode — measured, not assumed — so the flag is
+    // replaced explicitly here.
+    ...(process.env.FORGE_RENDERER_OUT_DIR === undefined
+      ? {}
+      : { define: { 'import.meta.env.DEV': 'true' } }),
     build: {
+      // Emitted beside the release output rather than over it, so a development-mode
+      // bundle can never become the thing electron-builder packages.
+      outDir: process.env.FORGE_RENDERER_OUT_DIR ?? resolve('out/renderer'),
       rollupOptions: {
         input: { index: resolve('src/renderer/index.html') },
       },

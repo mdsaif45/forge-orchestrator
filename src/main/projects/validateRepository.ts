@@ -80,8 +80,10 @@ export async function validateRepository(candidatePath: string): Promise<Reposit
     })
   }
 
-  const [branch, headSha, status, root] = await Promise.all([
+  const [branch, defaultBranch, branches, headSha, status, root] = await Promise.all([
     git.currentBranch(),
+    git.defaultBranch(),
+    git.listBranches(),
     git.headSha(),
     git.status(),
     // Git's own answer is the authority on how the root is spelled, and it is the
@@ -117,6 +119,8 @@ export async function validateRepository(candidatePath: string): Promise<Reposit
     path: posix(root ?? resolved),
     isRepository: true,
     branch,
+    defaultBranch,
+    branches,
     headSha,
     dirty: dirtyPaths.length > 0,
     dirtyPaths: dirtyPaths.slice(0, 20),
@@ -142,6 +146,8 @@ function probe({ problems }: { readonly problems: RepositoryProbeProblem[] }): R
     path: '',
     isRepository: false,
     branch: null,
+    defaultBranch: null,
+    branches: [],
     headSha: null,
     dirty: false,
     dirtyPaths: [],

@@ -199,6 +199,19 @@ describe('validateRepository', () => {
     expect(probe.branch).toBeNull()
     expect(probe.problems.map((problem) => problem.code)).toContain('detached-head')
   })
+
+  it('reports the default branch separately from the checkout, and lists branches', async () => {
+    // The probe is what the create-project dialog renders, so this is the boundary
+    // where the #100 defect became visible to the user: it offered the checked-out
+    // branch as the only choice for "default branch".
+    git('checkout', '--quiet', '-b', 'feature/visual-studio-extension')
+
+    const probe = await validateRepository(repoPath)
+
+    expect(probe.branch).toBe('feature/visual-studio-extension')
+    expect(probe.defaultBranch).toBe('main')
+    expect(probe.branches).toEqual(['feature/visual-studio-extension', 'main'])
+  })
 })
 
 describe('ProjectService.create', () => {

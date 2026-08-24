@@ -156,6 +156,10 @@ test('a project can be created, and survives a restart', async () => {
   writeFileSync(join(repo, 'README.md'), '# e2e\n')
   execFileSync('git', ['add', '-A'], { cwd: repo })
   execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-m', 'first'], { cwd: repo })
+  // Checked out away from the default on purpose, so "default branch" and "current
+  // branch" genuinely differ. With the repository sitting on `main`, the #100 bug
+  // would have been invisible here — the wrong answer and the right one coincide.
+  execFileSync('git', ['checkout', '--quiet', '-b', 'feature/e2e-probe'], { cwd: repo })
 
   // These tests share one app instance, and an earlier one leaves the router on
   // another route. Navigate explicitly rather than inheriting wherever it stopped.
@@ -176,6 +180,13 @@ test('a project can be created, and survives a restart', async () => {
   const create = page.getByRole('button', { name: 'Create' })
   await expect(create).toBeEnabled({ timeout: 15_000 })
   await expect(page.getByText('Git repository')).toBeVisible()
+
+  // #100: the default branch offered must be the repository's default, never merely
+  // whatever is checked out. This repository was created on `main` and a feature
+  // branch checked out below, so the two differ — which is the exact shape of the
+  // reported bug, where a project bound mid-feature recorded the feature branch as
+  // its diff base.
+  await expect(page.getByLabel('Default branch')).toHaveValue('main')
 
   await create.click()
 

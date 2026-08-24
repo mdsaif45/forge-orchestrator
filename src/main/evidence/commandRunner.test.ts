@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { evidencePassed, stepIdSchema, workflowIdSchema } from '@shared/domain'
+import { removeTempDir } from '../../test/tempDir'
 import { runCommand } from './commandRunner'
 
 let workDir: string
@@ -43,20 +44,9 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
-  // Windows holds a lock on the working directory until a killed process has fully
-  // exited, so an immediate delete fails with EBUSY. Polled rather than slept: the
-  // bound means a directory that genuinely cannot be removed still fails the test,
-  // while a normal run clears on the first attempt. This surfaced on exactly the two
-  // tests that kill a live child (timeout, maxBuffer overflow).
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    try {
-      rmSync(workDir, { recursive: true, force: true })
-      return
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 40))
-    }
-  }
-  rmSync(workDir, { recursive: true, force: true })
+  // The timeout and maxBuffer-overflow tests both kill a live child, which leaves the
+  // directory locked on Windows. See `removeTempDir` for why this is polled.
+  await removeTempDir(workDir)
 })
 
 describe('a command that succeeds', () => {

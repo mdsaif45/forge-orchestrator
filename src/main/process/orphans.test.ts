@@ -1,7 +1,8 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTempDir } from '../../test/tempDir'
 import { isAlive, OrphanTracker } from './orphans'
 import { ProcessManager } from './processManager'
 
@@ -23,21 +24,9 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
-  // Windows holds a lock on a killed process's working directory until it has fully exited,
-  // so an immediate delete fails with EBUSY. Polled rather than slept: the wait is bounded so
-  // a directory that genuinely cannot be removed still fails the test, while a normal run
-  // clears on the first or second attempt. This surfaced as an intermittent failure in the
-  // test that kills a live process, which is exactly the one that leaves a lock behind.
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    try {
-      rmSync(workDir, { recursive: true, force: true })
-      return
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 40))
-    }
-  }
-
-  rmSync(workDir, { recursive: true, force: true })
+  // Killing a live process leaves its working directory locked on Windows, which is
+  // exactly what the kill test does. See `removeTempDir` for why this is polled.
+  await removeTempDir(workDir)
 })
 
 describe('isAlive', () => {

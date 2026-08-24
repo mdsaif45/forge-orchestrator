@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FORGE_DEFAULT_RULE_KEYS } from '@shared/domain'
+import { removeTempDir } from '../../test/tempDir'
 import { initialiseDatabase } from '../db'
 import type { ForgeDatabase } from '../db'
 import { ProjectStore } from '../db/projectStore'
@@ -20,6 +21,7 @@ import { validateRepository } from './validateRepository'
  */
 
 let repoPath: string
+let dbDir: string
 let dbFile: string
 let db: ForgeDatabase
 let closeDb: () => void
@@ -42,16 +44,23 @@ beforeEach(() => {
   git('add', '-A')
   git('commit', '--quiet', '-m', 'first')
 
-  dbFile = join(mkdtempSync(join(tmpdir(), 'forge-proj-db-')), 'forge.db')
+  dbDir = mkdtempSync(join(tmpdir(), 'forge-proj-db-'))
+  dbFile = join(dbDir, 'forge.db')
   const opened = initialiseDatabase(dbFile)
   db = opened.db
   closeDb = opened.close
 })
 
-afterEach(() => {
+afterEach(async () => {
   closeDb()
-  rmSync(repoPath, { recursive: true, force: true })
-  rmSync(dbFile, { recursive: true, force: true })
+  // git's child processes can still hold the repository directory when this runs,
+  // which failed the *next* test rather than this one: the half-deleted tree left
+  // `repoPath` present but without a `.git`, so the following case reported
+  // NotARepositoryError against a directory it had just created.
+  await removeTempDir(repoPath)
+  // The directory, not just the `.db` file inside it: deleting the file alone left
+  // one empty temp directory behind per test, every run.
+  await removeTempDir(dbDir)
 })
 
 /** The stored form: canonical and POSIX-separated, matching git output. */

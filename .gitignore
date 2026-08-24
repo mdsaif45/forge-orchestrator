@@ -1,5 +1,7 @@
 node_modules/
 __pycache__/
+graphify-out/
+.code-review-graph/
 dist/
 out/
 # Development-mode renderer, built only for check:ui (#103). Never packaged:

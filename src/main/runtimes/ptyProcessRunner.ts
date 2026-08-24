@@ -60,11 +60,17 @@ export function createPtyProcessRunner(options: PtyProcessRunnerOptions): Proces
     try {
       const outcome = await handle.completed
 
+      // The reason is authoritative, not the code. A killed pty does not report a
+      // consistent exit status across platforms: on Windows it comes back null, and on
+      // Linux it can come back 0 — which CI caught, because trusting the code there
+      // made a timeout or a cancellation read as a clean turn. Anything that did not
+      // end by exiting on its own is a failure regardless of the number attached.
+      const reportedCode = outcome.exitCode ?? 1
+      const exitCode =
+        outcome.reason === 'exited' ? reportedCode : reportedCode === 0 ? 1 : reportedCode
+
       return {
-        // Null means the process was killed before reporting a code — a timeout or a
-        // cancellation. Reported as non-zero rather than as 0, because the adapter
-        // treats 0 as success and a killed run is not one.
-        exitCode: outcome.exitCode ?? 1,
+        exitCode,
         stdout: outcome.output,
         // A pty cannot separate the streams, so the failure reason is the only thing
         // here that genuinely belongs to stderr's role: saying why a run ended badly.

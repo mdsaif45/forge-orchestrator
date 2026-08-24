@@ -81,9 +81,10 @@ describe('createPtyProcessRunner', () => {
   })
 
   it('does not report a killed run as a success', async () => {
-    // A process killed before it reported a code has `exitCode: null`. Passing that
-    // through would let the adapter read it as 0 and treat a hang as a clean turn —
-    // an unverified claim of success, which is the thing A3 exists to prevent.
+    // A killed pty reports its status inconsistently across platforms: null on
+    // Windows, and 0 on Linux — which CI caught. Either one read as success would let
+    // a hang look like a clean turn, an unverified claim of exactly the kind A3
+    // exists to prevent. The run's reason decides, not the number.
     const runner = createPtyProcessRunner({ processes: manager, hardTimeoutMs: 300 })
     const script = nodeScript('setInterval(() => {}, 1000)')
 
@@ -109,5 +110,67 @@ describe('createPtyProcessRunner', () => {
     const result = await running
 
     expect(result.exitCode).not.toBe(0)
+  })
+})
+
+describe('a killed run never reads as success', () => {
+  /**
+   * Exercises the platform difference directly, rather than relying on whichever
+   * behaviour this machine happens to have.
+   *
+   * The real failure came from Linux CI, where a killed pty reported `exitCode: 0`
+   * while Windows reported null. A test that only spawns a real process proves one
+   * platform and silently skips the other, which is how this reached CI at all.
+   */
+  function outcomeWith(reason: string, exitCode: number | null) {
+    return {
+      runId: 'run-1',
+      reason,
+      exitCode,
+      signal: null,
+      durationMs: 1,
+      output: 'partial work',
+      truncated: false,
+      failure: null,
+    }
+  }
+
+  function managerReporting(outcome: ReturnType<typeof outcomeWith>): ProcessManager {
+    return {
+      spawn: () =>
+        Promise.resolve({
+          runId: 'run-1',
+          onData: () => () => undefined,
+          completed: Promise.resolve(outcome),
+          write: () => undefined,
+          cancel: () => Promise.resolve(),
+        }),
+    } as unknown as ProcessManager
+  }
+
+  it.each([
+    ['hard-timeout', 0, 'linux reports 0 for a killed pty'],
+    ['hard-timeout', null, 'windows reports null'],
+    ['idle-timeout', 0, 'a hang detected by silence'],
+    ['cancelled', 0, 'a user cancellation'],
+    ['spawn-failed', 0, 'the process never started'],
+  ])('%s with exitCode %s is a failure (%s)', async (reason, exitCode) => {
+    const runner = createPtyProcessRunner({
+      processes: managerReporting(outcomeWith(reason, exitCode)),
+    })
+
+    const result = await runner('irrelevant', [], { cwd: workDir })
+
+    expect(result.exitCode).not.toBe(0)
+  })
+
+  it('leaves a genuine clean exit alone', async () => {
+    // The other half: a process that really did exit 0 must not be turned into a
+    // failure by this rule.
+    const runner = createPtyProcessRunner({ processes: managerReporting(outcomeWith('exited', 0)) })
+
+    const result = await runner('irrelevant', [], { cwd: workDir })
+
+    expect(result.exitCode).toBe(0)
   })
 })

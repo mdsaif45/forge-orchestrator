@@ -1,6 +1,8 @@
 appId: com.forge.orchestrator
 productName: Forge
 copyright: Copyright © 2026 MD SAIF
+npmRebuild: false
+nodeGypRebuild: false
 
 directories:
   output: dist

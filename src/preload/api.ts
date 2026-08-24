@@ -63,6 +63,7 @@ export interface ForgeApi {
         readonly runtimes: readonly {
           readonly id: string
           readonly simulated: boolean
+          readonly supportsAccountIsolation: boolean
           readonly capabilities: readonly string[]
         }[]
       }>

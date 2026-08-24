@@ -410,7 +410,14 @@ export const roleBindingsViewSchema = z.strictObject({
         role: z.string(),
         binding: agentBindingViewSchema.nullable(),
         eligibleRuntimes: z
-          .array(z.strictObject({ id: z.string(), simulated: z.boolean() }))
+          .array(
+            z.strictObject({
+              id: z.string(),
+              simulated: z.boolean(),
+              /** False when concurrent sessions share one account (#111). */
+              supportsAccountIsolation: z.boolean(),
+            }),
+          )
           .readonly(),
       }),
     )
@@ -566,6 +573,8 @@ export const IPC_CONTRACT = {
           z.strictObject({
             id: z.string(),
             simulated: z.boolean(),
+            /** False when concurrent sessions of this runtime share one account (#111). */
+            supportsAccountIsolation: z.boolean(),
             capabilities: z.array(z.string()).readonly(),
           }),
         )

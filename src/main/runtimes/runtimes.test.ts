@@ -449,4 +449,16 @@ describe('simulated declaration', () => {
     expect(new ClaudeCliRuntime().simulated).toBe(false)
     expect(new AntigravityCliRuntime().simulated).toBe(false)
   })
+
+  it('declares account isolation per adapter, because the providers differ', () => {
+    // Measured in #111, and the two do NOT share a mechanism:
+    //   claude -> credential at ~/.claude/.credentials.json, a redirected home isolates
+    //   agy    -> credential in the Windows Credential Manager under one fixed target,
+    //             so no environment changes which identity a process reads
+    // A single global assumption would be wrong in one direction or the other: two
+    // nominally different Antigravity accounts would silently be one identity, or
+    // Claude accounts that genuinely parallelise would be needlessly serialised.
+    expect(new ClaudeCliRuntime().supportsAccountIsolation).toBe(true)
+    expect(new AntigravityCliRuntime().supportsAccountIsolation).toBe(false)
+  })
 })

@@ -111,10 +111,13 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
 
       setProbe(result)
 
-      // The repository's own branch is the right default, and typing it by hand
-      // would be a chance to get it wrong.
-      if (result.isRepository && result.branch !== null) {
-        setBranch((current) => (current === '' ? (result.branch ?? '') : current))
+      // The repository's *default* branch, not whatever is checked out right now.
+      // Those differ whenever the user is mid-feature, and taking the checkout was
+      // the #100 defect: the value ends up as the diff base for every later scope
+      // verdict. Left empty when git cannot determine one, so the user chooses
+      // rather than inheriting a guess (A2).
+      if (result.isRepository && result.defaultBranch !== null) {
+        setBranch((current) => (current === '' ? (result.defaultBranch ?? '') : current))
       }
     } catch (cause) {
       if (probeToken.current !== token) return
@@ -253,12 +256,19 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
         <RepositoryStatus probing={probing} probe={probe} warnings={warnings} />
 
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Default branch" required>
+          <Field
+            label="Default branch"
+            required
+            hint="The merge target changes are measured against"
+          >
             {(bind) =>
-              probe?.isRepository === true && probe.branch !== null ? (
+              probe?.isRepository === true && probe.branches.length > 0 ? (
                 <Select
                   {...bind}
-                  options={[{ value: probe.branch, label: probe.branch }]}
+                  // Every branch, not just the checkout: the default branch is
+                  // frequently not the one currently checked out, and offering a
+                  // single option made the correct answer unselectable (#100).
+                  options={probe.branches.map((name) => ({ value: name, label: name }))}
                   value={branch}
                   onChange={(event) => {
                     setBranch(event.target.value)
@@ -361,7 +371,10 @@ function RepositoryStatus({
         <StatusDot status="passed" label="Git repository" />
         {probe.branch !== null && (
           <span className="text-(length:--text-xs) text-(--color-text-muted)">
-            branch <Code>{probe.branch}</Code>
+            {/* Named "checked out" rather than "branch": the field below asks for the
+                default branch, and one label reading "branch" next to another meaning
+                a different branch is how #100 stayed invisible. */}
+            checked out <Code>{probe.branch}</Code>
           </span>
         )}
         {probe.headSha !== null && (

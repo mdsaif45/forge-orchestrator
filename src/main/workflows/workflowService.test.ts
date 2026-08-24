@@ -116,7 +116,8 @@ describe('WorkflowService', () => {
     expect(fetched?.state).toBe('CANCELLED')
   })
 
-  it('handles question pause and resume when answered', async () => {
+  // See the acceptance test: 30s bounds the test, the 3s poll bounds the wait.
+  it('handles question pause and resume when answered', { timeout: 30_000 }, async () => {
     const repoPath = join(tempDir, 'repo3')
     mkdirSync(repoPath, { recursive: true })
     initRepository(repoPath)

@@ -198,6 +198,7 @@ if (!claimSingleInstance()) {
         decisions: decisionService,
         changeSets: changeSetService,
         accounts: accountService,
+        registry,
       }),
     )
 

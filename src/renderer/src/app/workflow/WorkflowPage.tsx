@@ -14,6 +14,44 @@ import { LiveLogViewer, type LogLine } from './LiveLogViewer'
 import { StepInspector } from './StepInspector'
 import { WorkflowGraph } from './WorkflowGraph'
 
+/**
+ * The workflow's state as a sentence rather than an enum.
+ *
+ * `HALTED_LIMIT (1/5)` is precise and unreadable to anyone who has not read
+ * `guards.ts` (#101). The guards already write a specific reason into `haltReason`
+ * — "Reached the maximum of 5 review iterations" — and the UI simply never showed
+ * it, so the most useful sentence available was being discarded in favour of the
+ * least useful one.
+ */
+function describeWorkflowState(workflow: WorkflowDetailView): string {
+  if (workflow.state.startsWith('HALTED')) {
+    // The guard's own words when it has them; the distinction between a budget and a
+    // policy stop still matters when it does not.
+    if (workflow.haltReason !== null && workflow.haltReason !== '') return workflow.haltReason
+
+    return workflow.state === 'HALTED_POLICY'
+      ? 'Stopped: a policy rule was violated'
+      : 'Stopped: a limit was reached'
+  }
+
+  const PHRASES: Record<string, string> = {
+    DISCOVERY: 'Exploring the repository',
+    PLANNING: 'Planning',
+    PLAN_READY: 'Plan ready for approval',
+    AWAITING_APPROVAL: 'Waiting for your approval',
+    AWAITING_USER: 'Waiting for your answer',
+    DECISIONS_LOCKED: 'Decisions locked',
+    IMPLEMENTING: 'Implementing',
+    VERIFYING: 'Running build and tests',
+    REVIEWING: 'Reviewing the changes',
+    CORRECTION_REQUIRED: 'Corrections needed',
+    DONE: 'Finished',
+    CANCELLED: 'Cancelled',
+  }
+
+  return PHRASES[workflow.state] ?? workflow.state
+}
+
 export function WorkflowPage(): React.JSX.Element {
   const { show } = useToast()
   const detail = useProjectStore((state) => state.detail)
@@ -27,6 +65,7 @@ export function WorkflowPage(): React.JSX.Element {
   const [logs, setLogs] = useState<readonly LogLine[]>([])
   const [actionInProgress, setActionInProgress] = useState(false)
   const [templates, setTemplates] = useState<readonly WorkflowTemplateView[]>([])
+  const [onlySimulated, setOnlySimulated] = useState(false)
   const [selectedTemplateId, setSelectedTemplateId] = useState('feature')
 
   const loading = project !== null && workflowState?.projectId !== project.id
@@ -123,6 +162,23 @@ export function WorkflowPage(): React.JSX.Element {
       })
       .catch((err: unknown) => {
         console.error('Failed to load templates:', err)
+      })
+  }, [])
+
+  // Whether any real runtime is registered, so the user is told before starting
+  // rather than after (#101).
+  useEffect(() => {
+    window.forge.runtime
+      .list()
+      .then((res) => {
+        const { runtimes } = unwrap(res)
+        // `every` on an empty array is true, which would claim "simulated" when the
+        // real situation is "nothing registered at all" — a different problem with a
+        // different remedy.
+        setOnlySimulated(runtimes.length > 0 && runtimes.every((runtime) => runtime.simulated))
+      })
+      .catch((err: unknown) => {
+        console.error('Failed to load runtimes:', err)
       })
   }, [])
 
@@ -288,11 +344,19 @@ export function WorkflowPage(): React.JSX.Element {
 
           {workflow !== null && (
             <>
-              <div className="flex items-center gap-2 rounded-full border border-neutral-800 bg-neutral-900 px-3 py-1 text-xs">
+              <div
+                className="flex items-center gap-2 rounded-full border border-neutral-800 bg-neutral-900 px-3 py-1 text-xs"
+                // The raw enum stays available, because it is what the docs and the
+                // event log use — but it is no longer the only thing on offer.
+                title={workflow.state}
+              >
                 <StatusDot status={status} pulse={isRunning} />
-                <span className="font-semibold text-neutral-200">{workflow.state}</span>
+                <span className="font-semibold text-neutral-200">
+                  {describeWorkflowState(workflow)}
+                </span>
                 <span className="text-neutral-500">
-                  ({String(workflow.iteration)}/{String(workflow.limits.maxIterations)})
+                  (iteration {String(workflow.iteration)} of {String(workflow.limits.maxIterations)}
+                  )
                 </span>
               </div>
 
@@ -374,6 +438,17 @@ export function WorkflowPage(): React.JSX.Element {
           )}
         </div>
       </div>
+
+      {onlySimulated && (
+        // Shown before the run, not discovered from its results. The whole point of
+        // #101 is that a scripted PASS must never be mistaken for verified work, and
+        // the honest moment to say so is while the user is deciding to press Start.
+        <div className="rounded-lg border border-(--color-warning) bg-(--color-warning-muted) px-4 py-2 text-xs text-(--color-warning)">
+          <span className="font-semibold">Simulated runtime only.</span> No real agent is
+          configured, so a workflow started here replays a scripted scenario. Its results are not
+          evidence of any work being done.
+        </div>
+      )}
 
       {/* Workflow Graph View */}
       <div className="rounded-lg border border-neutral-800 bg-neutral-900/40">

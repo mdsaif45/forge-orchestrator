@@ -46,6 +46,8 @@ const ANTIGRAVITY_CAPABILITIES: readonly Capability[] = [
 export class AntigravityCliRuntime implements IAgentRuntime {
   readonly id = runtimeIdSchema.parse('antigravity-cli')
   readonly capabilities = ANTIGRAVITY_CAPABILITIES
+  /** Spawns a real CLI process; its output is the agent's actual work. */
+  readonly simulated = false
 
   private readonly executable: string
   private readonly runner: ProcessRunner | null

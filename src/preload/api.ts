@@ -54,6 +54,18 @@ export interface ForgeApi {
      */
     writeText: (text: string) => Promise<IpcResult<Record<string, never>>>
   }
+  readonly runtime: {
+    /** Registered runtimes and whether each produces scripted output. */
+    list: () => Promise<
+      IpcResult<{
+        readonly runtimes: readonly {
+          readonly id: string
+          readonly simulated: boolean
+          readonly capabilities: readonly string[]
+        }[]
+      }>
+    >
+  }
   readonly project: {
     /** Reports what a candidate folder is, with named reasons when it is unusable. */
     probeRepository: (path: string) => Promise<IpcResult<RepositoryProbe>>

@@ -256,6 +256,17 @@ export interface IAgentRuntime {
   readonly id: RuntimeId
   /** Declared, then checked against the role when a binding is made (#31). */
   readonly capabilities: readonly Capability[]
+  /**
+   * True when this runtime produces scripted output rather than doing real work.
+   *
+   * Declared rather than inferred from the id. The UI previously had no way to tell a
+   * mock's replayed `PASS` from evidence Forge actually gathered, and rendered both
+   * identically (#101) — which is the very substitution of a claim for a verified fact
+   * that A3 exists to prevent. Matching on an id prefix would have worked, but it puts
+   * a provider-specific literal in core logic (A6) and fails silently the moment a mock
+   * is renamed. A required field cannot be forgotten by a new runtime.
+   */
+  readonly simulated: boolean
 
   start(options: SessionOptions): Promise<SessionHandle>
   send(session: SessionHandle, packet: PromptPacket): Promise<void>

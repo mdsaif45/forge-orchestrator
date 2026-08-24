@@ -190,6 +190,15 @@ export const workflowStepViewSchema = z.strictObject({
   index: z.number().int().nonnegative(),
   role: z.string(),
   runtimeId: z.string().nullable(),
+  /**
+   * True when the runtime that produced this step replays scripted output rather than
+   * doing real work.
+   *
+   * Carried to the renderer so a simulated run cannot be mistaken for a verified one
+   * (#101). Null when no runtime is bound yet, which is distinct from "known to be
+   * real" and must not be rendered as reassurance.
+   */
+  simulated: z.boolean().nullable(),
   state: z.string(),
   contextRef: z.string().nullable(),
   reportStatus: z.string().nullable(),
@@ -507,6 +516,27 @@ export const IPC_CONTRACT = {
     request: z.strictObject({ workflowId: z.string() }),
     response: z.strictObject({
       savedPath: z.string().nullable(),
+    }),
+  },
+  /**
+   * The registered runtimes and whether each is real.
+   *
+   * Read-only and minimal on purpose: #101 needs it to warn, before a workflow
+   * starts, that nothing but a simulated runtime is available. Binding runtimes to
+   * roles is #102's job and deliberately not exposed here.
+   */
+  'runtime:list': {
+    request: empty,
+    response: z.strictObject({
+      runtimes: z
+        .array(
+          z.strictObject({
+            id: z.string(),
+            simulated: z.boolean(),
+            capabilities: z.array(z.string()).readonly(),
+          }),
+        )
+        .readonly(),
     }),
   },
   'question:list': {

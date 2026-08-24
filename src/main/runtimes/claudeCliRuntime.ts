@@ -62,6 +62,8 @@ const CLAUDE_CAPABILITIES: readonly Capability[] = [
 export class ClaudeCliRuntime implements IAgentRuntime {
   readonly id = runtimeIdSchema.parse('claude-cli')
   readonly capabilities = CLAUDE_CAPABILITIES
+  /** Spawns a real CLI process; its output is the agent's actual work. */
+  readonly simulated = false
 
   private readonly executable: string
   private readonly runner: ProcessRunner | null

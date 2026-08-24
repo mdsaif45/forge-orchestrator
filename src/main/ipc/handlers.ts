@@ -12,6 +12,7 @@ import type { DecisionService } from '../decisions/decisionService'
 import type { ChangeSetService } from '../changesets/changeSetService'
 import type { AccountService } from '../accounts/accountService'
 import type { RuntimeRegistry } from '../runtimes/registry'
+import type { BindingService } from '../bindings/bindingService'
 
 export interface IpcDependencies {
   readonly projects: ProjectService
@@ -21,6 +22,7 @@ export interface IpcDependencies {
   readonly changeSets: ChangeSetService
   readonly accounts: AccountService
   readonly registry: RuntimeRegistry
+  readonly bindings: BindingService
 }
 
 export function createIpcHandlers({
@@ -31,6 +33,7 @@ export function createIpcHandlers({
   changeSets,
   accounts,
   registry,
+  bindings,
 }: IpcDependencies): IpcHandlerMap {
   /**
    * Gathers everything a report needs and renders it.
@@ -115,6 +118,10 @@ export function createIpcHandlers({
         capabilities: [...runtime.capabilities],
       })),
     }),
+
+    'binding:list': ({ projectId }) => bindings.list(projectId),
+
+    'binding:set': (request) => bindings.set(request),
 
     'project:probeRepository': ({ path }) => validateRepository(path),
 

@@ -32,6 +32,10 @@ const api: ForgeApi = {
   runtime: {
     list: () => call('runtime:list', {}),
   },
+  binding: {
+    list: (projectId) => call('binding:list', { projectId }),
+    set: (projectId, role, runtimeId) => call('binding:set', { projectId, role, runtimeId }),
+  },
   project: {
     probeRepository: (path) => call('project:probeRepository', { path }),
     create: (request) => call('project:create', request),

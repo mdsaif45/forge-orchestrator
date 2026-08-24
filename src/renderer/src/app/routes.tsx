@@ -6,7 +6,6 @@ import {
   OverviewIcon,
   QuestionsIcon,
   SettingsIcon,
-  TasksIcon,
   WorkflowsIcon,
 } from './icons'
 
@@ -36,16 +35,6 @@ export const ROUTES = [
       title: 'No workflows yet',
       description:
         'A workflow moves a change from plan through implementation, verification, and review — and stops if a decision is needed.',
-    },
-  },
-  {
-    path: '/tasks',
-    label: 'Tasks',
-    icon: <TasksIcon />,
-    empty: {
-      title: 'No tasks yet',
-      description:
-        'Tasks carry an objective, its constraints, and the completion criteria Forge will check against the repository.',
     },
   },
   {

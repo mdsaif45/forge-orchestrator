@@ -386,6 +386,39 @@ export const accountViewSchema = z.strictObject({
 
 export type AccountView = z.infer<typeof accountViewSchema>
 
+export const agentBindingViewSchema = z.strictObject({
+  id: z.string(),
+  role: z.string(),
+  runtimeId: z.string(),
+  accountId: z.string().nullable(),
+  /** Null when the bound runtime is no longer registered — unknown, not "real". */
+  simulated: z.boolean().nullable(),
+})
+
+export type AgentBindingView = z.infer<typeof agentBindingViewSchema>
+
+/**
+ * Every assignable role with its current binding and the runtimes eligible for it.
+ *
+ * Eligibility is computed in main from declared capabilities, so the UI cannot offer a
+ * pairing that binding would then refuse.
+ */
+export const roleBindingsViewSchema = z.strictObject({
+  roles: z
+    .array(
+      z.strictObject({
+        role: z.string(),
+        binding: agentBindingViewSchema.nullable(),
+        eligibleRuntimes: z
+          .array(z.strictObject({ id: z.string(), simulated: z.boolean() }))
+          .readonly(),
+      }),
+    )
+    .readonly(),
+})
+
+export type RoleBindingsView = z.infer<typeof roleBindingsViewSchema>
+
 export const workflowEventPayloadSchema = z.strictObject({
   workflowId: z.string(),
   type: z.string(),
@@ -538,6 +571,18 @@ export const IPC_CONTRACT = {
         )
         .readonly(),
     }),
+  },
+  'binding:list': {
+    request: z.strictObject({ projectId: z.string() }),
+    response: roleBindingsViewSchema,
+  },
+  'binding:set': {
+    request: z.strictObject({
+      projectId: z.string(),
+      role: z.string(),
+      runtimeId: z.string(),
+    }),
+    response: agentBindingViewSchema,
   },
   'question:list': {
     request: z.strictObject({ projectId: z.string(), unansweredOnly: z.boolean().optional() }),

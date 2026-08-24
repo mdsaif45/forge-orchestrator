@@ -14,6 +14,8 @@ import { QuestionService } from './questions/questionService'
 import { WorkflowService } from './workflows/workflowService'
 import { MockAgentRuntime } from './runtimes/mockRuntime'
 import { RuntimeRegistry } from './runtimes/registry'
+import { BindingService } from './bindings/bindingService'
+import { BindingStore } from './db/bindingStore'
 import { SCENARIOS } from './runtimes/scenario'
 import {
   applyContentSecurityPolicy,
@@ -199,6 +201,7 @@ if (!claimSingleInstance()) {
         changeSets: changeSetService,
         accounts: accountService,
         registry,
+        bindings: new BindingService(new BindingStore(db, eventStore), registry),
       }),
     )
 

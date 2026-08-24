@@ -17,6 +17,7 @@ import {
   stepIdSchema,
   taskIdSchema,
   workflowIdSchema,
+  type AgentBinding,
   type LockedDecision,
   type OpenQuestion,
   type ProjectId,
@@ -49,6 +50,7 @@ import { GitService } from '../git'
 import { buildChangeSet } from '../evidence/changeSetBuilder'
 import { verifyStep } from '../evidence/verifier'
 import { bindRole, BindingSet } from '../runtimes/bindings'
+import { BindingStore } from '../db/bindingStore'
 import { Orchestrator } from '../runtimes/orchestrator'
 import type { RuntimeRegistry } from '../runtimes/registry'
 import type { ProjectService } from '../projects/projectService'
@@ -70,6 +72,7 @@ export class WorkflowService {
   private readonly packets: PacketStore
   private readonly events: EventStore
   private readonly registry: RuntimeRegistry
+  private readonly bindings: BindingStore
   private readonly running = new Map<string, AbortController>()
 
   constructor(private readonly options: WorkflowServiceOptions) {
@@ -80,6 +83,7 @@ export class WorkflowService {
     this.changeSets = new ChangeSetStore(options.db, this.events)
     this.packets = new PacketStore({ directory: options.packetDir })
     this.registry = options.registry
+    this.bindings = new BindingStore(options.db, this.events)
   }
 
   getQuestionStore(): QuestionStore {
@@ -429,7 +433,7 @@ export class WorkflowService {
     const baseSha = await gitService.headSha()
 
     // Ensure runtimes are bound for the template
-    const bindings = this.resolveBindings()
+    const bindings = this.resolveBindings(projectId)
 
     const orchestrator = new Orchestrator({
       registry: this.registry,
@@ -588,16 +592,32 @@ export class WorkflowService {
     }
   }
 
-  private resolveBindings(): BindingSet {
-    const runtimeId = this.registry.has('mock:default')
+  /**
+   * The project's role bindings, falling back to a single runtime for every role.
+   *
+   * Reads what the user actually configured (#102). Until this existed, every role was
+   * hardcoded to the same runtime, which made A6's role-to-runtime seam real in the
+   * types and absent in practice — no arrangement of runtimes could be expressed.
+   *
+   * The fallback is not a silent default: a role with no stored binding still has to
+   * come from somewhere for a workflow to run at all, and the Agents page shows which
+   * roles are unbound. Preferring `mock:default` keeps a fresh install runnable.
+   */
+  private resolveBindings(projectId: ProjectId): BindingSet {
+    const stored = this.bindings.list(projectId)
+
+    const fallbackRuntimeId = this.registry.has('mock:default')
       ? 'mock:default'
       : (this.registry.list().at(0)?.id ?? 'mock:default')
 
-    return new BindingSet([
-      bindRole(this.registry, { role: 'planner', runtimeId }),
-      bindRole(this.registry, { role: 'implementer', runtimeId }),
-      bindRole(this.registry, { role: 'reviewer', runtimeId }),
-    ])
+    const forRole = (role: 'planner' | 'implementer' | 'reviewer'): AgentBinding => {
+      const configured = stored.find((binding) => binding.role === role)
+      if (configured !== undefined && this.registry.has(configured.runtimeId)) return configured
+
+      return bindRole(this.registry, { role, runtimeId: fallbackRuntimeId })
+    }
+
+    return new BindingSet([forRole('planner'), forRole('implementer'), forRole('reviewer')])
   }
 
   private notifyEvent(event: WorkflowEventPayload): void {

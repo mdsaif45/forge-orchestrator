@@ -1,5 +1,7 @@
 import type {
   AccountView,
+  AgentBindingView,
+  RoleBindingsView,
   AppInfo,
   ChangedFileView,
   ChangeSetView,
@@ -65,6 +67,15 @@ export interface ForgeApi {
         }[]
       }>
     >
+  }
+  readonly binding: {
+    /** Assignable roles, their current bindings, and the runtimes eligible for each. */
+    list: (projectId: string) => Promise<IpcResult<RoleBindingsView>>
+    set: (
+      projectId: string,
+      role: string,
+      runtimeId: string,
+    ) => Promise<IpcResult<AgentBindingView>>
   }
   readonly project: {
     /** Reports what a candidate folder is, with named reasons when it is unusable. */

@@ -2,8 +2,19 @@ import { describe, expect, it } from 'vitest'
 import { ROUTES } from './routes'
 
 describe('route table', () => {
-  it('declares every route the sidebar and router derive from', () => {
-    expect(ROUTES.length).toBe(8)
+  it('declares the routes the sidebar and router derive from', () => {
+    // Asserted by path rather than by count. A bare `length` check duplicated the
+    // table without describing it, so removing a route failed this test with a number
+    // that said nothing about which route went missing (#102).
+    expect(ROUTES.map((route) => route.path)).toEqual([
+      '/',
+      '/workflows',
+      '/decisions',
+      '/changes',
+      '/questions',
+      '/agents',
+      '/settings',
+    ])
   })
 
   it('has a unique path per route', () => {

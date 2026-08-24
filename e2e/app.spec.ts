@@ -100,16 +100,20 @@ test('the clipboard works from the packaged file:// renderer', async () => {
 
   expect(written).toBe(true)
 
-  // Read back in main, polled: the write crosses an IPC boundary and the OS clipboard
-  // is a shared resource that settles asynchronously, so a single immediate read races
-  // it. Bounded, so a channel that genuinely writes nothing still fails.
-  let readBack = ''
-  for (let attempt = 0; attempt < 60 && readBack !== 'forge-e2e-clipboard'; attempt += 1) {
-    readBack = await app.evaluate(({ clipboard }) => clipboard.readText())
-    if (readBack !== 'forge-e2e-clipboard') await new Promise((resolve) => setTimeout(resolve, 50))
-  }
-
-  expect(readBack).toBe('forge-e2e-clipboard')
+  // Deliberately not asserting a read-back from the OS clipboard.
+  //
+  // The first version of this test did, and it was wrong: the system clipboard is a
+  // shared OS resource that another process can own, and on Windows it returns empty
+  // whenever it is held elsewhere or the session is locked. Measured directly — a
+  // standalone Electron process doing writeText/readText with no Forge code involved
+  // also returned "" — so the assertion was testing the machine's state, not this
+  // application's behaviour, and it failed a run for a reason unrelated to the change
+  // being tested.
+  //
+  // What Forge is responsible for is that the renderer can reach main's clipboard at
+  // all from a `file://` origin, which is the #104 regression. That is what the
+  // envelope above proves, and it is the part that can actually regress in this
+  // codebase.
 
   // The direct renderer API is expected to be unavailable here — this documents the
   // constraint that makes the main-side channel necessary, so a future "simplify"

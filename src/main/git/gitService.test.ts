@@ -113,6 +113,73 @@ describe('an empty repository', () => {
   })
 })
 
+describe('branches', () => {
+  beforeEach(() => {
+    write('a.txt', 'one\n')
+    git('add', '-A')
+    git('commit', '--quiet', '-m', 'first')
+  })
+
+  it('lists local branches in a reproducible order', async () => {
+    git('branch', 'zebra')
+    git('branch', 'alpha')
+
+    // Sorted by refname explicitly, not left to git's default: `git branch` ordering
+    // has varied between versions, and this list is shown to the user.
+    await expect(service().listBranches()).resolves.toEqual(['alpha', 'main', 'zebra'])
+  })
+
+  describe('defaultBranch', () => {
+    it('does NOT report the checked-out branch when that is not the default', async () => {
+      // The #100 regression, stated as its own case because it is the whole point:
+      // a project created mid-feature previously recorded the feature branch as its
+      // default, which silently moved the diff base for every later scope verdict.
+      git('checkout', '--quiet', '-b', 'feature/visual-studio-extension')
+
+      const git_ = service()
+      await expect(git_.currentBranch()).resolves.toBe('feature/visual-studio-extension')
+      await expect(git_.defaultBranch()).resolves.toBe('main')
+    })
+
+    it('prefers what the remote says over local convention', async () => {
+      // A repository whose default is genuinely not `main`: if origin/HEAD is
+      // consulted at all, it has to win over the conventional-name fallback.
+      git('branch', 'develop')
+      git('remote', 'add', 'origin', repoPath)
+      git('update-ref', 'refs/remotes/origin/develop', 'HEAD')
+      git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/develop')
+
+      await expect(service().defaultBranch()).resolves.toBe('develop')
+    })
+
+    it('falls back to a conventional name when there is no remote', async () => {
+      await expect(service().defaultBranch()).resolves.toBe('main')
+    })
+
+    it('finds master when that is what exists', async () => {
+      git('branch', '--move', 'master')
+
+      await expect(service().defaultBranch()).resolves.toBe('master')
+    })
+
+    it('returns null rather than guessing when no convention matches', async () => {
+      git('branch', '--move', 'trunk')
+
+      // Null is the honest answer: the caller surfaces the question instead of
+      // inheriting a fabricated default (A2).
+      await expect(service().defaultBranch()).resolves.toBeNull()
+    })
+
+    it('ignores a configured default that does not exist here', async () => {
+      // `init.defaultBranch` describes what `git init` would create, not what this
+      // repository contains — trusting it blindly would name a branch that is absent.
+      git('config', 'init.defaultBranch', 'nonexistent')
+
+      await expect(service().defaultBranch()).resolves.toBe('main')
+    })
+  })
+})
+
 describe('status', () => {
   beforeEach(() => {
     write('tracked.txt', 'one\n')

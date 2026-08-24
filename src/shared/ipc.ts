@@ -66,7 +66,20 @@ export type RepositoryProbeProblem = z.infer<typeof repositoryProbeProblemSchema
 export const repositoryProbeSchema = z.strictObject({
   path: z.string(),
   isRepository: z.boolean(),
+  /** The branch checked out right now. Not the same thing as `defaultBranch`. */
   branch: z.string().nullable(),
+  /**
+   * The repository's default branch — the merge target, and the base a diff is
+   * measured against.
+   *
+   * Null when it cannot be determined, which is a real answer rather than a licence
+   * to fall back to `branch`: conflating the two was the #100 defect, where a project
+   * created on a feature branch recorded that branch as its default and silently
+   * changed every downstream scope verdict.
+   */
+  defaultBranch: z.string().nullable(),
+  /** Local branches, so the user picks a default instead of accepting a guess. */
+  branches: z.array(z.string()).readonly(),
   headSha: z.string().nullable(),
   dirty: z.boolean(),
   /** Capped for display; `dirtyCount` carries the true total. */

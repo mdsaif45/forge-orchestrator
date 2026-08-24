@@ -177,6 +177,103 @@ export class GitService {
   }
 
   /**
+   * Local branches, in git's own sorted order.
+   *
+   * Sorted by `refname` explicitly rather than relying on the default, because
+   * `git branch` output order has changed between versions and the list is shown to
+   * the user — an order that varies by git version is not reproducible.
+   */
+  async listBranches(): Promise<readonly string[]> {
+    await this.assertRepo()
+
+    const { stdout } = await runGit(
+      ['for-each-ref', '--format=%(refname:short)', '--sort=refname', 'refs/heads'],
+      this.exec,
+    )
+
+    return stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== '')
+  }
+
+  /**
+   * The repository's default branch — the merge target and the base a diff is measured
+   * against.
+   *
+   * **Deliberately never the current checkout.** Those are different things, and
+   * conflating them was the defect in #100: a project created while a feature branch
+   * happened to be checked out recorded that branch as its default, which silently
+   * changed what Forge considered "changed" and therefore every scope verdict
+   * downstream.
+   *
+   * Resolution order, most authoritative first:
+   *
+   * ```
+   * origin/HEAD        what the remote itself says its default is
+   * init.defaultBranch this machine's configured default, for a repo with no remote
+   * main | master      convention, only if such a branch actually exists
+   * null               unknown — the caller asks rather than guessing (A2)
+   * ```
+   *
+   * Null is a real answer, not a failure. A caller that needs a value must surface the
+   * question instead of substituting a plausible one.
+   */
+  async defaultBranch(): Promise<string | null> {
+    await this.assertRepo()
+
+    const fromRemote = await this.remoteDefaultBranch()
+    if (fromRemote !== null) return fromRemote
+
+    const branches = new Set(await this.listBranches())
+
+    // Only trust the configured default if that branch exists here: the setting
+    // describes what `git init` *would* create, not what this repository contains.
+    const configured = await this.configuredDefaultBranch()
+    if (configured !== null && branches.has(configured)) return configured
+
+    for (const conventional of ['main', 'master']) {
+      if (branches.has(conventional)) return conventional
+    }
+
+    return null
+  }
+
+  /** What `origin/HEAD` points at, or null when there is no remote or no such ref. */
+  private async remoteDefaultBranch(): Promise<string | null> {
+    try {
+      const { stdout } = await runGit(
+        ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'],
+        this.exec,
+      )
+      const ref = stdout.trim()
+      if (ref === '') return null
+
+      // `refs/remotes/origin/HEAD` resolves to `origin/<branch>`; the project stores
+      // the local branch name, so the remote prefix comes off.
+      const prefix = 'origin/'
+      return ref.startsWith(prefix) ? ref.slice(prefix.length) : ref
+    } catch (error) {
+      // Absent in a repository with no remote, and in a clone whose origin/HEAD was
+      // never set — both ordinary, neither an error.
+      if (error instanceof GitCommandError) return null
+      throw error
+    }
+  }
+
+  private async configuredDefaultBranch(): Promise<string | null> {
+    try {
+      const { stdout } = await runGit(['config', '--get', 'init.defaultBranch'], this.exec)
+      const value = stdout.trim()
+      return value === '' ? null : value
+    } catch (error) {
+      // `--get` exits 1 when the key is unset.
+      if (error instanceof GitCommandError) return null
+      throw error
+    }
+  }
+
+  /**
    * The commit HEAD points at, or null in a repository with no commits.
    *
    * Null is a real state rather than an error: a freshly initialised repository is a

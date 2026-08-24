@@ -48,6 +48,12 @@ export class AntigravityCliRuntime implements IAgentRuntime {
   readonly capabilities = ANTIGRAVITY_CAPABILITIES
   /** Spawns a real CLI process; its output is the agent's actual work. */
   readonly simulated = false
+  /**
+   * The credential lives in the Windows Credential Manager under a single fixed target
+   * name, not on the filesystem, so no environment a process is given changes which
+   * identity it reads (measured in #111). Concurrent sessions share one account.
+   */
+  readonly supportsAccountIsolation = false
 
   private readonly executable: string
   private readonly runner: ProcessRunner | null

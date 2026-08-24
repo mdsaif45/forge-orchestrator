@@ -34,7 +34,7 @@ export async function validateRepository(candidatePath: string): Promise<Reposit
       problems: [
         {
           code: 'not-absolute',
-          detail: 'Enter a full path, such as D:/Projects/InTime, not a relative one.',
+          detail: 'Enter a full path, such as D:/code/my-service, not a relative one.',
         },
       ],
     })

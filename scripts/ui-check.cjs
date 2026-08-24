@@ -166,10 +166,21 @@ app.whenReady().then(async () => {
        const dark = 'rgb(11, 13, 16)'
        const light = 'rgb(255, 255, 255)'
 
+       // Toggled through the app's own control, not by writing data-theme directly:
+       // useTheme owns that attribute and reasserts it in an effect, so a manual
+       // write is racing a re-render that overwrites it. That race is why this check
+       // failed intermittently on the slower CI runner while passing locally.
+       const toggle = () => {
+         const button = [...document.querySelectorAll('button')]
+           .find((b) => b.textContent === 'Light' || b.textContent === 'Dark')
+         if (!button) throw new Error('theme toggle button not found')
+         button.click()
+       }
+
        const before = await readUntil(dark)
-       document.documentElement.dataset.theme = 'light'
+       toggle()
        const after = await readUntil(light)
-       document.documentElement.dataset.theme = 'dark'
+       toggle()
        const restored = await readUntil(dark)
 
        return JSON.stringify({ before, after, restored })

@@ -151,7 +151,15 @@ interface Run {
  */
 /* eslint-disable @typescript-eslint/dot-notation -- env is an index signature; bracket
    access is required by noPropertyAccessFromIndexSignature. */
-function resolveCommand(command: string, env: Readonly<Record<string, string>>): string {
+/**
+ * Resolves a bare command name against PATH and PATHEXT.
+ *
+ * Exported because the pipe runner needs the same resolution: `CreateProcess` does not
+ * search PATH, so a bare `claude` fails with ENOENT however it is spawned. One
+ * implementation rather than two, since the Windows rules here are the kind that get
+ * subtly wrong on a second attempt (#131).
+ */
+export function resolveCommand(command: string, env: Readonly<Record<string, string>>): string {
   if (command.includes('/') || command.includes('\\') || isAbsolute(command)) return command
 
   const pathValue = env['PATH'] ?? env['Path'] ?? process.env['PATH'] ?? ''

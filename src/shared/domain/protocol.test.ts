@@ -380,3 +380,44 @@ describe('the reply instructions', () => {
     expect(result.ok).toBe(true)
   })
 })
+
+describe('the read-only constraint', () => {
+  function packetFor(role: string) {
+    return promptPacketSchema.parse({
+      role,
+      objective: 'Fix add()',
+      constraints: [],
+      rules: [],
+      lockedDecisions: [],
+      allowedPaths: [],
+      forbiddenPaths: [],
+      relevantFiles: [],
+      reviewFindings: [],
+      previousAttempt: null,
+      completionCriteria: [],
+      answeredQuestions: [],
+    })
+  }
+
+  it('tells a read-only role it may not write', () => {
+    // The dogfood run's last defect (#130): the planner fixed the bug it was asked to
+    // plan, and Forge halted it for reporting the change. The reconciler was right, but
+    // the agent had never been told — and no CLI permission mode expresses "answer
+    // normally but do not write", so the constraint belongs in the packet.
+    const rendered = renderPromptPacket(packetFor('planner'))
+
+    expect(rendered).toContain('YOU MAY NOT MODIFY ANY FILE')
+    expect(rendered).toContain('a later step makes it')
+  })
+
+  it('says nothing of the kind to a role that writes', () => {
+    const rendered = renderPromptPacket(packetFor('implementer'))
+
+    expect(rendered).not.toContain('YOU MAY NOT MODIFY ANY FILE')
+  })
+
+  it('constrains a reviewer too, since it verifies rather than edits', () => {
+    // A reviewer that could fix what it found would have no reason to report it.
+    expect(renderPromptPacket(packetFor('reviewer'))).toContain('YOU MAY NOT MODIFY ANY FILE')
+  })
+})

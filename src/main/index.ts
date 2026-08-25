@@ -15,7 +15,7 @@ import { WorkflowService } from './workflows/workflowService'
 import { MockAgentRuntime } from './runtimes/mockRuntime'
 import { RuntimeRegistry, runtimeExecutable } from './runtimes/registry'
 import { ClaudeCliRuntime } from './runtimes/claudeCliRuntime'
-import { createPtyProcessRunner } from './runtimes/ptyProcessRunner'
+import { createPipeProcessRunner } from './runtimes/pipeProcessRunner'
 import { BindingService } from './bindings/bindingService'
 import { AccountHomes } from './accounts/accountHomes'
 import { EnrollmentService } from './accounts/enrollmentService'
@@ -164,7 +164,9 @@ if (!claimSingleInstance()) {
     // into a spawn-time failure rather than a run as the machine's default identity.
     registry.register(
       new ClaudeCliRuntime({
-        runner: createPtyProcessRunner({ processes }),
+        // Pipes, not a pty: the prompt travels over stdin, and a pty cannot carry it
+        // because the child sees a TTY and takes the interactive path (#131).
+        runner: createPipeProcessRunner({ orphans }),
         homeForAccount: (accountId) => accountHomes.resolveExisting(accountId),
       }),
     )

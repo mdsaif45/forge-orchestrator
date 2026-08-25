@@ -336,3 +336,10 @@ export {
   type StepPolicyAssessment,
   type StepPolicyInput,
 } from './policyEngine'
+
+export {
+  DEFAULT_PERMISSION_MODE,
+  PERMISSION_MODE_DESCRIPTIONS,
+  permissionModeSchema,
+  type PermissionMode,
+} from './permissionMode'

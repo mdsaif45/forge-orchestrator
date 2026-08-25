@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { PermissionMode } from './permissionMode'
 import { reportStatusSchema, roleSchema, type Capability } from './enums'
 import { evidenceRefSchema } from './question'
 import { repoPathSchema, timestampSchema } from './ids'
@@ -235,6 +236,14 @@ export interface SessionOptions {
    * to the session rather than to the runtime.
    */
   readonly accountId?: string | undefined
+  /**
+   * How much the agent may do without stopping to ask.
+   *
+   * Passed to the runtime rather than assumed by it: the dogfood run in #130 halted
+   * because no mode reached the CLI, which then denied every tool call — an agent
+   * that could reason but never read a file or write a change.
+   */
+  readonly permissionMode?: PermissionMode | undefined
   /** Hard ceiling for the step, enforced by the runtime. */
   readonly timeoutMs?: number | undefined
 }

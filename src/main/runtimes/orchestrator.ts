@@ -421,10 +421,31 @@ export class Orchestrator {
         this.timestamp(),
       )
 
+      // What the worktree already contained before this step ran. A read-only role is
+      // checked against this rather than against the base commit, so it answers for its
+      // own effect and not for an earlier step's legitimate edits.
+      const changedBeforeStep = permits(binding, 'writeFiles')
+        ? null
+        : new Set(((await this.deps.measureChange())?.files ?? []).map((file) => file.path))
+
       const session = await runtime.start({
         repositoryPath: options.repositoryPath,
         role: templateStep.role,
         ...(binding.accountId === null ? {} : { accountId: binding.accountId }),
+        // Derived from the role's own permissions, never a global default. A planner is
+        // read-only by design, so granting it edit rights at the CLI level let it change
+        // a file and then be halted for reporting the change — the work done, the
+        // workflow refused. Telling the agent what it may do beats punishing it after.
+        //
+        // `auto` for a read-only role, after measuring the alternatives: `plan` ends by
+        // presenting a plan for interactive approval rather than replying, and `manual`
+        // waits for an approval that a `-p` run can never give. Both produce no report
+        // block at all, so the step fails for a reason unrelated to the work. `auto`
+        // lets the agent answer while the CLI decides permissions.
+        //
+        // Forge's own guards remain the real boundary either way: the reconciler halts
+        // a read-only role that reports a modified file, whatever the CLI allowed.
+        permissionMode: permits(binding, 'writeFiles') ? 'acceptEdits' : 'auto',
         timeoutMs: options.limits.stepTimeoutMs,
       })
 
@@ -564,10 +585,17 @@ export class Orchestrator {
         }
       }
 
-      // Structural enforcement: a role without write permission (e.g. discussion / planner)
-      // must not have modified any files in the repository.
+      // Structural enforcement: a role without write permission (e.g. discussion /
+      // planner) must not have modified any files in the repository.
+      //
+      // Compared against a snapshot taken before this step, not against the base commit.
+      // `measureChange` reports the whole worktree diff, so once an implementer had
+      // legitimately edited a file, every later read-only role was blamed for it — the
+      // dogfood run in #130 ran all five steps green and then halted saying the
+      // *reviewer* had modified a file the *implementer* wrote. A read-only role is
+      // answerable for what it changed, not for what it inherited.
       if (!permits(binding, 'writeFiles')) {
-        const readOnlyChange = await this.deps.measureChange()
+        const readOnlyChange = await this.diffSince(changedBeforeStep)
         if (readOnlyChange !== null && readOnlyChange.files.length > 0) {
           workflow = this.halt(
             options.workflowId,
@@ -657,6 +685,23 @@ export class Orchestrator {
 
   private lastHaltCode: HaltCode | null = null
 
+  /**
+   * What changed since a pre-step snapshot of the worktree.
+   *
+   * Returns null when nothing new appeared, so a read-only step that touched nothing
+   * passes even though the worktree already carries an earlier step's edits.
+   */
+  private async diffSince(
+    before: ReadonlySet<string> | null,
+  ): Promise<{ readonly files: readonly { path: string }[] } | null> {
+    if (before === null) return null
+
+    const current = await this.deps.measureChange()
+    if (current === null) return null
+
+    const added = current.files.filter((file) => !before.has(file.path))
+    return added.length === 0 ? null : { files: added }
+  }
   private halt(workflowId: WorkflowId, code: HaltCode, reason: string) {
     this.lastHaltCode = code
 

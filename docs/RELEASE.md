@@ -52,18 +52,43 @@ Forge uses native Node addons:
 
 Releases are automated via GitHub Actions (`.github/workflows/release.yml`):
 
-1. **Tag Version**:
+1. **Bump the version first**, in its own commit on `main`. The artifact filenames come
+   from `package.json`, so a tag that disagrees with it produces binaries named after
+   the previous release.
    ```bash
-   git tag -a v0.1.0 -m "Release v0.1.0"
-   git push origin v0.1.0
+   npm version 0.2.0-alpha.2 --no-git-tag-version
    ```
-2. **Automated CI/CD**:
+2. **Tag the merge commit**:
+   ```bash
+   git tag -a v0.2.0-alpha.2 -m "Release v0.2.0-alpha.2"
+   git push origin v0.2.0-alpha.2
+   ```
+3. **Automated CI/CD**:
    - Executes all format, lint, typecheck, unit, smoke, and UI test suites.
    - Builds production renderer and main process bundles.
    - Runs `electron-builder` to package NSIS and Portable binaries.
-   - Publishes a draft release to GitHub Releases with attached installer binaries, checksums, and auto-generated release notes.
-3. **Publishing**:
-   - Review draft release notes in GitHub web interface and click **Publish release**.
+   - Publishes a draft release with the binaries and their blockmap attached.
+4. **Publishing**:
+   - Review the draft in the GitHub web interface and click **Publish release**.
+
+### Two things that surprised us on the first release
+
+Both were found cutting `v0.1.0-alpha.1`, and both look like bugs until you know
+otherwise:
+
+- **A draft release carries a placeholder tag.** GitHub shows it as
+  `untagged-<hash>` and `gh release view <tag>` cannot find it, because a draft is not
+  bound to its tag until it is published. Use
+  `gh api repos/<owner>/<repo>/releases` to inspect a draft. The real git tag exists
+  the whole time.
+- **`prerelease` may not stick.** The workflow passes it correctly, but when the
+  action reuses an existing draft rather than creating one it patches the assets and
+  not the flag. Check it after the run and correct it if needed:
+  ```bash
+  gh api -X PATCH repos/<owner>/<repo>/releases/<id> -f prerelease=true
+  ```
+  Getting this wrong marks an alpha as the "Latest" release and puts it on the stable
+  auto-update channel.
 
 ---
 

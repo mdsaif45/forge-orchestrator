@@ -47,6 +47,20 @@ export function createPtyProcessRunner(options: PtyProcessRunnerOptions): Proces
       runOptions.onStdout?.(text)
     })
 
+    if (runOptions.stdin !== undefined) {
+      // A pty cannot carry stdin to a child that requires piped input: it *is* a
+      // terminal, so the child sees a TTY and takes the interactive path. Measured
+      // against the real CLI, which answers "Input must be provided either through
+      // stdin or as a prompt argument" however the bytes are written (#131).
+      //
+      // Refused rather than silently ignored, because a prompt that vanishes is
+      // exactly the defect this transport exists to fix. Use `createPipeProcessRunner`
+      // for a call that carries stdin.
+      throw new Error(
+        'The pty runner cannot deliver stdin: a pty is a terminal, and a child requiring piped input will not read it. Use the pipe runner for this call.',
+      )
+    }
+
     // Cancellation reaches the child through the manager's escalating kill rather than
     // by rejecting here: a promise that resolves while the process keeps running would
     // leak an agent that still holds the worktree.

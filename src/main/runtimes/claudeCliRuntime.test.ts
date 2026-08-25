@@ -228,3 +228,133 @@ describe('running as a bound account', () => {
     await runtime.dispose(session)
   })
 })
+
+describe('permission mode', () => {
+  function packet() {
+    return promptPacketSchema.parse({
+      role: 'implementer',
+      objective: 'Build feature',
+      constraints: [],
+      rules: [],
+      lockedDecisions: [],
+      allowedPaths: [],
+      forbiddenPaths: [],
+      relevantFiles: [],
+      reviewFindings: [],
+      previousAttempt: null,
+      completionCriteria: [],
+      answeredQuestions: [],
+    })
+  }
+
+  async function argsFor(
+    options: Parameters<ClaudeCliRuntime['start']>[0],
+  ): Promise<readonly string[]> {
+    let seen: readonly string[] = []
+    const runner: ProcessRunner = (_cmd, args) => {
+      seen = args
+      return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' })
+    }
+
+    const runtime = new ClaudeCliRuntime({ runner })
+    const session = await runtime.start(options)
+    await runtime.send(session, packet())
+    for await (const ev of runtime.events(session)) {
+      if (ev.type === 'state' && ev.state === 'completed') break
+    }
+    await runtime.dispose(session)
+    return seen
+  }
+
+  it('always passes a permission mode, defaulting to acceptEdits', async () => {
+    // The #130 regression. Without the flag the CLI denies every tool call and waits
+    // for an approval a `-p` run cannot give, so the agent can reason and never act —
+    // which surfaced as a protocol violation, because a blocked agent replies in prose.
+    const args = await argsFor({ repositoryPath: 'd:/repo', role: 'implementer' })
+
+    expect(args).toContain('--permission-mode')
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('acceptEdits')
+  })
+
+  it('passes the mode the session asked for', async () => {
+    const args = await argsFor({
+      repositoryPath: 'd:/repo',
+      role: 'planner',
+      permissionMode: 'plan',
+    })
+
+    expect(args[args.indexOf('--permission-mode') + 1]).toBe('plan')
+  })
+})
+
+describe('the result envelope', () => {
+  function packet() {
+    return promptPacketSchema.parse({
+      role: 'implementer',
+      objective: 'Fix it',
+      constraints: [],
+      rules: [],
+      lockedDecisions: [],
+      allowedPaths: [],
+      forbiddenPaths: [],
+      relevantFiles: [],
+      reviewFindings: [],
+      previousAttempt: null,
+      completionCriteria: [],
+      answeredQuestions: [],
+    })
+  }
+
+  async function transcriptFrom(stdout: string): Promise<string> {
+    const runner: ProcessRunner = (_cmd, _args, options) => {
+      options.onStdout?.(stdout)
+      return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' })
+    }
+
+    const runtime = new ClaudeCliRuntime({ runner })
+    const session = await runtime.start({ repositoryPath: 'd:/repo', role: 'implementer' })
+    await runtime.send(session, packet())
+
+    let text = ''
+    for await (const ev of runtime.events(session)) {
+      if (ev.type === 'chunk') text += ev.text
+      if (ev.type === 'state' && ev.state === 'completed') break
+    }
+    await runtime.dispose(session)
+    return text
+  }
+
+  it('unwraps the report from the JSON envelope so it can be parsed', async () => {
+    // The #130 defect. `--output-format json` wraps the reply, so the report block
+    // arrives JSON-escaped inside `result`. Parsing raw stdout finds the escaped copy
+    // and fails — which halted a run *after* the agent had correctly fixed the bug.
+    const report = '{\n  "status": "completed",\n  "summary": "Fixed add()"\n}'
+    const envelope = JSON.stringify({
+      type: 'result',
+      is_error: false,
+      result: `Fixed it.\n\nFORGE_REPORT_BEGIN\n${report}\nFORGE_REPORT_END`,
+    })
+
+    const text = await transcriptFrom(envelope)
+
+    // The unescaped block must be present, or `exchange()` cannot extract a report.
+    expect(text).toContain('FORGE_REPORT_BEGIN\n{\n  "status": "completed"')
+    expect(text).toContain('FORGE_REPORT_END')
+
+    // And exactly one copy of it. `parseAgentReport` takes the *first* REPORT_BEGIN it
+    // finds, so emitting the raw envelope alongside the unwrapped text put the escaped
+    // copy first and made the parse run across both, failing on the backslashes. That
+    // halted a run in which the agent had already fixed the bug correctly (#130).
+    expect(text.match(/FORGE_REPORT_BEGIN/g)).toHaveLength(1)
+    expect(text).not.toContain('\\"status\\"')
+  })
+
+  it('falls back to the raw output when it is not an envelope', async () => {
+    // A change of output format must degrade to using stdout, not lose the reply.
+    const text = await transcriptFrom(
+      'FORGE_REPORT_BEGIN\n{"status":"completed"}\nFORGE_REPORT_END',
+    )
+
+    expect(text).toContain('FORGE_REPORT_BEGIN')
+  })
+})

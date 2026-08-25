@@ -2,7 +2,20 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { promptPacketSchema, REPORT_BEGIN, type PromptPacket } from '@shared/domain'
+import {
+  promptPacketSchema,
+  renderPromptPacket,
+  REPORT_BEGIN,
+  runtimeIdSchema,
+  sessionIdSchema,
+  type Capability,
+  type IAgentRuntime,
+  type PromptPacket,
+  type SessionOptions,
+  type RuntimeEvent,
+  type RuntimeStatus,
+  type SessionHandle,
+} from '@shared/domain'
 import { exchange } from './exchange'
 import { MockAgentRuntime } from './mockRuntime'
 import { SCENARIOS, type Scenario } from './scenario'
@@ -185,5 +198,132 @@ describe('a runtime that breaks', () => {
     if (outcome.ok) return
     expect(outcome.failure).toBe('runtime')
     expect(outcome.message).toMatch(/authenticate/i)
+  })
+})
+
+/**
+ * A runtime that records the packets it is handed, and replies with a malformed report
+ * the first time and a valid one the second.
+ *
+ * Records the *packet*, not the transcript. The defect this covers wrote the correction
+ * into the transcript and sent the unchanged packet, so a transcript assertion passed
+ * while no agent ever saw a correction — the only witness is what `send` received.
+ */
+class RecordingRuntime implements IAgentRuntime {
+  readonly id = runtimeIdSchema.parse('recording')
+  // Widened, not `as const`: an `as const` tuple is not assignable to the interface's
+  // `readonly Capability[]`, and the resulting mismatch degrades the whole class to an
+  // error type rather than pointing at this line.
+  readonly capabilities: readonly Capability[] = ['repo-read', 'plan', 'file-write', 'review']
+  readonly simulated = true
+  readonly supportsAccountIsolation = false
+
+  readonly received: PromptPacket[] = []
+  private readonly queue: RuntimeEvent[] = []
+  private wake: (() => void) | null = null
+
+  start(_options: SessionOptions): Promise<SessionHandle> {
+    return Promise.resolve({ sessionId: sessionIdSchema.parse('rec-1'), runtimeId: this.id })
+  }
+
+  // eslint-disable-next-line @typescript-eslint/require-await
+  async send(_session: SessionHandle, packet: PromptPacket): Promise<void> {
+    this.received.push(packet)
+
+    const text =
+      this.received.length === 1
+        ? 'I finished the work but forgot the fences.'
+        : `${REPORT_BEGIN}\n{"status":"completed","summary":"Done","filesChanged":[],"commandsRun":[],"testsRun":false,"assumptions":[],"openQuestions":[]}\nFORGE_REPORT_END`
+
+    this.push({ type: 'chunk', at: '2026-01-01T00:00:00.000Z', text })
+    this.push({ type: 'state', at: '2026-01-01T00:00:00.000Z', state: 'completed' })
+  }
+
+  async *events(_session: SessionHandle): AsyncIterable<RuntimeEvent> {
+    for (;;) {
+      if (this.queue.length === 0) {
+        await new Promise<void>((resolve) => {
+          this.wake = resolve
+        })
+        this.wake = null
+      }
+      while (this.queue.length > 0) {
+        const event = this.queue.shift()
+        if (event !== undefined) yield event
+      }
+    }
+  }
+
+  status(_session: SessionHandle): Promise<RuntimeStatus> {
+    return {
+      sessionId: sessionIdSchema.parse('rec-1'),
+      state: 'idle',
+      failure: null,
+      lastActivityAt: '2026-01-01T00:00:00.000Z',
+    }
+  }
+
+  cancel(_session: SessionHandle, _reason: string): Promise<void> {
+    return Promise.resolve()
+  }
+
+  dispose(_session: SessionHandle): Promise<void> {
+    return Promise.resolve()
+  }
+
+  private push(event: RuntimeEvent): void {
+    this.queue.push(event)
+    if (this.wake !== null) {
+      this.wake()
+      this.wake = null
+    }
+  }
+}
+
+describe('the correction on the re-prompt', () => {
+  it('reaches the agent, because a runtime renders from the packet it is sent', async () => {
+    const runtime = new RecordingRuntime()
+    // Annotated because `tsconfig.test.json` does not resolve this class's inferred
+    // return type under the lint program, which then reports the argument below as
+    // untyped. The annotation is the assertion that it is a SessionHandle.
+    const session: SessionHandle = await runtime.start({
+      repositoryPath: workDir,
+      role: 'reviewer',
+    })
+
+    const packet = promptPacketSchema.parse({
+      role: 'reviewer',
+      objective: 'Review the change',
+      constraints: [],
+      rules: [],
+      lockedDecisions: [],
+      allowedPaths: [],
+      forbiddenPaths: [],
+      relevantFiles: [],
+      reviewFindings: [],
+      previousAttempt: null,
+      completionCriteria: [],
+      answeredQuestions: [],
+    })
+
+    const outcome = await exchange(runtime, session, packet)
+
+    expect(outcome.ok).toBe(true)
+    expect(outcome.retried).toBe(true)
+    expect(runtime.received).toHaveLength(2)
+
+    // The first attempt carries no correction; the second must.
+    expect(runtime.received[0]?.correction).toBeNull()
+    expect(runtime.received[1]?.correction).not.toBeNull()
+    expect(runtime.received[1]?.correction).toContain('REJECTED')
+
+    // And it must survive rendering, since that is the text the process receives.
+    const rendered = renderPromptPacket(runtime.received[1]!)
+    expect(rendered).toContain('REJECTED')
+    expect(rendered).toContain('Do not redo the work')
+
+    // The two attempts must differ. Byte-identical retries were the actual bug: a real
+    // agent gave the same malformed reply twice and the run halted blaming the agent.
+    expect(renderPromptPacket(runtime.received[0]!)).not.toEqual(rendered)
   })
 })

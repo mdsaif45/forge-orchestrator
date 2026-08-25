@@ -400,6 +400,9 @@ describe('the golden packet', () => {
       previousAttempt: { summary: 'Set it to 41', diffStat: '1 file, +1 -1' },
       completionCriteria: ['the test suite passes'],
       answeredQuestions: [{ question: 'Which value?', answer: '42' }],
+      // Null here and always: a correction is attached by `exchange()` on the single
+      // re-prompt, not compiled from context. The context engine never sets it.
+      correction: null,
     })
 
     expect(compiled.trace).toEqual({

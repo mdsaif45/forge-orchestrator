@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import {
+  DEFAULT_PERMISSION_MODE,
   renderPromptPacket,
   runtimeIdSchema,
   sessionIdSchema,
@@ -129,17 +130,30 @@ export class AntigravityCliRuntime implements IAgentRuntime {
     let accumulatedOutput = ''
 
     try {
-      const result = await this.runner(this.executable, ['run', '--prompt', promptText], {
+      // Every element here was found by a failing attempt, not by reading `--help`.
+      // None of it matches the Claude adapter, which is what the adapter layer is for:
+      //
+      //   prompt        `-p=<prompt>` attached, Go-style. Passing it as a separate
+      //                 argument makes agy take the *next flag* as its prompt and
+      //                 ignore the real one.
+      //   --add-dir     Required. Without it agy reports a well-formed success while
+      //                 editing somewhere else entirely — cwd alone does not establish
+      //                 the workspace, and it invents one rather than failing.
+      //   permissions   `--mode` (not `--permission-mode`, which is rejected outright),
+      //                 and `accept-edits` rather than Claude's `acceptEdits`.
+      //                 accept-edits alone still auto-denies the `command` permission,
+      //                 so a role that must run commands needs the blunt flag.
+      const result = await this.runner(this.executable, this.argsFor(session, promptText), {
         cwd: session.options.repositoryPath,
         signal: session.abortController.signal,
         onStdout: (chunk) => {
+          // Accumulated, deliberately not emitted. `--output-format=json` wraps the
+          // reply, so the report block arrives JSON-escaped inside `response`. Emitting
+          // the envelope alongside the unwrapped text would put two copies of the block
+          // in the reply, and `parseAgentReport` takes the first it finds — the escaped
+          // one — and fails on the backslashes. Same defect as #130 on the Claude side.
           accumulatedOutput += chunk
           session.lastActivityAt = this.now()
-          this.pushEvent(session, {
-            type: 'chunk',
-            at: session.lastActivityAt,
-            text: chunk,
-          })
         },
         onStderr: (chunk) => {
           session.lastActivityAt = this.now()
@@ -161,6 +175,19 @@ export class AntigravityCliRuntime implements IAgentRuntime {
           retryable: true,
         })
         return
+      }
+
+      // agy's envelope is `{ response, status, conversation_id, usage }` — a different
+      // shape from Claude's `{ result, is_error, ... }`, so nothing is shared between
+      // the two extractors. Falls back to the raw output when it does not parse, so a
+      // change of output format degrades to using stdout rather than emitting nothing.
+      const replyText = extractResponseText(accumulatedOutput) ?? accumulatedOutput
+      if (replyText !== '') {
+        this.pushEvent(session, {
+          type: 'chunk',
+          at: this.now(),
+          text: replyText,
+        })
       }
 
       // See ClaudeCliRuntime.executeWithRunner: parsing and the single re-prompt on a
@@ -188,6 +215,36 @@ export class AntigravityCliRuntime implements IAgentRuntime {
         retryable: true,
       })
     }
+  }
+
+  /**
+   * The command line for one turn.
+   *
+   * Split out because none of it is shareable with the Claude adapter and all of it was
+   * measured rather than documented — keeping it in one named place means the next
+   * person changes it deliberately.
+   */
+  private argsFor(session: ActiveSession, promptText: string): readonly string[] {
+    // `writeFiles` is not on the session, but the permission mode the orchestrator
+    // derived from it is: a role that may write gets `acceptEdits`, a read-only role
+    // gets something else (#130).
+    const mayWrite = (session.options.permissionMode ?? DEFAULT_PERMISSION_MODE) === 'acceptEdits'
+
+    return [
+      // Attached, not separated. `-p <prompt>` makes agy take the following flag as its
+      // prompt and silently drop the real one.
+      `-p=${promptText}`,
+      '--output-format=json',
+      // Declares the workspace. Its absence is the worst failure found in either
+      // adapter: agy reports `status: SUCCESS` with a plausible report and edits a
+      // directory it invented, leaving the repository untouched.
+      `--add-dir=${session.options.repositoryPath}`,
+      // `--mode=accept-edits` still auto-denies the `command` permission, and agy has no
+      // `--settings` flag to carry a narrower allow-rule, so a role that must run
+      // commands needs the blunt one. Scoped to roles that already hold write
+      // permission; Forge's reconciler and scope enforcement remain the real boundary.
+      ...(mayWrite ? ['--dangerously-skip-permissions'] : ['--mode=accept-edits']),
+    ]
   }
 
   async *events(sessionHandle: SessionHandle): AsyncIterable<RuntimeEvent> {
@@ -262,5 +319,34 @@ export class AntigravityCliRuntime implements IAgentRuntime {
       session.wake()
       session.wake = null
     }
+  }
+}
+
+/**
+ * The agent's text, unwrapped from agy's result envelope.
+ *
+ * Deliberately not shared with the Claude adapter's equivalent: agy returns
+ * `{ response, status, conversation_id }` where Claude returns `{ result, is_error }`,
+ * and a single function guessing at both would silently pick the wrong field the next
+ * time either vendor changes shape.
+ *
+ * Returns null when the output is not an envelope, so the caller falls back to raw
+ * stdout rather than losing the reply. The envelope's `status` is not interpreted here:
+ * agy reports `SUCCESS` even for a turn in which every tool call was denied and nothing
+ * was produced, so it is not a signal that work happened — the report and the
+ * reconciler decide that.
+ */
+function extractResponseText(output: string): string | null {
+  const trimmed = output.trim()
+  if (!trimmed.startsWith('{')) return null
+
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    if (typeof parsed !== 'object' || parsed === null) return null
+
+    const response = (parsed as { readonly response?: unknown }).response
+    return typeof response === 'string' ? response : null
+  } catch {
+    return null
   }
 }

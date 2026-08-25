@@ -6,6 +6,7 @@ import { initialiseDatabase } from '../db'
 import { ProjectService } from '../projects/projectService'
 import { WorkflowService } from '../workflows/workflowService'
 import { ProcessManager } from '../process/processManager'
+import { AntigravityCliRuntime } from '../runtimes/antigravityCliRuntime'
 import { ClaudeCliRuntime } from '../runtimes/claudeCliRuntime'
 import { createPipeProcessRunner } from '../runtimes/pipeProcessRunner'
 import { RuntimeRegistry } from '../runtimes/registry'
@@ -33,7 +34,12 @@ describe.skipIf(process.env.FORGE_DOGFOOD === undefined)('dogfood', () => {
 
       const processes = new ProcessManager()
       const registry = new RuntimeRegistry()
-      registry.register(new ClaudeCliRuntime({ runner: createPipeProcessRunner() }))
+      // FORGE_DOGFOOD_RUNTIME picks the provider, so one harness exercises either.
+      if (process.env.FORGE_DOGFOOD_RUNTIME === 'antigravity') {
+        registry.register(new AntigravityCliRuntime({ runner: createPipeProcessRunner() }))
+      } else {
+        registry.register(new ClaudeCliRuntime({ runner: createPipeProcessRunner() }))
+      }
 
       const projects = new ProjectService(db)
       const project = await projects.create({

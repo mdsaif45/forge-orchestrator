@@ -190,9 +190,28 @@ export class MockAgentRuntime implements IAgentRuntime {
           at: this.now(),
           message: state.failure,
           retryable: true,
+          // No measured limit detector yet (#137); an ordinary error until one exists.
+          providerLimit: false,
         })
         this.emit(state, { type: 'state', at: this.now(), state: 'failed' })
         return
+      }
+
+      case 'providerLimit': {
+        state.state = 'failed'
+        // Wording modelled on a provider refusing further work for a spent window. The
+        // *text* is not what Forge branches on — the flag is — precisely so core never
+        // matches on a provider's prose (A6).
+        state.failure = '5-hour limit reached. Your limit will reset at 18:00.'
+        this.emit(state, {
+          type: 'error',
+          at: this.now(),
+          message: state.failure,
+          // Not retryable *now*: the same request repeated immediately fails identically.
+          retryable: false,
+          providerLimit: true,
+        })
+        break
       }
 
       case 'authFailure': {
@@ -206,6 +225,9 @@ export class MockAgentRuntime implements IAgentRuntime {
           // Not retryable: a retry cannot fix a missing credential, and retrying would
           // burn the workflow's iteration budget on a certainty.
           retryable: false,
+          // An expired credential is not a spent limit: the remedy is signing in, not
+          // switching accounts or waiting for a window (#137).
+          providerLimit: false,
         })
         this.emit(state, { type: 'state', at: this.now(), state: 'failed' })
         return

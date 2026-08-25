@@ -161,6 +161,8 @@ export class ClaudeCliRuntime implements IAgentRuntime {
         at: this.now(),
         message: session.failure,
         retryable: false,
+        // No measured limit detector yet (#137); an ordinary error until one exists.
+        providerLimit: false,
       })
       return
     }
@@ -181,6 +183,8 @@ export class ClaudeCliRuntime implements IAgentRuntime {
           at: this.now(),
           message: session.failure,
           retryable: false,
+          // No measured limit detector yet (#137); an ordinary error until one exists.
+          providerLimit: false,
         })
         return
       }
@@ -270,6 +274,8 @@ export class ClaudeCliRuntime implements IAgentRuntime {
           at: this.now(),
           message: session.failure,
           retryable: true,
+          // No measured limit detector yet (#137); an ordinary error until one exists.
+          providerLimit: false,
         })
         return
       }
@@ -291,6 +297,14 @@ export class ClaudeCliRuntime implements IAgentRuntime {
           at: this.now(),
           text: replyText,
         })
+      }
+
+      // Reported, never estimated: these are the provider's own numbers, and a figure Forge
+      // computed itself would be a guess wearing the same shape (A3). Emitted before the
+      // terminal state so a consumer reading until `completed` still sees it.
+      const usage = extractUsage(accumulatedOutput)
+      if (usage !== null) {
+        this.pushEvent(session, { type: 'usage', at: this.now(), ...usage })
       }
 
       // The turn's raw transcript has already reached the caller as `chunk` events above.
@@ -319,6 +333,8 @@ export class ClaudeCliRuntime implements IAgentRuntime {
         at: this.now(),
         message: session.failure,
         retryable: true,
+        // No measured limit detector yet (#137); an ordinary error until one exists.
+        providerLimit: false,
       })
     }
   }
@@ -419,6 +435,51 @@ function extractResultText(output: string): string | null {
     return typeof result === 'string' ? result : null
   } catch {
     // Not JSON, or truncated. The raw output already reached the caller as chunks.
+    return null
+  }
+}
+
+/**
+ * What the turn cost, from this CLI's result envelope.
+ *
+ * Field names are taken from a real envelope, not from documentation:
+ *
+ * ```
+ * total_cost_usd  0.253878
+ * usage           { input_tokens, output_tokens, cache_creation_input_tokens, ... }
+ * ```
+ *
+ * Returns null when the output is not an envelope or carries no usage at all, so a change
+ * of output format records nothing rather than recording zeros — a zero would be indexed
+ * as a real measurement and quietly understate an account's consumption.
+ */
+function extractUsage(output: string): {
+  readonly costUsd: number | null
+  readonly inputTokens: number | null
+  readonly outputTokens: number | null
+} | null {
+  const trimmed = output.trim()
+  if (!trimmed.startsWith('{')) return null
+
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    if (typeof parsed !== 'object' || parsed === null) return null
+
+    const envelope = parsed as {
+      readonly total_cost_usd?: unknown
+      readonly usage?: { readonly input_tokens?: unknown; readonly output_tokens?: unknown }
+    }
+
+    const numberOrNull = (value: unknown): number | null =>
+      typeof value === 'number' && Number.isFinite(value) ? value : null
+
+    const costUsd = numberOrNull(envelope.total_cost_usd)
+    const inputTokens = numberOrNull(envelope.usage?.input_tokens)
+    const outputTokens = numberOrNull(envelope.usage?.output_tokens)
+
+    if (costUsd === null && inputTokens === null && outputTokens === null) return null
+    return { costUsd, inputTokens, outputTokens }
+  } catch {
     return null
   }
 }

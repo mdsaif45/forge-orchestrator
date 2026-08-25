@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   compileContext,
   FEATURE_IMPLEMENTATION,
+  haltStateFor,
   projectIdSchema,
   repositoryIdSchema,
   taskIdSchema,
@@ -26,7 +27,7 @@ import { PacketStore } from '../context/packetStore'
 import { GitService } from '../git'
 import { bindRole, BindingSet, UnboundRoleError } from './bindings'
 import { MockAgentRuntime } from './mockRuntime'
-import { Orchestrator, UnrunnableWorkflowError } from './orchestrator'
+import { Orchestrator, UnrunnableWorkflowError, providerLimitReason } from './orchestrator'
 import { IncapableRuntimeError, RuntimeRegistry } from './registry'
 import { SCENARIOS } from './scenario'
 
@@ -735,5 +736,69 @@ describe('the review step decides nothing on its own (#36)', () => {
     expect(outcome.state).toBe('HALTED_POLICY')
     expect(outcome.haltCode).toBe('permission-violation')
     expect(outcome.haltReason).toContain('Role "planner" in read-only mode modified')
+  })
+})
+
+describe('a provider limit is a named halt, not a step failure (#137)', () => {
+  it('halts with provider-limit and does not record the step as failed', async () => {
+    // The whole point of the distinction: the agent did nothing wrong. Recording a `fail`
+    // verdict would read as the agent failing and spend a retry on something no retry can
+    // clear — the account is spent, not the work.
+    const limitScenario = {
+      description: 'A planner whose account has run out',
+      capabilities: ['repo-read', 'plan'] as const,
+      steps: [
+        {
+          narration: ['Planning...'],
+          tools: [],
+          edits: [],
+          report: null,
+          ending: 'providerLimit' as const,
+          replyText: null,
+        },
+      ],
+    }
+
+    const registry = new RuntimeRegistry()
+    registry.register(new MockAgentRuntime({ scenario: limitScenario, id: 'mock:spent' }))
+    registry.register(new MockAgentRuntime({ scenario: SCENARIOS.fullRun, id: 'mock:rest' }))
+
+    const bindings = new BindingSet([
+      bindRole(registry, { role: 'planner', runtimeId: 'mock:spent' }),
+      bindRole(registry, { role: 'implementer', runtimeId: 'mock:rest' }),
+      bindRole(registry, { role: 'reviewer', runtimeId: 'mock:rest' }),
+    ])
+
+    const outcome = await orchestrator(registry).run(runOptions(registry, bindings))
+
+    expect(outcome.haltCode).toBe('provider-limit')
+    // A limit, not a policy failure: nothing was violated.
+    expect(outcome.state).toBe('HALTED_LIMIT')
+    // And the remedies travel with it, since that is all the user can act on.
+    expect(outcome.haltReason).toContain('another account')
+    expect(outcome.haltReason).toContain('5-hour limit reached')
+  })
+
+  it('names the three remedies, because a limit is only actionable if you know them', () => {
+    const reason = providerLimitReason('5-hour limit reached, resets at 18:00')
+
+    // Nothing about the run can be changed to make this attempt succeed, so the halt has
+    // to say what *can* be done. A message that only reports the stop is not actionable.
+    expect(reason).toContain('another account')
+    expect(reason).toContain('different provider')
+    expect(reason).toContain('wait for the limit window')
+
+    // The provider's own words are the only part naming which limit, and when it resets.
+    expect(reason).toContain('5-hour limit reached, resets at 18:00')
+  })
+
+  it('says the work is fine, so the halt does not read as the agent failing', () => {
+    expect(providerLimitReason(null)).toContain('The work is fine')
+  })
+
+  it('is a limit halt rather than a policy one', () => {
+    // Nothing was violated; the account is spent. A user reading HALTED_POLICY would go
+    // looking for a rule that was broken.
+    expect(haltStateFor('provider-limit')).toBe('HALTED_LIMIT')
   })
 })

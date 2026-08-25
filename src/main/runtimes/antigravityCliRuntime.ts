@@ -125,6 +125,8 @@ export class AntigravityCliRuntime implements IAgentRuntime {
         at: this.now(),
         message: session.failure,
         retryable: false,
+        // No measured limit detector yet (#137); an ordinary error until one exists.
+        providerLimit: false,
       })
       return
     }
@@ -181,6 +183,8 @@ export class AntigravityCliRuntime implements IAgentRuntime {
           at: this.now(),
           message: session.failure,
           retryable: true,
+          // No measured limit detector yet (#137); an ordinary error until one exists.
+          providerLimit: false,
         })
         return
       }
@@ -221,6 +225,8 @@ export class AntigravityCliRuntime implements IAgentRuntime {
         at: this.now(),
         message: session.failure,
         retryable: true,
+        // No measured limit detector yet (#137); an ordinary error until one exists.
+        providerLimit: false,
       })
     }
   }

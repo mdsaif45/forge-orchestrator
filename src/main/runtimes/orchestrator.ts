@@ -451,6 +451,7 @@ export class Orchestrator {
 
       let report: AgentReport | null = null
       let failure: string | null = null
+      let providerLimit = false
 
       try {
         const result = await exchange(runtime, session, packet)
@@ -459,12 +460,24 @@ export class Orchestrator {
           report = result.report
         } else {
           failure = result.message
+          providerLimit = result.providerLimit
         }
       } finally {
         await runtime.dispose(session)
       }
 
       if (report === null) {
+        // A spent provider limit is not a failed step. The agent did nothing wrong, the
+        // code is fine, and an immediate retry fails identically — recording a `fail`
+        // verdict would read as "the agent failed" and spend a retry on a certainty.
+        //
+        // Left un-finished rather than marked failed, so resuming after switching account
+        // or waiting out the window continues from this step (#137).
+        if (providerLimit) {
+          workflow = this.halt(options.workflowId, 'provider-limit', providerLimitReason(failure))
+          break
+        }
+
         this.deps.workflows.finishStep(
           options.workflowId,
           step.id,
@@ -789,4 +802,29 @@ function isTerminal(state: WorkflowState): boolean {
     state === 'HALTED_POLICY' ||
     state === 'CANCELLED'
   )
+}
+
+/**
+ * What a user is told when a provider's limit is spent.
+ *
+ * The three remedies are stated plainly because they are genuinely all there is: nothing
+ * about the run can be changed to make this attempt succeed. Naming them is the difference
+ * between a halt a user can act on and one that just says the run stopped (#137).
+ *
+ * The provider's own message is kept verbatim underneath, since it is the only part that
+ * says *which* limit and, sometimes, when it resets.
+ */
+export function providerLimitReason(providerMessage: string | null): string {
+  const remedies = [
+    'This account has reached its provider limit. The work is fine; the account is spent.',
+    '',
+    'You can:',
+    '  · bind this role to another account',
+    '  · bind it to a different provider',
+    '  · wait for the limit window to refresh, then resume',
+  ].join('\n')
+
+  return providerMessage === null
+    ? remedies
+    : `${remedies}\n\nThe provider said:\n${providerMessage}`
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ClaudeCliRuntime, type ProcessRunner } from './claudeCliRuntime'
-import { promptPacketSchema } from '@shared/domain'
+import { promptPacketSchema, type RuntimeEvent } from '@shared/domain'
 
 describe('ClaudeCliRuntime Adapter (#24)', () => {
   it('initializes with proper capabilities and starts a session', async () => {
@@ -356,5 +356,87 @@ describe('the result envelope', () => {
     )
 
     expect(text).toContain('FORGE_REPORT_BEGIN')
+  })
+})
+
+describe('usage reported by the provider (#137)', () => {
+  // The envelope below is a real one, captured from `claude -p "Say OK" --output-format
+  // json`, trimmed to the fields read here. Recording usage lets a user watch an account
+  // approach its limit rather than discover it mid-run.
+  const ENVELOPE = JSON.stringify({
+    type: 'result',
+    subtype: 'success',
+    is_error: false,
+    api_error_status: null,
+    result: 'OK',
+    total_cost_usd: 0.253878,
+    usage: {
+      input_tokens: 2,
+      cache_creation_input_tokens: 42302,
+      cache_read_input_tokens: 0,
+      output_tokens: 4,
+      service_tier: 'standard',
+    },
+  })
+
+  async function eventsFor(stdout: string): Promise<RuntimeEvent[]> {
+    const runner: ProcessRunner = (_cmd, _args, options) => {
+      options.onStdout?.(stdout)
+      return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' })
+    }
+
+    const runtime = new ClaudeCliRuntime({ runner })
+    const session = await runtime.start({ repositoryPath: 'd:/repo', role: 'implementer' })
+    await runtime.send(
+      session,
+      promptPacketSchema.parse({
+        role: 'implementer',
+        objective: 'Fix it',
+        constraints: [],
+        rules: [],
+        lockedDecisions: [],
+        allowedPaths: [],
+        forbiddenPaths: [],
+        relevantFiles: [],
+        reviewFindings: [],
+        previousAttempt: null,
+        completionCriteria: [],
+        answeredQuestions: [],
+      }),
+    )
+
+    const seen: RuntimeEvent[] = []
+    for await (const event of runtime.events(session)) {
+      seen.push(event)
+      if (event.type === 'state' && event.state === 'completed') break
+    }
+    await runtime.dispose(session)
+    return seen
+  }
+
+  it('records what the provider said the turn cost', async () => {
+    const usage = (await eventsFor(ENVELOPE)).find((event) => event.type === 'usage')
+
+    expect(usage).toBeDefined()
+    expect(usage).toMatchObject({ costUsd: 0.253878, inputTokens: 2, outputTokens: 4 })
+  })
+
+  it('emits it before the turn ends, so a consumer reading to completion sees it', async () => {
+    const events = await eventsFor(ENVELOPE)
+    const usageAt = events.findIndex((event) => event.type === 'usage')
+    const completedAt = events.findIndex(
+      (event) => event.type === 'state' && event.state === 'completed',
+    )
+
+    expect(usageAt).toBeGreaterThanOrEqual(0)
+    expect(usageAt).toBeLessThan(completedAt)
+  })
+
+  it('records nothing rather than zeros when the output carries no usage', async () => {
+    // A zero would be indexed as a real measurement and quietly understate what an account
+    // has consumed, which is worse than having no figure at all (A3).
+    const events = await eventsFor('not an envelope at all')
+
+    expect(events.some((event) => event.type === 'usage')).toBe(false)
   })
 })

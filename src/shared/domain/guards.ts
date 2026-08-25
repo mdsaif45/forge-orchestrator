@@ -38,6 +38,10 @@ export const HALT_CODES = [
   'permission-violation',
   'unexpected-file-modification',
   'open-question',
+  // A provider-side limit, not a failure of the work. The agent did nothing wrong, the
+  // code is fine, and retrying immediately fails identically — which is exactly why it
+  // must not be reported as a step failure (#137).
+  'provider-limit',
 ] as const
 
 export const haltCodeSchema = z.enum(HALT_CODES)
@@ -55,6 +59,9 @@ export function haltStateFor(code: HaltCode): 'HALTED_LIMIT' | 'HALTED_POLICY' {
     case 'total-timeout':
     case 'no-progress':
     case 'retries-exhausted':
+    case 'provider-limit':
+      // `provider-limit` is a limit rather than a policy failure: nothing was violated,
+      // the account is simply spent (#137).
       return 'HALTED_LIMIT'
     case 'build-failure':
     case 'test-failure':

@@ -238,6 +238,24 @@ export const runtimeEventSchema = z.discriminatedUnion('type', [
     at: timestampSchema,
     report: agentReportSchema,
   }),
+  /**
+   * What the turn cost, as the provider reported it (#137).
+   *
+   * Emitted when the provider says; never estimated. Recording it lets a user watch an
+   * account approach its limit rather than discover it mid-run, which is the difference
+   * between planning around a limit and being stopped by one.
+   *
+   * Every field is optional because providers report different things — cost without token
+   * counts, counts without cost — and a shape demanding all of them would force an adapter
+   * to invent the rest (A3).
+   */
+  z.strictObject({
+    type: z.literal('usage'),
+    at: timestampSchema,
+    costUsd: z.number().nonnegative().nullable().default(null),
+    inputTokens: z.number().int().nonnegative().nullable().default(null),
+    outputTokens: z.number().int().nonnegative().nullable().default(null),
+  }),
   /** The runtime itself failed — crash, timeout, unparseable output, auth failure. */
   z.strictObject({
     type: z.literal('error'),
@@ -245,6 +263,19 @@ export const runtimeEventSchema = z.discriminatedUnion('type', [
     message: z.string().min(1),
     /** True when retrying could plausibly succeed; false for auth or policy failures. */
     retryable: z.boolean(),
+    /**
+     * The provider refused because this account's limit is spent (#137).
+     *
+     * Declared by the adapter, which owns its provider's wire format, and acted on by core,
+     * which must never match on a provider's error text (A6). A limit is not a failure of
+     * the work: the agent did nothing wrong, the code is fine, and retrying immediately
+     * fails identically — so this halts with a stated remedy instead of spending a retry.
+     *
+     * Absent means "an ordinary error", which is the safe default: a missed limit is
+     * reported as a plain failure, where a false positive would halt a healthy run and
+     * tell the user to go find another account.
+     */
+    providerLimit: z.boolean().default(false),
   }),
 ])
 

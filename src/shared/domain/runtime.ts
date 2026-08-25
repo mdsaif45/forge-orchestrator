@@ -88,6 +88,19 @@ export const promptPacketSchema = z.strictObject({
   answeredQuestions: z
     .array(z.strictObject({ question: z.string().min(1), answer: z.string().min(1) }))
     .readonly(),
+  /**
+   * Why the previous reply was rejected, on the single re-prompt of a malformed report.
+   *
+   * On the packet rather than passed alongside it, because a runtime receives a packet and
+   * renders the text itself. `exchange()` used to build the corrected prompt as a string
+   * and then send the unchanged packet, so every adapter re-rendered from the packet and
+   * the correction reached no agent — while the transcript recorded it as sent. A run
+   * would halt reporting `retried: true` after two byte-identical attempts (#135).
+   *
+   * Distinct from `reviewFindings`, which is a judgement about the *work*. This is about
+   * the shape of the *reply*, and it is transport-level: never persisted as a finding.
+   */
+  correction: z.string().min(1).nullable().default(null),
 })
 
 export type PromptPacket = z.infer<typeof promptPacketSchema>

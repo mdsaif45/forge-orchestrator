@@ -158,13 +158,16 @@ export async function exchange(
     prompt: PromptPacket,
     correction: string | null,
   ): Promise<ExchangeOutcome | { readonly retry: string }> => {
-    const rendered =
-      correction === null
-        ? renderPromptPacket(prompt)
-        : `${renderPromptPacket(prompt)}\n\n${correctionNotice(correction)}`
+    // The correction travels *on* the packet. It used to be concatenated onto a local
+    // string that was pushed to the transcript while `prompt` was sent unchanged — and
+    // since every adapter renders from the packet, the correction reached no agent. The
+    // transcript recorded a re-prompt that never happened, so a halt after two identical
+    // attempts read as "the agent ignored the correction" (#135).
+    const sent: PromptPacket =
+      correction === null ? prompt : { ...prompt, correction: correctionNotice(correction) }
 
-    transcript.push(rendered)
-    await runtime.send(session, prompt)
+    transcript.push(renderPromptPacket(sent))
+    await runtime.send(session, sent)
 
     const turn = await collectTurn(events)
 

@@ -295,6 +295,14 @@ Editing anything fails this step, even if the edit is correct.`,
 
   sections.push(REPORT_INSTRUCTIONS)
 
+  // Last, deliberately: this is a correction to the *reply*, so it has to be read after
+  // the instructions it is correcting. Rendered here rather than concatenated by the
+  // caller because a runtime receives a packet and renders the text itself — a caller
+  // that builds the string separately is building something no agent ever sees (#135).
+  if (packet.correction !== null) {
+    sections.push(packet.correction)
+  }
+
   return sections.join('\n\n')
 }
 

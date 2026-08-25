@@ -70,6 +70,8 @@ export class MockAgentRuntime implements IAgentRuntime {
   readonly simulated = true
   /** Nothing real to isolate, so concurrency is never constrained by an account. */
   readonly supportsAccountIsolation = true
+  /** No CLI, so no file convention. Empty is a real answer, not an omission. */
+  readonly instructionFilenames: readonly string[] = []
   readonly capabilities: readonly Capability[]
 
   private readonly scenario: Scenario

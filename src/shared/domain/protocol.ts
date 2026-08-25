@@ -227,6 +227,21 @@ export function renderPromptPacket(packet: PromptPacket): string {
     sections.push(`RULES\n${numbered(packet.rules)}`)
   }
 
+  // After Forge's rules and attributed to the repository, so the two are not read as one
+  // voice (#133). The distinction is not cosmetic: Forge's rules are policy it enforces
+  // and can halt on, while this is guidance the repository gives its contributors. An
+  // agent told both under one heading would treat a house style preference as a rule
+  // whose violation fails the step.
+  if (packet.repositoryInstructions !== null) {
+    // Worded without naming the file, because core must not contain a provider's name
+    // (A6) — which of them was read is the bound runtime's business, and the agent only
+    // needs to know the guidance came from the repository rather than from Forge.
+    sections.push(
+      `PROJECT INSTRUCTIONS — this repository's own guidance to agents, not Forge policy
+${packet.repositoryInstructions}`,
+    )
+  }
+
   if (packet.lockedDecisions.length > 0) {
     sections.push(
       `LOCKED DECISIONS — binding; to change one, stop and say so (R3)\n${bullets(packet.lockedDecisions)}`,

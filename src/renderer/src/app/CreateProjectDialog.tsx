@@ -8,12 +8,12 @@ import {
   Dialog,
   Field,
   Input,
-  Select,
   Spinner,
   StatusDot,
   Textarea,
   useToast,
 } from '../ui'
+import { DefaultBranchField } from './DefaultBranchField'
 import { useProjectStore } from './projectStore'
 
 /**
@@ -256,37 +256,7 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
         <RepositoryStatus probing={probing} probe={probe} warnings={warnings} />
 
         <div className="grid grid-cols-2 gap-4">
-          <Field
-            label="Default branch"
-            required
-            hint="The merge target changes are measured against"
-          >
-            {(bind) =>
-              probe?.isRepository === true && probe.branches.length > 0 ? (
-                <Select
-                  {...bind}
-                  // Every branch, not just the checkout: the default branch is
-                  // frequently not the one currently checked out, and offering a
-                  // single option made the correct answer unselectable (#100).
-                  options={probe.branches.map((name) => ({ value: name, label: name }))}
-                  value={branch}
-                  onChange={(event) => {
-                    setBranch(event.target.value)
-                  }}
-                />
-              ) : (
-                <Input
-                  {...bind}
-                  mono
-                  value={branch}
-                  placeholder="main"
-                  onChange={(event) => {
-                    setBranch(event.target.value)
-                  }}
-                />
-              )
-            }
-          </Field>
+          <DefaultBranchField probe={probe} value={branch} onChange={setBranch} />
 
           <Field label="Technology" hint="Comma separated">
             {(bind) => (

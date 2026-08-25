@@ -78,6 +78,20 @@ export const repositoryProbeSchema = z.strictObject({
    * changed every downstream scope verdict.
    */
   defaultBranch: z.string().nullable(),
+  /**
+   * Which rule produced `defaultBranch`, so the UI can tell a fact from a guess (#140).
+   *
+   * ```
+   * origin-head  the remote stating its own default — authoritative, shown as a fact
+   * config       init.defaultBranch, and that branch exists here
+   * convention   `main` or `master` happened to exist — a guess that matched
+   * ```
+   *
+   * Null exactly when `defaultBranch` is null. Kept as a separate field rather than
+   * folded into one object because `defaultBranch` is already consumed in several
+   * places, and widening it there would be a change with no reader.
+   */
+  defaultBranchSource: z.enum(['origin-head', 'config', 'convention']).nullable(),
   /** Local branches, so the user picks a default instead of accepting a guess. */
   branches: z.array(z.string()).readonly(),
   headSha: z.string().nullable(),

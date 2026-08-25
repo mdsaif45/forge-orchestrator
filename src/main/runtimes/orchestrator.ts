@@ -539,11 +539,20 @@ export class Orchestrator {
         break
       }
 
+      // What this step actually changed, for a read-only role. Measured here rather than
+      // taken from the report, so the policy check below can tell a file the agent *wrote*
+      // from one it merely *named* (#144). Null for a writing role, where the claim needs
+      // no reconciling because the write was permitted anyway.
+      const readOnlyChange = permits(binding, 'writeFiles')
+        ? null
+        : await this.measuredSince(changedBeforeStep)
+
       // Axiom A7: Least privilege policy check on permissions, dangerous commands, and forbidden paths (#37)
       const policyAssessment = assessStepPolicy({
         binding,
         report,
         forbiddenPaths: packet.forbiddenPaths,
+        ...(readOnlyChange === null ? {} : { changedPaths: readOnlyChange }),
       })
 
       if (!policyAssessment.allowed) {
@@ -595,12 +604,11 @@ export class Orchestrator {
       // *reviewer* had modified a file the *implementer* wrote. A read-only role is
       // answerable for what it changed, not for what it inherited.
       if (!permits(binding, 'writeFiles')) {
-        const readOnlyChange = await this.diffSince(changedBeforeStep)
-        if (readOnlyChange !== null && readOnlyChange.files.length > 0) {
+        if (readOnlyChange !== null && readOnlyChange.length > 0) {
           workflow = this.halt(
             options.workflowId,
             'permission-violation',
-            `Role "${binding.role}" in read-only mode modified ${String(readOnlyChange.files.length)} file(s) in the worktree: ${readOnlyChange.files.map((f) => f.path).join(', ')}`,
+            `Role "${binding.role}" in read-only mode modified ${String(readOnlyChange.length)} file(s) in the worktree: ${readOnlyChange.join(', ')}`,
           )
           break
         }
@@ -686,21 +694,27 @@ export class Orchestrator {
   private lastHaltCode: HaltCode | null = null
 
   /**
-   * What changed since a pre-step snapshot of the worktree.
+   * The paths this step changed, or null when no measurement could be taken.
    *
-   * Returns null when nothing new appeared, so a read-only step that touched nothing
-   * passes even though the worktree already carries an earlier step's edits.
+   * The empty array is load-bearing and distinct from null: it means the step demonstrably
+   * changed nothing, which is the answer the policy check needs to clear a read-only role
+   * that merely *named* a file (#144). An earlier version returned null for both, which
+   * sent that check back to trusting the agent's claim in the most common case of all —
+   * the one where the role behaved correctly.
+   *
+   * Compared against a pre-step snapshot rather than the base commit, so a read-only role
+   * answers for what it changed and not for what it inherited (#130).
    */
-  private async diffSince(
+  private async measuredSince(
     before: ReadonlySet<string> | null,
-  ): Promise<{ readonly files: readonly { path: string }[] } | null> {
+  ): Promise<readonly string[] | null> {
     if (before === null) return null
 
     const current = await this.deps.measureChange()
     if (current === null) return null
 
     const added = current.files.filter((file) => !before.has(file.path))
-    return added.length === 0 ? null : { files: added }
+    return added.map((file) => file.path)
   }
   private halt(workflowId: WorkflowId, code: HaltCode, reason: string) {
     this.lastHaltCode = code

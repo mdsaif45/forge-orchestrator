@@ -134,6 +134,87 @@ describe('PolicyEngine', () => {
       expect(assessment.violations[0]?.culprit).toBe('planner')
     })
 
+    it('clears a read-only role that named a file it did not write (#144)', () => {
+      // The #133 dogfood run, exactly: every step passed and the workflow halted anyway,
+      // because the reviewer listed the two files it had *looked at* — one changed by an
+      // earlier step, one untracked the whole time. Nothing was written.
+      const reviewer = makeBinding({
+        role: 'reviewer',
+        permissions: {
+          readFiles: true,
+          writeFiles: false,
+          runTests: true,
+          runBuild: false,
+          gitRead: true,
+        },
+      })
+      const report = makeReport({
+        filesChanged: [repoPathSchema.parse('src/math.js'), repoPathSchema.parse('CLAUDE.md')],
+      })
+
+      const assessment = assessStepPolicy({
+        binding: reviewer,
+        report,
+        // Measured from the repository: this step changed nothing.
+        changedPaths: [],
+      })
+
+      expect(assessment.allowed).toBe(true)
+      expect(assessment.violations).toHaveLength(0)
+    })
+
+    it('still blocks a read-only role for a file the measurement confirms it wrote', () => {
+      // The reconciliation must not become a way through. A claim the repository agrees
+      // with is a real write, and the role still had no permission for it.
+      const reviewer = makeBinding({
+        role: 'reviewer',
+        permissions: {
+          readFiles: true,
+          writeFiles: false,
+          runTests: true,
+          runBuild: false,
+          gitRead: true,
+        },
+      })
+      const report = makeReport({
+        filesChanged: [repoPathSchema.parse('src/math.js'), repoPathSchema.parse('CLAUDE.md')],
+      })
+
+      const assessment = assessStepPolicy({
+        binding: reviewer,
+        report,
+        changedPaths: ['src/math.js'],
+      })
+
+      expect(assessment.allowed).toBe(false)
+      expect(assessment.violations[0]?.kind).toBe('unpermitted-write')
+      // Names only the file actually written, not the one merely mentioned.
+      expect(assessment.violations[0]?.detail).toContain('src/math.js')
+      expect(assessment.violations[0]?.detail).not.toContain('CLAUDE.md')
+    })
+
+    it('falls back to the claim when no measurement is available', () => {
+      // Conservative on purpose: without a measurement this can halt a run that did
+      // nothing wrong, but it cannot let an unpermitted write pass unnoticed.
+      const planner = makeBinding({
+        role: 'planner',
+        permissions: {
+          readFiles: true,
+          writeFiles: false,
+          runTests: false,
+          runBuild: false,
+          gitRead: true,
+        },
+      })
+
+      const assessment = assessStepPolicy({
+        binding: planner,
+        report: makeReport({ filesChanged: [repoPathSchema.parse('src/app.ts')] }),
+      })
+
+      expect(assessment.allowed).toBe(false)
+    })
+
     it('blocks modification of secret/credential files', () => {
       const implementer = makeBinding()
       const report = makeReport({

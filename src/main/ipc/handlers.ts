@@ -136,6 +136,8 @@ export function createIpcHandlers({
 
     'project:get': ({ projectId }) => projects.get(projectId),
 
+    'project:update': (request) => projects.update(request),
+
     'rule:set': ({ projectId, scope, key, statement }) =>
       projects.setRule(projectId, scope, key, statement),
 

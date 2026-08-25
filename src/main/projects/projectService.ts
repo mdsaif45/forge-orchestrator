@@ -9,6 +9,7 @@ import {
   type EffectiveRule,
   type Project,
   type ProjectId,
+  type Repository,
   type Rule,
 } from '@shared/domain'
 import type { CreateProjectRequest, ProjectDetail, ProjectView, RuleView } from '@shared/ipc'
@@ -28,10 +29,20 @@ import { validateRepository } from './validateRepository'
 export class ProjectService {
   private readonly store: ProjectStore
   private readonly rules: RuleRepository
+  private readonly hasRunningWorkflow: (projectId: string) => boolean
 
-  constructor(db: ForgeDatabase) {
+  /**
+   * `hasRunningWorkflow` is injected rather than resolved from a workflow service.
+   *
+   * Projects are the lower layer — workflows already depend on this service, so
+   * depending back on them would make the cycle real rather than merely awkward. A
+   * predicate keeps the direction one-way, and lets a test state the condition
+   * directly instead of standing up an orchestrator to imply it.
+   */
+  constructor(db: ForgeDatabase, hasRunningWorkflow?: (projectId: string) => boolean) {
     this.store = new ProjectStore(db)
     this.rules = new RuleRepository(db)
+    this.hasRunningWorkflow = hasRunningWorkflow ?? (() => false)
   }
 
   /**
@@ -183,6 +194,68 @@ export class ProjectService {
    * one open and the next. A stored copy would be a second truth that quietly goes
    * stale (axiom A1).
    */
+  /**
+   * Changes a project name and its repository settings.
+   *
+   * Not the repository path. Pointing a project at a different repository would
+   * invalidate every recorded path, diff base, and changeset, so that is a new
+   * project rather than an edit — refusing is more honest than silently corrupting
+   * what the log means.
+   *
+   * Refused while a workflow is running: `defaultBranch` is the base a diff is
+   * measured against, and moving it mid-run would change what "changed" means
+   * halfway through the very comparison it feeds.
+   */
+  async update(request: {
+    readonly projectId: string
+    readonly name?: string | undefined
+    readonly defaultBranch?: string | undefined
+    readonly buildCommand?: string | null | undefined
+    readonly testCommand?: string | null | undefined
+    readonly tech?: readonly string[] | undefined
+  }): Promise<ProjectDetail | null> {
+    const projectId = projectIdSchema.parse(request.projectId)
+
+    if (this.hasRunningWorkflow(projectId)) {
+      throw new Error(
+        'This project has a running workflow. Cancel or finish it before changing settings, so the diff base cannot move mid-run.',
+      )
+    }
+
+    const existing = this.store.findById(projectId)
+    if (existing === null) return null
+
+    const now = new Date().toISOString()
+
+    const name = request.name?.trim()
+    if (name !== undefined && name !== '' && name !== existing.name) {
+      this.store.rename(projectId, name, 'user', now)
+    }
+
+    // Absent means "leave it", which is different from null meaning "clear it" —
+    // collapsing the two would make it impossible to unset a build command.
+    const repository: Repository = {
+      ...existing.repository,
+      defaultBranch: request.defaultBranch?.trim() ?? existing.repository.defaultBranch,
+      buildCommand:
+        request.buildCommand === undefined
+          ? existing.repository.buildCommand
+          : emptyToNull(request.buildCommand),
+      testCommand:
+        request.testCommand === undefined
+          ? existing.repository.testCommand
+          : emptyToNull(request.testCommand),
+      tech:
+        request.tech === undefined
+          ? existing.repository.tech
+          : request.tech.map((tag) => tag.trim()).filter((tag) => tag !== ''),
+    }
+
+    this.store.updateRepository(projectId, repository, 'user', now)
+
+    return this.get(projectId)
+  }
+
   async get(rawProjectId: string): Promise<ProjectDetail | null> {
     const parsed = projectIdSchema.safeParse(rawProjectId)
     if (!parsed.success) return null

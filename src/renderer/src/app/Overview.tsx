@@ -13,7 +13,9 @@ import {
   Separator,
   Spinner,
   StatusDot,
+  Button,
 } from '../ui'
+import { EditProjectDialog } from './EditProjectDialog'
 import { useProjectStore } from './projectStore'
 import { ROUTES } from './routes'
 
@@ -66,6 +68,9 @@ export function Overview(): React.JSX.Element {
 }
 
 function ProjectSummary({ detail }: { readonly detail: ProjectDetail }): React.JSX.Element {
+  const refresh = useProjectStore((state) => state.refresh)
+  const [editing, setEditing] = useState(false)
+
   const { project, rules, probe } = detail
 
   return (
@@ -76,12 +81,40 @@ function ProjectSummary({ detail }: { readonly detail: ProjectDetail }): React.J
             <CardTitle>Repository</CardTitle>
             <CardDescription>Read from git on every load, never cached</CardDescription>
           </div>
-          {probe === null ? (
-            <StatusDot status="failed" label="Unavailable" />
-          ) : (
-            <StatusDot status={probe.dirty ? 'waiting' : 'passed'} label="Bound" />
-          )}
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setEditing(true)
+              }}
+            >
+              Edit settings
+            </Button>
+            {probe === null ? (
+              <StatusDot status="failed" label="Unavailable" />
+            ) : (
+              <StatusDot status={probe.dirty ? 'waiting' : 'passed'} label="Bound" />
+            )}
+          </div>
         </CardHeader>
+
+        {/* Mounted only while open. Dialog keeps its <dialog> element in the DOM even
+            when closed, so rendering it unconditionally put a second copy of the
+            repository path on the page — which broke an e2e assertion that matches on
+            that text. Mounting on demand also makes each editing session start from
+            the project as it is now, without a key to force a remount. */}
+        {editing && (
+          <EditProjectDialog
+            open
+            project={project}
+            probe={probe}
+            onClose={() => {
+              setEditing(false)
+            }}
+            onSaved={refresh}
+          />
+        )}
 
         {probe === null ? (
           <p className="mt-3 mb-0 text-(length:--text-xs) text-(--color-text-muted)">

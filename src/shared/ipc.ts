@@ -486,6 +486,27 @@ export const IPC_CONTRACT = {
    * Sets one rule at one scope. Overwrites the rule with the same (scope, key),
    * which is how an override is expressed rather than accumulating near-duplicates.
    */
+  /**
+   * Changes a project's name and repository settings.
+   *
+   * The repository path is deliberately absent: pointing a project at a different
+   * repository invalidates every recorded path, diff base, and changeset, so that is
+   * a new project rather than an edit (#112).
+   *
+   * An omitted field is left unchanged; an explicit null clears a command. Those are
+   * different intents, and collapsing them would make it impossible to unset one.
+   */
+  'project:update': {
+    request: z.strictObject({
+      projectId: z.string(),
+      name: z.string().optional(),
+      defaultBranch: z.string().optional(),
+      buildCommand: z.string().nullable().optional(),
+      testCommand: z.string().nullable().optional(),
+      tech: z.array(z.string()).readonly().optional(),
+    }),
+    response: projectDetailSchema.nullable(),
+  },
   'rule:set': {
     request: z.strictObject({
       projectId: z.string(),

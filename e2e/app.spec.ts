@@ -264,6 +264,22 @@ test('a project can be created, and survives a restart', async () => {
   expect(stored).not.toContain('\\')
   await expect(page.getByText(stored)).toBeVisible()
 
+  // #112: a project can be corrected after creation. Until this existed, a wrong
+  // default branch or an unset build command could only be fixed by deleting and
+  // recreating the project, discarding its history for a one-field change.
+  await page.getByRole('button', { name: 'Edit settings' }).click()
+
+  // Scoped to this dialog: Dialog keeps its element in the DOM when closed, so the
+  // create-project form's identically-labelled field is still present and an
+  // unscoped locator matches both.
+  const settings = page.getByRole('dialog').filter({ hasText: 'Project settings' })
+  await settings.getByLabel('Build command').fill('npm run build')
+  await settings.getByRole('button', { name: 'Save changes' }).click()
+
+  // Read back from the page rather than trusting the toast: the claim is that the
+  // change reached main and came back through a re-read, not that a button was clicked.
+  await expect(page.getByText('npm run build')).toBeVisible()
+
   // Relaunch against the same user data directory.
   await app.close()
   app = await electron.launch({

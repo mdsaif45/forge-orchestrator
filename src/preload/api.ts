@@ -85,6 +85,19 @@ export interface ForgeApi {
     list: () => Promise<IpcResult<{ readonly projects: readonly ProjectView[] }>>
     /** Resolves null when the id does not exist, rather than failing. */
     get: (projectId: string) => Promise<IpcResult<ProjectDetail | null>>
+    /**
+     * Changes name and repository settings. The repository path is not editable.
+     *
+     * An omitted field is left unchanged; an explicit null clears a command.
+     */
+    update: (request: {
+      readonly projectId: string
+      readonly name?: string
+      readonly defaultBranch?: string
+      readonly buildCommand?: string | null
+      readonly testCommand?: string | null
+      readonly tech?: readonly string[]
+    }) => Promise<IpcResult<ProjectDetail | null>>
   }
   readonly rule: {
     /**

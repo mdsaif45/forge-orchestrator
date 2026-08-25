@@ -56,6 +56,7 @@ app.whenReady().then(async () => {
   // being asserted on.
   ipcMain.handle('project:list', () => ({ ok: true, value: { projects: [] } }))
   ipcMain.handle('project:get', () => ({ ok: true, value: null }))
+  ipcMain.handle('project:update', () => ({ ok: true, value: null }))
   ipcMain.handle('rule:set', () => ({ ok: true, value: null }))
   ipcMain.handle('rule:remove', () => ({ ok: true, value: null }))
   ipcMain.handle('workflow:list', () => ({ ok: true, value: { workflows: [] } }))

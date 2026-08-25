@@ -42,6 +42,20 @@ app.whenReady().then(async () => {
     policy,
   )
 
+  // The dev policy is checked too, because only production was — and a dev-only CSP
+  // regression is invisible to every other gate. `@vitejs/plugin-react` injects an inline
+  // module preamble that installs the Fast Refresh hooks; blocking it does not degrade
+  // HMR, it stops the app booting, leaving a window painted its background colour and an
+  // empty #root. Typecheck, unit tests, build and e2e all passed while `npm run dev` was
+  // a blank screen.
+  const devPolicy = contentSecurityPolicy('http://localhost:5173')
+  const scriptSrc = devPolicy.split('; ').find((d) => d.startsWith('script-src')) ?? ''
+  check(
+    "dev CSP allows Vite's inline react-refresh preamble",
+    scriptSrc.includes("'unsafe-inline'"),
+    scriptSrc,
+  )
+
   const window = new BrowserWindow({
     show: false,
     webPreferences: {

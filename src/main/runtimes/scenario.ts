@@ -50,8 +50,12 @@ export const scenarioStepSchema = z.strictObject({
    * how a real CLI behaves — it prints prose and the protocol extracts a report from it —
    * so it is the only ending that exercises parsing and the re-prompt. A mock that always
    * handed back a validated object would leave the whole extraction path untested.
+   *
+   * `providerLimit` emits an error flagged as a spent account limit. It exists because the
+   * real signal cannot be produced on demand — an account has to actually run out — and
+   * everything downstream of the flag is ordinary logic that must not wait for that (#137).
    */
-  ending: z.enum(['report', 'silent', 'crash', 'authFailure', 'text']),
+  ending: z.enum(['report', 'silent', 'crash', 'authFailure', 'text', 'providerLimit']),
   /** Raw stdout for a `text` ending. Ignored otherwise. */
   replyText: z.string().nullable(),
 })

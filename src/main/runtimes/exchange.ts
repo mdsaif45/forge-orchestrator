@@ -50,6 +50,14 @@ export type ExchangeOutcome =
       readonly code: ProtocolErrorCode | null
       readonly message: string
       readonly retried: boolean
+      /**
+       * The provider refused because the account's limit is spent (#137).
+       *
+       * Carried through rather than re-derived: the adapter decided this, and core has no
+       * way to tell a limit from any other runtime error without reading provider-specific
+       * text, which A6 forbids.
+       */
+      readonly providerLimit: boolean
       readonly transcript: readonly string[]
     }
 
@@ -61,12 +69,15 @@ export type ExchangeOutcome =
  * event exists for runtimes that can produce one directly, and the mock does, so both paths
  * are handled rather than assumed.
  */
-async function collectTurn(
-  events: AsyncIterator<RuntimeEvent>,
-): Promise<
+async function collectTurn(events: AsyncIterator<RuntimeEvent>): Promise<
   | { readonly kind: 'report'; readonly report: AgentReport }
   | { readonly kind: 'text'; readonly text: string }
-  | { readonly kind: 'error'; readonly message: string; readonly retryable: boolean }
+  | {
+      readonly kind: 'error'
+      readonly message: string
+      readonly retryable: boolean
+      readonly providerLimit: boolean
+    }
 > {
   let text = ''
   // A session emits `idle` when it starts, before any instruction has been sent, and that
@@ -95,7 +106,12 @@ async function collectTurn(
       }
 
       case 'error': {
-        return { kind: 'error', message: event.message, retryable: event.retryable }
+        return {
+          kind: 'error',
+          message: event.message,
+          retryable: event.retryable,
+          providerLimit: event.providerLimit,
+        }
       }
 
       case 'state': {
@@ -123,8 +139,11 @@ async function collectTurn(
         break
       }
 
-      case 'tool': {
+      case 'tool':
+      case 'usage': {
         // Recorded by the caller through its own event subscription; not part of the reply.
+        // Listed rather than left to a default, so a new event type is a decision here
+        // instead of silently doing nothing.
         break
       }
     }
@@ -178,6 +197,7 @@ export async function exchange(
         code: null,
         message: turn.message,
         retried: correction !== null,
+        providerLimit: turn.providerLimit,
         transcript,
       }
     }
@@ -213,6 +233,7 @@ export async function exchange(
         code: parsed.code,
         message: parsed.message,
         retried: true,
+        providerLimit: false,
         transcript,
       }
     }
@@ -235,6 +256,7 @@ export async function exchange(
     code: null,
     message: 'The agent did not produce a valid report after a correction',
     retried: true,
+    providerLimit: false,
     transcript,
   }
 }

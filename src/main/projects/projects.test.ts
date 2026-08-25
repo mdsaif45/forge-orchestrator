@@ -4,7 +4,7 @@ import { realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { FORGE_DEFAULT_RULE_KEYS } from '@shared/domain'
+import { FORGE_DEFAULT_RULE_KEYS, projectIdSchema } from '@shared/domain'
 import { removeTempDir } from '../../test/tempDir'
 import { initialiseDatabase } from '../db'
 import type { ForgeDatabase } from '../db'
@@ -474,5 +474,84 @@ describe('the rules engine', () => {
 
     expect(documented.length).toBeGreaterThan(0)
     expect([...FORGE_DEFAULT_RULE_KEYS].sort()).toEqual([...documented].sort())
+  })
+})
+
+describe('ProjectService.update', () => {
+  async function existing(): Promise<{
+    readonly projectId: string
+    readonly service: ProjectService
+  }> {
+    const service = new ProjectService(db)
+    const created = await service.create(request())
+    return { projectId: created.id, service }
+  }
+
+  it('corrects a wrong default branch without losing the project', async () => {
+    // The consequence #100 could not fix: a project bound mid-feature already stores
+    // the wrong diff base, and deleting and recreating it would discard its history.
+    const { projectId, service } = await existing()
+
+    const detail = await service.update({ projectId, defaultBranch: 'main' })
+
+    expect(detail?.project.repository.defaultBranch).toBe('main')
+    expect(detail?.project.id).toBe(projectId)
+  })
+
+  it('sets build and test commands that were unknown at creation', async () => {
+    // Frequently not known when a project is bound, and Forge cannot gather evidence
+    // without them (A3) — which the workflow preflight now reports as blocking.
+    const { projectId, service } = await existing()
+
+    const detail = await service.update({
+      projectId,
+      buildCommand: 'npm run build',
+      testCommand: 'npm test',
+    })
+
+    expect(detail?.project.repository.buildCommand).toBe('npm run build')
+    expect(detail?.project.repository.testCommand).toBe('npm test')
+  })
+
+  it('leaves an omitted field alone but clears an explicit null', async () => {
+    // Two different intents. Collapsing them would make it impossible to unset a
+    // command once it had been set.
+    const { projectId, service } = await existing()
+    await service.update({ projectId, buildCommand: 'dotnet build', testCommand: 'dotnet test' })
+
+    const detail = await service.update({ projectId, buildCommand: null })
+
+    expect(detail?.project.repository.buildCommand).toBeNull()
+    expect(detail?.project.repository.testCommand).toBe('dotnet test')
+  })
+
+  it('records the change as an event, so the log stays the source of truth', async () => {
+    const { projectId, service } = await existing()
+    await service.update({ projectId, defaultBranch: 'main', name: 'Renamed' })
+
+    // Rebuilt purely from events: if the update had written the projection directly,
+    // the rebuild would discard it and the old value would come back (A1).
+    new ProjectStore(db).rebuild(projectIdSchema.parse(projectId))
+    const detail = await service.get(projectId)
+
+    expect(detail?.project.repository.defaultBranch).toBe('main')
+    expect(detail?.project.name).toBe('Renamed')
+  })
+
+  it('refuses while a workflow is running, so the diff base cannot move mid-run', async () => {
+    const service = new ProjectService(db, () => true)
+    const created = await service.create(request({ name: 'Busy' }))
+
+    await expect(service.update({ projectId: created.id, defaultBranch: 'main' })).rejects.toThrow(
+      /running workflow/,
+    )
+  })
+
+  it('resolves null for a project that does not exist', async () => {
+    const service = new ProjectService(db)
+
+    await expect(
+      service.update({ projectId: '00000000-0000-4000-8000-000000000000', name: 'Ghost' }),
+    ).resolves.toBeNull()
   })
 })

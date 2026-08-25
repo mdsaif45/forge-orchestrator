@@ -169,7 +169,15 @@ if (!claimSingleInstance()) {
       }),
     )
 
-    const projectService = new ProjectService(db)
+    // Late-bound on purpose: WorkflowService depends on ProjectService, so reading it
+    // through a closure is what keeps the construction order one-way while still
+    // letting a project edit be refused during a run (#112).
+    let workflows: WorkflowService | null = null
+
+    const projectService = new ProjectService(
+      db,
+      (projectId) => workflows !== null && workflows.getActive(projectId) !== null,
+    )
     const workflowService = new WorkflowService({
       db,
       projects: projectService,
@@ -190,6 +198,11 @@ if (!claimSingleInstance()) {
         }
       },
     })
+
+    // Completes the late binding above. Until this runs the predicate answers false,
+    // which is correct: no workflow can be running before the service that runs them
+    // exists.
+    workflows = workflowService
 
     const questionService = new QuestionService({
       questions: workflowService.getQuestionStore(),

@@ -1,4 +1,4 @@
-import type { Actor, Project, ProjectId, Rule, RuleId } from '@shared/domain'
+import type { Actor, Project, ProjectId, Repository, Rule, RuleId } from '@shared/domain'
 import type { ForgeDatabase } from './connection'
 import { EventStore } from './eventStore'
 import { applyEvent, rebuildProjections } from './projections'
@@ -56,6 +56,34 @@ export class ProjectStore {
     this.db.transaction(() => {
       const event = this.events.append(
         { type: 'project.updated', payload: { name, updatedAt: occurredAt } },
+        { projectId, actor, occurredAt },
+      )
+
+      applyEvent(this.db, event)
+    })
+  }
+
+  /**
+   * Re-records the repository's settings as a new event.
+   *
+   * A `repository.bound` event rather than an in-place write, so the log keeps what
+   * the settings were when each past workflow ran. A change to `defaultBranch` moves
+   * the base a diff is measured against, and silently reinterpreting historical
+   * changesets against a base they were never measured with would be a worse defect
+   * than the one #100 fixed (A1).
+   *
+   * The repository's own id and path are carried through unchanged by the caller: a
+   * project pointed at a different repository is a different project, not an edit.
+   */
+  updateRepository(
+    projectId: ProjectId,
+    repository: Repository,
+    actor: Actor,
+    occurredAt: string,
+  ): void {
+    this.db.transaction(() => {
+      const event = this.events.append(
+        { type: 'repository.bound', payload: { repository } },
         { projectId, actor, occurredAt },
       )
 

@@ -158,6 +158,19 @@ export interface StepPolicyInput {
   readonly binding: AgentBinding
   readonly report: AgentReport
   readonly forbiddenPaths?: readonly string[]
+  /**
+   * Paths this step actually changed, measured from the repository (#144).
+   *
+   * `report.filesChanged` is a claim, and a read-only role naming a file it merely read is
+   * a predictable misreading — a reviewer's whole job is to talk about changed files. When
+   * the measurement is supplied, the write check uses it, so a run halts only for a file
+   * that was really written.
+   *
+   * Undefined means no measurement was available, and the claim is used on its own. That
+   * is the conservative direction: it can halt a run that did nothing wrong, but it cannot
+   * let an unpermitted write through unnoticed.
+   */
+  readonly changedPaths?: readonly string[]
 }
 
 export interface StepPolicyAssessment {
@@ -170,14 +183,30 @@ export interface StepPolicyAssessment {
  */
 export function assessStepPolicy(input: StepPolicyInput): StepPolicyAssessment {
   const violations: PolicyViolation[] = []
-  const { binding, report, forbiddenPaths = [] } = input
+  const { binding, report, forbiddenPaths = [], changedPaths } = input
 
   // 1. File write permission
-  if (report.filesChanged.length > 0 && !binding.permissions.writeFiles) {
+  //
+  // Reconciled against the measurement when there is one. The report is a claim, and a
+  // read-only role that *names* a file is not the same as one that wrote to it: in the
+  // #133 dogfood run every step passed and the workflow still halted, because the reviewer
+  // listed the two files it had looked at — one changed by an earlier step, one untracked
+  // the whole time. Halting a run on a claim the repository contradicts spends the user's
+  // time on a mistake Forge can see is a mistake.
+  //
+  // The strict reading is not abandoned: `filesChanged` does mean "paths you modified", and
+  // an agent that writes without permission is still caught — by this check when there is
+  // no measurement, and by the orchestrator's own snapshot comparison regardless.
+  const writtenPaths =
+    changedPaths === undefined
+      ? report.filesChanged
+      : report.filesChanged.filter((path) => changedPaths.includes(path))
+
+  if (writtenPaths.length > 0 && !binding.permissions.writeFiles) {
     violations.push({
       kind: 'unpermitted-write',
       culprit: binding.role,
-      detail: `Role "${binding.role}" does not have write permissions, but reported ${String(report.filesChanged.length)} modified file(s): ${report.filesChanged.join(', ')}`,
+      detail: `Role "${binding.role}" does not have write permissions, but reported ${String(writtenPaths.length)} modified file(s): ${writtenPaths.join(', ')}`,
     })
   }
 

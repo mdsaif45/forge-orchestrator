@@ -95,7 +95,23 @@ export function EditProjectDialog({
           )}
         </Field>
 
-        <Field label="Default branch" required hint="The merge target changes are measured against">
+        {/* Kept as a field rather than the stated fact the create dialog shows (#140).
+            Editing exists partly to correct a wrong stored default — projects created
+            before #100 hold the branch that happened to be checked out — so the stored
+            value and git's answer can disagree, and that disagreement is the reason the
+            user is here. Presenting the stored value as settled would hide it; the hint
+            below names git's answer when it differs. */}
+        <Field
+          label="Default branch"
+          required
+          hint={
+            probe?.isRepository === true &&
+            probe.defaultBranch !== null &&
+            probe.defaultBranch !== defaultBranch
+              ? `Git reports ${probe.defaultBranch} as the default${probe.defaultBranchSource === 'origin-head' ? ' (from origin/HEAD)' : ''}`
+              : 'The merge target changes are measured against'
+          }
+        >
           {(bind) =>
             branches.length > 0 ? (
               <Select

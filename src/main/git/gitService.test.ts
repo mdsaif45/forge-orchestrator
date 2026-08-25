@@ -138,7 +138,7 @@ describe('branches', () => {
 
       const git_ = service()
       await expect(git_.currentBranch()).resolves.toBe('feature/visual-studio-extension')
-      await expect(git_.defaultBranch()).resolves.toBe('main')
+      await expect(git_.defaultBranch()).resolves.toEqual({ name: 'main', source: 'convention' })
     })
 
     it('prefers what the remote says over local convention', async () => {
@@ -149,17 +149,39 @@ describe('branches', () => {
       git('update-ref', 'refs/remotes/origin/develop', 'HEAD')
       git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/develop')
 
-      await expect(service().defaultBranch()).resolves.toBe('develop')
+      // The source travels with the name so the UI can state an authoritative answer
+      // as a fact rather than asking the user to confirm it (#140).
+      await expect(service().defaultBranch()).resolves.toEqual({
+        name: 'develop',
+        source: 'origin-head',
+      })
     })
 
     it('falls back to a conventional name when there is no remote', async () => {
-      await expect(service().defaultBranch()).resolves.toBe('main')
+      // Reported as `convention`, not as fact: `main` existing is not the remote saying
+      // it is the merge target, and the UI still asks.
+      await expect(service().defaultBranch()).resolves.toEqual({
+        name: 'main',
+        source: 'convention',
+      })
     })
 
     it('finds master when that is what exists', async () => {
       git('branch', '--move', 'master')
 
-      await expect(service().defaultBranch()).resolves.toBe('master')
+      // `init.defaultBranch` is unset explicitly. Git for Windows ships a *system*
+      // config that sets it to `master`, so without this the rule that matched would
+      // be `config` on Windows and `convention` on a Linux runner — the assertion
+      // would encode the machine's git installation rather than the behaviour.
+      // Set empty locally rather than unset: the value lives in the system config, so
+      // `--unset-all` fails here, and the local empty string shadows it. `defaultBranch`
+      // already treats an empty value as absent.
+      git('config', 'init.defaultBranch', '')
+
+      await expect(service().defaultBranch()).resolves.toEqual({
+        name: 'master',
+        source: 'convention',
+      })
     })
 
     it('returns null rather than guessing when no convention matches', async () => {
@@ -175,7 +197,10 @@ describe('branches', () => {
       // repository contains — trusting it blindly would name a branch that is absent.
       git('config', 'init.defaultBranch', 'nonexistent')
 
-      await expect(service().defaultBranch()).resolves.toBe('main')
+      await expect(service().defaultBranch()).resolves.toEqual({
+        name: 'main',
+        source: 'convention',
+      })
     })
   })
 })

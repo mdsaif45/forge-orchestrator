@@ -1,5 +1,11 @@
 import { z } from 'zod'
-import { agentReportSchema, type AgentReport, type PromptPacket } from './runtime'
+import {
+  agentReportSchema,
+  ROLE_REQUIRED_CAPABILITIES,
+  type AgentReport,
+  type PromptPacket,
+} from './runtime'
+import type { Capability } from './enums'
 
 /**
  * The wire protocol between Forge and an agent.
@@ -262,6 +268,28 @@ export function renderPromptPacket(packet: PromptPacket): string {
   if (packet.completionCriteria.length > 0) {
     sections.push(
       `HOW COMPLETION IS JUDGED — Forge checks these itself (R6)\n${bullets(packet.completionCriteria)}`,
+    )
+  }
+
+  // Stated before the reply instructions, and derived from the role rather than written
+  // per-template: a read-only role that edits anyway is halted by the reconciler, and
+  // an agent that was never told it may not write is being punished for a rule it could
+  // not have known. In the dogfood run (#130) the planner fixed the bug it was asked to
+  // plan, correctly and uselessly — the work was done and the workflow refused it.
+  //
+  // No CLI permission mode expresses "answer normally but do not write": `plan` ends by
+  // asking for approval instead of replying, `manual` waits for an approval a headless
+  // run cannot give, and `auto` permits the edit. Measured, all three. So the constraint
+  // is stated in the packet and enforced by Forge, which is where it belonged anyway.
+  // Widened deliberately: `as const` gives each entry a narrow tuple type, so `includes`
+  // rejects any capability that role does not already list — which is the question being
+  // asked here.
+  const required: readonly Capability[] = ROLE_REQUIRED_CAPABILITIES[packet.role]
+  if (!required.includes('file-write')) {
+    sections.push(
+      `YOU MAY NOT MODIFY ANY FILE
+This role is read-only. Describe the change you would make; a later step makes it.
+Editing anything fails this step, even if the edit is correct.`,
     )
   }
 

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import {
+  DEFAULT_PERMISSION_MODE,
   renderPromptPacket,
   runtimeIdSchema,
   sessionIdSchema,
@@ -26,6 +27,15 @@ export type ProcessRunner = (
     readonly cwd: string
     /** Added to the child's environment. Carries the account's home when one is bound. */
     readonly env?: Readonly<Record<string, string>>
+    /**
+     * Written to the child's stdin, then closed.
+     *
+     * The prompt travels this way rather than as an argument: a multi-line prompt
+     * passed through `-p` on Windows reached the CLI empty, and the agent replied
+     * "What would you like me to do?" to every step (#131). Stdin is not subject to
+     * any of the quoting and re-parsing between here and the process.
+     */
+    readonly stdin?: string
     readonly onStdout?: (chunk: string) => void
     readonly onStderr?: (chunk: string) => void
     readonly signal?: AbortSignal
@@ -189,22 +199,55 @@ export class ClaudeCliRuntime implements IAgentRuntime {
     try {
       const result = await this.runner(
         this.executable,
-        ['-p', promptText, '--output-format', 'json'],
+        // The prompt is NOT an argument here. Passed through `-p` on Windows it reached
+        // the CLI empty, and every step got "What would you like me to do?" — the
+        // dogfood run in #130 halted on that, reported as a protocol violation because
+        // an agent with no instructions has nothing to report. It goes over stdin
+        // instead (#131), which no quoting layer can touch.
+        //
+        // `--permission-mode` matters for the opposite reason: without it the CLI denies
+        // every tool call and waits for an approval a `-p` run can never give, so the
+        // agent could reason and never read a file or write a change.
+        //
+        // `--safe-mode` disables the ambient customisations a spawned agent would
+        // otherwise inherit from whoever's machine it runs on — CLAUDE.md, plugins,
+        // hooks, MCP servers. That is not tidiness: a hook on this machine blocked the
+        // prompt outright with "UserPromptSubmit operation blocked by hook", so the
+        // agent never saw it. Forge decides what enters an agent's context (A1), and a
+        // packet that survives only on an unconfigured machine is not a packet.
+        //
+        // Chosen over `--bare`, which isolates the same things but forces API-key auth
+        // and so cannot be used with a Pro subscription (measured in the #20 spike).
+        [
+          '-p',
+          '--output-format',
+          'json',
+          '--safe-mode',
+          '--permission-mode',
+          session.options.permissionMode ?? DEFAULT_PERMISSION_MODE,
+        ],
         {
           cwd: session.options.repositoryPath,
+          stdin: promptText,
           // `accountEnv` rather than the two variables inline: it is the one place that
           // decides what isolating a process to an account means, and enrolment already
           // depends on it. Two copies would be two places to get Windows wrong.
           ...(accountHome === null ? {} : { env: accountEnv(accountHome) }),
           signal: session.abortController.signal,
           onStdout: (chunk) => {
+            // Accumulated, deliberately NOT emitted as a chunk.
+            //
+            // `exchange()` builds the reply from chunk text, and `parseAgentReport`
+            // takes the *first* REPORT_BEGIN it finds. Emitting the raw envelope as
+            // well as the unwrapped text put two copies of the block in that reply —
+            // the escaped one first — so the parse ran across both and failed on the
+            // backslashes. That is the second half of #130: the agent had already
+            // fixed the bug correctly and the workflow halted anyway.
+            //
+            // The envelope is a wire format, not a transcript. Only the unwrapped text
+            // below is emitted.
             accumulatedOutput += chunk
             session.lastActivityAt = this.now()
-            this.pushEvent(session, {
-              type: 'chunk',
-              at: session.lastActivityAt,
-              text: chunk,
-            })
           },
           onStderr: (chunk) => {
             session.lastActivityAt = this.now()
@@ -227,6 +270,25 @@ export class ClaudeCliRuntime implements IAgentRuntime {
           retryable: true,
         })
         return
+      }
+
+      // `--output-format json` wraps the reply in an envelope, so the agent's text —
+      // and the report block inside it — arrives JSON-escaped in the `result` field.
+      // Parsing the raw stdout finds the escaped copy and fails with "Unexpected token
+      // '\', \"\\n{\\n \\\"s\"... is not valid JSON", which is what halted the dogfood
+      // run *after* the agent had correctly fixed the bug (#130).
+      //
+      // Unwrapped here rather than in `exchange()`: the envelope is this CLI's output
+      // format, and `exchange()` must stay ignorant of any provider's wire shape (A6).
+      // Falls back to the raw output when it is not an envelope, so a change of output
+      // format degrades to using stdout rather than emitting nothing at all.
+      const replyText = extractResultText(accumulatedOutput) ?? accumulatedOutput
+      if (replyText !== '') {
+        this.pushEvent(session, {
+          type: 'chunk',
+          at: this.now(),
+          text: replyText,
+        })
       }
 
       // The turn's raw transcript has already reached the caller as `chunk` events above.
@@ -331,5 +393,30 @@ export class ClaudeCliRuntime implements IAgentRuntime {
       session.wake()
       session.wake = null
     }
+  }
+}
+
+/**
+ * The agent's text, unwrapped from the CLI's result envelope.
+ *
+ * Returns null when the output is not an envelope, so a change of output format
+ * degrades to using the raw stdout rather than losing the reply entirely. The
+ * envelope's own error signalling is deliberately not interpreted here — `is_error`
+ * and the exit code are handled above, and this function answers one question: where
+ * is the text the agent wrote.
+ */
+function extractResultText(output: string): string | null {
+  const trimmed = output.trim()
+  if (!trimmed.startsWith('{')) return null
+
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    if (typeof parsed !== 'object' || parsed === null) return null
+
+    const result = (parsed as { readonly result?: unknown }).result
+    return typeof result === 'string' ? result : null
+  } catch {
+    // Not JSON, or truncated. The raw output already reached the caller as chunks.
+    return null
   }
 }

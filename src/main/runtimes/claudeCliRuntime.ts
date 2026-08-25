@@ -92,6 +92,8 @@ export class ClaudeCliRuntime implements IAgentRuntime {
    * its own home directory authenticates as a different account (measured in #111).
    */
   readonly supportsAccountIsolation = true
+  /** What this CLI would itself load, were it not running with that loading disabled. */
+  readonly instructionFilenames = ['CLAUDE.md']
 
   private readonly executable: string
   private readonly runner: ProcessRunner | null

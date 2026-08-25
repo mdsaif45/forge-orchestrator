@@ -55,6 +55,14 @@ export class AntigravityCliRuntime implements IAgentRuntime {
    * identity it reads (measured in #111). Concurrent sessions share one account.
    */
   readonly supportsAccountIsolation = false
+  /**
+   * Which of these agy itself would read is not measured — the CLI's session expired
+   * before it could be tested, and its `--help` documents neither. Both are listed
+   * because Forge reads the file and puts it in the packet regardless of what the CLI
+   * would have done, so the cost of including a name the CLI ignores is nil while
+   * omitting one a repository actually uses would silently drop its instructions.
+   */
+  readonly instructionFilenames = ['AGENTS.md', 'CLAUDE.md']
 
   private readonly executable: string
   private readonly runner: ProcessRunner | null

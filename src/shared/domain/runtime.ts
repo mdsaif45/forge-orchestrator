@@ -89,6 +89,20 @@ export const promptPacketSchema = z.strictObject({
     .array(z.strictObject({ question: z.string().min(1), answer: z.string().min(1) }))
     .readonly(),
   /**
+   * The repository's own `CLAUDE.md`, when it has one (#133).
+   *
+   * Present because the spawned CLI runs with `--safe-mode`, which stops it loading the
+   * file itself. That is deliberate: a packet whose meaning depends on how the host
+   * machine is configured is not a packet (A1). Forge reads the file and decides to
+   * include it, so what the agent was told is the artifact stored per step rather than
+   * whatever happened to be on disk.
+   *
+   * Null when the repository has none, which is the common case and not a warning.
+   * Rendered under its own heading so an agent is not told two things in one voice —
+   * Forge's rules are policy, this is the repository's own guidance.
+   */
+  repositoryInstructions: z.string().min(1).nullable().default(null),
+  /**
    * Why the previous reply was rejected, on the single re-prompt of a malformed report.
    *
    * On the packet rather than passed alongside it, because a runtime receives a packet and
@@ -308,6 +322,19 @@ export interface IAgentRuntime {
    * that demonstrably run in parallel.
    */
   readonly supportsAccountIsolation: boolean
+  /**
+   * The filenames this provider's CLI would read a repository's instructions from.
+   *
+   * Declared here rather than hardcoded in core, for the same reason as the two fields
+   * above: the name is provider-specific, and core must not contain one (A6). Forge reads
+   * the file and puts it in the packet itself, because the spawned process runs with its
+   * host configuration disabled so that what enters an agent's context is what Forge put
+   * there (A1, #133).
+   *
+   * Ordered by preference; the first that exists is used. Empty means this runtime has no
+   * such convention, which is a legitimate answer and not a gap.
+   */
+  readonly instructionFilenames: readonly string[]
 
   start(options: SessionOptions): Promise<SessionHandle>
   send(session: SessionHandle, packet: PromptPacket): Promise<void>

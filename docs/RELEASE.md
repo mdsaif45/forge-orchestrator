@@ -71,24 +71,31 @@ Releases are automated via GitHub Actions (`.github/workflows/release.yml`):
 4. **Publishing**:
    - Review the draft in the GitHub web interface and click **Publish release**.
 
-### Two things that surprised us on the first release
+### A draft release carries a placeholder tag
 
-Both were found cutting `v0.1.0-alpha.1`, and both look like bugs until you know
-otherwise:
+GitHub shows a draft as `untagged-<hash>`, and `gh release view <tag>` cannot find it,
+because a draft is not bound to its tag until it is published. Inspect one with:
 
-- **A draft release carries a placeholder tag.** GitHub shows it as
-  `untagged-<hash>` and `gh release view <tag>` cannot find it, because a draft is not
-  bound to its tag until it is published. Use
-  `gh api repos/<owner>/<repo>/releases` to inspect a draft. The real git tag exists
-  the whole time.
-- **`prerelease` may not stick.** The workflow passes it correctly, but when the
-  action reuses an existing draft rather than creating one it patches the assets and
-  not the flag. Check it after the run and correct it if needed:
-  ```bash
-  gh api -X PATCH repos/<owner>/<repo>/releases/<id> -f prerelease=true
-  ```
-  Getting this wrong marks an alpha as the "Latest" release and puts it on the stable
-  auto-update channel.
+```bash
+gh api repos/<owner>/<repo>/releases
+```
+
+The real git tag exists the whole time. This is normal GitHub behaviour, not a fault.
+
+### What used to go wrong here
+
+Both `v0.1.0-alpha.1` and `v0.2.0-alpha.2` came out with `prerelease: false` despite
+the workflow passing `true`, and each left a stray duplicate draft. The cause was
+`softprops/action-gh-release` racing GitHub's own tag-push draft: when it reuses an
+existing draft rather than creating one, it patches the assets and not the flags.
+
+An alpha marked `prerelease: false` is shown as **Latest** and goes onto the stable
+auto-update channel, so it mattered — and both times it was caught only because this
+document said to check by hand.
+
+The workflow now calls `gh release create` directly, which has no reuse path, and a
+verification step fails the run if more than one draft exists or the prerelease flag is
+wrong. The manual check is no longer needed (#136).
 
 ---
 

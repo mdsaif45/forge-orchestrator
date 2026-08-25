@@ -48,19 +48,71 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create Draft Release on GitHub
-        uses: softprops/action-gh-release@v2
+      # Created explicitly rather than through a create-or-reuse action.
+      #
+      # `softprops/action-gh-release` races GitHub's own tag-push draft: it finds a
+      # duplicate, deletes one, reuses another, and when it reuses rather than creates
+      # it patches the assets and NOT the flags. Both releases cut so far came out with
+      # `prerelease: false` despite the action being passed `true`, and each left a
+      # stray draft holding a single blockmap (#136).
+      #
+      # An alpha marked `prerelease: false` is shown as "Latest" and goes onto the
+      # stable auto-update channel, so the failure is not cosmetic — and it was caught
+      # both times only because the runbook says to check by hand. A release process
+      # whose correctness depends on remembering a manual step is one forgotten step
+      # away from shipping wrong.
+      #
+      # `gh release create` has no reuse path: one command, one release, flags set at
+      # creation. `--draft` keeps the human review step described in docs/RELEASE.md.
+      - name: Create draft release
         if: startsWith(github.ref, 'refs/tags/')
-        with:
-          draft: true
-          # A tag with a prerelease identifier (v0.1.0-alpha.1, -beta.1, -rc.1) is not GA and
-          # must not be flagged "Latest" or trigger stable-channel auto-update — hardcoding
-          # `false` here would have marked an alpha as a general release.
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
-          files: |
-            dist/*.exe
-            dist/*.blockmap
-            dist/latest.yml
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # A tag carrying a prerelease identifier (-alpha.1, -beta.1, -rc.1) is not GA.
+          # Only the prerelease case needs a flag: `--latest` is gh's own default for a
+          # plain version tag, and passing it explicitly alongside `--draft` would assert
+          # something about a release that is not published yet.
+          args=()
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+
+          gh release create "${GITHUB_REF_NAME}" \
+            --draft \
+            "${args[@]}" \
+            --generate-notes \
+            --title "${GITHUB_REF_NAME}" \
+            dist/*.exe dist/*.blockmap dist/latest.yml
+
+      # Asserted rather than assumed: this is the flag that was silently wrong twice.
+      - name: Verify the release metadata
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # A draft is not bound to its tag until published, so it cannot be found by
+          # tag name. Counting drafts is what catches the duplicate this issue is about.
+          drafts=$(gh api "repos/${GITHUB_REPOSITORY}/releases" --jq '[.[] | select(.draft == true)] | length')
+
+          if [[ "$drafts" != "1" ]]; then
+            echo "Expected exactly one draft release, found $drafts" >&2
+            gh api "repos/${GITHUB_REPOSITORY}/releases" --jq '.[] | "\(.id) draft=\(.draft) prerelease=\(.prerelease) tag=\(.tag_name)"' >&2
+            exit 1
+          fi
+
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            flag=$(gh api "repos/${GITHUB_REPOSITORY}/releases" --jq '[.[] | select(.draft == true)][0].prerelease')
+            if [[ "$flag" != "true" ]]; then
+              echo "A prerelease tag produced prerelease=$flag — see #136" >&2
+              exit 1
+            fi
+          fi
+
+          echo "One draft release, prerelease flag correct."

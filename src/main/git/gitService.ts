@@ -118,6 +118,19 @@ export interface DiffResult {
   readonly patch: string
 }
 
+/**
+ * The repository's default branch, with the rule that produced it.
+ *
+ * The source travels with the name because the rules are not equally trustworthy:
+ * `origin/HEAD` is the remote's own statement, while `convention` means `main` or
+ * `master` merely existed. A caller that shows the name without the source cannot
+ * tell the user which of those they are looking at (#140).
+ */
+export interface DefaultBranch {
+  readonly name: string
+  readonly source: 'origin-head' | 'config' | 'convention'
+}
+
 /** A point-in-time reference for later diffing, captured before a step runs. */
 export interface Snapshot {
   readonly sha: Sha
@@ -218,22 +231,30 @@ export class GitService {
    *
    * Null is a real answer, not a failure. A caller that needs a value must surface the
    * question instead of substituting a plausible one.
+   *
+   * The answer carries which rule produced it, because the rules differ in authority and
+   * the UI presents them differently (#140): `origin/HEAD` is the remote stating its own
+   * default and is worth showing as a fact, while `main | master` is a guess that happened
+   * to match and should still be confirmed. Returning a bare string would flatten that
+   * distinction at exactly the point where it is known.
    */
-  async defaultBranch(): Promise<string | null> {
+  async defaultBranch(): Promise<DefaultBranch | null> {
     await this.assertRepo()
 
     const fromRemote = await this.remoteDefaultBranch()
-    if (fromRemote !== null) return fromRemote
+    if (fromRemote !== null) return { name: fromRemote, source: 'origin-head' }
 
     const branches = new Set(await this.listBranches())
 
     // Only trust the configured default if that branch exists here: the setting
     // describes what `git init` *would* create, not what this repository contains.
     const configured = await this.configuredDefaultBranch()
-    if (configured !== null && branches.has(configured)) return configured
+    if (configured !== null && branches.has(configured)) {
+      return { name: configured, source: 'config' }
+    }
 
     for (const conventional of ['main', 'master']) {
-      if (branches.has(conventional)) return conventional
+      if (branches.has(conventional)) return { name: conventional, source: 'convention' }
     }
 
     return null

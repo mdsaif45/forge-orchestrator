@@ -1,4 +1,5 @@
-import { mkdtempSync, appendFileSync } from 'node:fs'
+import { mkdtempSync, appendFileSync, existsSync, readdirSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -41,6 +42,8 @@ describe.skipIf(process.env.FORGE_DOGFOOD === undefined)('dogfood', () => {
         registry.register(new ClaudeCliRuntime({ runner: createPipeProcessRunner() }))
       }
 
+      const packetDir = join(mkdtempSync(join(tmpdir(), 'fd-packets-')), 'packets')
+
       const projects = new ProjectService(db)
       const project = await projects.create({
         name: 'Dogfood',
@@ -56,7 +59,7 @@ describe.skipIf(process.env.FORGE_DOGFOOD === undefined)('dogfood', () => {
       const workflows = new WorkflowService({
         db,
         projects,
-        packetDir: join(mkdtempSync(join(tmpdir(), 'fd-packets-')), 'packets'),
+        packetDir,
         registry,
         emitEvent: (payload) => {
           note(`EVENT ${payload.type} state=${payload.state ?? '-'} ${payload.detail ?? ''}`)
@@ -103,6 +106,31 @@ describe.skipIf(process.env.FORGE_DOGFOOD === undefined)('dogfood', () => {
       // cannot fail when the product does nothing is not evidence (#130).
       expect(final?.state).toBe('DONE')
       expect(final?.steps.every((step) => step.verdict !== 'fail')).toBe(true)
+
+      // #133: the repository's own CLAUDE.md reached the agent.
+      //
+      // Asserted against the stored packets — the actual text sent — rather than against
+      // the file existing on disk. The file existing proves nothing: the whole defect was
+      // that `--safe-mode` stopped the CLI loading it, so a run could pass every other
+      // assertion here while no agent ever saw a word of it.
+      if (existsSync(join(repositoryPath, 'CLAUDE.md'))) {
+        const packets = await Promise.all(
+          readdirSync(packetDir).map((name) => readFile(join(packetDir, name), 'utf8')),
+        )
+
+        expect(packets.length).toBeGreaterThan(0)
+        const carrying = packets.filter((packet) => packet.includes('repositoryInstructions'))
+        note(
+          `packets carrying repository instructions: ${String(carrying.length)}/${String(packets.length)}`,
+        )
+
+        const parsed = packets.map(
+          (packet) => JSON.parse(packet) as { repositoryInstructions?: unknown },
+        )
+        expect(parsed.some((packet) => typeof packet.repositoryInstructions === 'string')).toBe(
+          true,
+        )
+      }
     },
   )
 })

@@ -403,6 +403,9 @@ describe('the golden packet', () => {
       // Null here and always: a correction is attached by `exchange()` on the single
       // re-prompt, not compiled from context. The context engine never sets it.
       correction: null,
+      // Null because this fixture supplies none. When a repository has a CLAUDE.md it
+      // appears here instead, which is the guarantee #133 adds.
+      repositoryInstructions: null,
     })
 
     expect(compiled.trace).toEqual({
@@ -445,5 +448,87 @@ describe('redactSecrets', () => {
   it('leaves ordinary text untouched', () => {
     const text = 'Corrected the constant in src/math.ts and ran the tests'
     expect(redactSecrets(text)).toBe(text)
+  })
+})
+
+describe("the repository's own instructions (#133)", () => {
+  it('carries the repository instructions into the packet, since the CLI is stopped from loading them', () => {
+    const compiled = compileContext(
+      input({ repositoryInstructions: '# House style\n\nPrefer composition.' }),
+    )
+
+    expect(compiled.packet.repositoryInstructions).toBe('# House style\n\nPrefer composition.')
+  })
+
+  it('is silent when the repository has none, which is the common case', () => {
+    expect(
+      compileContext(input({ repositoryInstructions: null })).packet.repositoryInstructions,
+    ).toBeNull()
+    expect(compileContext(input('   \n  ')).packet.repositoryInstructions).toBeNull()
+  })
+
+  it('redacts it, because this is repository content Forge did not write', () => {
+    const compiled = compileContext(
+      input({ repositoryInstructions: 'Deploy with api_key=sk-live-abcdef123456 when releasing.' }),
+    )
+
+    expect(compiled.packet.repositoryInstructions).not.toContain('sk-live-abcdef123456')
+  })
+
+  it('truncates a long file on a line boundary and says that it did', () => {
+    // Mid-sentence would leave an agent acting on half an instruction, and a silent cut
+    // would leave the user unable to tell why guidance they wrote was ignored.
+    const long = Array.from({ length: 500 }, (_, i) => `Rule number ${String(i)} goes here.`).join(
+      '\n',
+    )
+    const compiled = compileContext(input({ repositoryInstructions: long }))
+    const sent = compiled.packet.repositoryInstructions
+
+    expect(sent).not.toBeNull()
+    expect(sent?.length).toBeLessThan(long.length)
+    expect(sent).toContain('[Truncated by Forge:')
+    // The kept portion ends at a line break, not part-way through a sentence.
+    const kept = sent?.split('\n\n[Truncated by Forge:')[0] ?? ''
+    expect(long.startsWith(kept)).toBe(true)
+  })
+
+  it('does not let a long file crowd out the ranked relevant files', () => {
+    // The failure this prevents: a project that documents itself thoroughly would get
+    // *worse* context, because the instruction file consumed the budget files compete for.
+    const long = 'x'.repeat(50_000)
+
+    const withFiles = {
+      ...input({ repositoryInstructions: long }),
+      files: [
+        { path: 'src/a.ts', mentionedInTask: true, inScope: true },
+        { path: 'src/b.ts', inScope: true, recentlyChanged: true },
+      ],
+    }
+
+    const compiled = compileContext(withFiles)
+
+    expect(compiled.packet.relevantFiles.length).toBeGreaterThan(0)
+  })
+})
+
+describe('rendering the repository instructions', () => {
+  it('attributes them, so an agent is not told two things in one voice', () => {
+    const compiled = compileContext(
+      input({ repositoryInstructions: 'Prefer composition over inheritance.' }),
+    )
+
+    const rendered = renderPromptPacket(compiled.packet)
+
+    // Forge's rules are policy it enforces and halts on; this is the repository's own
+    // guidance. Under one heading, a style preference reads as a rule that fails a step.
+    expect(rendered).toContain("PROJECT INSTRUCTIONS — this repository's own guidance")
+    expect(rendered).toContain('Prefer composition over inheritance.')
+    expect(rendered.indexOf('RULES')).toBeLessThan(rendered.indexOf('PROJECT INSTRUCTIONS'))
+  })
+
+  it('omits the section entirely when there are none', () => {
+    const compiled = compileContext(input({ repositoryInstructions: null }))
+
+    expect(renderPromptPacket(compiled.packet)).not.toContain('PROJECT INSTRUCTIONS')
   })
 })

@@ -44,6 +44,13 @@ export interface ContextInput {
   readonly previousAttempt: { readonly summary: string; readonly diffStat: string } | null
   readonly reviewFindings: readonly string[]
   readonly answeredQuestions: readonly { readonly question: string; readonly answer: string }[]
+  /**
+   * The repository's own `CLAUDE.md`, already read by the caller (#133).
+   *
+   * A string rather than a path, so this module stays pure — the same reason file
+   * signals are supplied rather than computed here. Null when the repository has none.
+   */
+  readonly repositoryInstructions?: string | null
   readonly budget?: Partial<ContextBudget>
 }
 
@@ -74,6 +81,36 @@ export interface ContextBudget {
 }
 
 const DEFAULT_BUDGET: ContextBudget = { maxChars: 24_000, maxFiles: 40 }
+
+/**
+ * The most of a repository's `CLAUDE.md` that is ever sent.
+ *
+ * An absolute ceiling as well as a share of the budget: a caller that raises `maxChars`
+ * for a large task should not thereby send a proportionally larger instruction file, since
+ * the useful part of such a file is near the top and the rest is reference material.
+ */
+const MAX_INSTRUCTION_CHARS = 6_000
+
+/**
+ * Truncates on a line boundary, saying so.
+ *
+ * Cutting mid-sentence would leave an agent acting on half an instruction, which is worse
+ * than not sending the tail at all — and a silent cut would leave the user unable to tell
+ * why guidance they wrote was ignored.
+ */
+function capInstructions(text: string | null, maxChars: number): string | null {
+  if (text === null) return null
+
+  const trimmed = text.trim()
+  if (trimmed === '') return null
+  if (trimmed.length <= maxChars) return trimmed
+
+  const cut = trimmed.slice(0, maxChars)
+  const lastBreak = cut.lastIndexOf('\n')
+  const kept = (lastBreak > 0 ? cut.slice(0, lastBreak) : cut).trimEnd()
+
+  return `${kept}\n\n[Truncated by Forge: this file is ${String(trimmed.length)} characters and only the first ${String(kept.length)} were sent.]`
+}
 
 /** What the engine did, so a user can see why an agent was told what it was told. */
 export interface ContextTrace {
@@ -190,11 +227,21 @@ export function compileContext(input: ContextInput): CompiledContext {
     (decision) => `${decision.statement} — because ${decision.rationale}`,
   )
 
+  // Capped before it is measured, and measured as fixed cost. A repository's CLAUDE.md is
+  // arbitrary-length content that Forge does not control: uncapped, a long one would both
+  // bloat every stored packet and consume the budget that ranked files compete for,
+  // silently making context worse the more a project documents itself (#133).
+  const repositoryInstructions = capInstructions(
+    input.repositoryInstructions ?? null,
+    Math.min(MAX_INSTRUCTION_CHARS, Math.floor(budget.maxChars / 4)),
+  )
+
   const fixedChars = charsOf([
     input.task.objective,
     ...input.task.constraints,
     ...lockedStatements,
     ...input.rules.map((rule) => rule.statement),
+    ...(repositoryInstructions === null ? [] : [repositoryInstructions]),
   ])
 
   const filePaths: string[] = []
@@ -242,6 +289,10 @@ export function compileContext(input: ContextInput): CompiledContext {
       question: redactSecrets(entry.question),
       answer: redactSecrets(entry.answer),
     })),
+    // Redacted like every other packet field. This is repository content Forge did not
+    // write, so it is exactly the kind of text that can carry something secret-shaped.
+    repositoryInstructions:
+      repositoryInstructions === null ? null : redactSecrets(repositoryInstructions),
   })
 
   const truncatedPaths = [...droppedByCount, ...droppedByChars]

@@ -46,6 +46,7 @@ import { QuestionStore } from '../db/questionStore'
 import { DecisionStore } from '../db/decisionStore'
 import { ChangeSetStore } from '../db/changeSetStore'
 import { PacketStore } from '../context/packetStore'
+import { readRepositoryInstructions } from '../context/repositoryInstructions'
 import { GitService } from '../git'
 import { buildChangeSet } from '../evidence/changeSetBuilder'
 import { verifyStep } from '../evidence/verifier'
@@ -464,6 +465,23 @@ export class WorkflowService {
           rationale: d.rationale,
         }))
 
+        // Read per step rather than once per workflow: a run can span an edit to the
+        // file, and the packet should say what the repository asked for at the time the
+        // step ran, not when the workflow started.
+        //
+        // The filenames come from the runtime bound to this role — which file a provider
+        // reads is provider-specific, and core must not name one (A6). A role with no
+        // binding gets no instructions rather than a guessed filename.
+        const boundRuntimeId = bindings.get(ctx.role)?.runtimeId ?? null
+        const instructionFilenames =
+          boundRuntimeId !== null && this.registry.has(boundRuntimeId)
+            ? this.registry.resolve(boundRuntimeId).instructionFilenames
+            : []
+        const repositoryInstructions = await readRepositoryInstructions(
+          repositoryPath,
+          instructionFilenames,
+        )
+
         const compiled = compileContext({
           role: ctx.role,
           task,
@@ -473,6 +491,7 @@ export class WorkflowService {
           previousAttempt: ctx.previousAttempt,
           reviewFindings: ctx.reviewFindings,
           answeredQuestions,
+          repositoryInstructions,
         })
         return compiled.packet
       },

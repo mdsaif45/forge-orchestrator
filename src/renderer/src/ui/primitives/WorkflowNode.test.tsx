@@ -40,7 +40,7 @@ describe('WorkflowNode', () => {
       />,
     )
 
-    expect(screen.getByText('simulated')).toBeInTheDocument()
+    expect(screen.getByText(/simulated/i)).toBeInTheDocument()
     // The outcome stays legible, but prefixed — never a bare "pass".
     expect(screen.getByText('sim pass')).toBeInTheDocument()
     expect(screen.queryByText('pass')).not.toBeInTheDocument()

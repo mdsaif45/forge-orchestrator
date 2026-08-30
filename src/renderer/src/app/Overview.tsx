@@ -14,10 +14,10 @@ import {
   Spinner,
   StatusDot,
 } from '../ui'
-import { CreateProjectDialog } from './CreateProjectDialog'
 import { EditProjectDialog } from './EditProjectDialog'
 import { useProjectStore } from './projectStore'
 import { ROUTES } from './routes'
+import { useUiStore } from './uiStore'
 
 const OVERVIEW = ROUTES[0]
 
@@ -60,7 +60,7 @@ export function Overview(): React.JSX.Element {
 }
 
 function WelcomeWorkspace(): React.JSX.Element {
-  const [createOpen, setCreateOpen] = useState(false)
+  const openCreateProject = useUiStore((state) => state.openCreateProject)
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-8 px-6 py-12 text-center animate-in fade-in duration-200">
@@ -83,9 +83,7 @@ function WelcomeWorkspace(): React.JSX.Element {
         <Button
           size="lg"
           variant="primary"
-          onClick={() => {
-            setCreateOpen(true)
-          }}
+          onClick={openCreateProject}
           className="rounded-xl px-6 py-2.5 text-[13px] font-semibold shadow-md"
         >
           <span className="mr-1.5 text-base font-bold">+</span> Open or Create Project
@@ -129,16 +127,6 @@ function WelcomeWorkspace(): React.JSX.Element {
       <div className="w-full">
         <RuntimeCard />
       </div>
-
-      {/* Create Project Modal */}
-      {createOpen && (
-        <CreateProjectDialog
-          open
-          onClose={() => {
-            setCreateOpen(false)
-          }}
-        />
-      )}
     </div>
   )
 }

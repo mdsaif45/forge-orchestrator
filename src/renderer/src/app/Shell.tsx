@@ -8,33 +8,24 @@ import { Sidebar } from './Sidebar'
 import { StatusStrip, type WorkflowStatePlaceholder } from './StatusStrip'
 import { useUiStore } from './uiStore'
 
-/**
- * The kitchen sink is a development tool, and must not reach a released build.
- *
- * Loaded through a dynamic import rather than a static one so the bundler can drop
- * the chunk entirely: a static import stays in the graph even when the JSX using it
- * is unreachable, so gating the render alone would still ship the code (#103).
- * `import.meta.env.DEV` is statically replaced at build time, which is what lets the
- * whole branch — and everything under `dev/` — be eliminated.
- */
 const KitchenSink = import.meta.env.DEV
   ? lazy(async () => ({ default: (await import('../dev/KitchenSink')).KitchenSink }))
   : null
 
 /**
  * The application frame: status strip on top, sidebar beside routed content.
- *
- * Layout lives here so no page manages its own chrome. `min-h-0` on the flex
- * children is what lets an inner `ScrollArea` scroll instead of the page growing
- * — without it, a long agent log would stretch the window rather than scroll.
+ * Centralized container for modals and shell navigation.
  */
 export function Shell(): React.JSX.Element {
   const [sinkOpen, setSinkOpen] = useState(false)
-  const [createOpen, setCreateOpen] = useState(false)
 
   const settingsOpen = useUiStore((state) => state.settingsOpen)
   const closeSettings = useUiStore((state) => state.closeSettings)
   const toggleSettings = useUiStore((state) => state.toggleSettings)
+
+  const createProjectOpen = useUiStore((state) => state.createProjectOpen)
+  const openCreateProject = useUiStore((state) => state.openCreateProject)
+  const closeCreateProject = useUiStore((state) => state.closeCreateProject)
 
   const projects = useProjectStore((state) => state.projects)
   const selectedProjectId = useProjectStore((state) => state.selectedProjectId)
@@ -55,8 +46,6 @@ export function Shell(): React.JSX.Element {
     }
   }, [toggleSettings])
 
-  // One load for the whole shell: the switcher and every page read the same store,
-  // so fetching per page would issue the same query several times per navigation.
   useEffect(() => {
     void refresh()
   }, [refresh])
@@ -108,9 +97,7 @@ export function Shell(): React.JSX.Element {
         onSelectProject={(projectId) => {
           void select(projectId)
         }}
-        onNewProject={() => {
-          setCreateOpen(true)
-        }}
+        onNewProject={openCreateProject}
         workflowState={workflowState}
         onOpenKitchenSink={() => {
           setSinkOpen(true)
@@ -140,10 +127,8 @@ export function Shell(): React.JSX.Element {
       )}
 
       <CreateProjectDialog
-        open={createOpen}
-        onClose={() => {
-          setCreateOpen(false)
-        }}
+        open={createProjectOpen}
+        onClose={closeCreateProject}
       />
 
       <SettingsDialog

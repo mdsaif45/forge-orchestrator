@@ -196,16 +196,16 @@ export function AgentsPage(): React.JSX.Element {
             No roles currently bound. Select engines below to assign roles for this project.
           </Card>
         ) : (
-          <div className="grid gap-3">
+          <div className="grid gap-2">
             {roles.map(({ role, binding, eligibleRuntimes }) => (
               <Card
                 key={role}
                 tone="raised"
-                className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+                className="px-3 py-2 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between"
               >
-                <div className="space-y-0.5">
+                <div className="space-y-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-[14px] font-bold capitalize text-(--color-text)">
+                    <span className="text-[13px] font-bold capitalize text-(--color-text)">
                       {role}
                     </span>
                     <Badge
@@ -225,14 +225,14 @@ export function AgentsPage(): React.JSX.Element {
                           : 'Code Review & Audit'}
                     </Badge>
                   </div>
-                  <p className="m-0 font-mono text-[11px] text-(--color-text-muted)">
+                  <p className="m-0 font-mono text-[10px] text-(--color-text-muted)">
                     Current Engine:{' '}
                     <span className="text-(--color-text)">{binding?.runtimeId ?? 'Not bound'}</span>
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <div className="w-64">
+                  <div className="w-52">
                     <Select
                       aria-label={`Runtime for ${role}`}
                       options={eligibleRuntimes.map((runtime) => ({

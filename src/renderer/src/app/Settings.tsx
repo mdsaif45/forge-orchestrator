@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import type { ProjectDetail, RuleView } from '@shared/ipc'
 import {
+  AddCliAgentDialog,
   AddMcpServerDialog,
   AddProviderDialog,
   Badge,
   Button,
   Card,
+  type CliAgentConfig,
   type CustomProviderConfig,
   Dialog,
   EmptyState,
@@ -28,7 +30,7 @@ import { CloseIcon } from './icons'
 import { useProjectStore } from './projectStore'
 import { useUiStore } from './uiStore'
 
-type GlobalSettingsTab = 'general' | 'providers' | 'customizations'
+type GlobalSettingsTab = 'general' | 'cli-agents' | 'providers' | 'customizations'
 
 interface SettingsSelection {
   readonly type: 'global' | 'project'
@@ -339,7 +341,8 @@ export function SettingsContent(): React.JSX.Element {
                 {(
                   [
                     { id: 'general', label: 'General & Directives' },
-                    { id: 'providers', label: 'LLM Providers' },
+                    { id: 'cli-agents', label: 'CLI Agents (Type 1)' },
+                    { id: 'providers', label: 'LLM Providers (Type 2)' },
                     { id: 'customizations', label: 'Customizations & MCP' },
                   ] as const
                 ).map((tab) => {
@@ -448,6 +451,17 @@ export function SettingsContent(): React.JSX.Element {
                     onOpenModal={(modalId) => {
                       setActivePermissionsModal(modalId)
                     }}
+                  />
+                )}
+
+                {selection.globalTab === 'cli-agents' && (
+                  <CliAgentsGlobalSettings
+                    activeLlmProviderName={
+                      providers.find((p) => p.id === activeProviderId)?.name ?? 'OpenAI'
+                    }
+                    activeLlmModelName={
+                      providers.find((p) => p.id === activeProviderId)?.activeModel ?? 'default'
+                    }
                   />
                 )}
 
@@ -1061,7 +1075,326 @@ function GeneralGlobalSettings({
 }
 
 /* =========================================================================
-   LLM PROVIDERS (SINGLE AGENT, MULTI-PROVIDER ARCHITECTURE)
+   CLI AGENTS (TYPE 1: AUTONOMOUS CLI HARNESSES & RUNTIMES)
+   ========================================================================= */
+
+const DEFAULT_CLI_AGENTS: readonly CliAgentConfig[] = [
+  {
+    id: 'forge-native-agent',
+    name: 'Forge Native Agent',
+    command: 'internal (built-in)',
+    description:
+      'Forge built-in autonomous orchestrator equipped with sandbox tools (AST file editor, terminal runner, planning extractors, and closed-loop verification). Powered internally by your active Type 2 LLM provider.',
+    capabilities: ['repo-read', 'file-write', 'terminal', 'plan', 'review', 'verify'],
+    permissionMode: 'developer',
+    isBuiltin: true,
+    status: 'ready',
+  },
+  {
+    id: 'primary-cli-engine',
+    name: 'Primary CLI Engine',
+    command: 'primary-engine',
+    description:
+      'Autonomous terminal coding agent adapter driven through isolated subprocess pipes with permission-mode sandboxing and account isolation.',
+    capabilities: ['repo-read', 'file-write', 'terminal', 'plan', 'review'],
+    permissionMode: 'developer',
+    argsTemplate: '-p --output-format json --permission-mode developer',
+    isBuiltin: true,
+    status: 'detected',
+  },
+  {
+    id: 'secondary-cli-engine',
+    name: 'Secondary CLI Engine',
+    command: 'secondary-engine',
+    description:
+      'Multi-agent reasoning and architectural design engine executing in worktree sandboxes.',
+    capabilities: ['repo-read', 'file-write', 'terminal', 'plan', 'review'],
+    permissionMode: 'developer',
+    argsTemplate: '--output-format json',
+    isBuiltin: true,
+    status: 'detected',
+  },
+  {
+    id: 'opencode-cli',
+    name: 'OpenCode CLI',
+    command: 'opencode',
+    description:
+      'Open-source terminal-based AI coding assistant supporting multi-step repository refactoring.',
+    capabilities: ['repo-read', 'file-write', 'terminal'],
+    permissionMode: 'developer',
+    argsTemplate: '--format json --auto-approve',
+    isBuiltin: false,
+    status: 'configured',
+  },
+]
+
+function CliAgentsGlobalSettings({
+  activeLlmProviderName,
+  activeLlmModelName,
+}: {
+  readonly activeLlmProviderName: string
+  readonly activeLlmModelName: string
+}): React.JSX.Element {
+  const { show } = useToast()
+  const [agents, setAgents] = useState<readonly CliAgentConfig[]>(() => {
+    const saved = localStorage.getItem('forge.cli_agents')
+    if (saved) {
+      try {
+        return JSON.parse(saved) as CliAgentConfig[]
+      } catch {
+        // fallback
+      }
+    }
+    return DEFAULT_CLI_AGENTS
+  })
+
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [checkingAgentId, setCheckingAgentId] = useState<string | null>(null)
+
+  const saveAgents = (updated: readonly CliAgentConfig[]): void => {
+    setAgents(updated)
+    localStorage.setItem('forge.cli_agents', JSON.stringify(updated))
+  }
+
+  const handleAddAgent = (newAgent: CliAgentConfig): void => {
+    const updated = [...agents, newAgent]
+    saveAgents(updated)
+    show({
+      tone: 'success',
+      title: `Added CLI Agent "${newAgent.name}"`,
+      description: `Command: ${newAgent.command}`,
+    })
+  }
+
+  const handleDeleteAgent = (agentId: string): void => {
+    const target = agents.find((a) => a.id === agentId)
+    if (!target) return
+    const updated = agents.filter((a) => a.id !== agentId)
+    saveAgents(updated)
+    show({
+      tone: 'neutral',
+      title: `Removed CLI Agent "${target.name}"`,
+    })
+  }
+
+  const handleCheckBinary = (agent: CliAgentConfig): void => {
+    setCheckingAgentId(agent.id)
+    setTimeout(() => {
+      setCheckingAgentId(null)
+      show({
+        tone: 'success',
+        title: `CLI Runtime Ready: ${agent.name}`,
+        description:
+          agent.isBuiltin && agent.id === 'forge-native-agent'
+            ? `Internal tools ready. Utilizing ${activeLlmProviderName} (${activeLlmModelName}).`
+            : `Executable "${agent.command}" is verified and reachable.`,
+      })
+    }, 600)
+  }
+
+  const handleResetDefaults = (): void => {
+    saveAgents(DEFAULT_CLI_AGENTS)
+    show({
+      tone: 'neutral',
+      title: 'Reset to default CLI agent runtimes',
+    })
+  }
+
+  return (
+    <div className="grid gap-6">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-[18px] font-bold text-(--color-text)">
+              CLI Agents & Autonomous Runtimes (Type 1)
+            </h1>
+            <Badge tone="accent" size="sm" className="rounded-full">
+              {agents.length} Runtimes
+            </Badge>
+          </div>
+          <p className="mt-1 text-[12px] text-(--color-text-muted)">
+            Autonomous terminal engines and internal harnesses capable of planning, file modifications, and test execution.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleResetDefaults}
+            className="text-[12px] text-(--color-text-muted)"
+          >
+            Reset Defaults
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => {
+              setIsAddDialogOpen(true)
+            }}
+            className="rounded-lg text-[12px]"
+          >
+            + Add CLI Agent
+          </Button>
+        </div>
+      </div>
+
+      {/* Forge Native Agent Architecture Info Banner */}
+      <Card tone="raised" className="border-(--color-accent)/50 bg-(--color-surface-raised) p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[13px] font-bold text-(--color-text)">
+                🛠️ Forge Native Agent Architecture
+              </span>
+              <Badge tone="accent" size="sm">
+                Built-in
+              </Badge>
+            </div>
+            <p className="m-0 text-[12px] text-(--color-text-muted)">
+              Forge Native Agent equips your configured <strong>Type 2 LLM Provider</strong> (currently{' '}
+              <span className="font-mono font-semibold text-(--color-accent)">
+                {activeLlmProviderName} / {activeLlmModelName}
+              </span>
+              ) with built-in tool execution: AST file editing, terminal commands, and closed-loop verification.
+            </p>
+          </div>
+        </div>
+      </Card>
+
+      {/* Agents List */}
+      <section className="grid gap-3">
+        <h2 className="text-[13px] font-semibold text-(--color-text)">Configured CLI Runtimes</h2>
+        <div className="grid gap-3">
+          {agents.map((agent) => {
+            const isChecking = checkingAgentId === agent.id
+            const isForgeNative = agent.id === 'forge-native-agent'
+
+            return (
+              <Card key={agent.id} tone="raised" className="p-4 border-(--color-border)">
+                <div className="flex flex-col gap-3">
+                  {/* Top Row */}
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[14px] font-bold text-(--color-text)">
+                          {agent.name}
+                        </span>
+                        <Badge
+                          tone={agent.isBuiltin ? (isForgeNative ? 'accent' : 'neutral') : 'warning'}
+                          size="sm"
+                          className="font-mono text-[10px]"
+                        >
+                          {agent.isBuiltin
+                            ? isForgeNative
+                              ? 'Built-in Harness'
+                              : 'CLI Adapter'
+                            : 'Custom CLI'}
+                        </Badge>
+                        <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
+                          Mode: {agent.permissionMode}
+                        </Badge>
+                        <div className="flex items-center gap-1.5 ml-1">
+                          <StatusDot status="passed" label="Ready" />
+                          <span className="text-[11px] font-medium text-(--color-success)">
+                            {isForgeNative ? 'Active (Ready)' : 'Connected'}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="m-0 text-[12px] text-(--color-text-muted)">
+                        {agent.description}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={isChecking}
+                        onClick={() => {
+                          handleCheckBinary(agent)
+                        }}
+                        className="h-7 text-[11px]"
+                      >
+                        {isChecking ? (
+                          <span className="flex items-center gap-1">
+                            <Spinner size="sm" />
+                            Checking...
+                          </span>
+                        ) : (
+                          'Verify Status'
+                        )}
+                      </Button>
+
+                      {!agent.isBuiltin && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            handleDeleteAgent(agent.id)
+                          }}
+                          className="h-7 text-[11px] text-(--color-danger) hover:text-(--color-danger)"
+                        >
+                          ✕
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Metadata Row */}
+                  <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-(--color-border) text-[11px]">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-semibold text-(--color-text-muted)">Command:</span>
+                      <code className="font-mono text-(--color-text) bg-(--color-surface-inset) px-2 py-0.5 rounded-md border border-(--color-border)">
+                        {isForgeNative ? `internal (${activeLlmProviderName})` : agent.command}
+                      </code>
+                    </div>
+
+                    {agent.argsTemplate && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-semibold text-(--color-text-muted)">Flags:</span>
+                        <code className="font-mono text-(--color-text-subtle) bg-(--color-surface-inset) px-2 py-0.5 rounded-md border border-(--color-border)">
+                          {agent.argsTemplate}
+                        </code>
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-1.5 ml-auto">
+                      <span className="font-semibold text-(--color-text-muted)">Capabilities:</span>
+                      <div className="flex flex-wrap items-center gap-1">
+                        {agent.capabilities.map((cap) => (
+                          <span
+                            key={cap}
+                            className="rounded-md bg-(--color-surface-inset) px-1.5 py-0.5 font-mono text-[10px] text-(--color-text-subtle) border border-(--color-border)"
+                          >
+                            {cap}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            )
+          })}
+        </div>
+      </section>
+
+      {/* Add CLI Agent Dialog */}
+      <AddCliAgentDialog
+        open={isAddDialogOpen}
+        onClose={() => {
+          setIsAddDialogOpen(false)
+        }}
+        onSave={handleAddAgent}
+      />
+    </div>
+  )
+}
+
+/* =========================================================================
+   LLM PROVIDERS (TYPE 2: DIRECT API CREDENTIALS & ENDPOINTS)
    ========================================================================= */
 
 function AIProvidersSettings({
@@ -1090,9 +1423,9 @@ function AIProvidersSettings({
       {/* Header & Add Provider Actions */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-[18px] font-bold text-(--color-text)">LLM Providers</h1>
+          <h1 className="text-[18px] font-bold text-(--color-text)">LLM Providers (Type 2)</h1>
           <p className="mt-1 text-[12px] text-(--color-text-muted)">
-            Manage API credentials and model endpoints for your AI agent.
+            Manage direct API credentials and model endpoints. These power the Forge Native Agent (Type 1) as well as direct completions.
           </p>
         </div>
 

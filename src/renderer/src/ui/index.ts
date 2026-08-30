@@ -93,3 +93,8 @@ export {
   type AddMcpServerDialogProps,
   type McpServerConfig,
 } from './primitives/AddMcpServerDialog'
+export {
+  AddCliAgentDialog,
+  type AddCliAgentDialogProps,
+  type CliAgentConfig,
+} from './primitives/AddCliAgentDialog'

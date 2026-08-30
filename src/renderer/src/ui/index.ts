@@ -46,3 +46,16 @@ export { QuestionCard, type QuestionCardProps } from './primitives/QuestionCard'
 export { DecisionCard, type DecisionCardProps } from './primitives/DecisionCard'
 export { FileTree, type FileTreeProps } from './primitives/FileTree'
 export { DiffViewer, type DiffViewerProps } from './primitives/DiffViewer'
+export { CodeViewer, type CodeViewerProps } from './primitives/CodeViewer'
+export { FileIcon, FolderChevron, type FileIconProps } from './primitives/FileIcons'
+export { buildFileTree, filterFileTree, type TreeNode } from './primitives/fileTreeModel'
+export {
+  highlightCode,
+  highlightLine,
+  detectLanguage,
+  parseDiffLines,
+  buildSplitDiff,
+  type ParsedDiffLine,
+  type SplitDiffRow,
+  type DiffLineType,
+} from './primitives/syntaxHighlighter'

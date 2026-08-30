@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '../cn'
 import { IconButton } from './IconButton'
@@ -6,22 +6,21 @@ import { IconButton } from './IconButton'
 /**
  * Transient notifications.
  *
- * Reserved for feedback on completed actions. Anything a workflow is *blocked*
- * on belongs in the question queue (#39), not in a toast that can be missed —
- * axiom A2 requires a durable place to answer, not a disappearing one.
+ * Reserved for feedback on completed actions. Automatically dismisses after
+ * a duration (default 4.5s, 6s for danger/errors) or when manually dismissed by user.
  */
 const toast = cva(
   [
     'pointer-events-auto flex w-80 items-start gap-2.5',
-    'rounded-(--radius-lg) border p-3 shadow-(--shadow-md)',
+    'rounded-xl border p-3.5 shadow-lg backdrop-blur-xs transition-all duration-(--duration-fast)',
   ],
   {
     variants: {
       tone: {
-        neutral: 'bg-(--color-surface-overlay) border-(--color-border-strong)',
-        success: 'bg-(--color-surface-overlay) border-(--color-success)/40',
-        warning: 'bg-(--color-surface-overlay) border-(--color-warning)/40',
-        danger: 'bg-(--color-surface-overlay) border-(--color-danger)/40',
+        neutral: 'bg-(--color-surface-raised) border-(--color-border-strong)',
+        success: 'bg-(--color-surface-raised) border-(--color-success)/40 text-(--color-success)',
+        warning: 'bg-(--color-surface-raised) border-(--color-warning)/40 text-(--color-warning)',
+        danger: 'bg-(--color-surface-raised) border-(--color-danger)/40 text-(--color-danger)',
       },
     },
     defaultVariants: { tone: 'neutral' },
@@ -35,6 +34,8 @@ export interface ToastMessage {
   readonly title: string
   readonly description?: string
   readonly tone?: ToastTone
+  /** Duration in milliseconds before auto-dismiss. Defaults to 4500 (6000 for danger). Set to 0 to disable. */
+  readonly duration?: number
 }
 
 interface ToastContextValue {
@@ -57,8 +58,6 @@ export function ToastProvider({ children }: { children: React.ReactNode }): Reac
   }, [])
 
   const show = useCallback((message: Omit<ToastMessage, 'id'>) => {
-    // `crypto.randomUUID` is available in the renderer and avoids a counter that
-    // could collide across remounts.
     const id = crypto.randomUUID()
     setMessages((current) => [...current, { ...message, id }])
   }, [])
@@ -77,33 +76,60 @@ export function ToastProvider({ children }: { children: React.ReactNode }): Reac
         className="pointer-events-none fixed right-4 bottom-4 z-(--z-toast) flex flex-col gap-2"
       >
         {messages.map((message) => (
-          <div key={message.id} className={cn(toast({ tone: message.tone }))}>
-            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-              <p className="text-(length:--text-sm) font-medium text-(--color-text)">
-                {message.title}
-              </p>
-              {message.description !== undefined ? (
-                <p className="text-(length:--text-xs) break-words text-(--color-text-muted)">
-                  {message.description}
-                </p>
-              ) : null}
-            </div>
-
-            <IconButton
-              label="Dismiss notification"
-              size="sm"
-              onClick={() => {
-                dismiss(message.id)
-              }}
-              icon={
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-                </svg>
-              }
-            />
-          </div>
+          <ToastItem key={message.id} message={message} onDismiss={dismiss} />
         ))}
       </div>
     </ToastContext.Provider>
+  )
+}
+
+function ToastItem({
+  message,
+  onDismiss,
+}: {
+  readonly message: ToastMessage
+  readonly onDismiss: (id: string) => void
+}): React.JSX.Element {
+  const duration = message.duration ?? (message.tone === 'danger' ? 6000 : 4500)
+
+  useEffect(() => {
+    if (duration <= 0 || duration === Number.POSITIVE_INFINITY) return
+
+    const timer = setTimeout(() => {
+      onDismiss(message.id)
+    }, duration)
+
+    return () => {
+      clearTimeout(timer)
+    }
+  }, [message.id, duration, onDismiss])
+
+  return (
+    <div className={cn(toast({ tone: message.tone }))}>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <p className="text-[13px] font-medium text-(--color-text)">
+          {message.title}
+        </p>
+        {message.description !== undefined ? (
+          <p className="text-[12px] break-words text-(--color-text-muted)">
+            {message.description}
+          </p>
+        ) : null}
+      </div>
+
+      <IconButton
+        label="Dismiss notification"
+        size="sm"
+        onClick={() => {
+          onDismiss(message.id)
+        }}
+        className="text-(--color-text-muted) hover:text-(--color-text)"
+        icon={
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+            <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+          </svg>
+        }
+      />
+    </div>
   )
 }

@@ -3,8 +3,10 @@ import { Outlet } from 'react-router'
 import { Dialog } from '../ui'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { useProjectStore } from './projectStore'
+import { SettingsDialog } from './Settings'
 import { Sidebar } from './Sidebar'
 import { StatusStrip, type WorkflowStatePlaceholder } from './StatusStrip'
+import { useUiStore } from './uiStore'
 
 /**
  * The kitchen sink is a development tool, and must not reach a released build.
@@ -30,10 +32,28 @@ export function Shell(): React.JSX.Element {
   const [sinkOpen, setSinkOpen] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
 
+  const settingsOpen = useUiStore((state) => state.settingsOpen)
+  const closeSettings = useUiStore((state) => state.closeSettings)
+  const toggleSettings = useUiStore((state) => state.toggleSettings)
+
   const projects = useProjectStore((state) => state.projects)
   const selectedProjectId = useProjectStore((state) => state.selectedProjectId)
   const select = useProjectStore((state) => state.select)
   const refresh = useProjectStore((state) => state.refresh)
+
+  // Global Settings keyboard shortcut (Cmd+, or Ctrl+,)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if ((e.metaKey || e.ctrlKey) && e.key === ',') {
+        e.preventDefault()
+        toggleSettings()
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [toggleSettings])
 
   // One load for the whole shell: the switcher and every page read the same store,
   // so fetching per page would issue the same query several times per navigation.
@@ -124,6 +144,11 @@ export function Shell(): React.JSX.Element {
         onClose={() => {
           setCreateOpen(false)
         }}
+      />
+
+      <SettingsDialog
+        open={settingsOpen}
+        onClose={closeSettings}
       />
     </div>
   )

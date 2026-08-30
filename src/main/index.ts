@@ -76,14 +76,15 @@ function startDatabase(): ForgeDatabase | null {
 }
 
 function createWindow(): BrowserWindow {
-  const window = new BrowserWindow({
+  const options: Electron.BrowserWindowConstructorOptions = {
     width: 1440,
     height: 900,
     minWidth: 1024,
     minHeight: 680,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: '#0b0d10',
+    backgroundColor: '#131315',
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       // The renderer is untrusted: no Node, no shared context, sandboxed.
@@ -97,14 +98,35 @@ function createWindow(): BrowserWindow {
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
     },
-  })
+  }
+
+  if (process.platform === 'win32') {
+    options.titleBarOverlay = {
+      color: '#00000000',
+      symbolColor: '#8b929c',
+      height: 38,
+    }
+  } else if (process.platform === 'darwin') {
+    options.trafficLightPosition = { x: 14, y: 12 }
+  }
+
+  const window = new BrowserWindow(options)
 
   window.on('ready-to-show', () => {
     window.show()
   })
+
+  // Pipe all renderer errors and console messages to terminal so issues are visible
+  window.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    const levels = ['LOG', 'INFO', 'WARN', 'ERROR']
+    const label = levels[level] ?? 'LOG'
+    console.warn(`[Renderer ${label}] ${message} (${sourceId}:${String(line)})`)
+  })
+
   lockWindowNavigation(window, devServerUrl)
 
   if (devServerUrl !== undefined) {
+    window.webContents.openDevTools({ mode: 'detach' })
     void window.loadURL(devServerUrl)
   } else {
     void window.loadFile(join(import.meta.dirname, '../renderer/index.html'))

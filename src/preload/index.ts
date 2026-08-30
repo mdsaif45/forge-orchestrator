@@ -42,6 +42,7 @@ const api: ForgeApi = {
     list: () => call('project:list', {}),
     get: (projectId) => call('project:get', { projectId }),
     update: (request) => call('project:update', request),
+    delete: (projectId) => call('project:delete', { projectId }),
   },
   rule: {
     set: (projectId, scope, key, statement) =>

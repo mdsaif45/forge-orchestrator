@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
@@ -554,4 +554,37 @@ describe('ProjectService.update', () => {
       service.update({ projectId: '00000000-0000-4000-8000-000000000000', name: 'Ghost' }),
     ).resolves.toBeNull()
   })
+
+  it('deletes a project from Forge while leaving disk repository files intact', async () => {
+    const service = new ProjectService(db)
+    const created = await service.create(request({ name: 'Disposable' }))
+
+    expect(service.list()).toHaveLength(1)
+    expect(existsSync(repoPath)).toBe(true)
+
+    const result = service.delete(created.id)
+    expect(result).toBe(true)
+
+    expect(service.list()).toHaveLength(0)
+    await expect(service.get(created.id)).resolves.toBeNull()
+
+    // Axiom: repository files and git folder on disk are NOT deleted.
+    expect(existsSync(repoPath)).toBe(true)
+    expect(existsSync(join(repoPath, 'README.md'))).toBe(true)
+  })
+
+  it('refuses to delete a project while a workflow is running', async () => {
+    const service = new ProjectService(db, () => true)
+    const created = await service.create(request({ name: 'Busy' }))
+
+    expect(() => service.delete(created.id)).toThrow(/running workflow/)
+  })
+
+  it('returns false when deleting a non-existent project', () => {
+    const service = new ProjectService(db)
+
+    const result = service.delete('00000000-0000-4000-8000-000000000000')
+    expect(result).toBe(false)
+  })
 })
+

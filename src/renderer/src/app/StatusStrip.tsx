@@ -3,13 +3,10 @@ import { Badge, Button, Select, Separator, StatusDot } from '../ui'
 import { useTheme } from '../ui'
 
 /**
- * The always-visible status strip.
+ * The always-visible frameless title bar / status strip.
  *
- * A long-running orchestrator's most-asked question is "what is happening right
- * now", so workflow state is global chrome rather than something to navigate to.
- *
- * The state shown here is a placeholder until the workflow engine lands in #32;
- * the shape it renders is the real one.
+ * Designed with Claude Code Desktop aesthetics: seamless drag region,
+ * integrated title bar overlay padding, smooth pill controls, and global workflow status.
  */
 export interface StatusStripProps {
   readonly projects: readonly ProjectView[]
@@ -20,10 +17,6 @@ export interface StatusStripProps {
   readonly onOpenKitchenSink: () => void
 }
 
-/**
- * A subset of the real `WorkflowState` from `docs/PLAN.md`, enough to render the
- * pill. Replaced by the shared domain type in #14.
- */
 export type WorkflowStatePlaceholder = 'idle' | 'running' | 'waiting' | 'passed' | 'failed'
 
 const STATE_PRESENTATION: Record<
@@ -49,64 +42,87 @@ export function StatusStrip({
   const presentation = STATE_PRESENTATION[workflowState]
 
   return (
-    <header className="flex h-10 shrink-0 items-center gap-3 border-b border-(--color-border) bg-(--color-surface) px-3">
-      <span className="text-(length:--text-sm) font-semibold">Forge</span>
+    <header className="app-drag-region flex h-[38px] shrink-0 select-none items-center gap-2.5 border-b border-(--color-border) bg-(--color-surface) px-3 pr-36 text-(--color-text) transition-colors duration-(--duration-fast)">
+      {/* Brand & App Title */}
+      <div className="flex items-center gap-2">
+        <span className="flex size-5 items-center justify-center rounded-md bg-(--color-accent)/15 text-(--color-accent) text-xs font-bold shadow-xs">
+          ⚡
+        </span>
+        <span className="text-[13px] font-semibold tracking-tight text-(--color-text)">Forge</span>
+      </div>
 
-      <Separator orientation="vertical" className="h-4" />
+      <Separator orientation="vertical" className="h-3.5" />
 
-      {/*
-        The switcher lives in global chrome because a project is the scope every
-        other screen is read through — moving between them should not require
-        navigating away from what you are looking at.
-      */}
-      {projects.length === 0 ? (
-        <span className="text-(length:--text-xs) text-(--color-text-muted)">No project</span>
-      ) : (
-        <Select
-          aria-label="Active project"
-          className="h-7 w-48"
-          options={projects.map((project) => ({ value: project.id, label: project.name }))}
-          value={selectedProjectId ?? ''}
-          onChange={(event) => {
-            onSelectProject(event.target.value)
-          }}
-        />
-      )}
+      {/* Project Selector (Claude Code Desktop Pill) */}
+      <div className="app-no-drag flex items-center gap-1.5">
+        {projects.length === 0 ? (
+          <span className="text-[12px] text-(--color-text-muted)">No project</span>
+        ) : (
+          <Select
+            aria-label="Active project"
+            className="h-7 w-44 rounded-lg text-[12px] font-medium"
+            options={projects.map((project) => ({ value: project.id, label: project.name }))}
+            value={selectedProjectId ?? ''}
+            onChange={(event) => {
+              onSelectProject(event.target.value)
+            }}
+          />
+        )}
 
-      <Button size="sm" variant="ghost" onClick={onNewProject}>
-        New project
-      </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onNewProject}
+          className="h-7 rounded-lg px-2 text-[12px] font-medium text-(--color-text-muted) hover:text-(--color-text)"
+        >
+          <span className="mr-1 text-[13px] font-bold">+</span> New
+        </Button>
+      </div>
 
-      {/* `aria-live` so a state change is announced without stealing focus. */}
-      <span
+      {/* Global Workflow Status Indicator */}
+      <div
         aria-live="polite"
-        className="ml-auto inline-flex items-center gap-1.5 text-(length:--text-xs) text-(--color-text-muted)"
+        className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-(--color-border) bg-(--color-surface-raised) px-2.5 py-0.5 text-[11px] text-(--color-text-muted)"
       >
         <StatusDot
           status={presentation.status}
           pulse={workflowState === 'running'}
           label={presentation.label}
         />
-        {presentation.label}
-      </span>
+        <span className="font-medium text-(--color-text)">{presentation.label}</span>
+      </div>
 
-      <Separator orientation="vertical" className="h-4" />
+      <Separator orientation="vertical" className="h-3.5" />
 
-      <Badge tone="neutral" size="sm">
+      <Badge tone="neutral" size="sm" className="rounded-md font-mono text-[10px]">
         pre-alpha
       </Badge>
 
-      {/* Development only, and statically eliminated from a release build — a button
-          that opens nothing is worse than no button (#103). */}
+      {/* Dev Kitchen Sink */}
       {import.meta.env.DEV && (
-        <Button size="sm" variant="ghost" onClick={onOpenKitchenSink}>
-          Kitchen sink
-        </Button>
+        <div className="app-no-drag">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onOpenKitchenSink}
+            className="h-7 rounded-lg px-2 text-[11px] text-(--color-text-muted)"
+          >
+            Kitchen sink
+          </Button>
+        </div>
       )}
 
-      <Button size="sm" variant="ghost" onClick={toggleTheme}>
-        {theme === 'dark' ? 'Light' : 'Dark'}
-      </Button>
+      {/* Theme Switcher */}
+      <div className="app-no-drag">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={toggleTheme}
+          className="h-7 rounded-lg px-2 text-[12px] text-(--color-text-muted) hover:text-(--color-text)"
+        >
+          {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
+        </Button>
+      </div>
     </header>
   )
 }

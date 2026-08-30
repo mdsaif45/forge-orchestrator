@@ -9,6 +9,7 @@ import {
   decisionIdSchema,
   FEATURE_IMPLEMENTATION,
   FORGE_DEFAULT_RULES,
+  isTerminalWorkflowState,
   projectIdSchema,
   questionIdSchema,
   repositoryIdSchema,
@@ -135,7 +136,7 @@ export class WorkflowService {
 
   getActive(projectId: string): WorkflowDetailView | null {
     const list = this.workflows.listForProject(projectIdSchema.parse(projectId))
-    const active = list.find((wf) => wf.finishedAt === null)
+    const active = list.find((wf) => wf.finishedAt === null && !isTerminalWorkflowState(wf.state))
     return active === undefined ? null : this.toDetailView(active)
   }
 
@@ -233,6 +234,22 @@ export class WorkflowService {
 
     const now = new Date().toISOString()
     try {
+      const current = this.workflows.find(wId)
+      if (current !== null && isTerminalWorkflowState(current.state)) {
+        if (current.finishedAt === null) {
+          const finished = this.events.append(
+            {
+              type: 'workflow.finished',
+              payload: { workflowId: wId, state: current.state, finishedAt: now },
+            },
+            { projectId: this.workflows.projectIdOf(wId), actor: 'user', occurredAt: now },
+          )
+          applyEvent(this.options.db, finished)
+        }
+        const refreshed = this.workflows.find(wId)
+        return refreshed === null ? null : this.toDetailView(refreshed)
+      }
+
       const wf = this.workflows.apply(wId, 'cancelled', 'user', now, { reason })
       this.notifyEvent({
         workflowId: wId,

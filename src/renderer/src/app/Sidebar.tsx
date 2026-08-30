@@ -1,19 +1,18 @@
 import { useCallback, useEffect, useState } from 'react'
 import { NavLink } from 'react-router'
 import { unwrap } from '../ipc'
-import { Badge, cn, IconButton, Separator, Tooltip } from '../ui'
+import { Badge, IconButton, Separator, Tooltip } from '../ui'
+import { cn } from '../ui'
 import { CollapseIcon, ExpandIcon } from './icons'
 import { useProjectStore } from './projectStore'
 import { ROUTES } from './routes'
 import { useUiStore } from './uiStore'
 
 /**
- * Persistent navigation, derived from the route table.
+ * The persistent navigation sidebar.
  *
- * Uses a real `<nav>` with `NavLink`, so the active route is announced via
- * `aria-current` and links behave like links — focusable, and traversable with
- * Tab in document order. Collapsed mode keeps the accessible name by moving the
- * label into a tooltip and `aria-label` rather than dropping it.
+ * Designed with Claude Code Desktop aesthetic: refined rounded-lg item pills,
+ * clear font hierarchy, smooth hover transitions, and accessible tooltips.
  */
 export function Sidebar(): React.JSX.Element {
   const collapsed = useUiStore((state) => state.sidebarCollapsed)
@@ -21,6 +20,12 @@ export function Sidebar(): React.JSX.Element {
   const projects = useProjectStore((state) => state.projects)
   const selectedProjectId = useProjectStore((state) => state.selectedProjectId)
   const [unansweredCount, setUnansweredCount] = useState(0)
+
+  const openSettings = useUiStore((state) => state.openSettings)
+  const settingsOpen = useUiStore((state) => state.settingsOpen)
+
+  const primaryRoutes = ROUTES.filter((r) => r.path !== '/settings')
+  const settingsRoute = ROUTES.find((r) => r.path === '/settings')
 
   const refreshCount = useCallback(() => {
     if (selectedProjectId !== null) {
@@ -63,11 +68,11 @@ export function Sidebar(): React.JSX.Element {
       className={cn(
         'flex shrink-0 flex-col border-r border-(--color-border) bg-(--color-surface)',
         'transition-[width] duration-(--duration-base) ease-(--ease-out)',
-        collapsed ? 'w-12' : 'w-44',
+        collapsed ? 'w-12' : 'w-48',
       )}
     >
-      <ul className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto p-2">
-        {ROUTES.map((route) => (
+      <ul className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-2">
+        {primaryRoutes.map((route) => (
           <li key={route.path}>
             {collapsed ? (
               <Tooltip content={route.label} side="right">
@@ -90,6 +95,49 @@ export function Sidebar(): React.JSX.Element {
         ))}
       </ul>
 
+      {settingsRoute && (
+        <div className="flex flex-col gap-1 p-2 pt-0">
+          <Separator className="my-1" />
+          {collapsed ? (
+            <Tooltip content={settingsRoute.label} side="right">
+              <button
+                type="button"
+                onClick={openSettings}
+                aria-label={settingsRoute.label}
+                className={cn(
+                  'flex size-8 mx-auto items-center justify-center rounded-lg cursor-pointer',
+                  'text-[13px] font-medium transition-colors duration-(--duration-fast) ease-(--ease-out)',
+                  'outline-none focus-visible:ring-2 focus-visible:ring-(--color-border-focus)',
+                  '[&>svg]:size-4 [&>svg]:shrink-0',
+                  settingsOpen
+                    ? 'bg-(--color-surface-raised) text-(--color-text) shadow-xs border border-(--color-border)'
+                    : 'text-(--color-text-muted) hover:bg-(--color-surface-raised) hover:text-(--color-text)',
+                )}
+              >
+                {settingsRoute.icon}
+              </button>
+            </Tooltip>
+          ) : (
+            <button
+              type="button"
+              onClick={openSettings}
+              className={cn(
+                'flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 w-full cursor-pointer text-left',
+                'text-[13px] font-medium transition-colors duration-(--duration-fast) ease-(--ease-out)',
+                'outline-none focus-visible:ring-2 focus-visible:ring-(--color-border-focus)',
+                '[&>svg]:size-4 [&>svg]:shrink-0',
+                settingsOpen
+                  ? 'bg-(--color-surface-raised) text-(--color-text) shadow-xs border border-(--color-border)'
+                  : 'text-(--color-text-muted) hover:bg-(--color-surface-raised) hover:text-(--color-text)',
+              )}
+            >
+              {settingsRoute.icon}
+              <span className="truncate">{settingsRoute.label}</span>
+            </button>
+          )}
+        </div>
+      )}
+
       <Separator />
 
       <div className={cn('flex p-2', collapsed ? 'justify-center' : 'justify-end')}>
@@ -98,6 +146,7 @@ export function Sidebar(): React.JSX.Element {
           label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           onClick={toggleSidebar}
           icon={collapsed ? <ExpandIcon /> : <CollapseIcon />}
+          className="rounded-lg text-(--color-text-muted) hover:text-(--color-text)"
         />
       </div>
     </nav>
@@ -116,20 +165,18 @@ function NavItem({
   return (
     <NavLink
       to={route.path}
-      // `end` on the index route only, so "/" is not treated as a prefix match
-      // of every other path.
       end={route.path === '/'}
       aria-label={collapsed ? route.label : undefined}
-      className={({ isActive }) =>
+      className={({ isActive }: { readonly isActive: boolean }) =>
         cn(
-          'flex items-center gap-2.5 rounded-(--radius-md) px-2 py-1.5',
-          'text-(length:--text-sm) no-underline',
-          'transition-colors duration-(--duration-fast) ease-(--ease-out)',
+          'relative flex items-center rounded-lg font-medium select-none',
+          'text-[13px] no-underline',
+          'transition-all duration-(--duration-fast) ease-(--ease-out)',
           'outline-none focus-visible:ring-2 focus-visible:ring-(--color-border-focus)',
           '[&>svg]:size-4 [&>svg]:shrink-0',
-          collapsed && 'justify-center px-0',
+          collapsed ? 'size-8 justify-center mx-auto' : 'gap-2.5 px-2.5 py-1.5 w-full',
           isActive
-            ? 'bg-(--color-accent-muted) text-(--color-text)'
+            ? 'bg-(--color-surface-raised) text-(--color-text) font-semibold shadow-xs border border-(--color-border)'
             : 'text-(--color-text-muted) hover:bg-(--color-surface-raised) hover:text-(--color-text)',
         )
       }
@@ -141,7 +188,7 @@ function NavItem({
           tone="warning"
           size="sm"
           className={cn(
-            'ml-auto shrink-0 animate-pulse font-bold',
+            'ml-auto shrink-0 animate-pulse font-bold rounded-full text-[10px]',
             collapsed && 'absolute right-1 top-1 size-2 rounded-full p-0 text-[0px]',
           )}
         >

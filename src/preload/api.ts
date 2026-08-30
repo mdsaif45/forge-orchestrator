@@ -98,6 +98,8 @@ export interface ForgeApi {
       readonly testCommand?: string | null
       readonly tech?: readonly string[]
     }) => Promise<IpcResult<ProjectDetail | null>>
+    /** Permanently removes a project from Forge sessions and local SQLite database. */
+    delete: (projectId: string) => Promise<IpcResult<{ readonly success: boolean }>>
   }
   readonly rule: {
     /**

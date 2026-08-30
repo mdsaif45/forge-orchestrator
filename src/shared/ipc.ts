@@ -521,6 +521,10 @@ export const IPC_CONTRACT = {
     }),
     response: projectDetailSchema.nullable(),
   },
+  'project:delete': {
+    request: z.strictObject({ projectId: z.string() }),
+    response: z.strictObject({ success: z.boolean() }),
+  },
   'rule:set': {
     request: z.strictObject({
       projectId: z.string(),

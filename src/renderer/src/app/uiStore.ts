@@ -18,6 +18,10 @@ interface UiState {
   readonly sidebarCollapsed: boolean
   readonly toggleSidebar: () => void
   readonly setSidebarCollapsed: (collapsed: boolean) => void
+  readonly settingsOpen: boolean
+  readonly openSettings: () => void
+  readonly closeSettings: () => void
+  readonly toggleSettings: () => void
 }
 
 export const useUiStore = create<UiState>()(
@@ -26,6 +30,10 @@ export const useUiStore = create<UiState>()(
       sidebarCollapsed: false,
       toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+      settingsOpen: false,
+      openSettings: () => set({ settingsOpen: true }),
+      closeSettings: () => set({ settingsOpen: false }),
+      toggleSettings: () => set((state) => ({ settingsOpen: !state.settingsOpen })),
     }),
     {
       name: 'forge.ui',

@@ -52,4 +52,27 @@ describe('FileTree', () => {
     fireEvent.click(screen.getByText('src/models/User.ts'))
     expect(onSelect).toHaveBeenCalledWith('src/models/User.ts')
   })
+
+  it('renders hierarchical tree with folders and expands when clicked', () => {
+    const onSelect = vi.fn()
+    const allFiles = ['src/components/Button.tsx', 'src/index.ts', 'package.json']
+
+    render(
+      <FileTree
+        allFiles={allFiles}
+        selectedPath="src/index.ts"
+        onSelectFile={onSelect}
+        mode="tree"
+      />,
+    )
+
+    // Check directory and root files are present
+    expect(screen.getByText('src')).toBeInTheDocument()
+    expect(screen.getByText('package.json')).toBeInTheDocument()
+    expect(screen.getByText('3 files')).toBeInTheDocument()
+
+    // Clicking a file calls onSelect
+    fireEvent.click(screen.getByText('package.json'))
+    expect(onSelect).toHaveBeenCalledWith('package.json')
+  })
 })

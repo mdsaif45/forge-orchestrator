@@ -3,18 +3,18 @@ import type { AppInfo, ProjectDetail } from '@shared/ipc'
 import { unwrap } from '../ipc'
 import {
   Badge,
+  Button,
   Card,
   CardDescription,
   CardHeader,
   CardTitle,
   Code,
-  EmptyState,
   ScrollArea,
   Separator,
   Spinner,
   StatusDot,
-  Button,
 } from '../ui'
+import { CreateProjectDialog } from './CreateProjectDialog'
 import { EditProjectDialog } from './EditProjectDialog'
 import { useProjectStore } from './projectStore'
 import { ROUTES } from './routes'
@@ -24,10 +24,8 @@ const OVERVIEW = ROUTES[0]
 /**
  * Overview — the bound repository as Forge currently sees it.
  *
- * Repository facts (branch, head SHA, whether the tree is dirty) come from a live
- * probe on every read rather than from what was stored at creation: the branch
- * moves and commits land between one open and the next, so a stored copy would be a
- * second truth that quietly goes stale (axiom A1).
+ * When no project is selected, presents an inviting welcome launcher with quick
+ * actions and streamlined system environment telemetry.
  */
 export function Overview(): React.JSX.Element {
   const detail = useProjectStore((state) => state.detail)
@@ -38,7 +36,7 @@ export function Overview(): React.JSX.Element {
     <ScrollArea className="h-full">
       <div className="flex h-full flex-col">
         <div className="border-b border-(--color-border) px-6 py-4">
-          <h1 className="text-(length:--text-lg) font-semibold text-(--color-text)">
+          <h1 className="text-[16px] font-semibold text-(--color-text)">
             {detail?.project.name ?? OVERVIEW.label}
           </h1>
         </div>
@@ -52,18 +50,96 @@ export function Overview(): React.JSX.Element {
             <Spinner label="Loading projects" />
           </div>
         ) : detail === null ? (
-          <div className="grid flex-1 place-content-center gap-6 p-6">
-            <EmptyState
-              title={OVERVIEW.empty.title}
-              description={OVERVIEW.empty.description}
-              action={<RuntimeCard />}
-            />
-          </div>
+          <WelcomeWorkspace />
         ) : (
           <ProjectSummary detail={detail} />
         )}
       </div>
     </ScrollArea>
+  )
+}
+
+function WelcomeWorkspace(): React.JSX.Element {
+  const [createOpen, setCreateOpen] = useState(false)
+
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-8 px-6 py-12 text-center animate-in fade-in duration-200">
+      {/* Hero Welcome Banner */}
+      <div className="flex flex-col items-center gap-3">
+        <div className="flex size-12 items-center justify-center rounded-2xl bg-(--color-accent)/15 text-(--color-accent) text-2xl font-bold shadow-sm ring-1 ring-(--color-accent)/30">
+          ⚡
+        </div>
+        <h2 className="text-[22px] font-bold tracking-tight text-(--color-text)">
+          Welcome to Forge
+        </h2>
+        <p className="max-w-lg text-[13px] leading-relaxed text-(--color-text-muted)">
+          An autonomous agent orchestrator with Git worktree isolation, decision locking,
+          and verifiable automated milestones.
+        </p>
+      </div>
+
+      {/* Primary Call to Action */}
+      <div className="flex flex-col items-center gap-2">
+        <Button
+          size="lg"
+          variant="primary"
+          onClick={() => {
+            setCreateOpen(true)
+          }}
+          className="rounded-xl px-6 py-2.5 text-[13px] font-semibold shadow-md"
+        >
+          <span className="mr-1.5 text-base font-bold">+</span> Open or Create Project
+        </Button>
+        <span className="text-[11px] text-(--color-text-subtle)">
+          Bind any local git repository to start orchestrating workflows
+        </span>
+      </div>
+
+      {/* Feature Highlights Grid */}
+      <div className="grid w-full grid-cols-1 gap-4 text-left md:grid-cols-3">
+        <div className="flex flex-col gap-1.5 rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-4 shadow-xs">
+          <div className="flex items-center gap-2 font-semibold text-(--color-text) text-[13px]">
+            <span>📁</span> Git Repository Binding
+          </div>
+          <p className="text-[12px] text-(--color-text-muted) leading-relaxed">
+            Live branch detection, dirty file tracking, and automatic tech stack analysis from git metadata.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-1.5 rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-4 shadow-xs">
+          <div className="flex items-center gap-2 font-semibold text-(--color-text) text-[13px]">
+            <span>🔒</span> Decision Locking
+          </div>
+          <p className="text-[12px] text-(--color-text-muted) leading-relaxed">
+            Every architectural decision must be explicitly approved and locked before agents can write code.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-1.5 rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-4 shadow-xs">
+          <div className="flex items-center gap-2 font-semibold text-(--color-text) text-[13px]">
+            <span>🌳</span> Worktree Isolation
+          </div>
+          <p className="text-[12px] text-(--color-text-muted) leading-relaxed">
+            Multi-agent execution runs in dedicated worktrees, protecting your active working tree and branch.
+          </p>
+        </div>
+      </div>
+
+      {/* Streamlined System Telemetry & Environment Bar */}
+      <div className="w-full">
+        <RuntimeCard />
+      </div>
+
+      {/* Create Project Modal */}
+      {createOpen && (
+        <CreateProjectDialog
+          open
+          onClose={() => {
+            setCreateOpen(false)
+          }}
+        />
+      )}
+    </div>
   )
 }
 
@@ -99,11 +175,6 @@ function ProjectSummary({ detail }: { readonly detail: ProjectDetail }): React.J
           </div>
         </CardHeader>
 
-        {/* Mounted only while open. Dialog keeps its <dialog> element in the DOM even
-            when closed, so rendering it unconditionally put a second copy of the
-            repository path on the page — which broke an e2e assertion that matches on
-            that text. Mounting on demand also makes each editing session start from
-            the project as it is now, without a key to force a remount. */}
         {editing && (
           <EditProjectDialog
             open
@@ -239,11 +310,10 @@ function Row({
 }
 
 /**
- * Runtime identity, shown while no project exists.
+ * Clean, compact System Environment & Runtime telemetry bar.
  *
- * Keeps the IPC boundary exercised by the app itself on first run, rather than only
- * by the checks — the first thing to break after a build change is usually the
- * bridge, and this makes that visible immediately.
+ * Verifies IPC bridge connectivity across the sandboxed renderer boundary
+ * while presenting a polished, non-intrusive status layout.
  */
 function RuntimeCard(): React.JSX.Element {
   const [info, setInfo] = useState<AppInfo | null>(null)
@@ -268,31 +338,30 @@ function RuntimeCard(): React.JSX.Element {
   }, [])
 
   if (error !== null) return <Badge tone="danger">{error}</Badge>
-  if (info === null) return <Spinner label="Connecting to the main process" />
+  if (info === null) return <Spinner label="Connecting to engine" />
 
   return (
-    <Card tone="raised" className="text-left">
-      <CardHeader>
-        <div>
-          <CardTitle>Runtime</CardTitle>
-          <CardDescription>Reported over the IPC contract</CardDescription>
-        </div>
-        <StatusDot status="passed" label="Connected" />
-      </CardHeader>
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-(--color-border) bg-(--color-surface-raised)/70 px-4 py-2.5 text-[11px] shadow-xs">
+      <div className="flex items-center gap-2">
+        <StatusDot status="passed" label="Engine Connected" />
+        <span className="font-semibold text-(--color-text)">Forge Engine Active</span>
+        <span className="font-mono text-(--color-text-muted)">v{info.version}</span>
+      </div>
 
-      <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-(length:--text-xs)">
-        {[
-          ['version', info.version],
-          ['platform', info.platform],
-          ['electron', info.versions.electron],
-          ['chrome', info.versions.chrome],
-          ['node', info.versions.node],
-        ].map(([label, value]) => (
-          <Row key={label} label={label ?? ''}>
-            <Code>{value}</Code>
-          </Row>
-        ))}
-      </dl>
-    </Card>
+      <div className="flex flex-wrap items-center gap-2 font-mono text-(--color-text-muted)">
+        <span className="rounded-md bg-(--color-surface-inset) px-2 py-0.5 border border-(--color-border)">
+          Electron {info.versions.electron}
+        </span>
+        <span className="rounded-md bg-(--color-surface-inset) px-2 py-0.5 border border-(--color-border)">
+          Node {info.versions.node}
+        </span>
+        <span className="rounded-md bg-(--color-surface-inset) px-2 py-0.5 border border-(--color-border)">
+          Chromium {info.versions.chrome.split('.')[0]}
+        </span>
+        <span className="rounded-md bg-(--color-surface-inset) px-2 py-0.5 border border-(--color-border)">
+          {info.platform}
+        </span>
+      </div>
+    </div>
   )
 }

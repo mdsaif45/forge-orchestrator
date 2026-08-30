@@ -101,6 +101,12 @@ const api: ForgeApi = {
     list: () => call('template:list', {}),
     get: (templateId) => call('template:get', { templateId }),
   },
+  terminal: {
+    spawn: (request) => call('terminal:spawn', request),
+    write: (terminalId, data) => call('terminal:write', { terminalId, data }),
+    resize: (terminalId, cols, rows) => call('terminal:resize', { terminalId, cols, rows }),
+    kill: (terminalId) => call('terminal:kill', { terminalId }),
+  },
   onWorkflowEvent: (listener) => {
     const handler = (_event: unknown, payload: unknown) => {
       listener(payload as Parameters<typeof listener>[0])
@@ -119,6 +125,25 @@ const api: ForgeApi = {
       ipcRenderer.removeListener('workflow:log', handler)
     }
   },
+  onTerminalData: (listener) => {
+    const handler = (_event: unknown, payload: unknown) => {
+      listener(payload as Parameters<typeof listener>[0])
+    }
+    ipcRenderer.on('terminal:data', handler)
+    return () => {
+      ipcRenderer.removeListener('terminal:data', handler)
+    }
+  },
+  onTerminalExit: (listener) => {
+    const handler = (_event: unknown, payload: unknown) => {
+      listener(payload as Parameters<typeof listener>[0])
+    }
+    ipcRenderer.on('terminal:exit', handler)
+    return () => {
+      ipcRenderer.removeListener('terminal:exit', handler)
+    }
+  },
 }
 
 contextBridge.exposeInMainWorld('forge', api)
+

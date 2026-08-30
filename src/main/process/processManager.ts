@@ -113,6 +113,7 @@ export interface ProcessHandle {
   /** Resolves when the run ends, however it ends. Never rejects. */
   readonly completed: Promise<ProcessOutcome>
   write(input: string): void
+  resize?(cols: number, rows: number): void
   /** Escalating termination. Safe to call more than once. */
   cancel(reason?: string): Promise<void>
 }
@@ -321,6 +322,13 @@ export class ProcessManager {
       completed,
       write: (input) => {
         run.pty?.write(input)
+      },
+      resize: (cols: number, rows: number) => {
+        try {
+          run.pty?.resize(cols, rows)
+        } catch {
+          // ignore resize errors if process is already exiting
+        }
       },
       cancel: async (reason = 'cancelled by Forge') => {
         await this.cancel(run.runId, reason)

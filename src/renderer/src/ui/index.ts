@@ -97,3 +97,8 @@ export {
   WorkflowLaunchpad,
   type WorkflowLaunchpadProps,
 } from './primitives/WorkflowLaunchpad'
+export {
+  RealTerminal,
+  type RealTerminalProps,
+} from './primitives/RealTerminal'
+

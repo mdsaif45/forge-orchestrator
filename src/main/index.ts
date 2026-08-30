@@ -17,6 +17,7 @@ import { RuntimeRegistry, runtimeExecutable } from './runtimes/registry'
 import { ClaudeCliRuntime } from './runtimes/claudeCliRuntime'
 import { AntigravityCliRuntime } from './runtimes/antigravityCliRuntime'
 import { createPipeProcessRunner } from './runtimes/pipeProcessRunner'
+import { TerminalService } from './terminal/terminalService'
 import { BindingService } from './bindings/bindingService'
 import { AccountHomes } from './accounts/accountHomes'
 import { EnrollmentService } from './accounts/enrollmentService'
@@ -251,6 +252,24 @@ if (!claimSingleInstance()) {
     const eventStore = new EventStore(db)
     const accountStore = new AccountStore(db, eventStore)
     const accountService = new AccountService(accountStore)
+    const terminalService = new TerminalService({
+      processes,
+      projects: projectService,
+      emitData: (payload) => {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) {
+            win.webContents.send('terminal:data', payload)
+          }
+        }
+      },
+      emitExit: (payload) => {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) {
+            win.webContents.send('terminal:exit', payload)
+          }
+        }
+      },
+    })
 
     registerIpcHandlers(
       createIpcHandlers({
@@ -263,6 +282,7 @@ if (!claimSingleInstance()) {
         registry,
         bindings: new BindingService(new BindingStore(db, eventStore), registry),
         enrollment: new EnrollmentService(accountHomes, registry, runtimeExecutable),
+        terminal: terminalService,
       }),
     )
 

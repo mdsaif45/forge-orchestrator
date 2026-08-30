@@ -236,6 +236,31 @@ export interface ForgeApi {
     list: () => Promise<IpcResult<{ readonly templates: readonly WorkflowTemplateView[] }>>
     get: (templateId: string) => Promise<IpcResult<WorkflowTemplateView | null>>
   }
+  readonly terminal: {
+    spawn: (request: {
+      readonly projectId: string
+      readonly command?: string | undefined
+      readonly args?: readonly string[] | undefined
+      readonly cwd?: string | undefined
+      readonly env?: Readonly<Record<string, string>> | undefined
+      readonly cols?: number | undefined
+      readonly rows?: number | undefined
+    }) => Promise<IpcResult<{ readonly terminalId: string; readonly pid?: number | undefined }>>
+    write: (terminalId: string, data: string) => Promise<IpcResult<Record<string, never>>>
+    resize: (
+      terminalId: string,
+      cols: number,
+      rows: number,
+    ) => Promise<IpcResult<Record<string, never>>>
+    kill: (terminalId: string) => Promise<IpcResult<Record<string, never>>>
+  }
   readonly onWorkflowEvent: (listener: (event: WorkflowEventPayload) => void) => () => void
   readonly onWorkflowLog: (listener: (log: WorkflowLogPayload) => void) => () => void
+  readonly onTerminalData: (
+    listener: (payload: { readonly terminalId: string; readonly chunk: string }) => void,
+  ) => () => void
+  readonly onTerminalExit: (
+    listener: (payload: { readonly terminalId: string; readonly exitCode: number | null }) => void,
+  ) => () => void
 }
+

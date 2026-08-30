@@ -784,6 +784,42 @@ export const IPC_CONTRACT = {
     request: z.strictObject({ templateId: z.string() }),
     response: workflowTemplateViewSchema.nullable(),
   },
+  'terminal:spawn': {
+    request: z.strictObject({
+      projectId: z.string(),
+      command: z.string().optional(),
+      args: z.array(z.string()).readonly().optional(),
+      cwd: z.string().optional(),
+      env: z.record(z.string(), z.string()).optional(),
+      cols: z.number().optional(),
+      rows: z.number().optional(),
+    }),
+    response: z.strictObject({
+      terminalId: z.string(),
+      pid: z.number().optional(),
+    }),
+  },
+  'terminal:write': {
+    request: z.strictObject({
+      terminalId: z.string(),
+      data: z.string(),
+    }),
+    response: empty,
+  },
+  'terminal:resize': {
+    request: z.strictObject({
+      terminalId: z.string(),
+      cols: z.number(),
+      rows: z.number(),
+    }),
+    response: empty,
+  },
+  'terminal:kill': {
+    request: z.strictObject({
+      terminalId: z.string(),
+    }),
+    response: empty,
+  },
 } as const satisfies IpcContractShape
 
 interface IpcChannelSpec {

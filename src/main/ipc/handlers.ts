@@ -16,6 +16,8 @@ import type { BindingService } from '../bindings/bindingService'
 import type { EnrollmentService } from '../accounts/enrollmentService'
 import { openTerminal } from '../accounts/terminalLauncher'
 
+import type { TerminalService } from '../terminal/terminalService'
+
 export interface IpcDependencies {
   readonly projects: ProjectService
   readonly workflows: WorkflowService
@@ -26,6 +28,7 @@ export interface IpcDependencies {
   readonly registry: RuntimeRegistry
   readonly bindings: BindingService
   readonly enrollment: EnrollmentService
+  readonly terminal: TerminalService
 }
 
 export function createIpcHandlers({
@@ -38,6 +41,7 @@ export function createIpcHandlers({
   registry,
   bindings,
   enrollment,
+  terminal,
 }: IpcDependencies): IpcHandlerMap {
   /**
    * Gathers everything a report needs and renders it.
@@ -284,5 +288,22 @@ export function createIpcHandlers({
 
     'template:get': ({ templateId }) =>
       Object.hasOwn(TEMPLATES, templateId) ? TEMPLATES[templateId as keyof typeof TEMPLATES] : null,
+
+    'terminal:spawn': async (request) => terminal.spawn(request),
+
+    'terminal:write': ({ terminalId, data }) => {
+      terminal.write(terminalId, data)
+      return {}
+    },
+
+    'terminal:resize': ({ terminalId, cols, rows }) => {
+      terminal.resize(terminalId, cols, rows)
+      return {}
+    },
+
+    'terminal:kill': async ({ terminalId }) => {
+      await terminal.kill(terminalId)
+      return {}
+    },
   }
 }

@@ -13,6 +13,7 @@ import {
   Button,
   Card,
   CreateTemplateDialog,
+  RealTerminal,
   StartWorkflowDialog,
   StatusDot,
   useToast,
@@ -101,6 +102,7 @@ export function WorkflowPage(): React.JSX.Element {
   const [bindings, setBindings] = useState<RoleBindingsView | null>(null)
   const [logs, setLogs] = useState<readonly LogEntry[]>([])
   const [selectedStep, setSelectedStep] = useState<WorkflowStepView | null>(null)
+  const [terminalMode, setTerminalMode] = useState<'real-pty' | 'protocol'>('real-pty')
   const [actionInProgress, setActionInProgress] = useState<boolean>(false)
   const [startDialogOpen, setStartDialogOpen] = useState<boolean>(false)
   const [createTemplateOpen, setCreateTemplateOpen] = useState<boolean>(false)
@@ -673,31 +675,74 @@ export function WorkflowPage(): React.JSX.Element {
             </div>
           </Card>
 
-          {/* Live Agent Terminal Console */}
-          <AgentTerminal
-            logs={logs}
-            title="Live Workflow & Agent Terminal"
-            personaName={selectedStep !== null ? getPersonaForRole(selectedStep.role).persona : undefined}
-            runtimeId={selectedStep?.runtimeId}
-            repositoryPath={project.repository.absolutePath}
-            isRunning={isRunning}
-            onClear={() => {
-              setLogs([])
-            }}
-            onSendInput={(input) => {
-              const now = new Date()
-              setLogs((prev) => [
-                ...prev,
-                {
-                  id: `input-${String(now.getTime())}`,
-                  timestamp: now.toLocaleTimeString(),
-                  text: `> ${input}`,
-                },
-              ])
-              show({ tone: 'neutral', title: 'Input submitted to agent console' })
-            }}
-            className="flex-1 min-h-[260px]"
-          />
+          {/* Live Agent Terminal / Console with Switcher */}
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <div className="flex items-center justify-between pb-2">
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTerminalMode('real-pty')
+                  }}
+                  className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold cursor-pointer transition-colors ${
+                    terminalMode === 'real-pty'
+                      ? 'bg-(--color-surface-raised) text-(--color-text) border border-(--color-border) shadow-xs'
+                      : 'text-(--color-text-muted) hover:text-(--color-text)'
+                  }`}
+                >
+                  💻 Live CLI Terminal (node-pty / xterm)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTerminalMode('protocol')
+                  }}
+                  className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold cursor-pointer transition-colors ${
+                    terminalMode === 'protocol'
+                      ? 'bg-(--color-surface-raised) text-(--color-text) border border-(--color-border) shadow-xs'
+                      : 'text-(--color-text-muted) hover:text-(--color-text)'
+                  }`}
+                >
+                  📋 Protocol Log Stream
+                </button>
+              </div>
+            </div>
+
+            {terminalMode === 'real-pty' ? (
+              <RealTerminal
+                projectId={project.id}
+                personaName={selectedStep !== null ? getPersonaForRole(selectedStep.role).persona : undefined}
+                runtimeId={selectedStep?.runtimeId}
+                title="Interactive Agent Terminal (node-pty)"
+                className="flex-1 min-h-[300px]"
+              />
+            ) : (
+              <AgentTerminal
+                logs={logs}
+                title="Live Workflow & Agent Protocol"
+                personaName={selectedStep !== null ? getPersonaForRole(selectedStep.role).persona : undefined}
+                runtimeId={selectedStep?.runtimeId}
+                repositoryPath={project.repository.absolutePath}
+                isRunning={isRunning}
+                onClear={() => {
+                  setLogs([])
+                }}
+                onSendInput={(input) => {
+                  const now = new Date()
+                  setLogs((prev) => [
+                    ...prev,
+                    {
+                      id: `input-${String(now.getTime())}`,
+                      timestamp: now.toLocaleTimeString(),
+                      text: `> ${input}`,
+                    },
+                  ])
+                  show({ tone: 'neutral', title: 'Input submitted to agent console' })
+                }}
+                className="flex-1 min-h-[300px]"
+              />
+            )}
+          </div>
         </div>
 
         {/* Right Column: Step Inspector Panel with Live Console Tab */}

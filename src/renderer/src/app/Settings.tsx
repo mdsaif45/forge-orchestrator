@@ -1506,11 +1506,11 @@ function CustomizationsGlobalSettings(): React.JSX.Element {
 
                       <Button
                         size="sm"
-                        variant="ghost"
+                        variant="secondary"
                         onClick={() => {
                           setExpandedServerId(isExpanded ? null : server.id)
                         }}
-                        className="h-7 text-[11px] text-(--color-text-muted)"
+                        className="h-7 text-[11px]"
                       >
                         {isExpanded ? 'Hide Details' : 'Details'}
                       </Button>

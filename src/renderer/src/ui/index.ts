@@ -83,3 +83,8 @@ export {
   MarkdownRenderer,
   type MarkdownRendererProps,
 } from './primitives/MarkdownRenderer'
+export {
+  AgentTerminal,
+  type AgentTerminalProps,
+  type TerminalLogEntry,
+} from './primitives/AgentTerminal'

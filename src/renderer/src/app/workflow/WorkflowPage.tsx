@@ -8,11 +8,11 @@ import type {
   WorkflowTemplateView,
 } from '@shared/ipc'
 import {
+  AgentTerminal,
   Badge,
   Button,
   Card,
   CreateTemplateDialog,
-  ScrollArea,
   StartWorkflowDialog,
   StatusDot,
   useToast,
@@ -641,73 +641,30 @@ export function WorkflowPage(): React.JSX.Element {
             </Card>
           )}
 
-          {/* Live Execution Logs / Console */}
-          <Card tone="raised" className="flex flex-1 flex-col overflow-hidden">
-            <div className="flex items-center justify-between border-b border-(--color-border) px-4 py-2 bg-(--color-surface)">
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-(--color-text-subtle)">
-                  Live Execution Log
-                </span>
-                <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
-                  {logs.length} events
-                </Badge>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(logs.map((l) => `${l.timestamp} ${l.text}`).join('\n'))
-                    show({ tone: 'neutral', title: 'Logs copied to clipboard' })
-                  }}
-                  className="h-6 text-[11px]"
-                >
-                  Copy
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => {
-                    setLogs([])
-                  }}
-                  className="h-6 text-[11px]"
-                >
-                  Clear
-                </Button>
-              </div>
-            </div>
-
-            <ScrollArea className="flex-1 bg-(--color-surface-inset) p-4">
-              {logs.length === 0 ? (
-                <p className="text-[12px] text-(--color-text-muted) italic">
-                  No execution logs recorded yet. Start new work to stream agent actions and verification steps.
-                </p>
-              ) : (
-                <div className="space-y-1 font-mono text-[12px]">
-                  {logs.map((log) => {
-                    const isError = log.text.includes('FAIL') || log.text.includes('HALTED') || log.text.includes('Halted') || log.text.includes('error')
-                    const isSuccess = log.text.includes('PASS') || log.text.includes('DONE') || log.text.includes('verified')
-                    return (
-                      <div key={log.id} className="flex items-start gap-2 leading-relaxed">
-                        <span className="shrink-0 text-(--color-text-subtle)">{log.timestamp}</span>
-                        <span
-                          className={
-                            isError
-                              ? 'text-(--color-danger)'
-                              : isSuccess
-                                ? 'text-(--color-success)'
-                                : 'text-(--color-text)'
-                          }
-                        >
-                          {log.text}
-                        </span>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </ScrollArea>
-          </Card>
+          {/* Live Agent Terminal Console */}
+          <AgentTerminal
+            logs={logs}
+            title="Live Workflow & Agent Terminal"
+            personaName={selectedStep !== null ? getPersonaForRole(selectedStep.role).persona : undefined}
+            runtimeId={selectedStep?.runtimeId}
+            isRunning={isRunning}
+            onClear={() => {
+              setLogs([])
+            }}
+            onSendInput={(input) => {
+              const now = new Date()
+              setLogs((prev) => [
+                ...prev,
+                {
+                  id: `input-${String(now.getTime())}`,
+                  timestamp: now.toLocaleTimeString(),
+                  text: `> ${input}`,
+                },
+              ])
+              show({ tone: 'neutral', title: 'Input submitted to agent console' })
+            }}
+            className="flex-1 min-h-[260px]"
+          />
         </div>
 
         {/* Right Column: Step Inspector Panel with Live Console Tab */}

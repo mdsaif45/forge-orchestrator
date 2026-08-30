@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import type { PromptPacketView, WorkflowStepView } from '@shared/ipc'
-import { Badge, Button, MarkdownRenderer, Spinner, TabPanel, Tabs } from '@renderer/ui'
+import { AgentTerminal, Badge, Button, MarkdownRenderer, Spinner, TabPanel, Tabs } from '@renderer/ui'
 import { unwrap } from '@renderer/ipc'
 
 export interface StepInspectorProps {
@@ -200,42 +200,18 @@ export function StepInspector({ step, stepLogs = [], onClose }: StepInspectorPro
 
         {/* LIVE CONSOLE & OUTPUT TAB */}
         <TabPanel active={activeTab === 'logs'}>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold text-(--color-text-muted)">
-                Streaming Console Output ({displayLogs.length} events):
-              </span>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => {
-                  void navigator.clipboard.writeText(displayLogs.map((l) => `${l.timestamp} ${l.text}`).join('\n'))
-                }}
-                className="h-5 text-[10px]"
-              >
-                Copy Console
-              </Button>
-            </div>
-
-            <div className="rounded-lg border border-(--color-border) bg-(--color-surface-inset) p-3 font-mono text-[11px] leading-relaxed max-h-[340px] overflow-y-auto">
-              {displayLogs.length === 0 ? (
-                <p className="text-(--color-text-muted) italic">
-                  Waiting for agent process output. When the CLI runs, stdout/stderr streams here.
-                </p>
-              ) : (
-                <div className="space-y-1">
-                  {displayLogs.map((log, i) => (
-                    <div key={`log-${String(i)}`} className="flex items-start gap-2">
-                      <span className="text-(--color-text-subtle) shrink-0">{log.timestamp}</span>
-                      <span className={log.text.includes('FAIL') || log.text.includes('Halted') ? 'text-(--color-danger)' : 'text-(--color-text)'}>
-                        {log.text}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
+          <AgentTerminal
+            logs={displayLogs.map((l, i) => ({
+              id: `term-log-${String(i)}`,
+              timestamp: l.timestamp,
+              text: l.text,
+            }))}
+            title={`${personaName} Terminal`}
+            personaName={personaName}
+            runtimeId={step.runtimeId}
+            isRunning={step.state === 'running'}
+            className="min-h-[300px]"
+          />
         </TabPanel>
 
         {/* PROMPT PACKET TAB */}

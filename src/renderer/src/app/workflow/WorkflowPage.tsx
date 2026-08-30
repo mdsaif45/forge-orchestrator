@@ -13,6 +13,7 @@ import {
   Button,
   Card,
   CreateTemplateDialog,
+  MarkdownRenderer,
   RealTerminal,
   StartWorkflowDialog,
   StatusDot,
@@ -473,11 +474,38 @@ export function WorkflowPage(): React.JSX.Element {
 
     return activeTemplate.steps.map((tmplStep, idx) => {
       const existing = workflow.steps[idx]
-      if (existing !== undefined) return existing
+      if (existing !== undefined) {
+        let dynamicState = existing.state
+        if (existing.finishedAt === null) {
+          if (
+            (workflow.state === 'PLANNING' && existing.role === 'planner') ||
+            (workflow.state === 'IMPLEMENTING' && existing.role === 'implementer') ||
+            (workflow.state === 'VERIFYING' && existing.role === 'system') ||
+            (workflow.state === 'REVIEWING' && existing.role === 'reviewer')
+          ) {
+            dynamicState = 'running'
+          } else if (workflow.state === 'AWAITING_APPROVAL' && existing.role === 'user') {
+            dynamicState = 'awaiting_user'
+          }
+        }
+        return { ...existing, state: dynamicState }
+      }
 
       // Bound runtime fallback for pending steps
       const boundRuntime =
         bindings?.roles.find((r) => r.role === tmplStep.role)?.binding?.runtimeId ?? null
+
+      let dynamicState: 'pending' | 'running' | 'awaiting_user' = 'pending'
+      if (
+        (workflow.state === 'PLANNING' && tmplStep.role === 'planner') ||
+        (workflow.state === 'IMPLEMENTING' && tmplStep.role === 'implementer') ||
+        (workflow.state === 'VERIFYING' && tmplStep.role === 'system') ||
+        (workflow.state === 'REVIEWING' && tmplStep.role === 'reviewer')
+      ) {
+        dynamicState = 'running'
+      } else if (workflow.state === 'AWAITING_APPROVAL' && tmplStep.role === 'user') {
+        dynamicState = 'awaiting_user'
+      }
 
       return {
         id: `pending-step-${String(idx)}`,
@@ -485,7 +513,7 @@ export function WorkflowPage(): React.JSX.Element {
         role: tmplStep.role,
         runtimeId: boundRuntime,
         simulated: false,
-        state: 'pending',
+        state: dynamicState,
         contextRef: null,
         reportStatus: null,
         verdict: null,
@@ -662,7 +690,8 @@ export function WorkflowPage(): React.JSX.Element {
               : describeWorkflowState(workflow)}
           </span>
           <span className="text-(--color-text-subtle)">
-            (iteration {String(workflow.iteration)} of {String(workflow.limits.maxIterations)})
+            (Iteration {String(workflow.iteration + 1)} of {String(workflow.limits.maxIterations)}
+            {workflow.iteration === 0 ? ' • Initial Run' : ` • Retry Cycle ${String(workflow.iteration)}`})
           </span>
         </div>
 
@@ -687,36 +716,55 @@ export function WorkflowPage(): React.JSX.Element {
       {/* 3. INTERACTIVE PLAN REVIEW BANNER WHEN AWAITING USER APPROVAL */}
       {isAwaitingApproval && (
         <Card tone="raised" className="border-(--color-warning)/50 bg-(--color-warning)/10 p-3.5 shadow-xs">
-          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2.5">
-              <span className="text-[20px]">📋</span>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[13px] font-bold text-(--color-text)">
-                    Architectural Plan Ready for Your Review
-                  </span>
-                  <Badge tone="warning" size="sm">
-                    Human Gate
-                  </Badge>
+          <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2.5">
+                <span className="text-[20px]">📋</span>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[13px] font-bold text-(--color-text)">
+                      Architectural Plan Ready for Your Review
+                    </span>
+                    <Badge tone="warning" size="sm">
+                      Human Gate
+                    </Badge>
+                  </div>
+                  <p className="m-0 text-[11px] text-(--color-text-muted)">
+                    Alex (Planner) has produced the plan below. Review the blueprint and click Approve to authorize implementation.
+                  </p>
                 </div>
-                <p className="m-0 text-[11px] text-(--color-text-muted)">
-                  Alex (Planner) has produced the plan. Inspect the findings and click below to authorize Sam (Implementer) to execute changes in the worktree.
-                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    void handleApproveAndImplement()
+                  }}
+                  disabled={actionInProgress}
+                  className="h-7 px-3 text-[11px] font-semibold"
+                >
+                  ✓ Approve & Start Implementation
+                </Button>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              <Button
-                variant="primary"
-                onClick={() => {
-                  void handleApproveAndImplement()
-                }}
-                disabled={actionInProgress}
-                className="h-7 px-3 text-[11px] font-semibold"
-              >
-                ✓ Approve & Start Implementation
-              </Button>
-            </div>
+            {/* Embed Alex's Generated Plan Summary */}
+            {workflow.steps.find((s: WorkflowStepView) => s.role === 'planner')?.reportStatus && (
+              <div className="rounded-lg border border-(--color-border) bg-(--color-surface-inset) p-3 max-h-[180px] overflow-y-auto">
+                <span className="text-[10px] font-mono uppercase font-bold text-(--color-accent)">
+                  Proposed Architectural Blueprint:
+                </span>
+                <div className="mt-1 text-[12px]">
+                  <MarkdownRenderer
+                    content={
+                      workflow.steps.find((s: WorkflowStepView) => s.role === 'planner')
+                        ?.reportStatus ?? ''
+                    }
+                  />
+                </div>
+              </div>
+            )}
           </div>
         </Card>
       )}

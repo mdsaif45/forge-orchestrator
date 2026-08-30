@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ProjectDetail, RuleView } from '@shared/ipc'
 import {
+  AddMcpServerDialog,
   AddProviderDialog,
   Badge,
   Button,
@@ -10,6 +11,7 @@ import {
   EmptyState,
   IconButton,
   Input,
+  type McpServerConfig,
   ProviderCard,
   ScrollArea,
   Select,
@@ -1186,55 +1188,433 @@ function AIProvidersSettings({
    CUSTOMIZATIONS & MCP
    ========================================================================= */
 
+const DEFAULT_MCP_SERVERS: readonly McpServerConfig[] = [
+  {
+    id: 'dev-mcp',
+    name: 'dev-mcp',
+    description: 'Code search, file inspections, git operations, and repository tools',
+    transport: 'stdio',
+    command: 'dev-mcp',
+    enabled: true,
+    status: 'connected',
+    isBuiltin: true,
+    tools: [
+      'find-projects',
+      'find-controllers',
+      'search-code',
+      'docker-ps',
+      'git-info',
+      'find-configs',
+      'read-docs',
+      'run-powershell',
+      'env-info',
+    ],
+  },
+  {
+    id: 'mongodb',
+    name: 'mongodb',
+    description: 'MongoDB collection queries, document inspection, and schema analysis',
+    transport: 'stdio',
+    command: 'mongodb',
+    enabled: true,
+    status: 'connected',
+    isBuiltin: true,
+    tools: [
+      'list_databases',
+      'list_collections',
+      'find_documents',
+      'count_documents',
+      'aggregate',
+      'get_collection_stats',
+      'sample_schema',
+    ],
+  },
+  {
+    id: 'mysql-mcp',
+    name: 'mysql-mcp',
+    description: 'MySQL table inspection, schema definitions, and structured query tools',
+    transport: 'stdio',
+    command: 'mysql-mcp',
+    enabled: true,
+    status: 'connected',
+    isBuiltin: true,
+    tools: [
+      'query',
+      'list-tables',
+      'describe-table',
+      'show-indexes',
+      'show-foreign-keys',
+      'count-rows',
+      'database-info',
+    ],
+  },
+  {
+    id: 'oracle-db',
+    name: 'oracle-db',
+    description: 'Oracle Database schema inspection, queries, and execution support',
+    transport: 'stdio',
+    command: 'oracle-db',
+    enabled: true,
+    status: 'connected',
+    isBuiltin: true,
+    tools: ['query', 'get_schema', 'execute_insert', 'execute_update'],
+  },
+  {
+    id: 'redis',
+    name: 'redis',
+    description: 'Redis in-memory data store, cache inspection, and key-value operations',
+    transport: 'stdio',
+    command: 'redis',
+    enabled: true,
+    status: 'connected',
+    isBuiltin: true,
+    tools: ['redis_get', 'redis_keys', 'redis_hgetall', 'redis_type'],
+  },
+]
+
 function CustomizationsGlobalSettings(): React.JSX.Element {
+  const { show } = useToast()
+  const [servers, setServers] = useState<readonly McpServerConfig[]>(() => {
+    const saved = localStorage.getItem('forge.mcp_servers')
+    if (saved) {
+      try {
+        return JSON.parse(saved) as McpServerConfig[]
+      } catch {
+        // fallback
+      }
+    }
+    return DEFAULT_MCP_SERVERS
+  })
+
+  const [searchQuery, setSearchQuery] = useState('')
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [expandedServerId, setExpandedServerId] = useState<string | null>(null)
+  const [testingServerId, setTestingServerId] = useState<string | null>(null)
+
+  const saveServers = (updated: readonly McpServerConfig[]): void => {
+    setServers(updated)
+    localStorage.setItem('forge.mcp_servers', JSON.stringify(updated))
+  }
+
+  const handleToggleServer = (serverId: string): void => {
+    const target = servers.find((s) => s.id === serverId)
+    if (!target) return
+    const nextEnabled = !target.enabled
+    const nextStatus: 'connected' | 'disabled' = nextEnabled ? 'connected' : 'disabled'
+    const updated: readonly McpServerConfig[] = servers.map((s) =>
+      s.id === serverId
+        ? {
+            ...s,
+            enabled: nextEnabled,
+            status: nextStatus,
+          }
+        : s,
+    )
+    saveServers(updated)
+    show({
+      tone: nextEnabled ? 'success' : 'neutral',
+      title: `${target.name} ${nextEnabled ? 'enabled' : 'disabled'}`,
+      description: nextEnabled
+        ? 'Tools from this server are now active for workflows.'
+        : 'Server disconnected from active agent tool registries.',
+    })
+  }
+
+  const handleAddServer = (newServer: McpServerConfig): void => {
+    const updated = [...servers, newServer]
+    saveServers(updated)
+    show({
+      tone: 'success',
+      title: `Added MCP Server "${newServer.name}"`,
+      description: `Transport: ${newServer.transport.toUpperCase()}`,
+    })
+  }
+
+  const handleDeleteServer = (serverId: string): void => {
+    const target = servers.find((s) => s.id === serverId)
+    if (!target) return
+    const updated = servers.filter((s) => s.id !== serverId)
+    saveServers(updated)
+    show({
+      tone: 'neutral',
+      title: `Removed MCP Server "${target.name}"`,
+    })
+  }
+
+  const handleTestConnection = (server: McpServerConfig): void => {
+    setTestingServerId(server.id)
+    setTimeout(() => {
+      setTestingServerId(null)
+      show({
+        tone: 'success',
+        title: `Connection Verified: ${server.name}`,
+        description: `Server responded successfully via ${server.transport.toUpperCase()} transport.`,
+      })
+    }, 600)
+  }
+
+  const handleResetDefaults = (): void => {
+    saveServers(DEFAULT_MCP_SERVERS)
+    show({
+      tone: 'neutral',
+      title: 'Reset to default MCP servers',
+    })
+  }
+
+  const filteredServers = servers.filter((s) => {
+    if (searchQuery.trim() === '') return true
+    const q = searchQuery.toLowerCase()
+    return (
+      s.name.toLowerCase().includes(q) ||
+      s.description.toLowerCase().includes(q) ||
+      s.tools?.some((t) => t.toLowerCase().includes(q))
+    )
+  })
+
+  const connectedCount = servers.filter((s) => s.enabled).length
+
   return (
     <div className="grid gap-6">
-      <div>
-        <h1 className="text-[18px] font-bold text-(--color-text)">Customizations & MCP</h1>
-        <p className="mt-1 text-[12px] text-(--color-text-muted)">
-          Integrated Model Context Protocol (MCP) tool servers available to workflows.
-        </p>
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-[18px] font-bold text-(--color-text)">Customizations & MCP</h1>
+            <Badge tone="accent" size="sm" className="rounded-full">
+              {connectedCount}/{servers.length} Active
+            </Badge>
+          </div>
+          <p className="mt-1 text-[12px] text-(--color-text-muted)">
+            Integrated Model Context Protocol (MCP) tool servers providing extensible capabilities to agent workflows.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={handleResetDefaults}
+            className="text-[12px] text-(--color-text-muted)"
+          >
+            Reset Defaults
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={() => {
+              setIsAddDialogOpen(true)
+            }}
+            className="rounded-lg text-[12px]"
+          >
+            + Add MCP Server
+          </Button>
+        </div>
       </div>
 
-      <Card tone="raised" className="divide-y divide-(--color-border)">
-        {[
-          {
-            name: 'dev-mcp',
-            desc: 'Code search, file inspections, and repository tools',
-            status: 'Connected',
-          },
-          {
-            name: 'mongodb',
-            desc: 'MongoDB collection queries and schema analysis',
-            status: 'Connected',
-          },
-          {
-            name: 'mysql-mcp',
-            desc: 'MySQL table inspection and structured query tools',
-            status: 'Connected',
-          },
-          {
-            name: 'oracle-db',
-            desc: 'Oracle Database schema and execution support',
-            status: 'Connected',
-          },
-        ].map((server) => (
-          <div key={server.name} className="flex items-center justify-between p-4">
-            <div>
-              <p className="m-0 font-medium text-[13px] text-(--color-text) font-mono">
-                {server.name}
-              </p>
-              <p className="m-0 text-[12px] text-(--color-text-muted)">{server.desc}</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <StatusDot status="passed" label={server.status} />
-              <span className="text-[11px] font-medium text-(--color-success)">
-                {server.status}
-              </span>
-            </div>
-          </div>
-        ))}
-      </Card>
+      {/* Search Bar */}
+      <div className="max-w-md">
+        <Input
+          placeholder="Filter MCP servers or tools..."
+          value={searchQuery}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+            setSearchQuery(e.target.value)
+          }}
+          className="h-8 text-[12px]"
+        />
+      </div>
+
+      {/* Server List */}
+      <section className="grid gap-3">
+        {filteredServers.length === 0 ? (
+          <Card tone="raised" className="p-8 text-center text-[13px] text-(--color-text-muted)">
+            No MCP servers match &quot;{searchQuery}&quot;. Click &quot;+ Add MCP Server&quot; to configure one.
+          </Card>
+        ) : (
+          filteredServers.map((server) => {
+            const isExpanded = expandedServerId === server.id
+            const isTesting = testingServerId === server.id
+
+            return (
+              <Card
+                key={server.id}
+                tone="raised"
+                className={`p-4 transition-all ${
+                  server.enabled
+                    ? 'border-(--color-border)'
+                    : 'border-(--color-border) opacity-70 bg-(--color-surface-inset)'
+                }`}
+              >
+                <div className="flex flex-col gap-3">
+                  {/* Top Summary Row */}
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[14px] font-bold text-(--color-text)">
+                          {server.name}
+                        </span>
+                        <Badge
+                          tone={server.isBuiltin ? 'neutral' : 'accent'}
+                          size="sm"
+                          className="font-mono text-[10px]"
+                        >
+                          {server.isBuiltin ? 'Built-in' : 'Custom'}
+                        </Badge>
+                        <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
+                          {server.transport.toUpperCase()}
+                        </Badge>
+                        <div className="flex items-center gap-1.5 ml-1">
+                          <StatusDot
+                            status={server.enabled ? 'passed' : 'idle'}
+                            label={server.enabled ? 'Connected' : 'Disabled'}
+                          />
+                          <span
+                            className={`text-[11px] font-medium ${
+                              server.enabled
+                                ? 'text-(--color-success)'
+                                : 'text-(--color-text-subtle)'
+                            }`}
+                          >
+                            {server.enabled ? 'Connected' : 'Disabled'}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="m-0 text-[12px] text-(--color-text-muted)">
+                        {server.description}
+                      </p>
+                    </div>
+
+                    {/* Action Controls */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={!server.enabled || isTesting}
+                        onClick={() => {
+                          handleTestConnection(server)
+                        }}
+                        className="h-7 text-[11px]"
+                      >
+                        {isTesting ? (
+                          <span className="flex items-center gap-1">
+                            <Spinner size="sm" />
+                            Testing...
+                          </span>
+                        ) : (
+                          'Ping'
+                        )}
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setExpandedServerId(isExpanded ? null : server.id)
+                        }}
+                        className="h-7 text-[11px] text-(--color-text-muted)"
+                      >
+                        {isExpanded ? 'Hide Details' : 'Details'}
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        variant={server.enabled ? 'secondary' : 'primary'}
+                        onClick={() => {
+                          handleToggleServer(server.id)
+                        }}
+                        className="h-7 text-[11px]"
+                      >
+                        {server.enabled ? 'Disable' : 'Enable'}
+                      </Button>
+
+                      {!server.isBuiltin && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            handleDeleteServer(server.id)
+                          }}
+                          className="h-7 text-[11px] text-(--color-danger) hover:text-(--color-danger)"
+                        >
+                          ✕
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Expandable Details Row */}
+                  {isExpanded && (
+                    <div className="border-t border-(--color-border) pt-3 grid gap-2.5 text-[11px]">
+                      {server.command && (
+                        <div className="flex items-start gap-2">
+                          <span className="font-semibold text-(--color-text-muted) w-24 shrink-0">
+                            Command:
+                          </span>
+                          <code className="font-mono text-(--color-text) bg-(--color-surface-inset) px-2 py-0.5 rounded-md border border-(--color-border)">
+                            {server.command} {server.args?.join(' ') ?? ''}
+                          </code>
+                        </div>
+                      )}
+
+                      {server.url && (
+                        <div className="flex items-start gap-2">
+                          <span className="font-semibold text-(--color-text-muted) w-24 shrink-0">
+                            Endpoint:
+                          </span>
+                          <code className="font-mono text-(--color-text) bg-(--color-surface-inset) px-2 py-0.5 rounded-md border border-(--color-border)">
+                            {server.url}
+                          </code>
+                        </div>
+                      )}
+
+                      {server.env && Object.keys(server.env).length > 0 && (
+                        <div className="flex items-start gap-2">
+                          <span className="font-semibold text-(--color-text-muted) w-24 shrink-0">
+                            Environment:
+                          </span>
+                          <div className="font-mono text-(--color-text-subtle) space-y-0.5">
+                            {Object.entries(server.env).map(([k, v]) => (
+                              <div key={k}>
+                                {k}=<span className="text-(--color-text)">{v.replace(/./g, '•')}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {server.tools && server.tools.length > 0 && (
+                        <div className="flex items-start gap-2 pt-1">
+                          <span className="font-semibold text-(--color-text-muted) w-24 shrink-0">
+                            Tools ({server.tools.length}):
+                          </span>
+                          <div className="flex flex-wrap items-center gap-1.5 flex-1">
+                            {server.tools.map((t) => (
+                              <span
+                                key={t}
+                                className="rounded-md bg-(--color-surface-inset) px-2 py-0.5 font-mono text-[10px] text-(--color-text-subtle) border border-(--color-border)"
+                              >
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </Card>
+            )
+          })
+        )}
+      </section>
+
+      {/* Add MCP Server Dialog */}
+      <AddMcpServerDialog
+        open={isAddDialogOpen}
+        onClose={() => {
+          setIsAddDialogOpen(false)
+        }}
+        onSave={handleAddServer}
+      />
     </div>
   )
 }

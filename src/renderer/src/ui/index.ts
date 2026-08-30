@@ -88,3 +88,8 @@ export {
 export { AnsiRenderer, type AnsiRendererProps, parseAnsi } from './primitives/AnsiRenderer'
 export { WorkflowLaunchpad, type WorkflowLaunchpadProps } from './primitives/WorkflowLaunchpad'
 export { RealTerminal, type RealTerminalProps } from './primitives/RealTerminal'
+export {
+  AddMcpServerDialog,
+  type AddMcpServerDialogProps,
+  type McpServerConfig,
+} from './primitives/AddMcpServerDialog'

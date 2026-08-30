@@ -17,12 +17,12 @@ import {
   StatusDot,
   useToast,
   WorkflowEdge,
+  WorkflowLaunchpad,
   WorkflowNode,
 } from '@renderer/ui'
 import { unwrap } from '@renderer/ipc'
 import { useProjectStore } from '../projectStore'
 import { StepInspector } from './StepInspector'
-import { WorkflowPreflight } from './WorkflowPreflight'
 
 interface LogEntry {
   readonly id: string
@@ -427,6 +427,54 @@ export function WorkflowPage(): React.JSX.Element {
     )
   }
 
+  // When no active workflow is executing: Render the clean Launchpad
+  if (workflow === null) {
+    return (
+      <div className="flex h-full flex-col gap-3 p-6 overflow-hidden">
+        <WorkflowLaunchpad
+          projectName={project.name}
+          repositoryPath={project.repository.absolutePath}
+          templates={allTemplates}
+          selectedTemplateId={selectedTemplateId}
+          onSelectTemplate={setSelectedTemplateId}
+          onStartWork={(tmplId) => {
+            if (tmplId) setSelectedTemplateId(tmplId)
+            setStartDialogOpen(true)
+          }}
+          onCreateTemplate={() => {
+            setCreateTemplateOpen(true)
+          }}
+          bindings={bindings}
+        />
+
+        {/* Start New Work / Requirements Modal */}
+        <StartWorkflowDialog
+          open={startDialogOpen}
+          templates={allTemplates}
+          selectedTemplateId={selectedTemplateId}
+          onSelectTemplate={setSelectedTemplateId}
+          onCreateCustomTemplate={() => {
+            setCreateTemplateOpen(true)
+          }}
+          onClose={() => {
+            setStartDialogOpen(false)
+          }}
+          onStart={handleStartWorkflow}
+        />
+
+        {/* Create Custom Workflow Template Modal */}
+        <CreateTemplateDialog
+          open={createTemplateOpen}
+          onClose={() => {
+            setCreateTemplateOpen(false)
+          }}
+          onSave={handleSaveCustomTemplate}
+        />
+      </div>
+    )
+  }
+
+  // Active Workflow Running / Inspecting Mode
   return (
     <div className="flex h-full flex-col gap-3 p-6 overflow-hidden">
       {/* 1. TOP HEADER & PRIMARY ACTIONS */}
@@ -495,61 +543,57 @@ export function WorkflowPage(): React.JSX.Element {
             </Button>
           )}
 
-          {workflow !== null && (
-            <Button
-              variant="secondary"
-              onClick={() => {
-                void handleExportReport()
-              }}
-              className="h-8 rounded-lg border border-(--color-border) bg-(--color-surface-raised) px-3 text-[12px] font-medium text-(--color-text) hover:bg-(--color-surface)"
-            >
-              📥 Export Report
-            </Button>
-          )}
+          <Button
+            variant="secondary"
+            onClick={() => {
+              void handleExportReport()
+            }}
+            className="h-8 rounded-lg border border-(--color-border) bg-(--color-surface-raised) px-3 text-[12px] font-medium text-(--color-text) hover:bg-(--color-surface)"
+          >
+            📥 Export Report
+          </Button>
         </div>
       </div>
 
       {/* 2. DEDICATED WORKFLOW STATUS STRIP */}
-      {workflow !== null && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-(--color-border) bg-(--color-surface-raised) px-4 py-2 text-[12px]">
-          <div className="flex items-center gap-2.5">
-            <StatusDot status={status} pulse={isRunning} />
-            <span
-              className={`font-bold ${
-                status === 'failed'
-                  ? 'text-(--color-danger)'
-                  : status === 'passed'
-                    ? 'text-(--color-success)'
-                    : 'text-(--color-text)'
-              }`}
-            >
-              {workflow.state.startsWith('HALTED')
-                ? `Halted: ${workflow.haltReason ?? 'Policy violation or agent exit'}`
-                : describeWorkflowState(workflow)}
-            </span>
-            <span className="text-(--color-text-subtle)">
-              (iteration {String(workflow.iteration)} of {String(workflow.limits.maxIterations)})
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {!isTerminal && (
-              <Badge
-                tone={isDiscussionMode ? 'warning' : 'accent'}
-                size="sm"
-                className="rounded-md font-mono text-[10px]"
-              >
-                {isDiscussionMode
-                  ? 'PLANNING MODE (Read-only Sandbox)'
-                  : 'IMPLEMENTATION MODE (Decision Locked)'}
-              </Badge>
-            )}
-            <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
-              Template: {workflow.templateId}
-            </Badge>
-          </div>
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-(--color-border) bg-(--color-surface-raised) px-4 py-2 text-[12px]">
+        <div className="flex items-center gap-2.5">
+          <StatusDot status={status} pulse={isRunning} />
+          <span
+            className={`font-bold ${
+              status === 'failed'
+                ? 'text-(--color-danger)'
+                : status === 'passed'
+                  ? 'text-(--color-success)'
+                  : 'text-(--color-text)'
+            }`}
+          >
+            {workflow.state.startsWith('HALTED')
+              ? `Halted: ${workflow.haltReason ?? 'Policy violation or agent exit'}`
+              : describeWorkflowState(workflow)}
+          </span>
+          <span className="text-(--color-text-subtle)">
+            (iteration {String(workflow.iteration)} of {String(workflow.limits.maxIterations)})
+          </span>
         </div>
-      )}
+
+        <div className="flex items-center gap-2">
+          {!isTerminal && (
+            <Badge
+              tone={isDiscussionMode ? 'warning' : 'accent'}
+              size="sm"
+              className="rounded-md font-mono text-[10px]"
+            >
+              {isDiscussionMode
+                ? 'PLANNING MODE (Read-only Sandbox)'
+                : 'IMPLEMENTATION MODE (Decision Locked)'}
+            </Badge>
+          )}
+          <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
+            Template: {workflow.templateId}
+          </Badge>
+        </div>
+      </div>
 
       {/* 3. INTERACTIVE PLAN REVIEW BANNER WHEN AWAITING USER APPROVAL */}
       {isAwaitingApproval && (
@@ -592,54 +636,42 @@ export function WorkflowPage(): React.JSX.Element {
       <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-3 overflow-hidden">
         {/* Left 2 Columns: Pipeline Nodes & Live Logs */}
         <div className="flex flex-col gap-3 lg:col-span-2 overflow-hidden">
-          {/* Preflight banner if no active workflow */}
-          {workflow === null && (
-            <WorkflowPreflight
-              template={allTemplates.find((t: WorkflowTemplateView) => t.id === selectedTemplateId) ?? null}
-              project={project}
-              bindings={bindings}
-              onlySimulated={false}
-            />
-          )}
-
           {/* Workflow Stage Pipeline Graph (ALWAYS rendered) */}
-          {workflow !== null && (
-            <Card tone="raised" className="p-3.5 overflow-x-auto">
-              <div className="flex items-center gap-3">
-                {stageSteps.map((step: WorkflowStepView, idx: number) => {
-                  const { persona, stageLabel } = getPersonaForRole(step.role)
-                  return (
-                    <React.Fragment key={step.id}>
-                      <WorkflowNode
-                        role={step.role}
-                        label={persona}
-                        stageLabel={stageLabel}
-                        state={step.state as 'pending' | 'running' | 'completed' | 'failed' | 'halted' | 'awaiting_user'}
-                        verdict={step.verdict}
-                        runtimeId={step.runtimeId}
-                        selected={selectedStep?.id === step.id}
-                        active={step.state === 'running'}
-                        onClick={() => {
-                          setSelectedStep(step)
-                        }}
+          <Card tone="raised" className="p-3.5 overflow-x-auto">
+            <div className="flex items-center gap-3">
+              {stageSteps.map((step: WorkflowStepView, idx: number) => {
+                const { persona, stageLabel } = getPersonaForRole(step.role)
+                return (
+                  <React.Fragment key={step.id}>
+                    <WorkflowNode
+                      role={step.role}
+                      label={persona}
+                      stageLabel={stageLabel}
+                      state={step.state as 'pending' | 'running' | 'completed' | 'failed' | 'halted' | 'awaiting_user'}
+                      verdict={step.verdict}
+                      runtimeId={step.runtimeId}
+                      selected={selectedStep?.id === step.id}
+                      active={step.state === 'running'}
+                      onClick={() => {
+                        setSelectedStep(step)
+                      }}
+                    />
+                    {idx < stageSteps.length - 1 && (
+                      <WorkflowEdge
+                        state={
+                          stageSteps[idx + 1]?.state === 'running'
+                            ? 'active'
+                            : step.state === 'completed'
+                              ? 'completed'
+                              : 'pending'
+                        }
                       />
-                      {idx < stageSteps.length - 1 && (
-                        <WorkflowEdge
-                          state={
-                            stageSteps[idx + 1]?.state === 'running'
-                              ? 'active'
-                              : step.state === 'completed'
-                                ? 'completed'
-                                : 'pending'
-                          }
-                        />
-                      )}
-                    </React.Fragment>
-                  )
-                })}
-              </div>
-            </Card>
-          )}
+                    )}
+                  </React.Fragment>
+                )
+              })}
+            </div>
+          </Card>
 
           {/* Live Agent Terminal Console */}
           <AgentTerminal

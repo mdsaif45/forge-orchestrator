@@ -93,3 +93,7 @@ export {
   type AnsiRendererProps,
   parseAnsi,
 } from './primitives/AnsiRenderer'
+export {
+  WorkflowLaunchpad,
+  type WorkflowLaunchpadProps,
+} from './primitives/WorkflowLaunchpad'

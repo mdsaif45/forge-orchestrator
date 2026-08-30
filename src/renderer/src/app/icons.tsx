@@ -125,10 +125,19 @@ export function ExpandIcon(): React.JSX.Element {
   )
 }
 
+export function AskIcon(): React.JSX.Element {
+  return (
+    <Icon>
+      <path d="M2.5 12.5V3.5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1h-6.5L2.5 14.5v-2z" />
+      <path d="M6 6.5h4M6 9h2.5" />
+    </Icon>
+  )
+}
+
 export function CloseIcon(): React.JSX.Element {
   return (
     <Icon>
-      <path d="M4 4l8 8M12 4l-8 8" />
+      <path d="m3.5 3.5 9 9M12.5 3.5l-9 9" />
     </Icon>
   )
 }

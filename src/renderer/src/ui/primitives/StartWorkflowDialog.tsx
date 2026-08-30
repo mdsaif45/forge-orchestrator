@@ -11,6 +11,7 @@ export interface StartWorkflowDialogProps {
   readonly templates: readonly WorkflowTemplateView[]
   readonly selectedTemplateId: string
   readonly onSelectTemplate: (templateId: string) => void
+  readonly onCreateCustomTemplate?: (() => void) | undefined
   readonly onClose: () => void
   readonly onStart: (data: {
     readonly templateId: string
@@ -25,6 +26,7 @@ export function StartWorkflowDialog({
   templates,
   selectedTemplateId,
   onSelectTemplate,
+  onCreateCustomTemplate,
   onClose,
   onStart,
 }: StartWorkflowDialogProps): React.JSX.Element {
@@ -84,21 +86,31 @@ export function StartWorkflowDialog({
       }
     >
       <div className="grid gap-4 text-[12px]">
-        {/* Workflow Template Selector */}
-        <Field label="Workflow Template" required>
-          {() => (
-            <Select
-              value={selectedTemplateId}
-              onChange={(e: { target: { value: string } }) => {
-                onSelectTemplate(e.target.value)
-              }}
-              options={templates.map((t) => ({
-                value: t.id,
-                label: `${t.name} — ${t.description}`,
-              }))}
-            />
-          )}
-        </Field>
+        {/* Workflow Template Selector with Create Template Action */}
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="font-semibold text-(--color-text)">Workflow Template *</label>
+            {onCreateCustomTemplate && (
+              <button
+                type="button"
+                onClick={onCreateCustomTemplate}
+                className="text-[11px] font-medium text-(--color-accent) hover:underline cursor-pointer"
+              >
+                + Create Custom Template
+              </button>
+            )}
+          </div>
+          <Select
+            value={selectedTemplateId}
+            onChange={(e: { target: { value: string } }) => {
+              onSelectTemplate(e.target.value)
+            }}
+            options={templates.map((t) => ({
+              value: t.id,
+              label: `${t.name} — ${t.description}`,
+            }))}
+          />
+        </div>
 
         {/* Feature Title */}
         <Field label="Feature or Task Title" required hint="Short, descriptive headline for this task">

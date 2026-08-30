@@ -69,3 +69,13 @@ export {
   StartWorkflowDialog,
   type StartWorkflowDialogProps,
 } from './primitives/StartWorkflowDialog'
+export {
+  CreateTemplateDialog,
+  type CreateTemplateDialogProps,
+} from './primitives/CreateTemplateDialog'
+export {
+  CreateAgentDialog,
+  type CreateAgentDialogProps,
+  type CustomAgentConfig,
+} from './primitives/CreateAgentDialog'
+export { AgentCard, type AgentCardProps } from './primitives/AgentCard'

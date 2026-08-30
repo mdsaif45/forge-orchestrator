@@ -11,6 +11,7 @@ import {
   Badge,
   Button,
   Card,
+  CreateTemplateDialog,
   ScrollArea,
   StartWorkflowDialog,
   StatusDot,
@@ -67,14 +68,28 @@ export function WorkflowPage(): React.JSX.Element {
 
   const [workflow, setWorkflow] = useState<WorkflowDetailView | null>(null)
   const [activeTaskTitle, setActiveTaskTitle] = useState<string | null>(null)
-  const [templates, setTemplates] = useState<readonly WorkflowTemplateView[]>([])
+  const [baseTemplates, setBaseTemplates] = useState<readonly WorkflowTemplateView[]>([])
+  const [customTemplates, setCustomTemplates] = useState<readonly WorkflowTemplateView[]>(() => {
+    const saved = localStorage.getItem('forge.custom_templates')
+    if (saved) {
+      try {
+        return JSON.parse(saved) as WorkflowTemplateView[]
+      } catch {
+        // fallback
+      }
+    }
+    return []
+  })
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('feature')
   const [bindings, setBindings] = useState<RoleBindingsView | null>(null)
   const [logs, setLogs] = useState<readonly LogEntry[]>([])
   const [selectedStep, setSelectedStep] = useState<WorkflowStepView | null>(null)
   const [actionInProgress, setActionInProgress] = useState<boolean>(false)
   const [startDialogOpen, setStartDialogOpen] = useState<boolean>(false)
+  const [createTemplateOpen, setCreateTemplateOpen] = useState<boolean>(false)
   const { show } = useToast()
+
+  const allTemplates = [...baseTemplates, ...customTemplates]
 
   // Load active workflow on project change
   useEffect(() => {
@@ -162,7 +177,7 @@ export function WorkflowPage(): React.JSX.Element {
       .list()
       .then((res) => {
         const list = unwrap(res).templates
-        setTemplates(list)
+        setBaseTemplates(list)
         if (list.length > 0 && !list.some((t: WorkflowTemplateView) => t.id === selectedTemplateId)) {
           setSelectedTemplateId(list[0]?.id ?? 'feature')
         }
@@ -227,6 +242,14 @@ export function WorkflowPage(): React.JSX.Element {
     } finally {
       setActionInProgress(false)
     }
+  }
+
+  const handleSaveCustomTemplate = (template: WorkflowTemplateView): void => {
+    const updated = [...customTemplates, template]
+    setCustomTemplates(updated)
+    localStorage.setItem('forge.custom_templates', JSON.stringify(updated))
+    setSelectedTemplateId(template.id)
+    show({ tone: 'success', title: `Template "${template.name}" created` })
   }
 
   const handleApproveAndImplement = async (): Promise<void> => {
@@ -462,7 +485,7 @@ export function WorkflowPage(): React.JSX.Element {
           {/* Top Preflight Banner if no active workflow */}
           {workflow === null && (
             <WorkflowPreflight
-              template={templates.find((t: WorkflowTemplateView) => t.id === selectedTemplateId) ?? null}
+              template={allTemplates.find((t: WorkflowTemplateView) => t.id === selectedTemplateId) ?? null}
               project={project}
               bindings={bindings}
               onlySimulated={false}
@@ -587,13 +610,25 @@ export function WorkflowPage(): React.JSX.Element {
       {/* Start New Workflow / Feature Requirements Modal */}
       <StartWorkflowDialog
         open={startDialogOpen}
-        templates={templates}
+        templates={allTemplates}
         selectedTemplateId={selectedTemplateId}
         onSelectTemplate={setSelectedTemplateId}
+        onCreateCustomTemplate={() => {
+          setCreateTemplateOpen(true)
+        }}
         onClose={() => {
           setStartDialogOpen(false)
         }}
         onStart={handleStartWorkflow}
+      />
+
+      {/* Create Custom Workflow Template Modal */}
+      <CreateTemplateDialog
+        open={createTemplateOpen}
+        onClose={() => {
+          setCreateTemplateOpen(false)
+        }}
+        onSave={handleSaveCustomTemplate}
       />
     </div>
   )

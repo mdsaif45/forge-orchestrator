@@ -8,6 +8,7 @@ describe('route table', () => {
     // that said nothing about which route went missing (#102).
     expect(ROUTES.map((route) => route.path)).toEqual([
       '/',
+      '/ask',
       '/workflows',
       '/decisions',
       '/changes',

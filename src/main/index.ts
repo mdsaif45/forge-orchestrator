@@ -15,6 +15,7 @@ import { WorkflowService } from './workflows/workflowService'
 import { MockAgentRuntime } from './runtimes/mockRuntime'
 import { RuntimeRegistry, runtimeExecutable } from './runtimes/registry'
 import { ClaudeCliRuntime } from './runtimes/claudeCliRuntime'
+import { AntigravityCliRuntime } from './runtimes/antigravityCliRuntime'
 import { createPipeProcessRunner } from './runtimes/pipeProcessRunner'
 import { BindingService } from './bindings/bindingService'
 import { AccountHomes } from './accounts/accountHomes'
@@ -190,6 +191,12 @@ if (!claimSingleInstance()) {
         // because the child sees a TTY and takes the interactive path (#131).
         runner: createPipeProcessRunner({ orphans }),
         homeForAccount: (accountId) => accountHomes.resolveExisting(accountId),
+      }),
+    )
+
+    registry.register(
+      new AntigravityCliRuntime({
+        runner: createPipeProcessRunner({ orphans }),
       }),
     )
 

@@ -34,25 +34,27 @@ interface LogEntry {
 
 function describeWorkflowState(workflow: WorkflowDetailView): string {
   switch (workflow.state) {
+    case 'DISCOVERY':
     case 'DISCUSSING':
-      return 'Discussing requirements'
+      return 'Discovering repository & analyzing task'
     case 'PLANNING':
       return 'Planning implementation blueprint'
+    case 'PLAN_READY':
     case 'AWAITING_APPROVAL':
     case 'AWAITING_USER':
-      return 'Plan ready — Awaiting your approval'
-    case 'DECISIONS_PENDING':
-      return 'Reviewing proposed decisions'
+      return 'Plan ready — Awaiting your review & approval'
+    case 'DECISIONS_LOCKED':
+      return 'Decisions locked — Transitioning to sandbox'
     case 'IMPLEMENTING':
-      return 'Implementing changes in sandbox'
+      return 'Implementing changes in sandbox worktree'
     case 'VERIFYING':
       return 'Verifying tests & build suite'
     case 'REVIEWING':
       return 'Reviewing code quality & security'
-    case 'CORRECTING':
-      return 'Refining implementation'
+    case 'CORRECTION_REQUIRED':
+      return 'Correction required — Refining implementation'
     case 'DONE':
-      return 'Workflow completed'
+      return 'Workflow completed successfully'
     case 'CANCELLED':
       return 'Workflow cancelled'
     case 'HALTED_POLICY':
@@ -455,13 +457,15 @@ export function WorkflowPage(): React.JSX.Element {
   const isAwaitingApproval =
     workflow !== null &&
     !isTerminal &&
-    (workflow.state === 'AWAITING_APPROVAL' ||
-      workflow.state === 'AWAITING_USER' ||
-      workflow.state === 'PLANNING')
+    (workflow.state === 'PLAN_READY' ||
+      workflow.state === 'AWAITING_APPROVAL' ||
+      workflow.state === 'AWAITING_USER')
 
   const isDiscussionMode =
     workflow !== null &&
-    (workflow.state === 'PLANNING' ||
+    (workflow.state === 'DISCOVERY' ||
+      workflow.state === 'PLANNING' ||
+      workflow.state === 'PLAN_READY' ||
       workflow.state === 'AWAITING_APPROVAL' ||
       workflow.state === 'AWAITING_USER')
 
@@ -472,7 +476,9 @@ export function WorkflowPage(): React.JSX.Element {
         ? 'passed'
         : workflow.state === 'CANCELLED' || workflow.state.startsWith('HALTED')
           ? 'failed'
-          : workflow.state === 'AWAITING_USER' || workflow.state === 'AWAITING_APPROVAL'
+          : workflow.state === 'AWAITING_USER' ||
+              workflow.state === 'AWAITING_APPROVAL' ||
+              workflow.state === 'PLAN_READY'
             ? 'waiting'
             : 'running'
 
@@ -499,7 +505,12 @@ export function WorkflowPage(): React.JSX.Element {
             (workflow.state === 'REVIEWING' && existing.role === 'reviewer')
           ) {
             dynamicState = 'running'
-          } else if (workflow.state === 'AWAITING_APPROVAL' && existing.role === 'user') {
+          } else if (
+            (workflow.state === 'PLAN_READY' ||
+              workflow.state === 'AWAITING_APPROVAL' ||
+              workflow.state === 'AWAITING_USER') &&
+            existing.role === 'user'
+          ) {
             dynamicState = 'awaiting_user'
           }
         }
@@ -518,7 +529,12 @@ export function WorkflowPage(): React.JSX.Element {
         (workflow.state === 'REVIEWING' && tmplStep.role === 'reviewer')
       ) {
         dynamicState = 'running'
-      } else if (workflow.state === 'AWAITING_APPROVAL' && tmplStep.role === 'user') {
+      } else if (
+        (workflow.state === 'PLAN_READY' ||
+          workflow.state === 'AWAITING_APPROVAL' ||
+          workflow.state === 'AWAITING_USER') &&
+        tmplStep.role === 'user'
+      ) {
         dynamicState = 'awaiting_user'
       }
 

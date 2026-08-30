@@ -126,7 +126,20 @@ export function AskPage(): React.JSX.Element {
     const saved = localStorage.getItem('forge.providers')
     if (saved) {
       try {
-        return JSON.parse(saved) as StoredProviderConfig[]
+        const parsed = JSON.parse(saved) as StoredProviderConfig[]
+        return parsed.map((p) => {
+          if (
+            p.id === 'ollama' &&
+            p.models?.includes('llama3') &&
+            !p.models.some((m) => m.includes(':'))
+          ) {
+            return { ...p, models: [], activeModel: '' }
+          }
+          if (p.id === 'lmstudio' && p.models?.includes('local-model')) {
+            return { ...p, models: [], activeModel: '' }
+          }
+          return p
+        })
       } catch {
         // fallback
       }
@@ -138,11 +151,41 @@ export function AskPage(): React.JSX.Element {
         type: 'local',
         description: 'Run open-weight models locally on your machine with Ollama.',
         localUrl: 'http://localhost:11434',
-        models: ['llama3', 'codellama', 'qwen2.5-coder', 'deepseek-r1'],
-        activeModel: 'qwen2.5-coder',
+        models: [],
+        activeModel: '',
       },
     ]
   })
+
+  // Auto-scan Ollama on mount
+  useEffect(() => {
+    window.forge.provider
+      .scanModels('ollama', 'http://localhost:11434')
+      .then((res) => {
+        if (res.ok && res.value.ok && res.value.models.length > 0) {
+          const detected = res.value.models
+          setProviders((prev) => {
+            const updated = prev.map((p) =>
+              p.id === 'ollama'
+                ? {
+                    ...p,
+                    models: detected,
+                    activeModel:
+                      p.activeModel && detected.includes(p.activeModel)
+                        ? p.activeModel
+                        : (detected[0] ?? ''),
+                  }
+                : p,
+            )
+            localStorage.setItem('forge.providers', JSON.stringify(updated))
+            return updated
+          })
+        }
+      })
+      .catch(() => {
+        // ignore
+      })
+  }, [])
 
   const [activeProviderId] = useState<string>(() => {
     return localStorage.getItem('forge.active_provider_id') ?? 'ollama'
@@ -150,7 +193,10 @@ export function AskPage(): React.JSX.Element {
 
   const currentProvider =
     providers.find((p) => p.id === activeProviderId) ?? providers[0]
-  const currentModel = currentProvider?.activeModel ?? currentProvider?.models?.[0] ?? 'default'
+  const currentModel =
+    currentProvider?.activeModel && currentProvider.activeModel.length > 0
+      ? currentProvider.activeModel
+      : (currentProvider?.models?.[0] ?? '')
 
   const handleSelectModel = (model: string): void => {
     if (!currentProvider) return
@@ -693,7 +739,11 @@ Instructions:
           >
             <div className="flex-1 relative">
               <Input
-                placeholder={`Ask Forge Agent (${currentModel}) about ${project.name}...`}
+                placeholder={
+                  currentModel
+                    ? `Ask Forge Agent (${currentModel}) about ${project.name}...`
+                    : `Ask about ${project.name}...`
+                }
                 value={input}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                   setInput(e.target.value)

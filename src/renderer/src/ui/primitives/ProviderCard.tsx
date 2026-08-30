@@ -76,38 +76,35 @@ export function ProviderCard({
     setIsScanning(true)
     setScanResult({ status: 'idle', message: '' })
 
-    let detected: string[] = []
-
     try {
       const res = await window.forge.provider.scanModels(id, targetUrl)
-      if (res.ok && res.value.models.length > 0) {
-        detected = [...res.value.models]
+      if (res.ok && res.value.ok && res.value.models.length > 0) {
+        setScanResult({
+          status: 'success',
+          message: `Connected to ${targetUrl}. Discovered ${String(res.value.models.length)} model(s).`,
+        })
+        onSaveLocalUrl?.(targetUrl, res.value.models)
+      } else {
+        const errorMsg =
+          (res.ok ? res.value.error : null) ??
+          `Could not connect to ${targetUrl}. Is the service running?`
+        setScanResult({
+          status: 'warning',
+          message: errorMsg,
+        })
+        onSaveLocalUrl?.(targetUrl, [])
       }
-    } catch {
-      // ignore
+    } catch (err) {
+      const errorMsg =
+        err instanceof Error ? err.message : `Failed to connect to ${targetUrl}`
+      setScanResult({
+        status: 'warning',
+        message: errorMsg,
+      })
+      onSaveLocalUrl?.(targetUrl, [])
+    } finally {
+      setIsScanning(false)
     }
-
-    // Determine final verified models list
-    const effectiveModels =
-      detected.length > 0
-        ? detected
-        : models.length > 0
-          ? models
-          : id === 'lmstudio'
-            ? [
-                'qwen2.5-coder-7b-instruct',
-                'llama-3.2-3b-instruct',
-                'deepseek-r1-distill-qwen-7b',
-                'mistral-7b-instruct',
-              ]
-            : ['llama3:latest', 'qwen2.5-coder:latest', 'deepseek-r1:latest', 'codellama:latest']
-
-    setScanResult({
-      status: 'success',
-      message: `Verified and connected to ${targetUrl}. Loaded ${String(effectiveModels.length)} model(s).`,
-    })
-    onSaveLocalUrl?.(targetUrl, effectiveModels)
-    setIsScanning(false)
   }
 
   const effectiveApiKey = apiKey

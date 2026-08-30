@@ -309,40 +309,64 @@ export function createIpcHandlers({
     },
 
     'provider:scanModels': async ({ providerId, endpointUrl }) => {
-      let detected: string[] = []
       try {
-        if (providerId === 'ollama' || endpointUrl.includes('11434')) {
-          const cleanBase = endpointUrl.replace(/\/$/, '')
-          const res = await fetch(`${cleanBase}/api/tags`).catch(() => null)
-          if (res?.ok) {
-            const data = (await res.json()) as { models?: { name: string }[] }
-            if (Array.isArray(data.models)) {
-              detected = data.models.map((m) => m.name)
+        const cleanBase = endpointUrl.replace(/\/$/, '')
+        let detected: string[] = []
+
+        if (providerId === 'ollama' || cleanBase.includes('11434')) {
+          const res = await fetch(`${cleanBase}/api/tags`)
+          if (!res.ok) {
+            return {
+              ok: false,
+              models: [],
+              error: `Ollama returned HTTP ${String(res.status)}: ${res.statusText}`,
             }
           }
+          const data = (await res.json()) as { models?: { name?: string; model?: string }[] }
+          if (Array.isArray(data.models)) {
+            detected = data.models
+              .map((m) => m.name ?? m.model ?? '')
+              .filter((name) => name.length > 0)
+          }
         } else {
-          const cleanBase = endpointUrl.replace(/\/$/, '')
           const endpoint = cleanBase.endsWith('/v1')
             ? `${cleanBase}/models`
             : `${cleanBase}/v1/models`
-          const res = await fetch(endpoint).catch(() => null)
-          if (res?.ok) {
-            const data = (await res.json()) as { data?: { id: string }[] }
-            if (Array.isArray(data.data)) {
-              detected = data.data.map((m) => m.id)
+          const res = await fetch(endpoint)
+          if (!res.ok) {
+            return {
+              ok: false,
+              models: [],
+              error: `Service returned HTTP ${String(res.status)}: ${res.statusText}`,
             }
           }
+          const data = (await res.json()) as { data?: { id?: string }[] }
+          if (Array.isArray(data.data)) {
+            detected = data.data
+              .map((m) => m.id ?? '')
+              .filter((id) => id.length > 0)
+          }
         }
+
+        if (detected.length === 0) {
+          return {
+            ok: false,
+            models: [],
+            error: `Connected to ${endpointUrl}, but 0 models were found on this instance.`,
+          }
+        }
+
         return {
           ok: true,
           models: detected,
           error: null,
         }
       } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
         return {
           ok: false,
           models: [],
-          error: err instanceof Error ? err.message : String(err),
+          error: `Could not connect to ${endpointUrl}. Service is offline or unreachable (${msg}).`,
         }
       }
     },

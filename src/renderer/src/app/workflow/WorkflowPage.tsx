@@ -367,7 +367,7 @@ export function WorkflowPage(): React.JSX.Element {
       workflow.state === 'AWAITING_APPROVAL' ||
       workflow.state === 'AWAITING_USER')
 
-  const status: 'idle' | 'running' | 'waiting' | 'passed' | 'failed' | 'halted' =
+  const status: 'idle' | 'running' | 'waiting' | 'passed' | 'failed' =
     workflow === null
       ? 'idle'
       : workflow.state === 'DONE'
@@ -377,6 +377,42 @@ export function WorkflowPage(): React.JSX.Element {
           : workflow.state === 'AWAITING_USER' || workflow.state === 'AWAITING_APPROVAL'
             ? 'waiting'
             : 'running'
+
+  // Derive all stages from active template so that graph nodes are ALWAYS rendered on start
+  const activeTemplate =
+    allTemplates.find((t) => t.id === (workflow?.templateId ?? selectedTemplateId)) ??
+    allTemplates[0]
+
+  const stageSteps: readonly WorkflowStepView[] = (() => {
+    if (workflow === null) return []
+    if (activeTemplate === undefined || activeTemplate.steps.length === 0) {
+      return workflow.steps
+    }
+
+    return activeTemplate.steps.map((tmplStep, idx) => {
+      const existing = workflow.steps[idx]
+      if (existing !== undefined) return existing
+
+      // Bound runtime fallback for pending steps
+      const boundRuntime =
+        bindings?.roles.find((r) => r.role === tmplStep.role)?.binding?.runtimeId ?? null
+
+      return {
+        id: `pending-step-${String(idx)}`,
+        index: idx,
+        role: tmplStep.role,
+        runtimeId: boundRuntime,
+        simulated: false,
+        state: 'pending',
+        contextRef: null,
+        reportStatus: null,
+        verdict: null,
+        changeSetId: null,
+        startedAt: null,
+        finishedAt: null,
+      }
+    })
+  })()
 
   if (project === null) {
     return (
@@ -392,63 +428,25 @@ export function WorkflowPage(): React.JSX.Element {
   }
 
   return (
-    <div className="flex h-full flex-col gap-4 p-6 overflow-hidden">
-      {/* Workflow Top Header */}
-      <div className="flex items-center justify-between border-b border-(--color-border) pb-4">
-        <div className="flex items-center gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-[18px] font-bold text-(--color-text)">Workflows</h1>
-              {activeTaskTitle && (
-                <span className="text-[14px] font-medium text-(--color-text-muted) truncate max-w-md">
-                  — {activeTaskTitle}
-                </span>
-              )}
-            </div>
-            <p className="text-[12px] text-(--color-text-muted)">
-              Project: <span className="font-semibold text-(--color-text)">{project.name}</span>
-            </p>
+    <div className="flex h-full flex-col gap-3 p-6 overflow-hidden">
+      {/* 1. TOP HEADER & PRIMARY ACTIONS */}
+      <div className="flex items-center justify-between border-b border-(--color-border) pb-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h1 className="text-[20px] font-bold text-(--color-text)">Workflows</h1>
+            {activeTaskTitle && (
+              <span className="text-[14px] font-semibold text-(--color-text-muted) truncate max-w-lg">
+                — {activeTaskTitle}
+              </span>
+            )}
           </div>
-
-          {workflow !== null && (
-            <div className="flex items-center gap-2">
-              {/* Dynamic Clean Status Pill */}
-              <div
-                className={`flex items-center gap-2 rounded-full border px-3 py-1 text-[12px] ${
-                  status === 'failed'
-                    ? 'border-(--color-danger)/30 bg-(--color-danger)/10 text-(--color-danger)'
-                    : 'border-(--color-border) bg-(--color-surface-raised) text-(--color-text)'
-                }`}
-                title={workflow.state}
-              >
-                <StatusDot status={status} pulse={isRunning} />
-                <span className="font-semibold">
-                  {workflow.state.startsWith('HALTED')
-                    ? `Halted: ${workflow.haltReason ?? 'Policy violation or agent exit'}`
-                    : describeWorkflowState(workflow)}
-                </span>
-                <span className="text-(--color-text-muted) text-[11px]">
-                  (iteration {String(workflow.iteration)} of {String(workflow.limits.maxIterations)})
-                </span>
-              </div>
-
-              {/* Mode Badge - Only show when active, not when halted */}
-              {!isTerminal && (
-                <Badge
-                  tone={isDiscussionMode ? 'warning' : 'accent'}
-                  size="sm"
-                  className="rounded-full"
-                >
-                  {isDiscussionMode
-                    ? 'PLANNING MODE (Read-only Sandbox)'
-                    : 'IMPLEMENTATION MODE (Decision Locked)'}
-                </Badge>
-              )}
-            </div>
-          )}
+          <p className="text-[12px] text-(--color-text-muted)">
+            Repository:{' '}
+            <span className="font-semibold text-(--color-text)">{project.name}</span>
+          </p>
         </div>
 
-        {/* Top Action Controls */}
+        {/* Action Buttons with clear borders and styling */}
         <div className="flex items-center gap-2">
           {isTerminal ? (
             <Button
@@ -457,7 +455,7 @@ export function WorkflowPage(): React.JSX.Element {
                 setStartDialogOpen(true)
               }}
               disabled={actionInProgress}
-              className="h-8 rounded-lg text-[12px]"
+              className="h-8 rounded-lg px-3.5 text-[12px] font-bold shadow-xs"
             >
               + Start New Work
             </Button>
@@ -469,64 +467,107 @@ export function WorkflowPage(): React.JSX.Element {
                   void handleApproveAndImplement()
                 }}
                 disabled={actionInProgress}
-                className="h-8 rounded-lg text-[12px]"
+                className="h-8 rounded-lg px-3 text-[12px] font-semibold"
               >
-                Approve & Start Implementation
+                ✓ Approve & Start Implementation
               </Button>
               <Button
-                variant="ghost"
+                variant="secondary"
                 onClick={() => {
                   void handleCancelWorkflow()
                 }}
                 disabled={actionInProgress}
-                className="h-8 rounded-lg text-[12px] text-(--color-danger)"
+                className="h-8 rounded-lg border border-(--color-danger)/40 bg-(--color-danger)/10 px-3 text-[12px] font-medium text-(--color-danger) hover:bg-(--color-danger)/20"
               >
-                Cancel
+                ✕ Cancel
               </Button>
             </div>
           ) : (
             <Button
-              variant="ghost"
+              variant="secondary"
               onClick={() => {
                 void handleCancelWorkflow()
               }}
               disabled={actionInProgress}
-              className="h-8 rounded-lg text-[12px] text-(--color-danger)"
+              className="h-8 rounded-lg border border-(--color-danger)/40 bg-(--color-danger)/10 px-3 text-[12px] font-medium text-(--color-danger) hover:bg-(--color-danger)/20"
             >
-              Cancel Workflow
+              ✕ Cancel Workflow
             </Button>
           )}
+
           {workflow !== null && (
             <Button
-              variant="ghost"
+              variant="secondary"
               onClick={() => {
                 void handleExportReport()
               }}
-              className="h-8 rounded-lg text-[12px]"
+              className="h-8 rounded-lg border border-(--color-border) bg-(--color-surface-raised) px-3 text-[12px] font-medium text-(--color-text) hover:bg-(--color-surface)"
             >
-              Export Report
+              📥 Export Report
             </Button>
           )}
         </div>
       </div>
 
-      {/* Interactive Plan Review Banner when awaiting approval */}
+      {/* 2. DEDICATED WORKFLOW STATUS STRIP */}
+      {workflow !== null && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-(--color-border) bg-(--color-surface-raised) px-4 py-2 text-[12px]">
+          <div className="flex items-center gap-2.5">
+            <StatusDot status={status} pulse={isRunning} />
+            <span
+              className={`font-bold ${
+                status === 'failed'
+                  ? 'text-(--color-danger)'
+                  : status === 'passed'
+                    ? 'text-(--color-success)'
+                    : 'text-(--color-text)'
+              }`}
+            >
+              {workflow.state.startsWith('HALTED')
+                ? `Halted: ${workflow.haltReason ?? 'Policy violation or agent exit'}`
+                : describeWorkflowState(workflow)}
+            </span>
+            <span className="text-(--color-text-subtle)">
+              (iteration {String(workflow.iteration)} of {String(workflow.limits.maxIterations)})
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {!isTerminal && (
+              <Badge
+                tone={isDiscussionMode ? 'warning' : 'accent'}
+                size="sm"
+                className="rounded-md font-mono text-[10px]"
+              >
+                {isDiscussionMode
+                  ? 'PLANNING MODE (Read-only Sandbox)'
+                  : 'IMPLEMENTATION MODE (Decision Locked)'}
+              </Badge>
+            )}
+            <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
+              Template: {workflow.templateId}
+            </Badge>
+          </div>
+        </div>
+      )}
+
+      {/* 3. INTERACTIVE PLAN REVIEW BANNER WHEN AWAITING USER APPROVAL */}
       {isAwaitingApproval && (
-        <Card tone="raised" className="border-(--color-warning)/40 bg-(--color-warning)/5 p-3.5">
+        <Card tone="raised" className="border-(--color-warning)/50 bg-(--color-warning)/10 p-3.5 shadow-xs">
           <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2.5">
-              <span className="text-[18px]">📋</span>
+              <span className="text-[20px]">📋</span>
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-[13px] font-bold text-(--color-text)">
-                    Plan Ready for Your Review
+                    Architectural Plan Ready for Your Review
                   </span>
                   <Badge tone="warning" size="sm">
                     Human Gate
                   </Badge>
                 </div>
                 <p className="m-0 text-[11px] text-(--color-text-muted)">
-                  Alex (Planner) has produced the architectural plan. Review proposed decisions in the inspector and approve to authorize Sam (Implementer) to write code.
+                  Alex (Planner) has produced the plan. Inspect the findings and click below to authorize Sam (Implementer) to execute changes in the worktree.
                 </p>
               </div>
             </div>
@@ -538,7 +579,7 @@ export function WorkflowPage(): React.JSX.Element {
                   void handleApproveAndImplement()
                 }}
                 disabled={actionInProgress}
-                className="h-7 text-[11px] font-semibold"
+                className="h-7 px-3 text-[11px] font-semibold"
               >
                 ✓ Approve & Start Implementation
               </Button>
@@ -547,11 +588,11 @@ export function WorkflowPage(): React.JSX.Element {
         </Card>
       )}
 
-      {/* Main Content Area */}
+      {/* 4. MAIN WORKFLOW WORKSPACE: Pipeline Graph, Live Logs & Inspector */}
       <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-3 overflow-hidden">
-        {/* Left 2 Columns: Workflow Pipeline & Live Logs */}
-        <div className="flex flex-col gap-4 lg:col-span-2 overflow-hidden">
-          {/* Top Preflight Banner if no active workflow */}
+        {/* Left 2 Columns: Pipeline Nodes & Live Logs */}
+        <div className="flex flex-col gap-3 lg:col-span-2 overflow-hidden">
+          {/* Preflight banner if no active workflow */}
           {workflow === null && (
             <WorkflowPreflight
               template={allTemplates.find((t: WorkflowTemplateView) => t.id === selectedTemplateId) ?? null}
@@ -561,11 +602,11 @@ export function WorkflowPage(): React.JSX.Element {
             />
           )}
 
-          {/* Workflow Stage Nodes Graph */}
+          {/* Workflow Stage Pipeline Graph (ALWAYS rendered) */}
           {workflow !== null && (
-            <Card tone="raised" className="p-4 overflow-x-auto">
+            <Card tone="raised" className="p-3.5 overflow-x-auto">
               <div className="flex items-center gap-3">
-                {workflow.steps.map((step: WorkflowStepView, idx: number) => {
+                {stageSteps.map((step: WorkflowStepView, idx: number) => {
                   const { persona, stageLabel } = getPersonaForRole(step.role)
                   return (
                     <React.Fragment key={step.id}>
@@ -582,10 +623,10 @@ export function WorkflowPage(): React.JSX.Element {
                           setSelectedStep(step)
                         }}
                       />
-                      {idx < workflow.steps.length - 1 && (
+                      {idx < stageSteps.length - 1 && (
                         <WorkflowEdge
                           state={
-                            workflow.steps[idx + 1]?.state === 'running'
+                            stageSteps[idx + 1]?.state === 'running'
                               ? 'active'
                               : step.state === 'completed'
                                 ? 'completed'
@@ -600,7 +641,7 @@ export function WorkflowPage(): React.JSX.Element {
             </Card>
           )}
 
-          {/* Live Execution Logs */}
+          {/* Live Execution Logs / Console */}
           <Card tone="raised" className="flex flex-1 flex-col overflow-hidden">
             <div className="flex items-center justify-between border-b border-(--color-border) px-4 py-2 bg-(--color-surface)">
               <div className="flex items-center gap-2">
@@ -644,7 +685,7 @@ export function WorkflowPage(): React.JSX.Element {
               ) : (
                 <div className="space-y-1 font-mono text-[12px]">
                   {logs.map((log) => {
-                    const isError = log.text.includes('FAIL') || log.text.includes('HALTED') || log.text.includes('error')
+                    const isError = log.text.includes('FAIL') || log.text.includes('HALTED') || log.text.includes('Halted') || log.text.includes('error')
                     const isSuccess = log.text.includes('PASS') || log.text.includes('DONE') || log.text.includes('verified')
                     return (
                       <div key={log.id} className="flex items-start gap-2 leading-relaxed">
@@ -669,10 +710,11 @@ export function WorkflowPage(): React.JSX.Element {
           </Card>
         </div>
 
-        {/* Right Column: Step Inspector Panel */}
+        {/* Right Column: Step Inspector Panel with Live Console Tab */}
         <Card tone="raised" className="flex flex-col overflow-hidden">
           <StepInspector
             step={selectedStep}
+            stepLogs={logs}
             onClose={() => {
               setSelectedStep(null)
             }}

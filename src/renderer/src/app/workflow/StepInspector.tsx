@@ -1,22 +1,24 @@
 import React, { useEffect, useState } from 'react'
 import type { PromptPacketView, WorkflowStepView } from '@shared/ipc'
-import { Badge, Spinner, TabPanel, Tabs } from '@renderer/ui'
+import { Badge, Button, MarkdownRenderer, Spinner, TabPanel, Tabs } from '@renderer/ui'
 import { unwrap } from '@renderer/ipc'
 
 export interface StepInspectorProps {
   readonly step: WorkflowStepView | null
+  readonly stepLogs?: readonly { readonly timestamp: string; readonly text: string }[] | undefined
   readonly onClose?: () => void
 }
 
-type StepTab = 'summary' | 'packet' | 'verdict'
+type StepTab = 'summary' | 'logs' | 'packet' | 'verdict'
 
 const TAB_ITEMS: readonly { readonly value: StepTab; readonly label: string }[] = [
   { value: 'summary', label: 'Summary' },
+  { value: 'logs', label: 'Live Console & Output' },
   { value: 'packet', label: 'Prompt Packet' },
   { value: 'verdict', label: 'Verdict & Evidence' },
 ]
 
-export function StepInspector({ step, onClose }: StepInspectorProps): React.JSX.Element {
+export function StepInspector({ step, stepLogs = [], onClose }: StepInspectorProps): React.JSX.Element {
   const [packetState, setPacketState] = useState<{
     ref: string
     packet: PromptPacketView | null
@@ -64,50 +66,81 @@ export function StepInspector({ step, onClose }: StepInspectorProps): React.JSX.
   if (step === null) {
     return (
       <div className="flex h-full items-center justify-center rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-6 text-center text-[13px] text-(--color-text-muted)">
-        Click a node in the workflow graph to inspect its details, prompt packet, and verdict.
+        Click any stage node in the workflow graph to inspect live terminal logs, prompt packets, and findings.
       </div>
     )
   }
 
+  const personaName =
+    step.role === 'planner'
+      ? 'Alex (Planner)'
+      : step.role === 'user'
+        ? 'You (Approval Gate)'
+        : step.role === 'implementer'
+          ? 'Sam (Implementer)'
+          : step.role === 'reviewer'
+            ? 'Morgan (Reviewer)'
+            : 'Forge Engine'
+
+  const filteredLogs = stepLogs.filter(
+    (l) =>
+      l.text.includes(`[STEP ${String(step.index)}]`) ||
+      l.text.toLowerCase().includes(step.role) ||
+      l.text.toLowerCase().includes(personaName.toLowerCase().split(' ')[0] ?? ''),
+  )
+
+  const displayLogs = filteredLogs.length > 0 ? filteredLogs : stepLogs
+
   return (
-    <div className="flex h-full flex-col rounded-xl border border-(--color-border) bg-(--color-surface-raised) text-[13px] shadow-xs">
+    <div className="flex h-full flex-col rounded-xl border border-(--color-border) bg-(--color-surface-raised) text-[13px] shadow-xs overflow-hidden">
       {/* Step Header */}
-      <div className="flex items-center justify-between border-b border-(--color-border) bg-(--color-surface-raised)/80 p-3">
+      <div className="flex items-center justify-between border-b border-(--color-border) bg-(--color-surface) p-3">
         <div className="flex items-center gap-2">
-          <span className="font-semibold uppercase text-(--color-text)">{step.role}</span>
+          <span className="font-bold text-(--color-text)">{personaName}</span>
           <Badge
             tone={
-              step.state === 'completed' ? 'success' : step.state === 'running' ? 'info' : 'neutral'
+              step.state === 'completed'
+                ? 'success'
+                : step.state === 'running'
+                  ? 'info'
+                  : step.state === 'failed' || step.state === 'halted'
+                    ? 'danger'
+                    : 'neutral'
             }
+            size="sm"
           >
             {step.state}
           </Badge>
           {step.verdict !== null && (
             <Badge
               tone={
-                step.verdict === 'pass' ? 'success' : step.verdict === 'fail' ? 'danger' : 'neutral'
+                step.verdict === 'pass'
+                  ? 'success'
+                  : step.verdict === 'fail'
+                    ? 'danger'
+                    : 'neutral'
               }
+              size="sm"
             >
-              {step.verdict}
+              {step.simulated === true ? `sim ${step.verdict}` : step.verdict}
             </Badge>
           )}
         </div>
 
         {onClose !== undefined && (
-          <button
-            type="button"
-            onClick={() => {
-              onClose()
-            }}
-            className="text-[12px] text-(--color-text-muted) hover:text-(--color-text) cursor-pointer"
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onClose}
+            className="h-6 px-2 text-[11px] text-(--color-text-muted) hover:text-(--color-text)"
           >
             ✕ Close
-          </button>
+          </Button>
         )}
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-(--color-border) px-3 pt-2">
+      {/* Tabs Navigation */}
+      <div className="border-b border-(--color-border) bg-(--color-surface)/50 px-3 pt-2">
         <Tabs
           items={TAB_ITEMS}
           value={activeTab}
@@ -120,34 +153,92 @@ export function StepInspector({ step, onClose }: StepInspectorProps): React.JSX.
 
       {/* Tab Panels */}
       <div className="flex-1 overflow-y-auto p-4">
+        {/* SUMMARY TAB */}
         <TabPanel active={activeTab === 'summary'}>
-          <div className="space-y-3">
-            <div>
-              <span className="text-[11px] font-semibold text-(--color-text-muted)">Step Index:</span>
-              <p className="font-mono text-(--color-text)">{step.index}</p>
+          <div className="space-y-4">
+            <div className="rounded-lg border border-(--color-border) bg-(--color-surface-inset) p-3">
+              <div className="grid grid-cols-2 gap-3 text-[12px]">
+                <div>
+                  <span className="font-semibold text-(--color-text-muted)">Stage Index:</span>
+                  <p className="font-mono text-(--color-text)">Stage {String(step.index + 1)}</p>
+                </div>
+                <div>
+                  <span className="font-semibold text-(--color-text-muted)">Assigned Role:</span>
+                  <p className="font-semibold text-(--color-text)">{step.role.toUpperCase()}</p>
+                </div>
+                <div>
+                  <span className="font-semibold text-(--color-text-muted)">Runtime Engine:</span>
+                  <p className="font-mono text-(--color-accent)">
+                    {step.runtimeId ?? (step.role === 'user' ? 'Human Gate' : 'system / Forge internal')}
+                  </p>
+                </div>
+                <div>
+                  <span className="font-semibold text-(--color-text-muted)">Status:</span>
+                  <p className="font-semibold text-(--color-text)">{step.state}</p>
+                </div>
+              </div>
             </div>
+
             <div>
-              <span className="text-[11px] font-semibold text-(--color-text-muted)">Runtime:</span>
-              <p className="font-mono text-(--color-text)">
-                {step.runtimeId ?? 'system / Forge internal'}
-              </p>
-            </div>
-            <div>
-              <span className="text-[11px] font-semibold text-(--color-text-muted)">Timing:</span>
-              <p className="text-[12px] text-(--color-text-muted)">
+              <span className="text-[11px] font-semibold text-(--color-text-muted)">Timing & Execution:</span>
+              <p className="mt-1 font-mono text-[11px] text-(--color-text-muted)">
                 Started: {step.startedAt ?? 'Pending'} <br />
-                Finished: {step.finishedAt ?? 'In progress'}
+                Finished: {step.finishedAt ?? (step.state === 'running' ? 'In progress...' : '—')}
               </p>
             </div>
+
             {step.reportStatus !== null && (
-              <div>
-                <span className="text-[11px] font-semibold text-(--color-text-muted)">Report Status:</span>
-                <p className="font-mono text-[12px] text-(--color-text)">{step.reportStatus}</p>
+              <div className="rounded-lg border border-(--color-border) bg-(--color-surface-inset) p-3">
+                <span className="text-[11px] font-semibold text-(--color-text-muted)">Agent Output Summary:</span>
+                <div className="mt-2">
+                  <MarkdownRenderer content={step.reportStatus} />
+                </div>
               </div>
             )}
           </div>
         </TabPanel>
 
+        {/* LIVE CONSOLE & OUTPUT TAB */}
+        <TabPanel active={activeTab === 'logs'}>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-(--color-text-muted)">
+                Streaming Console Output ({displayLogs.length} events):
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  void navigator.clipboard.writeText(displayLogs.map((l) => `${l.timestamp} ${l.text}`).join('\n'))
+                }}
+                className="h-5 text-[10px]"
+              >
+                Copy Console
+              </Button>
+            </div>
+
+            <div className="rounded-lg border border-(--color-border) bg-(--color-surface-inset) p-3 font-mono text-[11px] leading-relaxed max-h-[340px] overflow-y-auto">
+              {displayLogs.length === 0 ? (
+                <p className="text-(--color-text-muted) italic">
+                  Waiting for agent process output. When the CLI runs, stdout/stderr streams here.
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  {displayLogs.map((log, i) => (
+                    <div key={`log-${String(i)}`} className="flex items-start gap-2">
+                      <span className="text-(--color-text-subtle) shrink-0">{log.timestamp}</span>
+                      <span className={log.text.includes('FAIL') || log.text.includes('Halted') ? 'text-(--color-danger)' : 'text-(--color-text)'}>
+                        {log.text}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </TabPanel>
+
+        {/* PROMPT PACKET TAB */}
         <TabPanel active={activeTab === 'packet'}>
           {loading ? (
             <div className="flex justify-center p-6">
@@ -157,12 +248,14 @@ export function StepInspector({ step, onClose }: StepInspectorProps): React.JSX.
             <div className="space-y-4">
               <div>
                 <span className="text-[11px] font-semibold text-(--color-text-muted)">Objective:</span>
-                <p className="mt-1 text-[13px] text-(--color-text)">{packet.objective}</p>
+                <div className="mt-1 rounded-lg border border-(--color-border) bg-(--color-surface-inset) p-3">
+                  <MarkdownRenderer content={packet.objective} />
+                </div>
               </div>
 
               {packet.constraints.length > 0 && (
                 <div>
-                  <span className="text-[11px] font-semibold text-(--color-text-muted)">Constraints:</span>
+                  <span className="text-[11px] font-semibold text-(--color-text-muted)">Constraints & Rules:</span>
                   <ul className="mt-1 list-disc pl-4 text-[12px] text-(--color-text-muted)">
                     {packet.constraints.map((c) => (
                       <li key={c}>{c}</li>
@@ -173,10 +266,10 @@ export function StepInspector({ step, onClose }: StepInspectorProps): React.JSX.
 
               {packet.allowedPaths.length > 0 && (
                 <div>
-                  <span className="text-[11px] font-semibold text-(--color-text-muted)">Allowed Paths:</span>
+                  <span className="text-[11px] font-semibold text-(--color-text-muted)">Allowed Scope Paths:</span>
                   <div className="mt-1 flex flex-wrap gap-1">
                     {packet.allowedPaths.map((p) => (
-                      <Badge key={p} tone="neutral">
+                      <Badge key={p} tone="neutral" size="sm" className="font-mono">
                         {p}
                       </Badge>
                     ))}
@@ -187,7 +280,7 @@ export function StepInspector({ step, onClose }: StepInspectorProps): React.JSX.
               {packet.completionCriteria.length > 0 && (
                 <div>
                   <span className="text-[11px] font-semibold text-(--color-text-muted)">
-                    Completion Criteria:
+                    Completion & Verification Criteria:
                   </span>
                   <ul className="mt-1 list-disc pl-4 text-[12px] text-(--color-text-muted)">
                     {packet.completionCriteria.map((cr) => (
@@ -198,21 +291,24 @@ export function StepInspector({ step, onClose }: StepInspectorProps): React.JSX.
               )}
             </div>
           ) : (
-            <p className="text-[12px] text-(--color-text-muted)">No prompt packet recorded for this step.</p>
+            <p className="text-[12px] text-(--color-text-muted)">
+              No prompt packet captured for this step. Packets are compiled when the step starts.
+            </p>
           )}
         </TabPanel>
 
+        {/* VERDICT & EVIDENCE TAB */}
         <TabPanel active={activeTab === 'verdict'}>
           <div className="space-y-3">
             <div>
               <span className="text-[11px] font-semibold text-(--color-text-muted)">Verdict:</span>
-              <p className="mt-1 font-mono text-[13px] uppercase text-(--color-text)">
+              <p className="mt-1 font-mono text-[14px] font-bold uppercase text-(--color-text)">
                 {step.verdict ?? 'No verdict reached yet'}
               </p>
             </div>
             {step.changeSetId !== null && (
               <div>
-                <span className="text-[11px] font-semibold text-(--color-text-muted)">ChangeSet ID:</span>
+                <span className="text-[11px] font-semibold text-(--color-text-muted)">Recorded ChangeSet:</span>
                 <p className="font-mono text-[12px] text-(--color-text-muted)">{step.changeSetId}</p>
               </div>
             )}

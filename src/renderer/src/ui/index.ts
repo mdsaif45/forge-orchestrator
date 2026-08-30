@@ -79,3 +79,7 @@ export {
   type CustomAgentConfig,
 } from './primitives/CreateAgentDialog'
 export { AgentCard, type AgentCardProps } from './primitives/AgentCard'
+export {
+  MarkdownRenderer,
+  type MarkdownRendererProps,
+} from './primitives/MarkdownRenderer'

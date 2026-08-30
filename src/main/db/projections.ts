@@ -272,8 +272,10 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
 
   if (isType(event, 'step.finished')) {
     const payload = event.payload
+    const nextState = payload.verdict === 'pass' ? 'completed' : 'failed'
     db.update(workflowSteps)
       .set({
+        state: nextState,
         verdict: payload.verdict,
         changeSetId: payload.changeSetId,
         finishedAt: payload.finishedAt,

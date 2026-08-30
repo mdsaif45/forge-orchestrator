@@ -47,9 +47,9 @@ export const WorkflowNode = React.forwardRef<HTMLButtonElement, WorkflowNodeProp
     const status: 'idle' | 'running' | 'waiting' | 'passed' | 'failed' | 'halted' =
       state === 'running'
         ? 'running'
-        : state === 'completed'
+        : verdict === 'pass' || state === 'completed'
           ? 'passed'
-          : state === 'failed'
+          : verdict === 'fail' || state === 'failed'
             ? 'failed'
             : state === 'halted'
               ? 'halted'

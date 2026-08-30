@@ -1,15 +1,16 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import {
   Badge,
   Button,
-  Card,
   type CustomAgentConfig,
   Input,
   MarkdownRenderer,
   ScrollArea,
   Select,
+  useTheme,
   useToast,
 } from '../ui'
+import { cn } from '../ui'
 import { useProjectStore } from './projectStore'
 import { unwrap } from '@renderer/ipc'
 
@@ -21,6 +22,8 @@ export interface ChatMessage {
   readonly personaName?: string | undefined
   readonly personaIcon?: string | undefined
   readonly engineId?: string | undefined
+  /** Elapsed time label for the response (e.g. "Taken 60s ago") */
+  readonly elapsed?: string | undefined
 }
 
 export interface ChatThread {
@@ -84,19 +87,14 @@ const BUILTIN_PERSONAS: readonly PersonaOption[] = [
   },
 ]
 
-const QUICK_PROMPTS = [
-  'Explain overall architecture and technology stack',
-  'Where are the main entry points and workflow definitions?',
-  'Explain the database models and state management flow',
-  'What project rules, directives, and security constraints apply?',
-]
-
 export function AskPage(): React.JSX.Element {
   const detail = useProjectStore((state) => state.detail)
   const project = detail?.project ?? null
   const probe = detail?.probe ?? null
   const rules = detail?.rules ?? []
   const { show } = useToast()
+  const { theme, setTheme } = useTheme()
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Custom agents from localStorage
   const [customAgents] = useState<readonly CustomAgentConfig[]>(() => {
@@ -125,11 +123,18 @@ export function AskPage(): React.JSX.Element {
 
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>('planner')
   const [selectedEngineId, setSelectedEngineId] = useState<string>('primary-engine')
-  const [availableEngines, setAvailableEngines] = useState<readonly { id: string; label: string }[]>([
-    { id: 'primary-engine', label: 'Primary Engine' },
-    { id: 'secondary-engine', label: 'Secondary Engine' },
-    { id: 'mock:default', label: 'mock:default (Simulated)' },
-  ])
+  const [availableEngines, setAvailableEngines] = useState<readonly { id: string; label: string }[]>(
+    [
+      { id: 'primary-engine', label: 'Primary Engine' },
+      { id: 'secondary-engine', label: 'Secondary Engine' },
+      { id: 'mock:default', label: 'mock:default (Simulated)' },
+    ],
+  )
+
+  // Sort state for sidebar
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest')
+  // Search state for sidebar
+  const [searchQuery, setSearchQuery] = useState('')
 
   // Load project bindings to populate real engine list
   useEffect(() => {
@@ -199,6 +204,11 @@ export function AskPage(): React.JSX.Element {
   const messages = activeThread?.messages ?? []
 
   const activePersona = allPersonas.find((p) => p.id === selectedPersonaId) ?? allPersonas[0]
+
+  // Auto-scroll to bottom on new messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages.length, thinking])
 
   const saveThreads = (updatedThreads: readonly ChatThread[]): void => {
     setThreads(updatedThreads)
@@ -292,7 +302,11 @@ export function AskPage(): React.JSX.Element {
         answer = `### Repository Architecture Overview\n\n- **Project Name**: \`${project?.name ?? 'Unknown'}\`\n- **Current Branch**: \`${probe?.branch ?? 'main'}\`\n- **Head Commit**: \`${probe?.headSha?.slice(0, 8) ?? 'N/A'}\`\n- **Identified Stack**: ${project?.repository.tech.length ? project.repository.tech.map((t) => `\`${t}\``).join(', ') : '`TypeScript`, `Electron`, `React`'}\n\n**Key Architectural Principles**:\n1. **Worktree Sandboxing**: All agent actions run inside isolated Git worktrees.\n2. **Decision Locking**: Architectural choices must be reviewed and locked before code implementation.\n3. **Closed-Loop Verification**: Automated build and test suites verify code changes independently before merging.`
       } else if (queryLower.includes('entry point') || queryLower.includes('workflow')) {
         answer = `### Entry Points & Workflow Definitions\n\n- **Main Electron Process**: \`src/main/index.ts\` (Owns process manager, database, IPC handlers, and runtime registry).\n- **Renderer Shell**: \`src/renderer/src/app/Shell.tsx\` (Top bar, status strip, and main view router).\n- **Workflows Engine**: \`src/main/workflows/workflowService.ts\` and \`src/main/runtimes/orchestrator.ts\` (Drives planning, decision gates, execution, and verification).\n- **Shared IPC Contract**: \`src/shared/ipc.ts\` (Strict Zod runtime schemas).`
-      } else if (queryLower.includes('rule') || queryLower.includes('constraint') || queryLower.includes('security')) {
+      } else if (
+        queryLower.includes('rule') ||
+        queryLower.includes('constraint') ||
+        queryLower.includes('security')
+      ) {
         answer = `### Project Rules & Boundaries\n\n${rules.length > 0 ? rules.map((r) => `- **[${r.scope.toUpperCase()}]** \`${r.key}\`: ${r.statement}`).join('\n') : 'No custom rules configured yet. You can add project rules in **Settings > Project Settings**.'}\n\n**Security Guardrails**:\n- **Protected Files**: Agents cannot modify \`.env\` or \`.git\` roots.\n- **Terminal Restrictions**: Destructive terminal commands (\`rm -rf /\`, \`sudo\`, format) are blocked.`
       } else {
         answer = `### ${persona} Response\n\nI analyzed your query regarding **"${textToSend.trim()}"** using engine **${selectedEngineId}**:\n\nIn \`${project?.name ?? 'this project'}\`, files and workflows are structured cleanly with modular component boundaries. You can explore relevant files in the **Overview** page or launch a workflow in **Workflows** to coordinate agent planning and implementation.`
@@ -306,6 +320,7 @@ export function AskPage(): React.JSX.Element {
         engineId: selectedEngineId,
         text: answer,
         timestamp: responseTime.toLocaleTimeString(),
+        elapsed: `Taken ${String(Math.floor(Math.random() * 4 + 1))}s`,
       }
 
       const finalMessages = [...updatedMessages, assistantMsg]
@@ -320,6 +335,18 @@ export function AskPage(): React.JSX.Element {
     }, 600)
   }
 
+  // Filtered and sorted threads
+  const filteredThreads = threads
+    .filter((t) => {
+      if (searchQuery.trim() === '') return true
+      return t.title.toLowerCase().includes(searchQuery.toLowerCase())
+    })
+    .slice()
+    .sort((a, b) => {
+      if (sortOrder === 'newest') return b.id.localeCompare(a.id)
+      return a.id.localeCompare(b.id)
+    })
+
   if (project === null) {
     return (
       <div className="flex h-full flex-col">
@@ -327,260 +354,273 @@ export function AskPage(): React.JSX.Element {
           <h1 className="text-[16px] font-semibold text-(--color-text)">Ask Codebase</h1>
         </div>
         <div className="grid flex-1 place-content-center p-8 text-center text-[13px] text-(--color-text-muted)">
-          Select or create a project from the top bar to explore and ask questions about its codebase.
+          Select or create a project from the top bar to explore and ask questions about its
+          codebase.
         </div>
       </div>
     )
   }
 
   return (
-    <div className="flex h-full flex-col gap-4 p-6 overflow-hidden">
-      {/* Top Header Controls: Persona & Model Engine Selectors */}
-      <div className="flex flex-col gap-3 border-b border-(--color-border) pb-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-[18px] font-bold text-(--color-text)">Ask Codebase</h1>
-            <Badge tone="accent" size="sm" className="rounded-full font-medium">
-              {project.name}
-            </Badge>
-          </div>
-          <p className="text-[12px] text-(--color-text-muted)">
-            Interactive multi-persona assistant for onboarding, architectural planning, and code Q&A.
-          </p>
+    <div className="flex h-full overflow-hidden">
+      {/* ── Left Sidebar ── */}
+      <aside className="flex w-60 shrink-0 flex-col border-r border-(--color-border) bg-(--color-surface)">
+        {/* New Chat Button */}
+        <div className="p-3">
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleCreateThread}
+            className="w-full justify-center rounded-lg text-[12px] font-semibold h-9"
+          >
+            + New chat
+          </Button>
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Persona Selector */}
-          <div className="w-56">
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-(--color-text-subtle) mb-1">
-              Active Agent Persona
-            </label>
-            <Select
-              value={selectedPersonaId}
-              onChange={(e: { target: { value: string } }) => {
-                setSelectedPersonaId(e.target.value)
-              }}
-              options={allPersonas.map((p) => ({
-                value: p.id,
-                label: `${p.icon} ${p.label}`,
-              }))}
-            />
-          </div>
-
-          {/* Model Engine Selector */}
-          <div className="w-52">
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-(--color-text-subtle) mb-1">
-              Model Engine
-            </label>
-            <Select
-              value={selectedEngineId}
-              onChange={(e: { target: { value: string } }) => {
-                setSelectedEngineId(e.target.value)
-              }}
-              options={availableEngines.map((e) => ({
-                value: e.id,
-                label: e.label,
-              }))}
-            />
-          </div>
+        {/* Search */}
+        <div className="px-3 pb-2">
+          <Input
+            placeholder="Search chats..."
+            value={searchQuery}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+              setSearchQuery(e.target.value)
+            }}
+            className="h-8 text-[12px] bg-(--color-surface-raised)"
+          />
         </div>
-      </div>
 
-      {/* Quick Prompt Chips */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-(--color-text-subtle)">
-          Quick Questions:
-        </span>
-        {QUICK_PROMPTS.map((prompt) => (
+        {/* Sort & Persona selector */}
+        <div className="flex items-center justify-between px-3 pb-2">
+          <span className="text-[10px] font-semibold text-(--color-text-subtle) uppercase tracking-wider">
+            Sort: {sortOrder === 'newest' ? 'Newest first' : 'Oldest first'}
+          </span>
           <button
-            key={prompt}
             type="button"
             onClick={() => {
-              handleSend(prompt)
+              setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))
             }}
-            className="rounded-lg border border-(--color-border) bg-(--color-surface-raised) px-3 py-1 text-[11px] font-medium text-(--color-text-muted) transition-colors hover:border-(--color-border-strong) hover:text-(--color-text) cursor-pointer select-none"
+            className="text-[10px] text-(--color-accent) hover:underline cursor-pointer"
           >
-            {prompt}
+            Toggle
           </button>
-        ))}
-      </div>
+        </div>
 
-      {/* Main Workspace: Sidebar Threads + Chat Log */}
-      <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-4 overflow-hidden">
-        {/* Left Column: Chat Threads Sidebar */}
-        <Card tone="raised" className="flex flex-col overflow-hidden">
-          <div className="flex items-center justify-between border-b border-(--color-border) p-3 bg-(--color-surface)">
-            <span className="font-bold text-[12px] text-(--color-text)">Chat Threads</span>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={handleCreateThread}
-              className="h-7 text-[11px]"
-            >
-              + New Chat
-            </Button>
-          </div>
-
-          <ScrollArea className="flex-1 p-2 space-y-1">
-            {threads.map((thread) => {
+        {/* Thread List */}
+        <ScrollArea className="flex-1 px-2 pb-2">
+          <div className="space-y-0.5">
+            {filteredThreads.map((thread) => {
               const isCurrent = thread.id === activeThreadId
               return (
-                <div
+                <button
                   key={thread.id}
+                  type="button"
                   onClick={() => {
                     setActiveThreadId(thread.id)
                   }}
-                  className={`group flex items-center justify-between rounded-lg p-2.5 text-[12px] cursor-pointer transition-colors ${
+                  className={cn(
+                    'group flex w-full items-start justify-between rounded-lg px-2.5 py-2 text-left cursor-pointer transition-colors',
                     isCurrent
-                      ? 'bg-(--color-accent)/10 border border-(--color-accent)/30 text-(--color-accent) font-semibold'
-                      : 'hover:bg-(--color-surface-raised) text-(--color-text-muted) hover:text-(--color-text)'
-                  }`}
+                      ? 'bg-(--color-accent)/10 text-(--color-accent)'
+                      : 'hover:bg-(--color-surface-raised) text-(--color-text-muted) hover:text-(--color-text)',
+                  )}
                 >
-                  <div className="truncate pr-2">
-                    <div className="truncate">{thread.title}</div>
-                    <div className="text-[10px] font-mono text-(--color-text-subtle)">
-                      {thread.messages.length} messages • {thread.createdAt}
+                  <div className="truncate pr-1.5">
+                    <div
+                      className={cn(
+                        'truncate text-[12px]',
+                        isCurrent ? 'font-semibold' : 'font-medium',
+                      )}
+                    >
+                      {thread.title}
+                    </div>
+                    <div className="text-[10px] font-mono text-(--color-text-subtle) mt-0.5">
+                      {thread.messages.length > 1
+                        ? `${String(thread.messages.length)} msgs`
+                        : '1 msg'}{' '}
+                      · {thread.createdAt}
                     </div>
                   </div>
-
                   {threads.length > 1 && (
-                    <button
-                      type="button"
+                    <span
+                      role="button"
+                      tabIndex={0}
                       onClick={(e) => {
                         handleDeleteThread(thread.id, e)
                       }}
-                      className="opacity-0 group-hover:opacity-100 text-(--color-danger) hover:text-(--color-danger) p-1 text-[11px] cursor-pointer"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleDeleteThread(thread.id, e as never)
+                      }}
+                      className="opacity-0 group-hover:opacity-100 text-(--color-danger) hover:text-(--color-danger) p-0.5 text-[11px] mt-0.5 cursor-pointer shrink-0"
                       title="Delete thread"
                     >
                       ✕
-                    </button>
+                    </span>
                   )}
-                </div>
+                </button>
               )
             })}
-          </ScrollArea>
-        </Card>
+          </div>
+        </ScrollArea>
 
-        {/* Right 3 Columns: Active Chat Messages & Input Bar */}
-        <Card tone="raised" className="flex flex-col lg:col-span-3 overflow-hidden">
-          {/* Active Persona Banner */}
-          <div className="flex items-center justify-between border-b border-(--color-border) px-4 py-2 bg-(--color-surface)">
-            <div className="flex items-center gap-2">
-              <span className="text-[16px]">{activePersona?.icon ?? '🤖'}</span>
-              <div>
-                <span className="font-bold text-[13px] text-(--color-text)">
-                  {activePersona?.label}
-                </span>
-                <span className="ml-2 font-mono text-[11px] text-(--color-text-subtle)">
-                  via {selectedEngineId}
-                </span>
-              </div>
+        {/* Bottom controls: Persona selector & Theme toggle */}
+        <div className="border-t border-(--color-border) p-3 space-y-2">
+          {/* Persona selector (compact) */}
+          <Select
+            aria-label="Active Persona"
+            value={selectedPersonaId}
+            onChange={(e: { target: { value: string } }) => {
+              setSelectedPersonaId(e.target.value)
+            }}
+            options={allPersonas.map((p) => ({
+              value: p.id,
+              label: `${p.icon} ${p.label}`,
+            }))}
+          />
+
+          {/* Theme toggle */}
+          <button
+            type="button"
+            onClick={() => {
+              setTheme(theme === 'dark' ? 'azure' : theme === 'azure' ? 'light' : 'dark')
+            }}
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[12px] text-(--color-text-muted) hover:text-(--color-text) hover:bg-(--color-surface-raised) transition-colors cursor-pointer"
+          >
+            <span className="text-[14px]">
+              {theme === 'dark' ? '🌙' : theme === 'azure' ? '🌊' : '☀️'}
+            </span>
+            <span>
+              {theme === 'dark' ? 'Dark' : theme === 'azure' ? 'Azure' : theme === 'light' ? 'Light' : 'System'}{' '}
+              theme
+            </span>
+          </button>
+        </div>
+      </aside>
+
+      {/* ── Main Chat Area ── */}
+      <div className="flex flex-1 flex-col min-w-0 bg-(--color-canvas)">
+        {/* Top Header Bar */}
+        <header className="flex items-start justify-between border-b border-(--color-border) px-6 py-3 bg-(--color-surface-raised)">
+          <div className="min-w-0">
+            <h1 className="text-[15px] font-bold text-(--color-text) truncate">
+              {activeThread?.title ?? 'Chat'}
+            </h1>
+            <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-(--color-text-subtle)">
+              <span>inline</span>
+              <span className="text-(--color-border-strong)">·</span>
+              <span>Snapshot {new Date().toLocaleDateString()}</span>
+              <span className="text-(--color-border-strong)">·</span>
+              <span>{activePersona?.label ?? 'Agent'}</span>
             </div>
-
-            <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
-              {messages.length} messages
-            </Badge>
           </div>
 
-          {/* Messages Area */}
-          <ScrollArea className="flex-1 bg-(--color-surface-inset) p-4">
-            <div className="space-y-4 max-w-4xl mx-auto">
-              {messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex gap-3 ${
-                    msg.role === 'user' ? 'justify-end' : 'justify-start'
-                  }`}
-                >
-                  {msg.role === 'assistant' && (
-                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--color-surface-raised) border border-(--color-border) text-[15px]">
+          <div className="flex items-center gap-2 shrink-0 mt-0.5">
+            <Badge tone="success" size="sm" className="font-medium">
+              ● Index Ready
+            </Badge>
+            <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
+              ↻ Updated {new Date().toLocaleTimeString()}
+            </Badge>
+            <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
+              ★ Feedback
+            </Badge>
+            <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
+              ⊙ Sources ({messages.filter((m) => m.role === 'assistant').length})
+            </Badge>
+          </div>
+        </header>
+
+        {/* Messages Area */}
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="max-w-4xl mx-auto px-6 py-4 space-y-5">
+            {messages.map((msg) => (
+              <div key={msg.id}>
+                {msg.role === 'assistant' ? (
+                  /* Assistant message — full-width block with icon */
+                  <div className="flex gap-3">
+                    <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-(--color-accent-muted) text-[14px] mt-1">
                       {msg.personaIcon ?? '🤖'}
                     </div>
-                  )}
-
-                  <div
-                    className={`max-w-2xl rounded-xl p-3.5 shadow-xs ${
-                      msg.role === 'user'
-                        ? 'bg-(--color-accent) text-white font-medium text-[13px] leading-relaxed'
-                        : 'bg-(--color-surface-raised) text-(--color-text) border border-(--color-border)'
-                    }`}
-                  >
-                    {msg.role === 'assistant' && (
-                      <div className="mb-1.5 flex items-center justify-between border-b border-(--color-border)/50 pb-1 text-[11px]">
-                        <span className="font-bold text-(--color-text)">
-                          {msg.personaName ?? 'Agent'}
-                        </span>
-                        {msg.engineId && (
-                          <span className="font-mono text-[10px] text-(--color-text-subtle)">
-                            {msg.engineId}
-                          </span>
-                        )}
+                    <div className="min-w-0 flex-1">
+                      <div className="prose-container text-[13px] leading-relaxed text-(--color-text)">
+                        <MarkdownRenderer content={msg.text} />
                       </div>
-                    )}
-
-                    {msg.role === 'user' ? (
-                      <div className="whitespace-pre-wrap">{msg.text}</div>
-                    ) : (
-                      <MarkdownRenderer content={msg.text} />
-                    )}
-
-                    <div
-                      className={`mt-2 text-[10px] font-mono text-right ${
-                        msg.role === 'user' ? 'text-white/75' : 'text-(--color-text-subtle)'
-                      }`}
-                    >
-                      {msg.timestamp}
                     </div>
                   </div>
-
-                  {msg.role === 'user' && (
-                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--color-surface-raised) border border-(--color-border) font-bold text-[12px] text-(--color-text)">
-                      U
+                ) : (
+                  /* User message — right-aligned bubble */
+                  <div className="flex justify-end">
+                    <div className="max-w-lg rounded-2xl bg-(--color-accent) text-white px-4 py-2.5 text-[13px] font-medium leading-relaxed shadow-sm">
+                      <div className="whitespace-pre-wrap">{msg.text}</div>
                     </div>
-                  )}
-                </div>
-              ))}
+                  </div>
+                )}
+              </div>
+            ))}
 
-              {thinking && (
-                <div className="flex items-center gap-2 text-[12px] text-(--color-text-muted) italic">
-                  <span className="animate-pulse font-mono">
-                    {activePersona?.label} is analyzing repository with {selectedEngineId}...
-                  </span>
-                </div>
-              )}
-            </div>
-          </ScrollArea>
+            {thinking && (
+              <div className="flex items-center gap-2 text-[12px] text-(--color-text-muted) italic px-10">
+                <span className="inline-flex gap-1">
+                  <span className="animate-bounce [animation-delay:0ms]">·</span>
+                  <span className="animate-bounce [animation-delay:150ms]">·</span>
+                  <span className="animate-bounce [animation-delay:300ms]">·</span>
+                </span>
+                <span>
+                  {activePersona?.label} is analyzing with {selectedEngineId}...
+                </span>
+              </div>
+            )}
 
-          {/* Input Bar */}
-          <div className="border-t border-(--color-border) bg-(--color-surface) p-3">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault()
-                handleSend()
-              }}
-              className="flex items-center gap-2"
-            >
+            <div ref={messagesEndRef} />
+          </div>
+        </ScrollArea>
+
+        {/* Bottom Input Bar */}
+        <div className="border-t border-(--color-border) bg-(--color-surface-raised) px-6 py-3">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              handleSend()
+            }}
+            className="flex items-center gap-3 max-w-4xl mx-auto"
+          >
+            <div className="flex-1 relative">
               <Input
-                placeholder={`Ask ${activePersona?.label ?? 'Agent'} about ${project.name}...`}
+                placeholder={`Ask a question about ${project.name}...`}
                 value={input}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                   setInput(e.target.value)
                 }}
                 disabled={thinking}
-                className="flex-1 text-[13px]"
+                className="h-10 text-[13px] pr-10 rounded-xl bg-(--color-surface) border-(--color-border)"
                 autoFocus
               />
-              <Button
-                type="submit"
-                variant="primary"
-                disabled={input.trim() === '' || thinking}
-                className="h-8 text-[12px]"
-              >
-                Send
-              </Button>
-            </form>
-          </div>
-        </Card>
+            </div>
+
+            {/* Engine selector (compact) */}
+            <div className="w-40 shrink-0">
+              <Select
+                aria-label="Engine"
+                value={selectedEngineId}
+                onChange={(e: { target: { value: string } }) => {
+                  setSelectedEngineId(e.target.value)
+                }}
+                options={availableEngines.map((eng) => ({
+                  value: eng.id,
+                  label: eng.label,
+                }))}
+              />
+            </div>
+
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={input.trim() === '' || thinking}
+              className="h-9 px-5 text-[12px] font-semibold rounded-lg shrink-0"
+            >
+              Send
+            </Button>
+          </form>
+        </div>
       </div>
     </div>
   )

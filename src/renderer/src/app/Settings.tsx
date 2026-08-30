@@ -683,8 +683,8 @@ function GeneralGlobalSettings({
 }: {
   readonly globalInstructions: string
   readonly onSaveGlobalInstructions: (val: string) => void
-  readonly theme: 'light' | 'dark' | 'system'
-  readonly setTheme: (theme: 'light' | 'dark' | 'system') => void
+  readonly theme: 'light' | 'dark' | 'azure' | 'system'
+  readonly setTheme: (theme: 'light' | 'dark' | 'azure' | 'system') => void
   readonly motionPreference: 'system' | 'reduced'
   readonly onSetMotion: (val: 'system' | 'reduced') => void
   readonly sidebarCollapsed: boolean
@@ -751,6 +751,7 @@ function GeneralGlobalSettings({
                   { id: 'system', label: 'System' },
                   { id: 'light', label: 'Light' },
                   { id: 'dark', label: 'Dark' },
+                  { id: 'azure', label: 'Azure' },
                 ] as const
               ).map((opt) => (
                 <button

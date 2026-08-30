@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 
-export type Theme = 'dark' | 'light' | 'system'
+export type Theme = 'dark' | 'light' | 'azure' | 'system'
 
 const STORAGE_KEY = 'forge.theme'
 
 /**
  * Theme state, applied as `data-theme` on the root element.
  *
- * Supports 'dark', 'light', and 'system' (which tracks the OS preference).
+ * Supports 'dark', 'light', 'azure', and 'system' (which tracks the OS preference).
  */
 export function useTheme(): {
   readonly theme: Theme
@@ -55,5 +55,7 @@ export function useTheme(): {
 
 function readStoredTheme(): Theme {
   const stored = localStorage.getItem(STORAGE_KEY)
-  return stored === 'light' || stored === 'dark' || stored === 'system' ? stored : 'dark'
+  return stored === 'light' || stored === 'dark' || stored === 'azure' || stored === 'system'
+    ? stored
+    : 'dark'
 }

@@ -163,3 +163,62 @@
   --shadow-md: 0 4px 12px rgb(0 0 0 / 0.08);
   --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.12);
 }
+
+/*
+ * Azure theme — Crisp modern SaaS blue aesthetic (Image 1).
+ */
+[data-theme='azure'] {
+  --color-canvas: #f8fafc;
+  --color-surface: #f1f5f9;
+  --color-surface-raised: #ffffff;
+  --color-surface-overlay: #ffffff;
+  --color-surface-inset: #e2e8f0;
+
+  --color-border: #e2e8f0;
+  --color-border-strong: #cbd5e1;
+  --color-border-focus: #0284c7;
+
+  --color-text: #0f172a;
+  --color-text-muted: #475569;
+  --color-text-subtle: #64748b;
+  --color-text-inverted: #ffffff;
+
+  --color-accent: #0284c7;
+  --color-accent-hover: #0369a1;
+  --color-accent-muted: #e0f2fe;
+
+  --color-success: #16a34a;
+  --color-success-muted: #dcfce7;
+
+  --color-warning: #d97706;
+  --color-warning-muted: #fef3c7;
+
+  --color-danger: #dc2626;
+  --color-danger-muted: #fee2e2;
+
+  --color-info: #0284c7;
+  --color-info-muted: #e0f2fe;
+
+  --color-role-planner: #7c3aed;
+  --color-role-implementer: #0284c7;
+  --color-role-reviewer: #16a34a;
+  --color-role-system: #64748b;
+
+  /* ---- Syntax Highlighting: Cool Light Palette ---- */
+  --color-syntax-keyword: #0284c7;
+  --color-syntax-function: #2563eb;
+  --color-syntax-type: #7c3aed;
+  --color-syntax-string: #16a34a;
+  --color-syntax-number: #d97706;
+  --color-syntax-comment: #94a3b8;
+  --color-syntax-operator: #dc2626;
+  --color-syntax-tag: #dc2626;
+  --color-syntax-property: #0284c7;
+  --color-syntax-punct: #64748b;
+  --color-syntax-constant: #d97706;
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 12px rgb(0 0 0 / 0.08);
+  --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.12);
+}
+

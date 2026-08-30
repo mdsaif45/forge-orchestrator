@@ -140,8 +140,8 @@ export function StartWorkflowDialog({
               onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
                 setObjective(e.target.value)
               }}
-              rows={5}
-              className="text-[12px] font-mono leading-relaxed"
+              rows={8}
+              className="min-h-[160px] text-[12px] font-mono leading-relaxed resize-y"
             />
           )}
         </Field>

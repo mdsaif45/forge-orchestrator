@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
-import type { AccountView, ProjectDetail, RoleBindingsView, RuleView } from '@shared/ipc'
-import { unwrap } from '@renderer/ipc'
+import type { ProjectDetail, RuleView } from '@shared/ipc'
 import {
+  AddProviderDialog,
   Badge,
   Button,
   Card,
+  type CustomProviderConfig,
   Dialog,
   EmptyState,
   IconButton,
   Input,
+  ProviderCard,
   ScrollArea,
   Select,
   Separator,
@@ -18,20 +20,107 @@ import {
   useTheme,
   useToast,
 } from '../ui'
-import { AccountEnrollment } from './AccountEnrollment'
 import { DeleteProjectDialog } from './DeleteProjectDialog'
 import { EditProjectDialog } from './EditProjectDialog'
 import { CloseIcon } from './icons'
 import { useProjectStore } from './projectStore'
 import { useUiStore } from './uiStore'
 
-type GlobalSettingsTab = 'general' | 'accounts' | 'customizations'
+type GlobalSettingsTab = 'general' | 'providers' | 'customizations'
 
 interface SettingsSelection {
   readonly type: 'global' | 'project'
   readonly globalTab?: GlobalSettingsTab
   readonly projectId?: string
 }
+
+interface StoredProviderConfig {
+  readonly id: string
+  readonly name: string
+  readonly type: 'api_key' | 'local' | 'custom'
+  readonly description: string
+  readonly apiKey?: string
+  readonly envVarHint?: string
+  readonly localUrl?: string
+  readonly models?: readonly string[]
+  readonly activeModel?: string
+  readonly isCustom?: boolean
+}
+
+const DEFAULT_PROVIDERS: readonly StoredProviderConfig[] = [
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    type: 'api_key',
+    description: 'Direct access to GPT-4o, GPT-4o-mini, o1, and reasoning models.',
+    envVarHint: 'OPENAI_API_KEY',
+    models: ['gpt-4o', 'gpt-4o-mini', 'o1', 'o3-mini'],
+    activeModel: 'gpt-4o',
+  },
+  {
+    id: 'messages-format',
+    name: 'Messages API Endpoint',
+    type: 'api_key',
+    description: 'High-capability reasoning and coding models via Messages protocol.',
+    envVarHint: 'MESSAGES_API_KEY',
+    models: ['sonnet-latest', 'opus-latest', 'haiku-latest'],
+    activeModel: 'sonnet-latest',
+  },
+  {
+    id: 'google',
+    name: 'Google AI',
+    type: 'api_key',
+    description: 'Gemini 2.0 Flash, Gemini 2.0 Pro, and 1.5 multimodal models.',
+    envVarHint: 'GEMINI_API_KEY',
+    models: ['gemini-2.0-flash', 'gemini-2.0-pro', 'gemini-1.5-pro'],
+    activeModel: 'gemini-2.0-flash',
+  },
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    type: 'api_key',
+    description: 'DeepSeek V3 and DeepSeek R1 reasoning models with low latency.',
+    envVarHint: 'DEEPSEEK_API_KEY',
+    models: ['deepseek-chat', 'deepseek-reasoner'],
+    activeModel: 'deepseek-chat',
+  },
+  {
+    id: 'openrouter',
+    name: 'OpenRouter',
+    type: 'api_key',
+    description: 'Unified gateway to 100+ open and proprietary AI models.',
+    envVarHint: 'OPENROUTER_API_KEY',
+    models: ['auto', 'deepseek/deepseek-r1', 'meta-llama/llama-3.3-70b-instruct'],
+    activeModel: 'auto',
+  },
+  {
+    id: 'mistral',
+    name: 'Mistral',
+    type: 'api_key',
+    description: 'Mistral Large, Codestral, and Pixtral open-weight architectures.',
+    envVarHint: 'MISTRAL_API_KEY',
+    models: ['codestral-latest', 'mistral-large-latest'],
+    activeModel: 'codestral-latest',
+  },
+  {
+    id: 'ollama',
+    name: 'Ollama (Local)',
+    type: 'local',
+    description: 'Run open-weight models locally on your machine with Ollama.',
+    localUrl: 'http://localhost:11434',
+    models: ['llama3', 'codellama', 'qwen2.5-coder', 'deepseek-r1'],
+    activeModel: 'llama3',
+  },
+  {
+    id: 'lmstudio',
+    name: 'LM Studio (Local)',
+    type: 'local',
+    description: 'Local OpenAI-compatible inference server running on your machine.',
+    localUrl: 'http://localhost:1234/v1',
+    models: ['local-model'],
+    activeModel: 'local-model',
+  },
+]
 
 export function Settings(): React.JSX.Element {
   return <SettingsContent />
@@ -55,7 +144,7 @@ export function SettingsContent(): React.JSX.Element {
     globalTab: 'general',
   })
 
-  // Global instructions state (persisted)
+  // Global instructions state
   const [globalInstructions, setGlobalInstructions] = useState<string>(() => {
     return (
       localStorage.getItem('forge.global_instructions') ??
@@ -89,12 +178,25 @@ export function SettingsContent(): React.JSX.Element {
   // Permissions modal
   const [activePermissionsModal, setActivePermissionsModal] = useState<string | null>(null)
 
-  // Accounts state
-  const [accounts, setAccounts] = useState<readonly AccountView[]>([])
-  const [accountProvider, setAccountProvider] = useState('default')
-  const [accountLabel, setAccountLabel] = useState('')
-  const [registeringAccount, setRegisteringAccount] = useState(false)
-  const [runtimes, setRuntimes] = useState<readonly { id: string; simulated: boolean }[]>([])
+  // Providers state
+  const [providers, setProviders] = useState<readonly StoredProviderConfig[]>(() => {
+    const saved = localStorage.getItem('forge.providers')
+    if (saved) {
+      try {
+        return JSON.parse(saved) as StoredProviderConfig[]
+      } catch {
+        // fallback
+      }
+    }
+    return DEFAULT_PROVIDERS
+  })
+
+  const [activeProviderId, setActiveProviderId] = useState<string>(() => {
+    return localStorage.getItem('forge.active_provider_id') ?? 'openai'
+  })
+
+  const [addProviderOpen, setAddProviderOpen] = useState(false)
+  const [addProviderType, setAddProviderType] = useState<'openai' | 'messages'>('openai')
 
   const [editProjectOpen, setEditProjectOpen] = useState(false)
   const [deleteProjectOpen, setDeleteProjectOpen] = useState(false)
@@ -104,48 +206,6 @@ export function SettingsContent(): React.JSX.Element {
   const [scope, setScope] = useState('project')
   const [statement, setStatement] = useState('')
   const [savingRule, setSavingRule] = useState(false)
-
-  // Project bindings state
-  const [bindingsView, setBindingsView] = useState<RoleBindingsView | null>(null)
-
-  useEffect(() => {
-    window.forge.account
-      .list()
-      .then((res) => {
-        const data = unwrap(res)
-        setAccounts(data.accounts)
-      })
-      .catch((err: unknown) => {
-        console.error('Failed to load accounts:', err)
-      })
-  }, [])
-
-  useEffect(() => {
-    window.forge.runtime
-      .list()
-      .then((res) => {
-        const list = unwrap(res).runtimes
-        setRuntimes(list.map((r) => ({ id: r.id, simulated: r.simulated })))
-        setAccountProvider((current) => (current === '' ? (list[0]?.id ?? '') : current))
-      })
-      .catch((err: unknown) => {
-        console.error('Failed to load runtimes:', err)
-      })
-  }, [])
-
-  // When inspecting a project
-  useEffect(() => {
-    if (selection.type === 'project' && selection.projectId) {
-      window.forge.binding
-        .list(selection.projectId)
-        .then((res) => {
-          setBindingsView(unwrap(res))
-        })
-        .catch(() => {
-          // non-fatal
-        })
-    }
-  }, [selection])
 
   const handleSaveGlobalInstructions = (val: string): void => {
     setGlobalInstructions(val)
@@ -172,45 +232,63 @@ export function SettingsContent(): React.JSX.Element {
     localStorage.setItem('forge.notify_halts', String(val))
   }
 
+  const handleSaveProviderKey = (providerId: string, apiKey: string): void => {
+    const updated = providers.map((p) => (p.id === providerId ? { ...p, apiKey } : p))
+    setProviders(updated)
+    localStorage.setItem('forge.providers', JSON.stringify(updated))
+    show({ tone: 'success', title: 'API Key saved' })
+  }
+
+  const handleResetProviderKey = (providerId: string): void => {
+    const updated = providers.map((p) => (p.id === providerId ? { ...p, apiKey: '' } : p))
+    setProviders(updated)
+    localStorage.setItem('forge.providers', JSON.stringify(updated))
+    show({ tone: 'neutral', title: 'API Key reset' })
+  }
+
+  const handleSetActiveProvider = (providerId: string): void => {
+    setActiveProviderId(providerId)
+    localStorage.setItem('forge.active_provider_id', providerId)
+    show({ tone: 'success', title: 'Active provider updated' })
+  }
+
+  const handleSelectProviderModel = (providerId: string, activeModel: string): void => {
+    const updated = providers.map((p) => (p.id === providerId ? { ...p, activeModel } : p))
+    setProviders(updated)
+    localStorage.setItem('forge.providers', JSON.stringify(updated))
+  }
+
+  const handleAddCustomProvider = (config: CustomProviderConfig): void => {
+    const newProvider: StoredProviderConfig = {
+      id: config.id,
+      name: config.name,
+      type: 'custom',
+      description: `Custom ${config.apiType.toUpperCase()} endpoint at ${config.apiUrl}`,
+      apiKey: config.apiKey,
+      models: [config.modelName],
+      activeModel: config.modelName,
+      isCustom: true,
+    }
+    const updated = [...providers, newProvider]
+    setProviders(updated)
+    localStorage.setItem('forge.providers', JSON.stringify(updated))
+    setActiveProviderId(config.id)
+    localStorage.setItem('forge.active_provider_id', config.id)
+    show({ tone: 'success', title: `Provider "${config.name}" added and activated` })
+  }
+
+  const handleDeleteCustomProvider = (providerId: string): void => {
+    const updated = providers.filter((p) => p.id !== providerId)
+    setProviders(updated)
+    localStorage.setItem('forge.providers', JSON.stringify(updated))
+    if (activeProviderId === providerId) {
+      setActiveProviderId('openai')
+      localStorage.setItem('forge.active_provider_id', 'openai')
+    }
+    show({ tone: 'neutral', title: 'Provider removed' })
+  }
+
   const activeProject = detail
-
-  async function registerAccount(): Promise<void> {
-    if (accountLabel.trim() === '') return
-    setRegisteringAccount(true)
-    try {
-      const res = await window.forge.account.register({
-        provider: accountProvider.trim() || 'default',
-        label: accountLabel.trim(),
-      })
-      const created = unwrap(res)
-      setAccounts((prev) => [...prev, created])
-      setAccountLabel('')
-      show({ tone: 'success', title: `Account "${created.label}" registered` })
-    } catch (cause) {
-      show({
-        tone: 'danger',
-        title: 'Could not register account',
-        description: cause instanceof Error ? cause.message : 'Unknown error',
-      })
-    } finally {
-      setRegisteringAccount(false)
-    }
-  }
-
-  async function removeAccount(accountId: string): Promise<void> {
-    try {
-      const res = await window.forge.account.remove(accountId)
-      unwrap(res)
-      setAccounts((prev) => prev.filter((a) => a.id !== accountId))
-      show({ tone: 'success', title: 'Account removed' })
-    } catch (cause) {
-      show({
-        tone: 'danger',
-        title: 'Could not remove account',
-        description: cause instanceof Error ? cause.message : 'Unknown error',
-      })
-    }
-  }
 
   async function saveRule(): Promise<void> {
     if (key.trim() === '' || statement.trim() === '' || !activeProject) return
@@ -259,7 +337,7 @@ export function SettingsContent(): React.JSX.Element {
                 {(
                   [
                     { id: 'general', label: 'General & Directives' },
-                    { id: 'accounts', label: 'AI Accounts & Runtimes' },
+                    { id: 'providers', label: 'LLM Providers' },
                     { id: 'customizations', label: 'Customizations & MCP' },
                   ] as const
                 ).map((tab) => {
@@ -371,17 +449,19 @@ export function SettingsContent(): React.JSX.Element {
                   />
                 )}
 
-                {selection.globalTab === 'accounts' && (
-                  <AccountsGlobalSettings
-                    accounts={accounts}
-                    accountProvider={accountProvider}
-                    setAccountProvider={setAccountProvider}
-                    accountLabel={accountLabel}
-                    setAccountLabel={setAccountLabel}
-                    registeringAccount={registeringAccount}
-                    registerAccount={registerAccount}
-                    removeAccount={removeAccount}
-                    runtimes={runtimes}
+                {selection.globalTab === 'providers' && (
+                  <AIProvidersSettings
+                    providers={providers}
+                    activeProviderId={activeProviderId}
+                    onSaveKey={handleSaveProviderKey}
+                    onResetKey={handleResetProviderKey}
+                    onSetActive={handleSetActiveProvider}
+                    onSelectModel={handleSelectProviderModel}
+                    onDeleteCustomProvider={handleDeleteCustomProvider}
+                    onOpenAddProvider={(type) => {
+                      setAddProviderType(type)
+                      setAddProviderOpen(true)
+                    }}
                   />
                 )}
 
@@ -411,12 +491,11 @@ export function SettingsContent(): React.JSX.Element {
                     savingRule={savingRule}
                     saveRule={saveRule}
                     removeRule={handleRemoveRule}
-                    bindingsView={bindingsView}
                   />
                 ) : (
                   <EmptyState
                     title="No project selected"
-                    description="Select a project from the left sidebar to configure its repository, rules, and agent bindings."
+                    description="Select a project from the left sidebar to configure its repository and project-level rules."
                   />
                 )}
               </>
@@ -424,6 +503,16 @@ export function SettingsContent(): React.JSX.Element {
           </div>
         </ScrollArea>
       </main>
+
+      {/* Add Custom Provider Dialog */}
+      <AddProviderDialog
+        open={addProviderOpen}
+        initialType={addProviderType}
+        onClose={() => {
+          setAddProviderOpen(false)
+        }}
+        onSave={handleAddCustomProvider}
+      />
 
       {/* Permissions Modal */}
       {activePermissionsModal !== null && (
@@ -627,7 +716,7 @@ function GeneralGlobalSettings({
 
       {/* Global Instructions Card */}
       <section className="grid gap-2">
-        <h2 className="text-[13px] font-semibold text-(--color-text)">Global Instructions for Agents</h2>
+        <h2 className="text-[13px] font-semibold text-(--color-text)">Global Instructions for Agent</h2>
         <Card tone="raised" className="p-4 space-y-2">
           <p className="m-0 text-[12px] text-(--color-text-muted)">
             Forge includes these directives in the prompt packet across every workflow and project.
@@ -959,124 +1048,124 @@ function GeneralGlobalSettings({
 }
 
 /* =========================================================================
-   AI ACCOUNTS & RUNTIMES
+   LLM PROVIDERS (SINGLE AGENT, MULTI-PROVIDER ARCHITECTURE)
    ========================================================================= */
 
-function AccountsGlobalSettings({
-  accounts,
-  accountProvider,
-  setAccountProvider,
-  accountLabel,
-  setAccountLabel,
-  registeringAccount,
-  registerAccount,
-  removeAccount,
-  runtimes,
+function AIProvidersSettings({
+  providers,
+  activeProviderId,
+  onSaveKey,
+  onResetKey,
+  onSetActive,
+  onSelectModel,
+  onDeleteCustomProvider,
+  onOpenAddProvider,
 }: {
-  readonly accounts: readonly AccountView[]
-  readonly accountProvider: string
-  readonly setAccountProvider: (val: string) => void
-  readonly accountLabel: string
-  readonly setAccountLabel: (val: string) => void
-  readonly registeringAccount: boolean
-  readonly registerAccount: () => Promise<void>
-  readonly removeAccount: (id: string) => Promise<void>
-  readonly runtimes: readonly { id: string; simulated: boolean }[]
+  readonly providers: readonly StoredProviderConfig[]
+  readonly activeProviderId: string
+  readonly onSaveKey: (id: string, key: string) => void
+  readonly onResetKey: (id: string) => void
+  readonly onSetActive: (id: string) => void
+  readonly onSelectModel: (id: string, model: string) => void
+  readonly onDeleteCustomProvider: (id: string) => void
+  readonly onOpenAddProvider: (type: 'openai' | 'messages') => void
 }): React.JSX.Element {
+  const activeProvider = providers.find((p) => p.id === activeProviderId) ?? providers[0]
+
   return (
     <div className="grid gap-6">
-      <div>
-        <h1 className="text-[18px] font-bold text-(--color-text)">AI Accounts & Runtimes</h1>
-        <p className="mt-1 text-[12px] text-(--color-text-muted)">
-          Manage connected AI model providers, API credentials, and active execution runtimes.
-        </p>
-      </div>
+      {/* Header & Add Provider Actions */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-[18px] font-bold text-(--color-text)">LLM Providers</h1>
+          <p className="mt-1 text-[12px] text-(--color-text-muted)">
+            Manage API credentials and model endpoints for your AI agent.
+          </p>
+        </div>
 
-      {/* Registered Accounts List */}
-      <section className="grid gap-2">
-        <h2 className="text-[13px] font-semibold text-(--color-text)">Registered Provider Accounts</h2>
-        <Card tone="raised" className="divide-y divide-(--color-border)">
-          {accounts.length === 0 ? (
-            <div className="p-4 text-[12px] text-(--color-text-muted)">
-              No accounts registered yet. Register an account below to connect model providers.
-            </div>
-          ) : (
-            accounts.map((acc) => (
-              <div key={acc.id} className="flex items-center justify-between p-4">
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-[13px] text-(--color-text)">{acc.label}</span>
-                    <Badge tone="accent" size="sm" className="font-mono text-[10px]">
-                      {acc.provider}
-                    </Badge>
-                  </div>
-                  <p className="m-0 text-[11px] text-(--color-text-muted)">
-                    Status: <span className="text-(--color-success)">{acc.status}</span>
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {runtimes.length > 0 && (
-                    <AccountEnrollment accountId={acc.id} runtimeId={runtimes[0]?.id ?? 'default'} />
-                  )}
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      void removeAccount(acc.id)
-                    }}
-                    className="text-[11px] text-(--color-danger) hover:text-(--color-danger)"
-                  >
-                    Remove
-                  </Button>
-                </div>
-              </div>
-            ))
-          )}
-        </Card>
-      </section>
-
-      {/* Register Account Form */}
-      <section className="grid gap-2">
-        <h2 className="text-[13px] font-semibold text-(--color-text)">Add Model Provider Account</h2>
-        <Card tone="raised" className="p-4 space-y-3">
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <div>
-              <label className="text-[11px] font-semibold text-(--color-text-muted)">Provider</label>
-              <Select
-                value={accountProvider}
-                onChange={(e) => {
-                  setAccountProvider(e.target.value)
-                }}
-                options={
-                  runtimes.length > 0
-                    ? runtimes.map((r) => ({ value: r.id, label: r.id }))
-                    : [{ value: 'default', label: 'default' }]
-                }
-              />
-            </div>
-            <div>
-              <label className="text-[11px] font-semibold text-(--color-text-muted)">Account Label</label>
-              <Input
-                placeholder="e.g. Primary Developer Account"
-                value={accountLabel}
-                onChange={(e) => {
-                  setAccountLabel(e.target.value)
-                }}
-                className="h-8 text-[12px]"
-              />
-            </div>
-          </div>
+        <div className="flex items-center gap-2">
           <Button
-            variant="primary"
-            disabled={registeringAccount || accountLabel.trim() === ''}
+            size="sm"
+            variant="secondary"
             onClick={() => {
-              void registerAccount()
+              onOpenAddProvider('openai')
             }}
             className="rounded-lg text-[12px]"
           >
-            {registeringAccount ? 'Registering...' : 'Register Account'}
+            + Add Provider
           </Button>
+        </div>
+      </div>
+
+      {/* Active Provider Indicator Card */}
+      {activeProvider && (
+        <Card tone="raised" className="border-(--color-accent)/50 bg-(--color-surface-raised) p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] font-bold text-(--color-text)">
+                  Current Active Model:
+                </span>
+                <span className="font-mono text-[13px] font-semibold text-(--color-accent)">
+                  {activeProvider.name} / {activeProvider.activeModel ?? 'default'}
+                </span>
+              </div>
+              <p className="m-0 text-[11px] text-(--color-text-muted)">
+                Forge powers all agent workflow stages using this active provider and model.
+              </p>
+            </div>
+            <Badge tone="accent" size="sm">
+              In Use
+            </Badge>
+          </div>
         </Card>
+      )}
+
+      {/* Providers List */}
+      <section className="grid gap-3">
+        <h2 className="text-[13px] font-semibold text-(--color-text)">Available Providers</h2>
+        <div className="grid gap-3">
+          {providers.map((p) => {
+            const isConfigured =
+              p.type === 'local' || (p.apiKey !== undefined && p.apiKey.trim() !== '')
+            const isActive = p.id === activeProviderId
+            return (
+              <ProviderCard
+                key={p.id}
+                id={p.id}
+                name={p.name}
+                description={p.description}
+                apiKey={p.apiKey}
+                envVarHint={p.envVarHint}
+                isConfigured={isConfigured}
+                isActive={isActive}
+                type={p.type}
+                localUrl={p.localUrl}
+                models={p.models}
+                activeModel={p.activeModel}
+                onSaveKey={(k) => {
+                  onSaveKey(p.id, k)
+                }}
+                onResetKey={() => {
+                  onResetKey(p.id)
+                }}
+                onSetActive={() => {
+                  onSetActive(p.id)
+                }}
+                onSelectModel={(m) => {
+                  onSelectModel(p.id, m)
+                }}
+                onDelete={
+                  p.isCustom
+                    ? () => {
+                        onDeleteCustomProvider(p.id)
+                      }
+                    : undefined
+                }
+              />
+            )
+          })}
+        </div>
       </section>
     </div>
   )
@@ -1138,7 +1227,6 @@ function ProjectLevelSettings({
   savingRule,
   saveRule,
   removeRule,
-  bindingsView,
 }: {
   readonly detail: ProjectDetail
   readonly onEditProject: () => void
@@ -1152,7 +1240,6 @@ function ProjectLevelSettings({
   readonly savingRule: boolean
   readonly saveRule: () => Promise<void>
   readonly removeRule: (id: string) => Promise<void>
-  readonly bindingsView: RoleBindingsView | null
 }): React.JSX.Element {
   const { project, rules, probe } = detail
 
@@ -1168,7 +1255,7 @@ function ProjectLevelSettings({
             </Badge>
           </div>
           <p className="text-[12px] text-(--color-text-muted)">
-            Repository configuration, role bindings, and project-level rules.
+            Repository configuration and project-level rules.
           </p>
         </div>
 
@@ -1206,30 +1293,6 @@ function ProjectLevelSettings({
           </dl>
         </Card>
       </section>
-
-      {/* Role Bindings */}
-      {bindingsView && (
-        <section className="grid gap-2">
-          <h2 className="text-[13px] font-semibold text-(--color-text)">Agent Role Bindings</h2>
-          <Card tone="raised" className="divide-y divide-(--color-border)">
-            {bindingsView.roles.map((item) => (
-              <div key={item.role} className="flex items-center justify-between p-4">
-                <div>
-                  <p className="m-0 font-medium uppercase text-[12px] text-(--color-text)">
-                    {item.role}
-                  </p>
-                  <p className="m-0 text-[11px] text-(--color-text-muted)">
-                    Agent assigned to execute {item.role} workflow stages
-                  </p>
-                </div>
-                <Badge tone="neutral" className="font-mono text-[11px]">
-                  {item.binding?.runtimeId ?? 'default / simulated'}
-                </Badge>
-              </div>
-            ))}
-          </Card>
-        </section>
-      )}
 
       {/* Project Rules */}
       <section className="grid gap-3">

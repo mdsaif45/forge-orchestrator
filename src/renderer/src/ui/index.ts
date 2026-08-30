@@ -59,3 +59,9 @@ export {
   type SplitDiffRow,
   type DiffLineType,
 } from './primitives/syntaxHighlighter'
+export { ProviderCard, type ProviderCardProps } from './primitives/ProviderCard'
+export {
+  AddProviderDialog,
+  type AddProviderDialogProps,
+  type CustomProviderConfig,
+} from './primitives/AddProviderDialog'

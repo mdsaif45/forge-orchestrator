@@ -34,7 +34,7 @@ const ALL_CAPABILITIES = [
 ] as const
 
 /**
- * Dialog for adding and configuring custom Type 1 CLI Agent runtimes.
+ * Dialog for adding and configuring custom CLI Agent runtimes.
  */
 export function AddCliAgentDialog({
   open,
@@ -84,7 +84,7 @@ export function AddCliAgentDialog({
       id: `cli-${Date.now().toString()}`,
       name: name.trim(),
       command: command.trim(),
-      description: description.trim() || 'Custom Type 1 CLI Agent runtime',
+      description: description.trim() || 'Custom CLI Agent runtime',
       capabilities: selectedCapabilities,
       permissionMode,
       argsTemplate: argsTemplate.trim() || undefined,
@@ -107,7 +107,7 @@ export function AddCliAgentDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="Add Type 1 CLI Agent Runtime"
+      title="Add CLI Agent Runtime"
       description="Connect an autonomous coding CLI tool to execute workflow pipeline stages inside sandboxed worktrees."
       size="lg"
       footer={

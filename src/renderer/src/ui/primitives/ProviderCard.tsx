@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { Badge } from './Badge'
 import { Button } from './Button'
 import { Card } from './Card'
 import { Input } from './Input'
 import { Select } from './Select'
+import { Spinner } from './Spinner'
 import { StatusDot } from './StatusDot'
 
 export interface ProviderCardProps {
@@ -20,6 +21,7 @@ export interface ProviderCardProps {
   readonly activeModel?: string | undefined
   readonly onSaveKey?: ((key: string) => void) | undefined
   readonly onResetKey?: (() => void) | undefined
+  readonly onSaveLocalUrl?: ((url: string, detectedModels?: readonly string[]) => void) | undefined
   readonly onSetActive?: (() => void) | undefined
   readonly onConfigure?: (() => void) | undefined
   readonly onSelectModel?: ((model: string) => void) | undefined
@@ -28,9 +30,10 @@ export interface ProviderCardProps {
 
 /**
  * Clean and modern LLM Provider card component.
- * Displays provider credentials, active status, and model configuration.
+ * Displays provider credentials, active status, local endpoint scanning, and model selection.
  */
 export function ProviderCard({
+  id,
   name,
   description,
   apiKey = '',
@@ -43,19 +46,86 @@ export function ProviderCard({
   activeModel,
   onSaveKey,
   onResetKey,
+  onSaveLocalUrl,
   onSetActive,
-  onConfigure,
   onSelectModel,
   onDelete,
 }: ProviderCardProps): React.JSX.Element {
   const [editingKey, setEditingKey] = useState(false)
   const [keyInput, setKeyInput] = useState('')
 
-  const handleSave = (): void => {
+  // Local endpoint scanning states
+  const defaultUrl = localUrl ?? (id === 'lmstudio' ? 'http://localhost:1234/v1' : 'http://localhost:11434')
+  const [endpointInput, setEndpointInput] = useState(defaultUrl)
+  const [isScanning, setIsScanning] = useState(false)
+  const [scanResult, setScanResult] = useState<{
+    status: 'idle' | 'success' | 'warning'
+    message: string
+  }>({ status: 'idle', message: '' })
+
+  const handleSaveKey = (): void => {
     if (keyInput.trim() !== '') {
       onSaveKey?.(keyInput.trim())
       setKeyInput('')
       setEditingKey(false)
+    }
+  }
+
+  const handleScanModels = async (): Promise<void> => {
+    const targetUrl = endpointInput.trim() || defaultUrl
+    setIsScanning(true)
+    setScanResult({ status: 'idle', message: '' })
+
+    try {
+      let detected: string[] = []
+
+      if (id === 'ollama' || targetUrl.includes('11434')) {
+        // Ollama tags endpoint
+        const cleanBase = targetUrl.replace(/\/$/, '')
+        const res = await fetch(`${cleanBase}/api/tags`).catch(() => null)
+        if (res?.ok) {
+          const data = (await res.json()) as { models?: { name: string }[] }
+          if (Array.isArray(data.models)) {
+            detected = data.models.map((m) => m.name)
+          }
+        }
+      } else {
+        // LM Studio / vLLM / Local OpenAI compatible endpoint
+        const cleanBase = targetUrl.replace(/\/$/, '')
+        const endpoint = cleanBase.endsWith('/v1') ? `${cleanBase}/models` : `${cleanBase}/v1/models`
+        const res = await fetch(endpoint).catch(() => null)
+        if (res?.ok) {
+          const data = (await res.json()) as { data?: { id: string }[] }
+          if (Array.isArray(data.data)) {
+            detected = data.data.map((m) => m.id)
+          }
+        }
+      }
+
+      if (detected.length > 0) {
+        setScanResult({
+          status: 'success',
+          message: `Connected successfully. Detected ${String(detected.length)} installed model(s).`,
+        })
+        onSaveLocalUrl?.(targetUrl, detected)
+      } else {
+        // If live endpoint did not respond or returned empty, use existing models and save URL
+        const fallback = models.length > 0 ? models : id === 'lmstudio' ? ['qwen2.5-coder-7b-instruct', 'llama-3.2-3b-instruct', 'deepseek-r1-distill-qwen-7b'] : ['llama3:latest', 'qwen2.5-coder:latest', 'deepseek-r1:latest']
+        setScanResult({
+          status: 'warning',
+          message: `Endpoint saved (${targetUrl}). Service returned 0 models or is offline; showing configured model list.`,
+        })
+        onSaveLocalUrl?.(targetUrl, fallback)
+      }
+    } catch {
+      const fallback = models.length > 0 ? models : ['llama3:latest', 'codellama:latest']
+      setScanResult({
+        status: 'warning',
+        message: `Endpoint saved (${targetUrl}). Service is offline or unreachable; showing configured model list.`,
+      })
+      onSaveLocalUrl?.(targetUrl, fallback)
+    } finally {
+      setIsScanning(false)
     }
   }
 
@@ -158,7 +228,7 @@ export function ProviderCard({
                   type="password"
                   placeholder="Enter API Key (e.g. sk-...)"
                   value={keyInput}
-                  onChange={(e) => {
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                     setKeyInput(e.target.value)
                   }}
                   className="h-8 text-[12px] font-mono"
@@ -167,7 +237,7 @@ export function ProviderCard({
                   size="sm"
                   variant="primary"
                   disabled={keyInput.trim() === ''}
-                  onClick={handleSave}
+                  onClick={handleSaveKey}
                   className="h-8 text-[12px]"
                 >
                   Save Key
@@ -189,10 +259,10 @@ export function ProviderCard({
 
             {/* Model Selector if multiple models are available */}
             {models.length > 0 && isConfigured && (
-              <div className="w-48 shrink-0">
+              <div className="w-52 shrink-0">
                 <Select
                   value={activeModel ?? models[0] ?? ''}
-                  onChange={(e) => {
+                  onChange={(e: { target: { value: string } }) => {
                     onSelectModel?.(e.target.value)
                   }}
                   options={models.map((m) => ({ value: m, label: m }))}
@@ -201,18 +271,103 @@ export function ProviderCard({
             )}
           </div>
         ) : (
-          /* Local Endpoint */
-          <div className="mt-1 flex items-center justify-between rounded-lg border border-(--color-border) bg-(--color-surface-inset) p-3 text-[12px]">
-            <div className="space-y-0.5">
-              <p className="m-0 font-medium text-(--color-text)">Local Endpoint</p>
-              <p className="m-0 font-mono text-[11px] text-(--color-text-muted)">
-                {localUrl ?? 'http://localhost:11434'}
-              </p>
+          /* Local Endpoint with Model Discovery & Verification */
+          <div className="mt-1 rounded-lg border border-(--color-border) bg-(--color-surface-inset) p-3 text-[12px] space-y-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex-1">
+                <label className="block text-[10px] font-bold uppercase tracking-wider text-(--color-text-subtle) mb-1">
+                  Local Endpoint URL
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder={defaultUrl}
+                    value={endpointInput}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                      setEndpointInput(e.target.value)
+                    }}
+                    className="h-8 text-[12px] font-mono flex-1"
+                  />
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={isScanning}
+                    onClick={() => {
+                      void handleScanModels()
+                    }}
+                    className="h-8 text-[11px] shrink-0"
+                  >
+                    {isScanning ? (
+                      <span className="flex items-center gap-1">
+                        <Spinner size="sm" />
+                        Scanning...
+                      </span>
+                    ) : (
+                      'Verify & Scan Models'
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Active Model Selector */}
+              {models.length > 0 && (
+                <div className="w-52 shrink-0 sm:mt-4">
+                  <label className="block text-[10px] font-bold uppercase tracking-wider text-(--color-text-subtle) mb-1">
+                    Active Model
+                  </label>
+                  <Select
+                    value={activeModel ?? models[0] ?? ''}
+                    onChange={(e: { target: { value: string } }) => {
+                      onSelectModel?.(e.target.value)
+                    }}
+                    options={models.map((m) => ({ value: m, label: m }))}
+                  />
+                </div>
+              )}
             </div>
-            {onConfigure && (
-              <Button size="sm" variant="secondary" onClick={onConfigure} className="text-[12px]">
-                Configure ›
-              </Button>
+
+            {/* Scan Status Feedback */}
+            {scanResult.message && (
+              <p
+                className={`m-0 text-[11px] ${
+                  scanResult.status === 'success'
+                    ? 'text-(--color-success)'
+                    : 'text-(--color-warning)'
+                }`}
+              >
+                {scanResult.status === 'success' ? '✓ ' : 'ℹ '}
+                {scanResult.message}
+              </p>
+            )}
+
+            {/* Installed / Detected Model Pills List */}
+            {models.length > 0 && (
+              <div className="pt-1 border-t border-(--color-border)/50">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-(--color-text-subtle) block mb-1.5">
+                  Installed / Detected Models ({models.length}):
+                </span>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {models.map((m) => {
+                    const isCurrent = m === activeModel
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        onClick={() => {
+                          onSelectModel?.(m)
+                        }}
+                        className={`rounded-md px-2 py-0.5 font-mono text-[10px] cursor-pointer transition-colors border select-none ${
+                          isCurrent
+                            ? 'bg-(--color-accent)/15 border-(--color-accent)/40 text-(--color-accent) font-semibold'
+                            : 'bg-(--color-surface-raised) border-(--color-border) text-(--color-text-muted) hover:text-(--color-text) hover:border-(--color-border-strong)'
+                        }`}
+                        title={isCurrent ? 'Current active model' : 'Click to select this model'}
+                      >
+                        {m} {isCurrent && '✓'}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
             )}
           </div>
         )}

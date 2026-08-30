@@ -43,12 +43,12 @@ interface StoredProviderConfig {
   readonly name: string
   readonly type: 'api_key' | 'local' | 'custom'
   readonly description: string
-  readonly apiKey?: string
-  readonly envVarHint?: string
-  readonly localUrl?: string
-  readonly models?: readonly string[]
-  readonly activeModel?: string
-  readonly isCustom?: boolean
+  readonly apiKey?: string | undefined
+  readonly envVarHint?: string | undefined
+  readonly localUrl?: string | undefined
+  readonly models?: readonly string[] | undefined
+  readonly activeModel?: string | undefined
+  readonly isCustom?: boolean | undefined
 }
 
 const DEFAULT_PROVIDERS: readonly StoredProviderConfig[] = [
@@ -292,6 +292,42 @@ export function SettingsContent(): React.JSX.Element {
     show({ tone: 'neutral', title: 'Provider removed' })
   }
 
+  const handleSaveLocalUrl = (
+    providerId: string,
+    url: string,
+    detectedModels?: readonly string[],
+  ): void => {
+    const updated: readonly StoredProviderConfig[] = providers.map((p) => {
+      if (p.id === providerId) {
+        const nextModels =
+          detectedModels && detectedModels.length > 0 ? detectedModels : (p.models ?? [])
+        const nextActive =
+          nextModels.length > 0
+            ? nextModels.includes(p.activeModel ?? '')
+              ? p.activeModel
+              : nextModels[0]
+            : p.activeModel
+        return {
+          ...p,
+          localUrl: url,
+          models: nextModels,
+          activeModel: nextActive,
+        }
+      }
+      return p
+    })
+    setProviders(updated)
+    localStorage.setItem('forge.providers', JSON.stringify(updated))
+    show({
+      tone: 'success',
+      title: 'Local Endpoint Updated',
+      description:
+        detectedModels && detectedModels.length > 0
+          ? `Verified ${String(detectedModels.length)} models for ${providerId}.`
+          : `Endpoint saved: ${url}`,
+    })
+  }
+
   const activeProject = detail
 
   async function saveRule(): Promise<void> {
@@ -341,8 +377,8 @@ export function SettingsContent(): React.JSX.Element {
                 {(
                   [
                     { id: 'general', label: 'General & Directives' },
-                    { id: 'cli-agents', label: 'CLI Agents (Type 1)' },
-                    { id: 'providers', label: 'LLM Providers (Type 2)' },
+                    { id: 'cli-agents', label: 'CLI Agents' },
+                    { id: 'providers', label: 'LLM Providers' },
                     { id: 'customizations', label: 'Customizations & MCP' },
                   ] as const
                 ).map((tab) => {
@@ -471,6 +507,7 @@ export function SettingsContent(): React.JSX.Element {
                     activeProviderId={activeProviderId}
                     onSaveKey={handleSaveProviderKey}
                     onResetKey={handleResetProviderKey}
+                    onSaveLocalUrl={handleSaveLocalUrl}
                     onSetActive={handleSetActiveProvider}
                     onSelectModel={handleSelectProviderModel}
                     onDeleteCustomProvider={handleDeleteCustomProvider}
@@ -1075,7 +1112,7 @@ function GeneralGlobalSettings({
 }
 
 /* =========================================================================
-   CLI AGENTS (TYPE 1: AUTONOMOUS CLI HARNESSES & RUNTIMES)
+   CLI AGENTS & AUTONOMOUS RUNTIMES
    ========================================================================= */
 
 const DEFAULT_CLI_AGENTS: readonly CliAgentConfig[] = [
@@ -1084,7 +1121,7 @@ const DEFAULT_CLI_AGENTS: readonly CliAgentConfig[] = [
     name: 'Forge Native Agent',
     command: 'internal (built-in)',
     description:
-      'Forge built-in autonomous orchestrator equipped with sandbox tools (AST file editor, terminal runner, planning extractors, and closed-loop verification). Powered internally by your active Type 2 LLM provider.',
+      'Forge built-in autonomous orchestrator equipped with sandbox tools (AST file editor, terminal runner, planning extractors, and closed-loop verification). Powered internally by your active LLM provider.',
     capabilities: ['repo-read', 'file-write', 'terminal', 'plan', 'review', 'verify'],
     permissionMode: 'developer',
     isBuiltin: true,
@@ -1207,7 +1244,7 @@ function CliAgentsGlobalSettings({
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-[18px] font-bold text-(--color-text)">
-              CLI Agents & Autonomous Runtimes (Type 1)
+              CLI Agents & Autonomous Runtimes
             </h1>
             <Badge tone="accent" size="sm" className="rounded-full">
               {agents.length} Runtimes
@@ -1253,7 +1290,7 @@ function CliAgentsGlobalSettings({
               </Badge>
             </div>
             <p className="m-0 text-[12px] text-(--color-text-muted)">
-              Forge Native Agent equips your configured <strong>Type 2 LLM Provider</strong> (currently{' '}
+              Forge Native Agent equips your configured <strong>LLM Provider</strong> (currently{' '}
               <span className="font-mono font-semibold text-(--color-accent)">
                 {activeLlmProviderName} / {activeLlmModelName}
               </span>
@@ -1394,7 +1431,7 @@ function CliAgentsGlobalSettings({
 }
 
 /* =========================================================================
-   LLM PROVIDERS (TYPE 2: DIRECT API CREDENTIALS & ENDPOINTS)
+   LLM PROVIDERS (DIRECT API CREDENTIALS & LOCAL ENDPOINTS)
    ========================================================================= */
 
 function AIProvidersSettings({
@@ -1402,6 +1439,7 @@ function AIProvidersSettings({
   activeProviderId,
   onSaveKey,
   onResetKey,
+  onSaveLocalUrl,
   onSetActive,
   onSelectModel,
   onDeleteCustomProvider,
@@ -1411,6 +1449,7 @@ function AIProvidersSettings({
   readonly activeProviderId: string
   readonly onSaveKey: (id: string, key: string) => void
   readonly onResetKey: (id: string) => void
+  readonly onSaveLocalUrl: (id: string, url: string, detectedModels?: readonly string[]) => void
   readonly onSetActive: (id: string) => void
   readonly onSelectModel: (id: string, model: string) => void
   readonly onDeleteCustomProvider: (id: string) => void
@@ -1423,9 +1462,9 @@ function AIProvidersSettings({
       {/* Header & Add Provider Actions */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-[18px] font-bold text-(--color-text)">LLM Providers (Type 2)</h1>
+          <h1 className="text-[18px] font-bold text-(--color-text)">LLM Providers</h1>
           <p className="mt-1 text-[12px] text-(--color-text-muted)">
-            Manage direct API credentials and model endpoints. These power the Forge Native Agent (Type 1) as well as direct completions.
+            Manage API credentials and model endpoints. These power the Forge Native Agent as well as direct completions.
           </p>
         </div>
 
@@ -1494,6 +1533,9 @@ function AIProvidersSettings({
                 }}
                 onResetKey={() => {
                   onResetKey(p.id)
+                }}
+                onSaveLocalUrl={(url, detected) => {
+                  onSaveLocalUrl(p.id, url, detected)
                 }}
                 onSetActive={() => {
                   onSetActive(p.id)

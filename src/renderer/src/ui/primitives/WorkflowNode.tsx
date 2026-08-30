@@ -82,18 +82,6 @@ export const WorkflowNode = React.forwardRef<HTMLButtonElement, WorkflowNodeProp
               ? 'Morgan (Reviewer)'
               : 'Forge Engine')
 
-    const resolvedStage =
-      stageLabel ??
-      (role === 'planner'
-        ? 'Planning Phase'
-        : role === 'user'
-          ? 'Human Review'
-          : role === 'implementer'
-            ? 'Sandbox Execution'
-            : role === 'reviewer'
-              ? 'Quality Audit'
-              : 'Verification')
-
     return (
       <button
         ref={ref}
@@ -116,7 +104,7 @@ export const WorkflowNode = React.forwardRef<HTMLButtonElement, WorkflowNodeProp
         {/* Top: Stage Tag & Live Status Dot */}
         <div className="flex w-full items-center justify-between gap-2 border-b border-(--color-border)/40 pb-1.5">
           <span className="text-[10px] font-bold uppercase tracking-wider text-(--color-text-subtle) truncate">
-            {resolvedStage}
+            {stageLabel ?? role}
           </span>
           <StatusDot status={status} pulse={state === 'running' || active} />
         </div>
@@ -138,9 +126,12 @@ export const WorkflowNode = React.forwardRef<HTMLButtonElement, WorkflowNodeProp
 
         {/* Bottom: Engine & Verdict */}
         <div className="mt-1 flex w-full items-center justify-between gap-1.5 text-[11px] text-(--color-text-muted) border-t border-(--color-border)/30 pt-1.5">
-          <span className="font-mono text-[10px] truncate max-w-[90px]" title={runtimeId ?? state}>
-            {runtimeId ?? (role === 'user' ? 'human-gate' : state)}
-          </span>
+          <div className="flex items-center gap-1 font-mono text-[10px] truncate max-w-[95px]" title={runtimeId ?? state}>
+            <span className="truncate">{runtimeId ?? (role === 'user' ? 'human-gate' : state)}</span>
+            {simulated === true && (
+              <span className="shrink-0 text-[9px] text-(--color-text-muted)">simulated</span>
+            )}
+          </div>
           {verdict !== undefined && verdict !== null && (
             <span
               className={cn(

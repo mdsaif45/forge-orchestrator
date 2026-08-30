@@ -74,23 +74,6 @@ export type ProtocolResult = ProtocolSuccess | ProtocolFailure
 export function parseAgentReport(output: string): ProtocolResult {
   const begin = output.indexOf(REPORT_BEGIN)
   if (begin === -1) {
-    // Resilient fallback: Check if the output contains a fenced or raw JSON block matching the report schema
-    const jsonMatch =
-      /```(?:json)?\s*(\{[\s\S]*?\})\s*```/.exec(output) ??
-      /(\{[\s\S]*"status"[\s\S]*\})/.exec(output)
-
-    if (jsonMatch?.[1] !== undefined) {
-      try {
-        const parsed: unknown = JSON.parse(jsonMatch[1].trim())
-        const validated = agentReportSchema.safeParse(parsed)
-        if (validated.success) {
-          return { ok: true, report: validated.data }
-        }
-      } catch {
-        // Fall back to no-report error
-      }
-    }
-
     return {
       ok: false,
       code: 'no-report',

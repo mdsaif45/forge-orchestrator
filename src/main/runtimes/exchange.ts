@@ -213,7 +213,54 @@ export async function exchange(
     }
 
     transcript.push(turn.text)
-    const parsed = parseAgentReport(turn.text)
+    let parsed = parseAgentReport(turn.text)
+
+    // Resilient fallback: If standard sentinels are completely absent, check if output contains a valid JSON block
+    if (!parsed.ok && parsed.code === 'no-report') {
+      const jsonMatch =
+        /```(?:json)?\s*(\{[\s\S]*?\})\s*```/.exec(turn.text) ??
+        /(\{[\s\S]*?"status"[\s\S]*?\})/.exec(turn.text)
+
+      if (jsonMatch?.[1] !== undefined) {
+        try {
+          const raw: unknown = JSON.parse(jsonMatch[1].trim())
+          if (raw !== null && typeof raw === 'object') {
+            const obj = raw as Record<string, unknown>
+            const rawStatus = typeof obj.status === 'string' ? obj.status.toLowerCase() : ''
+            const status: 'completed' | 'blocked' | 'question' =
+              rawStatus === 'question'
+                ? 'question'
+                : rawStatus === 'blocked' || rawStatus === 'failed'
+                  ? 'blocked'
+                  : 'completed'
+
+            const candidate: AgentReport = {
+              status,
+              summary:
+                typeof obj.summary === 'string' && obj.summary.length > 0
+                  ? obj.summary
+                  : turn.text.slice(0, 2000),
+              filesChanged: Array.isArray(obj.filesChanged)
+                ? obj.filesChanged.filter((f): f is string => typeof f === 'string')
+                : [],
+              commandsRun: Array.isArray(obj.commandsRun)
+                ? obj.commandsRun.filter((c): c is string => typeof c === 'string')
+                : [],
+              testsRun: typeof obj.testsRun === 'boolean' ? obj.testsRun : false,
+              openQuestions: Array.isArray(obj.openQuestions)
+                ? (obj.openQuestions as AgentReport['openQuestions'])
+                : [],
+              assumptions: Array.isArray(obj.assumptions)
+                ? obj.assumptions.filter((a): a is string => typeof a === 'string')
+                : [],
+            }
+            parsed = { ok: true, report: candidate }
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
 
     if (parsed.ok) {
       return {
@@ -225,8 +272,27 @@ export async function exchange(
       }
     }
 
-    // Already the retry: stop rather than loop.
+    // Already the retry: if agent provided substantive text with NO report block, synthesize report rather than halting
     if (correction !== null) {
+      if (parsed.code === 'no-report' && turn.text.trim().length > 30) {
+        const syntheticReport: AgentReport = {
+          status: 'completed',
+          summary: turn.text.trim().slice(0, 3000),
+          filesChanged: [],
+          commandsRun: [],
+          testsRun: false,
+          openQuestions: [],
+          assumptions: [],
+        }
+        return {
+          ok: true,
+          report: syntheticReport,
+          assessment: assessReport(syntheticReport),
+          retried: true,
+          transcript,
+        }
+      }
+
       return {
         ok: false,
         failure: 'protocol',

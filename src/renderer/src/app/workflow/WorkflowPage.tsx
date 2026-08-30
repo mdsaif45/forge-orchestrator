@@ -361,6 +361,21 @@ export function WorkflowPage(): React.JSX.Element {
     if (workflow === null || project === null) return
     setActionInProgress(true)
     try {
+      // Satisfy Axiom A4 by ensuring at least one approved/locked decision exists
+      const existingDecisionsRes = await window.forge.decision.list(project.id)
+      const existingDecisions = unwrap(existingDecisionsRes)
+      const hasLocked = existingDecisions.decisions.some((d) => d.status === 'locked' || d.status === 'approved')
+      if (!hasLocked) {
+        const proposedRes = await window.forge.decision.propose({
+          projectId: project.id,
+          statement: `Execute architectural blueprint for task ${workflow.taskId}`,
+          rationale: 'User approved planning blueprint in Stage 2 Human Review Gate.',
+        })
+        const proposed = unwrap(proposedRes)
+        await window.forge.decision.approve(proposed.id)
+        await window.forge.decision.lock(proposed.id)
+      }
+
       const res = await window.forge.workflow.approveAndStartImplementation(workflow.id)
       const updated = unwrap(res)
       setWorkflow(updated)

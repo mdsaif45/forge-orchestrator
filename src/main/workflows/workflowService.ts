@@ -20,7 +20,6 @@ import {
   workflowIdSchema,
   type AgentBinding,
   type CompletionCriterion,
-  type Decision,
   type LockedDecision,
   type OpenQuestion,
   type ProjectId,
@@ -329,29 +328,15 @@ export class WorkflowService {
 
     const projectId = this.workflows.projectIdOf(wId)
 
-    // 1. Structural verification: ensure at least one approved/locked decision exists
+    // 1. Structural verification: at least one approved/locked decision exists
     const projectDecisions = this.decisions.listForProject(projectId)
     const hasApprovedOrLocked = projectDecisions.some(
       (d) => d.status === 'locked' || d.status === 'approved',
     )
     if (!hasApprovedOrLocked) {
-      const dId = decisionIdSchema.parse(randomUUID())
-      const now = new Date().toISOString()
-      const planDecision: Decision = {
-        id: dId,
-        statement: `Execute architectural blueprint for task ${wf.taskId}`,
-        rationale: 'User approved planning blueprint in Stage 2 Human Review Gate.',
-        status: 'proposed',
-        proposedBy: 'user',
-        proposedAt: now,
-        lockedAt: null,
-        lockedBy: null,
-        supersededBy: null,
-        originQuestionId: null,
-      }
-      this.decisions.propose(planDecision, projectId, 'user', now)
-      this.decisions.approve(dId, 'user', now)
-      this.decisions.lock(dId, 'user', now)
+      throw new Error(
+        'Cannot enter implementation mode: at least one approved or locked architectural decision is required (Axiom A4).',
+      )
     }
 
     // 2. Advance the workflow from AWAITING_APPROVAL to IMPLEMENTING

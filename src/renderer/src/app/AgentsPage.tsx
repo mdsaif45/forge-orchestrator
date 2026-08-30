@@ -196,7 +196,7 @@ export function AgentsPage(): React.JSX.Element {
             No roles currently bound. Select engines below to assign roles for this project.
           </Card>
         ) : (
-          <div className="grid gap-2">
+          <div className="grid gap-2 max-w-2xl">
             {roles.map(({ role, binding, eligibleRuntimes }) => (
               <Card
                 key={role}
@@ -232,7 +232,7 @@ export function AgentsPage(): React.JSX.Element {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <div className="w-52">
+                  <div className="w-44">
                     <Select
                       aria-label={`Runtime for ${role}`}
                       options={eligibleRuntimes.map((runtime) => ({
@@ -252,13 +252,6 @@ export function AgentsPage(): React.JSX.Element {
                       simulated
                     </Badge>
                   )}
-                  {binding !== null &&
-                    eligibleRuntimes.find((runtime) => runtime.id === binding.runtimeId)
-                      ?.supportsAccountIsolation === false && (
-                      <Badge tone="neutral" size="sm">
-                        one account at a time
-                      </Badge>
-                    )}
                 </div>
               </Card>
             ))}

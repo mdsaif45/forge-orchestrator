@@ -7,86 +7,93 @@ import type {
   WorkflowStepView,
   WorkflowTemplateView,
 } from '@shared/ipc'
-import { Badge, Button, Select, Spinner, StatusDot, useToast } from '@renderer/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  ScrollArea,
+  StartWorkflowDialog,
+  StatusDot,
+  useToast,
+  WorkflowEdge,
+  WorkflowNode,
+} from '@renderer/ui'
 import { unwrap } from '@renderer/ipc'
 import { useProjectStore } from '../projectStore'
-import { LiveLogViewer, type LogLine } from './LiveLogViewer'
 import { StepInspector } from './StepInspector'
-import { WorkflowGraph } from './WorkflowGraph'
 import { WorkflowPreflight } from './WorkflowPreflight'
+
+interface LogEntry {
+  readonly id: string
+  readonly timestamp: string
+  readonly text: string
+}
 
 function describeWorkflowState(workflow: WorkflowDetailView): string {
   switch (workflow.state) {
-    case 'DISCOVERY':
-      return 'Discovering codebase'
+    case 'DISCUSSING':
+      return 'Discussing requirements'
     case 'PLANNING':
-      return 'Planning change'
-    case 'PLAN_READY':
-      return 'Plan ready for review'
-    case 'DECISIONS_LOCKED':
-      return 'Decisions locked'
-    case 'IMPLEMENTING':
-      return 'Implementing changes'
-    case 'VERIFYING':
-      return 'Verifying tests'
-    case 'REVIEWING':
-      return 'Reviewing diff'
-    case 'CORRECTION_REQUIRED':
-      return 'Correction required'
+      return 'Planning implementation'
+    case 'AWAITING_APPROVAL':
     case 'AWAITING_USER':
-      return 'Awaiting your answer'
+      return 'Awaiting your approval'
+    case 'DECISIONS_PENDING':
+      return 'Reviewing decisions'
+    case 'IMPLEMENTING':
+      return 'Implementing in worktree'
+    case 'VERIFYING':
+      return 'Verifying changes'
+    case 'REVIEWING':
+      return 'Reviewing code quality'
+    case 'CORRECTING':
+      return 'Refining implementation'
     case 'DONE':
       return 'Workflow completed'
-    case 'HALTED_LIMIT':
-      return 'Halted (limit reached)'
-    case 'HALTED_POLICY':
-      return 'Halted (policy violation)'
     case 'CANCELLED':
-      return 'Cancelled'
+      return 'Workflow cancelled'
+    case 'HALTED_POLICY':
+      return 'Halted (Policy violation or agent exit)'
+    case 'HALTED_LIMIT':
+      return 'Halted (Limit reached)'
     default:
       return workflow.state
   }
 }
 
 export function WorkflowPage(): React.JSX.Element {
-  const { show } = useToast()
-  const projectDetail = useProjectStore((state) => state.detail)
-  const project = projectDetail?.project ?? null
+  const detail = useProjectStore((state) => state.detail)
+  const project = detail?.project ?? null
 
-  const [workflowState, setWorkflowState] = useState<{
-    projectId: string
-    workflow: WorkflowDetailView | null
-  } | null>(null)
-  const [selectedStep, setSelectedStep] = useState<WorkflowStepView | null>(null)
-  const [logs, setLogs] = useState<readonly LogLine[]>([])
+  const [workflow, setWorkflow] = useState<WorkflowDetailView | null>(null)
+  const [activeTaskTitle, setActiveTaskTitle] = useState<string | null>(null)
   const [templates, setTemplates] = useState<readonly WorkflowTemplateView[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('feature')
   const [bindings, setBindings] = useState<RoleBindingsView | null>(null)
-  const [onlySimulated, setOnlySimulated] = useState<boolean>(false)
+  const [logs, setLogs] = useState<readonly LogEntry[]>([])
+  const [selectedStep, setSelectedStep] = useState<WorkflowStepView | null>(null)
   const [actionInProgress, setActionInProgress] = useState<boolean>(false)
-
-  const workflow =
-    project !== null && workflowState?.projectId === project.id ? workflowState.workflow : null
-
-  const loading = project !== null && workflowState?.projectId !== project.id
+  const [startDialogOpen, setStartDialogOpen] = useState<boolean>(false)
+  const { show } = useToast()
 
   // Load active workflow on project change
   useEffect(() => {
-    if (project === null) {
-      return
-    }
-
+    if (project === null) return
     const pId = project.id
-    let cancelled = false
 
+    let cancelled = false
     window.forge.workflow
       .getActive(pId)
       .then((res) => {
-        if (!cancelled) {
-          const wf = unwrap(res)
-          setWorkflowState({ projectId: pId, workflow: wf })
-          if (wf !== null && wf.steps.length > 0) {
-            setSelectedStep(wf.steps[wf.steps.length - 1] ?? null)
+        if (cancelled) return
+        const active = unwrap(res)
+        setWorkflow(active)
+        if (active !== null && active.steps.length > 0) {
+          const currentRunning = active.steps.find((s: WorkflowStepView) => s.state === 'running')
+          if (currentRunning !== undefined) {
+            setSelectedStep(currentRunning)
+          } else {
+            setSelectedStep(active.steps[active.steps.length - 1] ?? null)
           }
         }
       })
@@ -103,15 +110,14 @@ export function WorkflowPage(): React.JSX.Element {
   useEffect(() => {
     const unsubEvent = window.forge.onWorkflowEvent((payload: WorkflowEventPayload) => {
       if (project !== null) {
-        const pId = project.id
         window.forge.workflow
           .get(payload.workflowId)
           .then((res) => {
             const updated = unwrap(res)
             if (updated !== null) {
-              setWorkflowState({ projectId: pId, workflow: updated })
+              setWorkflow(updated)
               if (selectedStep !== null) {
-                const refreshed = updated.steps.find((s) => s.id === selectedStep.id)
+                const refreshed = updated.steps.find((s: WorkflowStepView) => s.id === selectedStep.id)
                 if (refreshed !== undefined) setSelectedStep(refreshed)
               }
             }
@@ -121,22 +127,24 @@ export function WorkflowPage(): React.JSX.Element {
           })
       }
 
+      const evtTime = new Date(payload.at)
       setLogs((prev) => [
         ...prev,
         {
-          id: `evt-${String(Date.now())}-${String(Math.random())}`,
-          timestamp: new Date(payload.at).toLocaleTimeString(),
+          id: `evt-${String(evtTime.getTime())}-${String(Math.random())}`,
+          timestamp: evtTime.toLocaleTimeString(),
           text: `[EVENT] ${payload.type} -> ${payload.state ?? ''} ${payload.detail !== undefined ? `(${payload.detail})` : ''}`,
         },
       ])
     })
 
     const unsubLog = window.forge.onWorkflowLog((payload: WorkflowLogPayload) => {
+      const logTime = new Date(payload.at)
       setLogs((prev) => [
         ...prev,
         {
-          id: `log-${String(Date.now())}-${String(Math.random())}`,
-          timestamp: new Date(payload.at).toLocaleTimeString(),
+          id: `log-${String(logTime.getTime())}-${String(Math.random())}`,
+          timestamp: logTime.toLocaleTimeString(),
           text: `[STEP ${String(payload.stepIndex)}] ${payload.text}`,
         },
       ])
@@ -155,7 +163,7 @@ export function WorkflowPage(): React.JSX.Element {
       .then((res) => {
         const list = unwrap(res).templates
         setTemplates(list)
-        if (list.length > 0 && !list.some((t) => t.id === selectedTemplateId)) {
+        if (list.length > 0 && !list.some((t: WorkflowTemplateView) => t.id === selectedTemplateId)) {
           setSelectedTemplateId(list[0]?.id ?? 'feature')
         }
       })
@@ -163,19 +171,6 @@ export function WorkflowPage(): React.JSX.Element {
         console.error('Failed to load templates:', err)
       })
   }, [selectedTemplateId])
-
-  // Check runtime list
-  useEffect(() => {
-    window.forge.runtime
-      .list()
-      .then((res) => {
-        const runtimes = unwrap(res).runtimes
-        setOnlySimulated(runtimes.length > 0 && runtimes.every((runtime) => runtime.simulated))
-      })
-      .catch((err: unknown) => {
-        console.error('Failed to load runtimes:', err)
-      })
-  }, [])
 
   // Check role bindings
   useEffect(() => {
@@ -191,28 +186,44 @@ export function WorkflowPage(): React.JSX.Element {
       })
   }, [project])
 
-  const handleStartWorkflow = async (): Promise<void> => {
+  const handleStartWorkflow = async (data: {
+    readonly templateId: string
+    readonly title: string
+    readonly objective: string
+    readonly scopePaths?: readonly string[] | undefined
+  }): Promise<void> => {
     if (project === null) return
     const pId = project.id
     setActionInProgress(true)
     try {
-      const template = templates.find((t) => t.id === selectedTemplateId)
       const res = await window.forge.workflow.start({
         projectId: pId,
-        templateId: selectedTemplateId,
-        objective: `${template ? template.name : 'Workflow'} in ${project.name}`,
+        templateId: data.templateId,
+        objective: data.objective,
       })
       const started = unwrap(res)
-      setWorkflowState({ projectId: pId, workflow: started })
+      setWorkflow(started)
+      setActiveTaskTitle(data.title)
+      const now = new Date()
       setLogs([
         {
-          id: `init-${String(Date.now())}`,
-          timestamp: new Date().toLocaleTimeString(),
-          text: `[START] Workflow ${started.id} (${started.templateId}) initiated`,
+          id: `init-${String(now.getTime())}`,
+          timestamp: now.toLocaleTimeString(),
+          text: `[START] Task "${data.title}" initiated (${started.templateId})`,
         },
       ])
+      show({
+        tone: 'success',
+        title: 'Workflow Initiated',
+        description: `Planning started for "${data.title}" in sandbox worktree.`,
+      })
     } catch (err: unknown) {
       console.error('Failed to start workflow:', err)
+      show({
+        tone: 'danger',
+        title: 'Could Not Start Workflow',
+        description: err instanceof Error ? err.message : 'Unknown error',
+      })
     } finally {
       setActionInProgress(false)
     }
@@ -220,16 +231,15 @@ export function WorkflowPage(): React.JSX.Element {
 
   const handleApproveAndImplement = async (): Promise<void> => {
     if (workflow === null || project === null) return
-    const pId = project.id
     setActionInProgress(true)
     try {
       const res = await window.forge.workflow.approveAndStartImplementation(workflow.id)
       const updated = unwrap(res)
-      setWorkflowState({ projectId: pId, workflow: updated })
+      setWorkflow(updated)
       show({
         tone: 'success',
         title: 'Entered Implementation Mode',
-        description: 'Decisions locked. Agents now authorized to write changes in worktree.',
+        description: 'Decisions locked. Agent authorized to implement changes in sandbox.',
       })
     } catch (err: unknown) {
       show({
@@ -247,12 +257,11 @@ export function WorkflowPage(): React.JSX.Element {
 
   const handleCancelWorkflow = async (): Promise<void> => {
     if (workflow === null || project === null) return
-    const pId = project.id
     setActionInProgress(true)
     try {
       const res = await window.forge.workflow.cancel(workflow.id)
       const cancelled = unwrap(res)
-      if (cancelled !== null) setWorkflowState({ projectId: pId, workflow: cancelled })
+      if (cancelled !== null) setWorkflow(cancelled)
       show({
         tone: 'neutral',
         title: 'Workflow Cancelled',
@@ -273,13 +282,13 @@ export function WorkflowPage(): React.JSX.Element {
   const handleExportReport = async (): Promise<void> => {
     if (workflow === null) return
     try {
-      const { savedPath } = unwrap(await window.forge.workflow.saveReport(workflow.id))
-      if (savedPath === null) return
+      const result = unwrap(await window.forge.workflow.saveReport(workflow.id))
+      if (result.savedPath === null) return
 
       show({
         tone: 'success',
         title: 'Audit Report Saved',
-        description: savedPath,
+        description: result.savedPath,
       })
     } catch (err: unknown) {
       show({
@@ -291,10 +300,12 @@ export function WorkflowPage(): React.JSX.Element {
   }
 
   const isTerminal =
-    workflow?.finishedAt !== null ||
-    workflow.state === 'DONE' ||
-    workflow.state === 'CANCELLED' ||
-    workflow.state.startsWith('HALTED')
+    workflow === null
+      ? true
+      : workflow.finishedAt !== null ||
+        workflow.state === 'DONE' ||
+        workflow.state === 'CANCELLED' ||
+        workflow.state.startsWith('HALTED')
 
   const isRunning = workflow !== null && !isTerminal
 
@@ -335,25 +346,22 @@ export function WorkflowPage(): React.JSX.Element {
     )
   }
 
-  if (loading) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <Spinner />
-      </div>
-    )
-  }
-
   return (
     <div className="flex h-full flex-col gap-4 p-6 overflow-hidden">
-      {/* Workflow Header */}
+      {/* Workflow Top Header */}
       <div className="flex items-center justify-between border-b border-(--color-border) pb-4">
         <div className="flex items-center gap-3">
           <div>
-            <h1 className="text-[18px] font-bold text-(--color-text)">Workflows</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-[18px] font-bold text-(--color-text)">Workflows</h1>
+              {activeTaskTitle && (
+                <span className="text-[14px] font-medium text-(--color-text-muted) truncate max-w-md">
+                  — {activeTaskTitle}
+                </span>
+              )}
+            </div>
             <p className="text-[12px] text-(--color-text-muted)">
-              {workflow !== null
-                ? `Project: ${project.name} · Task: ${workflow.taskId}`
-                : `Project: ${project.name}`}
+              Project: <span className="font-semibold text-(--color-text)">{project.name}</span>
             </p>
           </div>
 
@@ -368,46 +376,36 @@ export function WorkflowPage(): React.JSX.Element {
                   {describeWorkflowState(workflow)}
                 </span>
                 <span className="text-(--color-text-muted)">
-                  (iteration {String(workflow.iteration)} of {String(workflow.limits.maxIterations)}
-                  )
+                  (iteration {String(workflow.iteration)} of {String(workflow.limits.maxIterations)})
                 </span>
               </div>
 
-              <Badge tone={isDiscussionMode ? 'warning' : 'accent'} size="sm" className="rounded-full">
+              <Badge
+                tone={isDiscussionMode ? 'warning' : 'accent'}
+                size="sm"
+                className="rounded-full"
+              >
                 {isDiscussionMode
-                  ? 'DISCUSSION MODE (Read-only)'
+                  ? 'PLANNING MODE (Read-only Sandbox)'
                   : 'IMPLEMENTATION MODE (Decision Locked)'}
               </Badge>
             </>
           )}
         </div>
 
-        {/* Action Controls */}
+        {/* Top Action Controls */}
         <div className="flex items-center gap-2">
           {isTerminal ? (
-            <div className="flex items-center gap-2">
-              {templates.length > 0 && (
-                <Select
-                  options={templates.map((t) => ({ value: t.id, label: t.name }))}
-                  value={selectedTemplateId}
-                  onChange={(e) => {
-                    setSelectedTemplateId(e.target.value)
-                  }}
-                  disabled={actionInProgress}
-                  className="h-8 rounded-lg text-[12px]"
-                />
-              )}
-              <Button
-                variant="primary"
-                onClick={() => {
-                  void handleStartWorkflow()
-                }}
-                disabled={actionInProgress}
-                className="h-8 rounded-lg text-[12px]"
-              >
-                Start Workflow
-              </Button>
-            </div>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setStartDialogOpen(true)
+              }}
+              disabled={actionInProgress}
+              className="h-8 rounded-lg text-[12px]"
+            >
+              + Start New Feature
+            </Button>
           ) : isAwaitingApproval ? (
             <div className="flex items-center gap-2">
               <Button
@@ -418,27 +416,27 @@ export function WorkflowPage(): React.JSX.Element {
                 disabled={actionInProgress}
                 className="h-8 rounded-lg text-[12px]"
               >
-                Continue to Implementation
+                Approve & Start Implementation
               </Button>
               <Button
-                variant="danger"
+                variant="ghost"
                 onClick={() => {
                   void handleCancelWorkflow()
                 }}
                 disabled={actionInProgress}
-                className="h-8 rounded-lg text-[12px]"
+                className="h-8 rounded-lg text-[12px] text-(--color-danger)"
               >
                 Cancel
               </Button>
             </div>
           ) : (
             <Button
-              variant="danger"
+              variant="ghost"
               onClick={() => {
                 void handleCancelWorkflow()
               }}
               disabled={actionInProgress}
-              className="h-8 rounded-lg text-[12px]"
+              className="h-8 rounded-lg text-[12px] text-(--color-danger)"
             >
               Cancel Workflow
             </Button>
@@ -449,8 +447,7 @@ export function WorkflowPage(): React.JSX.Element {
               onClick={() => {
                 void handleExportReport()
               }}
-              disabled={actionInProgress}
-              className="h-8 rounded-lg text-[12px] text-(--color-text-muted) hover:text-(--color-text)"
+              className="h-8 rounded-lg text-[12px]"
             >
               Export Report
             </Button>
@@ -458,48 +455,146 @@ export function WorkflowPage(): React.JSX.Element {
         </div>
       </div>
 
-      {workflow === null ? (
-        <WorkflowPreflight
-          template={templates.find((candidate) => candidate.id === selectedTemplateId) ?? null}
-          project={project}
-          bindings={bindings}
-          onlySimulated={onlySimulated}
-        />
-      ) : (
-        <>
-          {/* Workflow Graph View */}
-          <div className="rounded-xl border border-(--color-border) bg-(--color-surface-raised)/60 p-1 shadow-xs">
-            <WorkflowGraph
-              workflow={workflow}
-              selectedStepId={selectedStep?.id ?? null}
-              onSelectStep={(step) => {
-                setSelectedStep(step)
-              }}
+      {/* Main Content Area */}
+      <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-3 overflow-hidden">
+        {/* Left 2 Columns: Workflow Pipeline & Live Logs */}
+        <div className="flex flex-col gap-4 lg:col-span-2 overflow-hidden">
+          {/* Top Preflight Banner if no active workflow */}
+          {workflow === null && (
+            <WorkflowPreflight
+              template={templates.find((t: WorkflowTemplateView) => t.id === selectedTemplateId) ?? null}
+              project={project}
+              bindings={bindings}
+              onlySimulated={false}
             />
-          </div>
+          )}
 
-          {/* Main split view: Live Log & Step Inspector */}
-          <div className="grid flex-1 grid-cols-1 gap-4 overflow-hidden lg:grid-cols-2">
-            <div className="h-full overflow-hidden">
-              <LiveLogViewer
-                logs={logs}
-                onClear={() => {
-                  setLogs([])
-                }}
-              />
+          {/* Workflow Stage Nodes Graph */}
+          {workflow !== null && (
+            <Card tone="raised" className="p-4 overflow-x-auto">
+              <div className="flex items-center gap-3">
+                {workflow.steps.map((step: WorkflowStepView, idx: number) => (
+                  <React.Fragment key={step.id}>
+                    <WorkflowNode
+                      role={step.role}
+                      label={step.role.toUpperCase()}
+                      state={step.state as 'pending' | 'running' | 'completed' | 'failed' | 'halted' | 'awaiting_user'}
+                      verdict={step.verdict}
+                      runtimeId={step.runtimeId}
+                      selected={selectedStep?.id === step.id}
+                      active={step.state === 'running'}
+                      onClick={() => {
+                        setSelectedStep(step)
+                      }}
+                    />
+                    {idx < workflow.steps.length - 1 && (
+                      <WorkflowEdge
+                        state={
+                          workflow.steps[idx + 1]?.state === 'running'
+                            ? 'active'
+                            : step.state === 'completed'
+                              ? 'completed'
+                              : 'pending'
+                        }
+                      />
+                    )}
+                  </React.Fragment>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {/* Live Execution Logs */}
+          <Card tone="raised" className="flex flex-1 flex-col overflow-hidden">
+            <div className="flex items-center justify-between border-b border-(--color-border) px-4 py-2 bg-(--color-surface)">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[11px] font-semibold uppercase tracking-wider text-(--color-text-subtle)">
+                  Live Execution Log
+                </span>
+                <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
+                  {logs.length} events
+                </Badge>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(logs.map((l) => `${l.timestamp} ${l.text}`).join('\n'))
+                    show({ tone: 'neutral', title: 'Logs copied to clipboard' })
+                  }}
+                  className="h-6 text-[11px]"
+                >
+                  Copy
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setLogs([])
+                  }}
+                  className="h-6 text-[11px]"
+                >
+                  Clear
+                </Button>
+              </div>
             </div>
 
-            <div className="h-full overflow-hidden">
-              <StepInspector
-                step={selectedStep}
-                onClose={() => {
-                  setSelectedStep(null)
-                }}
-              />
-            </div>
-          </div>
-        </>
-      )}
+            <ScrollArea className="flex-1 bg-(--color-surface-inset) p-4">
+              {logs.length === 0 ? (
+                <p className="text-[12px] text-(--color-text-muted) italic">
+                  No execution logs recorded yet. Start a workflow to stream agent actions and verification steps.
+                </p>
+              ) : (
+                <div className="space-y-1 font-mono text-[12px]">
+                  {logs.map((log) => {
+                    const isError = log.text.includes('FAIL') || log.text.includes('HALTED') || log.text.includes('error')
+                    const isSuccess = log.text.includes('PASS') || log.text.includes('DONE') || log.text.includes('verified')
+                    return (
+                      <div key={log.id} className="flex items-start gap-2 leading-relaxed">
+                        <span className="shrink-0 text-(--color-text-subtle)">{log.timestamp}</span>
+                        <span
+                          className={
+                            isError
+                              ? 'text-(--color-danger)'
+                              : isSuccess
+                                ? 'text-(--color-success)'
+                                : 'text-(--color-text)'
+                          }
+                        >
+                          {log.text}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </ScrollArea>
+          </Card>
+        </div>
+
+        {/* Right Column: Step Inspector Panel */}
+        <Card tone="raised" className="flex flex-col overflow-hidden">
+          <StepInspector
+            step={selectedStep}
+            onClose={() => {
+              setSelectedStep(null)
+            }}
+          />
+        </Card>
+      </div>
+
+      {/* Start New Workflow / Feature Requirements Modal */}
+      <StartWorkflowDialog
+        open={startDialogOpen}
+        templates={templates}
+        selectedTemplateId={selectedTemplateId}
+        onSelectTemplate={setSelectedTemplateId}
+        onClose={() => {
+          setStartDialogOpen(false)
+        }}
+        onStart={handleStartWorkflow}
+      />
     </div>
   )
 }

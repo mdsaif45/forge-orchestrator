@@ -65,3 +65,7 @@ export {
   type AddProviderDialogProps,
   type CustomProviderConfig,
 } from './primitives/AddProviderDialog'
+export {
+  StartWorkflowDialog,
+  type StartWorkflowDialogProps,
+} from './primitives/StartWorkflowDialog'

@@ -164,6 +164,41 @@ export function WorkflowPage(): React.JSX.Element {
     }
   }, [project])
 
+  // Periodic heartbeat polling to guarantee real-time UI updates
+  useEffect(() => {
+    if (project === null) return
+    const pId = project.id
+
+    const timer = setInterval(() => {
+      window.forge.workflow
+        .getActive(pId)
+        .then((res) => {
+          const active = unwrap(res)
+          if (active !== null) {
+            setWorkflow((prev) => {
+              if (prev === null) return active
+              if (
+                prev.id !== active.id ||
+                prev.state !== active.state ||
+                prev.steps.length !== active.steps.length ||
+                prev.steps.some((s, idx) => s.state !== active.steps[idx]?.state)
+              ) {
+                return active
+              }
+              return prev
+            })
+          }
+        })
+        .catch((err: unknown) => {
+          console.error('Failed to poll active workflow:', err)
+        })
+    }, 1500)
+
+    return () => {
+      clearInterval(timer)
+    }
+  }, [project])
+
   // Subscribe to push events & logs via IPC
   useEffect(() => {
     const unsubEvent = window.forge.onWorkflowEvent((payload: WorkflowEventPayload) => {

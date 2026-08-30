@@ -18,6 +18,8 @@ export interface SelectProps {
   readonly name?: string
   readonly id?: string
   readonly 'aria-label'?: string
+  /** When 'up', the dropdown opens above the trigger instead of below. */
+  readonly direction?: 'down' | 'up'
 }
 
 /**
@@ -37,6 +39,7 @@ export function Select({
   name,
   id,
   'aria-label': ariaLabel,
+  direction = 'down',
 }: SelectProps): React.JSX.Element {
   const [isOpen, setIsOpen] = useState(false)
   const [focusedIndex, setFocusedIndex] = useState<number>(-1)
@@ -180,9 +183,10 @@ export function Select({
       {isOpen && (
         <div
           className={cn(
-            'absolute left-0 top-[calc(100%+4px)] z-50 min-w-full rounded-xl border border-(--color-border)',
+            'absolute left-0 z-50 min-w-full rounded-xl border border-(--color-border)',
             'bg-(--color-surface-raised) p-1 shadow-xl backdrop-blur-md',
             'animate-in fade-in zoom-in-95 duration-100',
+            direction === 'up' ? 'bottom-[calc(100%+4px)]' : 'top-[calc(100%+4px)]',
           )}
         >
           <ul

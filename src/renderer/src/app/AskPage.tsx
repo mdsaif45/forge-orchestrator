@@ -7,7 +7,6 @@ import {
   MarkdownRenderer,
   ScrollArea,
   Select,
-  useTheme,
   useToast,
 } from '../ui'
 import { cn } from '../ui'
@@ -93,7 +92,7 @@ export function AskPage(): React.JSX.Element {
   const probe = detail?.probe ?? null
   const rules = detail?.rules ?? []
   const { show } = useToast()
-  const { theme, setTheme } = useTheme()
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Custom agents from localStorage
@@ -462,37 +461,21 @@ export function AskPage(): React.JSX.Element {
           </div>
         </ScrollArea>
 
-        {/* Bottom controls: Persona selector & Theme toggle */}
-        <div className="border-t border-(--color-border) p-3 space-y-2">
-          {/* Persona selector (compact) */}
+        {/* Bottom controls: Persona selector */}
+        <div className="border-t border-(--color-border) p-3">
+          {/* Persona selector (compact) — opens upward */}
           <Select
             aria-label="Active Persona"
             value={selectedPersonaId}
+            direction="up"
             onChange={(e: { target: { value: string } }) => {
               setSelectedPersonaId(e.target.value)
             }}
             options={allPersonas.map((p) => ({
               value: p.id,
-              label: `${p.icon} ${p.label}`,
+              label: p.label,
             }))}
           />
-
-          {/* Theme toggle */}
-          <button
-            type="button"
-            onClick={() => {
-              setTheme(theme === 'dark' ? 'azure' : theme === 'azure' ? 'light' : 'dark')
-            }}
-            className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-[12px] text-(--color-text-muted) hover:text-(--color-text) hover:bg-(--color-surface-raised) transition-colors cursor-pointer"
-          >
-            <span className="text-[14px]">
-              {theme === 'dark' ? '🌙' : theme === 'azure' ? '🌊' : '☀️'}
-            </span>
-            <span>
-              {theme === 'dark' ? 'Dark' : theme === 'azure' ? 'Azure' : theme === 'light' ? 'Light' : 'System'}{' '}
-              theme
-            </span>
-          </button>
         </div>
       </aside>
 
@@ -504,13 +487,6 @@ export function AskPage(): React.JSX.Element {
             <h1 className="text-[15px] font-bold text-(--color-text) truncate">
               {activeThread?.title ?? 'Chat'}
             </h1>
-            <div className="flex flex-wrap items-center gap-2 mt-1 text-[11px] text-(--color-text-subtle)">
-              <span>inline</span>
-              <span className="text-(--color-border-strong)">·</span>
-              <span>Snapshot {new Date().toLocaleDateString()}</span>
-              <span className="text-(--color-border-strong)">·</span>
-              <span>{activePersona?.label ?? 'Agent'}</span>
-            </div>
           </div>
 
           <div className="flex items-center gap-2 shrink-0 mt-0.5">
@@ -601,6 +577,7 @@ export function AskPage(): React.JSX.Element {
               <Select
                 aria-label="Engine"
                 value={selectedEngineId}
+                direction="up"
                 onChange={(e: { target: { value: string } }) => {
                   setSelectedEngineId(e.target.value)
                 }}

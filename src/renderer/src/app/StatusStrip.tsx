@@ -1,12 +1,10 @@
 import type { ProjectView } from '@shared/ipc'
 import { Badge, Button, Select, Separator, StatusDot } from '../ui'
-import { useTheme } from '../ui'
 
 /**
  * The always-visible frameless title bar / status strip.
  *
- * Designed with Claude Code Desktop aesthetics: seamless drag region,
- * integrated title bar overlay padding, smooth pill controls, and global workflow status.
+ * Provides window drag region, active project switcher, and real-time workflow status.
  */
 export interface StatusStripProps {
   readonly projects: readonly ProjectView[]
@@ -38,7 +36,6 @@ export function StatusStrip({
   workflowState,
   onOpenKitchenSink,
 }: StatusStripProps): React.JSX.Element {
-  const { theme, toggleTheme } = useTheme()
   const presentation = STATE_PRESENTATION[workflowState]
 
   return (
@@ -53,7 +50,7 @@ export function StatusStrip({
 
       <Separator orientation="vertical" className="h-3.5" />
 
-      {/* Project Selector (Claude Code Desktop Pill) */}
+      {/* Project Selector Pill */}
       <div className="app-no-drag flex items-center gap-1.5">
         {projects.length === 0 ? (
           <span className="text-[12px] text-(--color-text-muted)">No project</span>
@@ -111,18 +108,6 @@ export function StatusStrip({
           </Button>
         </div>
       )}
-
-      {/* Theme Switcher */}
-      <div className="app-no-drag">
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={toggleTheme}
-          className="h-7 rounded-lg px-2 text-[12px] text-(--color-text-muted) hover:text-(--color-text)"
-        >
-          {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
-        </Button>
-      </div>
     </header>
   )
 }

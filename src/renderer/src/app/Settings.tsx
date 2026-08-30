@@ -25,7 +25,7 @@ import { CloseIcon } from './icons'
 import { useProjectStore } from './projectStore'
 import { useUiStore } from './uiStore'
 
-type GlobalSettingsTab = 'workflows' | 'appearance' | 'accounts' | 'customizations'
+type GlobalSettingsTab = 'general' | 'accounts' | 'customizations'
 
 interface SettingsSelection {
   readonly type: 'global' | 'project'
@@ -52,10 +52,35 @@ export function SettingsContent(): React.JSX.Element {
 
   const [selection, setSelection] = useState<SettingsSelection>({
     type: 'global',
-    globalTab: 'workflows',
+    globalTab: 'general',
   })
 
-  // Global settings state
+  // Global instructions state (persisted)
+  const [globalInstructions, setGlobalInstructions] = useState<string>(() => {
+    return (
+      localStorage.getItem('forge.global_instructions') ??
+      'Prefer concise output, strictly typed code, minimal external dependencies, and explain architectural decisions clearly.'
+    )
+  })
+
+  // Motion preference state
+  const [motionPreference, setMotionPreference] = useState<'system' | 'reduced'>(() => {
+    const val = localStorage.getItem('forge.motion')
+    return val === 'reduced' ? 'reduced' : 'system'
+  })
+
+  // Notification toggles state
+  const [notifyCompletions, setNotifyCompletions] = useState<boolean>(() => {
+    return localStorage.getItem('forge.notify_completions') !== 'false'
+  })
+  const [notifyApprovals, setNotifyApprovals] = useState<boolean>(() => {
+    return localStorage.getItem('forge.notify_approvals') !== 'false'
+  })
+  const [notifyHalts, setNotifyHalts] = useState<boolean>(() => {
+    return localStorage.getItem('forge.notify_halts') !== 'false'
+  })
+
+  // Execution sandboxing state
   const [worktreeIsolation, setWorktreeIsolation] = useState<'worktree' | 'inplace'>('worktree')
   const [decisionRequirement, setDecisionRequirement] = useState<'strict' | 'relaxed'>('strict')
   const [notificationDuration, setNotificationDuration] = useState<'4500' | '6000' | '0'>('4500')
@@ -121,6 +146,31 @@ export function SettingsContent(): React.JSX.Element {
         })
     }
   }, [selection])
+
+  const handleSaveGlobalInstructions = (val: string): void => {
+    setGlobalInstructions(val)
+    localStorage.setItem('forge.global_instructions', val)
+  }
+
+  const handleSetMotion = (val: 'system' | 'reduced'): void => {
+    setMotionPreference(val)
+    localStorage.setItem('forge.motion', val)
+  }
+
+  const handleToggleNotifyCompletions = (val: boolean): void => {
+    setNotifyCompletions(val)
+    localStorage.setItem('forge.notify_completions', String(val))
+  }
+
+  const handleToggleNotifyApprovals = (val: boolean): void => {
+    setNotifyApprovals(val)
+    localStorage.setItem('forge.notify_approvals', String(val))
+  }
+
+  const handleToggleNotifyHalts = (val: boolean): void => {
+    setNotifyHalts(val)
+    localStorage.setItem('forge.notify_halts', String(val))
+  }
 
   const activeProject = detail
 
@@ -208,8 +258,7 @@ export function SettingsContent(): React.JSX.Element {
               <nav className="mt-1 flex flex-col gap-0.5">
                 {(
                   [
-                    { id: 'workflows', label: 'Workflows & Execution' },
-                    { id: 'appearance', label: 'Appearance' },
+                    { id: 'general', label: 'General & Directives' },
                     { id: 'accounts', label: 'AI Accounts & Runtimes' },
                     { id: 'customizations', label: 'Customizations & MCP' },
                   ] as const
@@ -292,8 +341,22 @@ export function SettingsContent(): React.JSX.Element {
           <div className="mx-auto max-w-3xl p-8">
             {selection.type === 'global' ? (
               <>
-                {selection.globalTab === 'workflows' && (
-                  <WorkflowsGlobalSettings
+                {selection.globalTab === 'general' && (
+                  <GeneralGlobalSettings
+                    globalInstructions={globalInstructions}
+                    onSaveGlobalInstructions={handleSaveGlobalInstructions}
+                    theme={theme}
+                    setTheme={setTheme}
+                    motionPreference={motionPreference}
+                    onSetMotion={handleSetMotion}
+                    sidebarCollapsed={sidebarCollapsed}
+                    toggleSidebar={toggleSidebar}
+                    notifyCompletions={notifyCompletions}
+                    onToggleNotifyCompletions={handleToggleNotifyCompletions}
+                    notifyApprovals={notifyApprovals}
+                    onToggleNotifyApprovals={handleToggleNotifyApprovals}
+                    notifyHalts={notifyHalts}
+                    onToggleNotifyHalts={handleToggleNotifyHalts}
                     worktreeIsolation={worktreeIsolation}
                     setWorktreeIsolation={setWorktreeIsolation}
                     decisionRequirement={decisionRequirement}
@@ -305,15 +368,6 @@ export function SettingsContent(): React.JSX.Element {
                     onOpenModal={(modalId) => {
                       setActivePermissionsModal(modalId)
                     }}
-                  />
-                )}
-
-                {selection.globalTab === 'appearance' && (
-                  <AppearanceGlobalSettings
-                    theme={theme}
-                    setTheme={setTheme}
-                    sidebarCollapsed={sidebarCollapsed}
-                    toggleSidebar={toggleSidebar}
                   />
                 )}
 
@@ -510,10 +564,24 @@ export function SettingsDialog({
 }
 
 /* =========================================================================
-   GLOBAL WORKFLOWS & EXECUTION SETTINGS
+   GENERAL SETTINGS & DIRECTIVES
    ========================================================================= */
 
-function WorkflowsGlobalSettings({
+function GeneralGlobalSettings({
+  globalInstructions,
+  onSaveGlobalInstructions,
+  theme,
+  setTheme,
+  motionPreference,
+  onSetMotion,
+  sidebarCollapsed,
+  toggleSidebar,
+  notifyCompletions,
+  onToggleNotifyCompletions,
+  notifyApprovals,
+  onToggleNotifyApprovals,
+  notifyHalts,
+  onToggleNotifyHalts,
   worktreeIsolation,
   setWorktreeIsolation,
   decisionRequirement,
@@ -524,6 +592,20 @@ function WorkflowsGlobalSettings({
   setPruneWorktrees,
   onOpenModal,
 }: {
+  readonly globalInstructions: string
+  readonly onSaveGlobalInstructions: (val: string) => void
+  readonly theme: 'light' | 'dark' | 'system'
+  readonly setTheme: (theme: 'light' | 'dark' | 'system') => void
+  readonly motionPreference: 'system' | 'reduced'
+  readonly onSetMotion: (val: 'system' | 'reduced') => void
+  readonly sidebarCollapsed: boolean
+  readonly toggleSidebar: () => void
+  readonly notifyCompletions: boolean
+  readonly onToggleNotifyCompletions: (val: boolean) => void
+  readonly notifyApprovals: boolean
+  readonly onToggleNotifyApprovals: (val: boolean) => void
+  readonly notifyHalts: boolean
+  readonly onToggleNotifyHalts: (val: boolean) => void
   readonly worktreeIsolation: 'worktree' | 'inplace'
   readonly setWorktreeIsolation: (val: 'worktree' | 'inplace') => void
   readonly decisionRequirement: 'strict' | 'relaxed'
@@ -537,84 +619,213 @@ function WorkflowsGlobalSettings({
   return (
     <div className="grid gap-6">
       <div>
-        <h1 className="text-[18px] font-bold text-(--color-text)">Workflows & Execution</h1>
+        <h1 className="text-[18px] font-bold text-(--color-text)">General Settings</h1>
         <p className="mt-1 text-[12px] text-(--color-text-muted)">
-          Configure how autonomous agents execute workflows, isolate code changes, and notify on milestones.
+          Configure global agent instructions, visual appearance, notifications, and workflow sandboxing.
         </p>
       </div>
 
-      {/* Execution Sandboxing */}
+      {/* Global Instructions Card */}
       <section className="grid gap-2">
-        <h2 className="text-[13px] font-semibold text-(--color-text)">Execution Sandboxing</h2>
-        <Card tone="raised">
+        <h2 className="text-[13px] font-semibold text-(--color-text)">Global Instructions for Agents</h2>
+        <Card tone="raised" className="p-4 space-y-2">
+          <p className="m-0 text-[12px] text-(--color-text-muted)">
+            Forge includes these directives in the prompt packet across every workflow and project.
+          </p>
+          <Textarea
+            value={globalInstructions}
+            onChange={(e) => {
+              onSaveGlobalInstructions(e.target.value)
+            }}
+            rows={4}
+            className="text-[12px] font-mono leading-relaxed"
+            placeholder="e.g. Prefer concise explanations, strictly typed TypeScript, minimal dependencies..."
+          />
+        </Card>
+      </section>
+
+      {/* Preferences (Appearance, Motion, Sidebar) */}
+      <section className="grid gap-2">
+        <h2 className="text-[13px] font-semibold text-(--color-text)">Preferences</h2>
+        <Card tone="raised" className="divide-y divide-(--color-border)">
+          {/* Appearance Mode */}
           <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="max-w-md">
-              <p className="m-0 font-medium text-[13px] text-(--color-text)">
-                Workspace Isolation
-              </p>
+            <div>
+              <p className="m-0 font-medium text-[13px] text-(--color-text)">Appearance</p>
               <p className="m-0 mt-0.5 text-[12px] text-(--color-text-muted)">
-                Runs agent tasks inside dedicated Git worktrees to prevent dirtying your active working branch.
+                Choose your preferred interface theme.
               </p>
             </div>
-            <div className="w-56">
-              <Select
-                value={worktreeIsolation}
-                onChange={(e) => {
-                  setWorktreeIsolation(e.target.value as 'worktree' | 'inplace')
+            <div className="flex items-center gap-1 rounded-lg bg-(--color-surface-inset) p-1">
+              {(
+                [
+                  { id: 'system', label: 'System' },
+                  { id: 'light', label: 'Light' },
+                  { id: 'dark', label: 'Dark' },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => {
+                    setTheme(opt.id)
+                  }}
+                  className={`rounded-md px-3 py-1 text-[12px] font-medium transition-colors cursor-pointer select-none ${
+                    theme === opt.id
+                      ? 'bg-(--color-surface-raised) text-(--color-text) shadow-xs border border-(--color-border)'
+                      : 'text-(--color-text-muted) hover:text-(--color-text)'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Interface Motion */}
+          <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="m-0 font-medium text-[13px] text-(--color-text)">Motion</p>
+              <p className="m-0 mt-0.5 text-[12px] text-(--color-text-muted)">
+                Reduce animation in streaming logs and UI transitions.
+              </p>
+            </div>
+            <div className="flex items-center gap-1 rounded-lg bg-(--color-surface-inset) p-1">
+              {(
+                [
+                  { id: 'system', label: 'System' },
+                  { id: 'reduced', label: 'Reduced' },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => {
+                    onSetMotion(opt.id)
+                  }}
+                  className={`rounded-md px-3 py-1 text-[12px] font-medium transition-colors cursor-pointer select-none ${
+                    motionPreference === opt.id
+                      ? 'bg-(--color-surface-raised) text-(--color-text) shadow-xs border border-(--color-border)'
+                      : 'text-(--color-text-muted) hover:text-(--color-text)'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Sidebar Layout */}
+          <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="m-0 font-medium text-[13px] text-(--color-text)">Sidebar State</p>
+              <p className="m-0 mt-0.5 text-[12px] text-(--color-text-muted)">
+                Default sidebar width on application start.
+              </p>
+            </div>
+            <div className="flex items-center gap-1 rounded-lg bg-(--color-surface-inset) p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  if (sidebarCollapsed) toggleSidebar()
                 }}
-                options={[
-                  { value: 'worktree', label: 'Git Worktrees (Safe)' },
-                  { value: 'inplace', label: 'Direct Workspace Edits' },
-                ]}
-              />
+                className={`rounded-md px-3 py-1 text-[12px] font-medium transition-colors cursor-pointer select-none ${
+                  !sidebarCollapsed
+                    ? 'bg-(--color-surface-raised) text-(--color-text) shadow-xs border border-(--color-border)'
+                    : 'text-(--color-text-muted) hover:text-(--color-text)'
+                }`}
+              >
+                Expanded
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!sidebarCollapsed) toggleSidebar()
+                }}
+                className={`rounded-md px-3 py-1 text-[12px] font-medium transition-colors cursor-pointer select-none ${
+                  sidebarCollapsed
+                    ? 'bg-(--color-surface-raised) text-(--color-text) shadow-xs border border-(--color-border)'
+                    : 'text-(--color-text-muted) hover:text-(--color-text)'
+                }`}
+              >
+                Collapsed
+              </button>
             </div>
           </div>
         </Card>
       </section>
 
-      {/* Decision Locking Policy */}
-      <section className="grid gap-2">
-        <h2 className="text-[13px] font-semibold text-(--color-text)">Decision Locking Policy</h2>
-        <Card tone="raised">
-          <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="max-w-md">
-              <p className="m-0 font-medium text-[13px] text-(--color-text)">
-                Architectural Decision Lock
-              </p>
-              <p className="m-0 mt-0.5 text-[12px] text-(--color-text-muted)">
-                Requires architectural decisions to be explicitly reviewed and approved before code generation starts.
-              </p>
-            </div>
-            <div className="w-56">
-              <Select
-                value={decisionRequirement}
-                onChange={(e) => {
-                  setDecisionRequirement(e.target.value as 'strict' | 'relaxed')
-                }}
-                options={[
-                  { value: 'strict', label: 'Strict (Approval Required)' },
-                  { value: 'relaxed', label: 'Autonomous (Auto-Proceed)' },
-                ]}
-              />
-            </div>
-          </div>
-        </Card>
-      </section>
-
-      {/* Toast Notifications Timing */}
+      {/* Notifications Preferences */}
       <section className="grid gap-2">
         <h2 className="text-[13px] font-semibold text-(--color-text)">Notifications</h2>
-        <Card tone="raised">
+        <Card tone="raised" className="divide-y divide-(--color-border)">
+          <div className="flex items-center justify-between p-4">
+            <div>
+              <p className="m-0 font-medium text-[13px] text-(--color-text)">
+                Step & Milestone Completions
+              </p>
+              <p className="m-0 text-[12px] text-(--color-text-muted)">
+                Get notified when an agent completes a workflow stage.
+              </p>
+            </div>
+            <input
+              type="checkbox"
+              className="size-4 rounded accent-(--color-accent) cursor-pointer"
+              checked={notifyCompletions}
+              onChange={(e) => {
+                onToggleNotifyCompletions(e.target.checked)
+              }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between p-4">
+            <div>
+              <p className="m-0 font-medium text-[13px] text-(--color-text)">
+                Approval & Decision Requests
+              </p>
+              <p className="m-0 text-[12px] text-(--color-text-muted)">
+                Get notified when a workflow halts awaiting your decision review or answer.
+              </p>
+            </div>
+            <input
+              type="checkbox"
+              className="size-4 rounded accent-(--color-accent) cursor-pointer"
+              checked={notifyApprovals}
+              onChange={(e) => {
+                onToggleNotifyApprovals(e.target.checked)
+              }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between p-4">
+            <div>
+              <p className="m-0 font-medium text-[13px] text-(--color-text)">
+                Halt & Limit Warnings
+              </p>
+              <p className="m-0 text-[12px] text-(--color-text-muted)">
+                Receive immediate alerts if limits or policy rules halt a workflow.
+              </p>
+            </div>
+            <input
+              type="checkbox"
+              className="size-4 rounded accent-(--color-accent) cursor-pointer"
+              checked={notifyHalts}
+              onChange={(e) => {
+                onToggleNotifyHalts(e.target.checked)
+              }}
+            />
+          </div>
+
           <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="max-w-md">
               <p className="m-0 font-medium text-[13px] text-(--color-text)">
-                Notification Auto-Dismiss
+                Toast Notification Duration
               </p>
               <p className="m-0 mt-0.5 text-[12px] text-(--color-text-muted)">
-                Controls how long toast notifications remain visible before automatically closing.
+                Duration before floating toast messages dismiss automatically.
               </p>
             </div>
-            <div className="w-56">
+            <div className="w-48">
               <Select
                 value={notificationDuration}
                 onChange={(e) => {
@@ -631,10 +842,56 @@ function WorkflowsGlobalSettings({
         </Card>
       </section>
 
-      {/* Safety & Boundary Rules */}
+      {/* Execution Sandboxing */}
       <section className="grid gap-2">
-        <h2 className="text-[13px] font-semibold text-(--color-text)">Execution Safety Filters</h2>
+        <h2 className="text-[13px] font-semibold text-(--color-text)">Execution Sandboxing</h2>
         <Card tone="raised" className="divide-y divide-(--color-border)">
+          <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="max-w-md">
+              <p className="m-0 font-medium text-[13px] text-(--color-text)">
+                Workspace Isolation
+              </p>
+              <p className="m-0 mt-0.5 text-[12px] text-(--color-text-muted)">
+                Runs agent tasks inside dedicated Git worktrees to prevent dirtying your active branch.
+              </p>
+            </div>
+            <div className="w-56">
+              <Select
+                value={worktreeIsolation}
+                onChange={(e) => {
+                  setWorktreeIsolation(e.target.value as 'worktree' | 'inplace')
+                }}
+                options={[
+                  { value: 'worktree', label: 'Git Worktrees (Safe)' },
+                  { value: 'inplace', label: 'Direct Workspace Edits' },
+                ]}
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="max-w-md">
+              <p className="m-0 font-medium text-[13px] text-(--color-text)">
+                Decision Lock Requirement
+              </p>
+              <p className="m-0 mt-0.5 text-[12px] text-(--color-text-muted)">
+                Requires architectural decisions to be approved before implementation begins.
+              </p>
+            </div>
+            <div className="w-56">
+              <Select
+                value={decisionRequirement}
+                onChange={(e) => {
+                  setDecisionRequirement(e.target.value as 'strict' | 'relaxed')
+                }}
+                options={[
+                  { value: 'strict', label: 'Strict (Approval Required)' },
+                  { value: 'relaxed', label: 'Autonomous (Auto-Proceed)' },
+                ]}
+              />
+            </div>
+          </div>
+
           <div className="flex items-center justify-between p-4">
             <div>
               <p className="m-0 font-medium text-[13px] text-(--color-text)">
@@ -659,7 +916,7 @@ function WorkflowsGlobalSettings({
           <div className="flex items-center justify-between p-4">
             <div>
               <p className="m-0 font-medium text-[13px] text-(--color-text)">
-                Terminal Command Whitelist
+                Terminal Command Filters
               </p>
               <p className="m-0 text-[12px] text-(--color-text-muted)">
                 Filters permitted build, test, and package manager commands.
@@ -694,87 +951,6 @@ function WorkflowsGlobalSettings({
                 setPruneWorktrees(e.target.checked)
               }}
             />
-          </div>
-        </Card>
-      </section>
-    </div>
-  )
-}
-
-/* =========================================================================
-   APPEARANCE SETTINGS
-   ========================================================================= */
-
-function AppearanceGlobalSettings({
-  theme,
-  setTheme,
-  sidebarCollapsed,
-  toggleSidebar,
-}: {
-  readonly theme: 'light' | 'dark'
-  readonly setTheme: (theme: 'light' | 'dark') => void
-  readonly sidebarCollapsed: boolean
-  readonly toggleSidebar: () => void
-}): React.JSX.Element {
-  return (
-    <div className="grid gap-6">
-      <div>
-        <h1 className="text-[18px] font-bold text-(--color-text)">Appearance</h1>
-        <p className="mt-1 text-[12px] text-(--color-text-muted)">
-          Customize color theme, typography, and sidebar layout.
-        </p>
-      </div>
-
-      <section className="grid gap-2">
-        <h2 className="text-[13px] font-semibold text-(--color-text)">Theme</h2>
-        <Card tone="raised">
-          <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="m-0 font-medium text-[13px] text-(--color-text)">Color Theme</p>
-              <p className="m-0 mt-0.5 text-[12px] text-(--color-text-muted)">
-                Choose between Claude Code warm light paper aesthetic and rich dark mode.
-              </p>
-            </div>
-            <div className="w-48">
-              <Select
-                value={theme}
-                onChange={(e) => {
-                  setTheme(e.target.value as 'light' | 'dark')
-                }}
-                options={[
-                  { value: 'dark', label: '🌙 Dark Mode' },
-                  { value: 'light', label: '☀️ Light (Warm Paper)' },
-                ]}
-              />
-            </div>
-          </div>
-        </Card>
-      </section>
-
-      <section className="grid gap-2">
-        <h2 className="text-[13px] font-semibold text-(--color-text)">Sidebar Layout</h2>
-        <Card tone="raised">
-          <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="m-0 font-medium text-[13px] text-(--color-text)">Default Sidebar State</p>
-              <p className="m-0 mt-0.5 text-[12px] text-(--color-text-muted)">
-                Keep sidebar expanded with route labels or collapsed to compact icons.
-              </p>
-            </div>
-            <div className="w-48">
-              <Select
-                value={sidebarCollapsed ? 'collapsed' : 'expanded'}
-                onChange={(e) => {
-                  if ((e.target.value === 'collapsed') !== sidebarCollapsed) {
-                    toggleSidebar()
-                  }
-                }}
-                options={[
-                  { value: 'expanded', label: 'Expanded' },
-                  { value: 'collapsed', label: 'Collapsed (Icons only)' },
-                ]}
-              />
-            </div>
           </div>
         </Card>
       </section>

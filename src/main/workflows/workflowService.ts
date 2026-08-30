@@ -19,6 +19,7 @@ import {
   taskIdSchema,
   workflowIdSchema,
   type AgentBinding,
+  type CompletionCriterion,
   type LockedDecision,
   type OpenQuestion,
   type ProjectId,
@@ -177,12 +178,32 @@ export class WorkflowService {
     const now = new Date().toISOString()
     const tId = taskIdSchema.parse(input.taskId ?? randomUUID())
 
-    // Create default task if not present
+    // Create default task with criteria tailored to repository capabilities
+    const completionCriteria: CompletionCriterion[] = [
+      { kind: 'no-assumptions', description: 'No unverified assumptions', params: {} },
+    ]
+
+    if (projectDetail.project.repository.buildCommand !== null) {
+      completionCriteria.push({
+        kind: 'build',
+        description: 'Build passes',
+        params: {},
+      })
+    }
+
+    if (projectDetail.project.repository.testCommand !== null) {
+      completionCriteria.push({
+        kind: 'tests',
+        description: 'Test suite passes',
+        params: {},
+      })
+    }
+
     const task: Task = {
       id: tId,
       objective: input.objective ?? `Implement feature in ${projectDetail.project.name}`,
       constraints: [],
-      completionCriteria: [{ kind: 'tests', description: 'Test suite passes', params: {} }],
+      completionCriteria,
       scope: { allowedPaths: [], forbiddenPaths: [] },
       lockedDecisionIds: [],
       correctsTaskId: null,
@@ -395,13 +416,21 @@ export class WorkflowService {
 
           void this.options.projects.get(pId).then((projectDetail) => {
             if (projectDetail !== null) {
+              const completionCriteria: CompletionCriterion[] = [
+                { kind: 'no-assumptions', description: 'No unverified assumptions', params: {} },
+              ]
+              if (projectDetail.project.repository.buildCommand !== null) {
+                completionCriteria.push({ kind: 'build', description: 'Build passes', params: {} })
+              }
+              if (projectDetail.project.repository.testCommand !== null) {
+                completionCriteria.push({ kind: 'tests', description: 'Test suite passes', params: {} })
+              }
+
               const task: Task = {
                 id: waiting.taskId,
                 objective: `Continue task ${waiting.taskId}`,
                 constraints: [],
-                completionCriteria: [
-                  { kind: 'tests', description: 'Test suite passes', params: {} },
-                ],
+                completionCriteria,
                 scope: { allowedPaths: [], forbiddenPaths: [] },
                 lockedDecisionIds: [],
                 correctsTaskId: null,

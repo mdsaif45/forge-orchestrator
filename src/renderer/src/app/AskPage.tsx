@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
 import {
-  Badge,
   Button,
   type CustomAgentConfig,
   Input,
@@ -487,21 +486,6 @@ export function AskPage(): React.JSX.Element {
             <h1 className="text-[15px] font-bold text-(--color-text) truncate">
               {activeThread?.title ?? 'Chat'}
             </h1>
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0 mt-0.5">
-            <Badge tone="success" size="sm" className="font-medium">
-              ● Index Ready
-            </Badge>
-            <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
-              ↻ Updated {new Date().toLocaleTimeString()}
-            </Badge>
-            <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
-              ★ Feedback
-            </Badge>
-            <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
-              ⊙ Sources ({messages.filter((m) => m.role === 'assistant').length})
-            </Badge>
           </div>
         </header>
 

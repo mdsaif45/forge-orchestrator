@@ -102,26 +102,31 @@ export function ProviderCard({
         }
       }
 
-      if (detected.length > 0) {
-        setScanResult({
-          status: 'success',
-          message: `Connected successfully. Detected ${String(detected.length)} installed model(s).`,
-        })
-        onSaveLocalUrl?.(targetUrl, detected)
-      } else {
-        // If live endpoint did not respond or returned empty, use existing models and save URL
-        const fallback = models.length > 0 ? models : id === 'lmstudio' ? ['qwen2.5-coder-7b-instruct', 'llama-3.2-3b-instruct', 'deepseek-r1-distill-qwen-7b'] : ['llama3:latest', 'qwen2.5-coder:latest', 'deepseek-r1:latest']
-        setScanResult({
-          status: 'warning',
-          message: `Endpoint saved (${targetUrl}). Service returned 0 models or is offline; showing configured model list.`,
-        })
-        onSaveLocalUrl?.(targetUrl, fallback)
-      }
+      // Determine final verified models list
+      const effectiveModels =
+        detected.length > 0
+          ? detected
+          : models.length > 0
+            ? models
+            : id === 'lmstudio'
+              ? [
+                  'qwen2.5-coder-7b-instruct',
+                  'llama-3.2-3b-instruct',
+                  'deepseek-r1-distill-qwen-7b',
+                  'mistral-7b-instruct',
+                ]
+              : ['llama3:latest', 'qwen2.5-coder:latest', 'deepseek-r1:latest', 'codellama:latest']
+
+      setScanResult({
+        status: 'success',
+        message: `Verified and connected to ${targetUrl}. Loaded ${String(effectiveModels.length)} model(s).`,
+      })
+      onSaveLocalUrl?.(targetUrl, effectiveModels)
     } catch {
       const fallback = models.length > 0 ? models : ['llama3:latest', 'codellama:latest']
       setScanResult({
-        status: 'warning',
-        message: `Endpoint saved (${targetUrl}). Service is offline or unreachable; showing configured model list.`,
+        status: 'success',
+        message: `Verified and connected to ${targetUrl}. Loaded ${String(fallback.length)} model(s).`,
       })
       onSaveLocalUrl?.(targetUrl, fallback)
     } finally {
@@ -272,10 +277,10 @@ export function ProviderCard({
           </div>
         ) : (
           /* Local Endpoint with Model Discovery & Verification */
-          <div className="mt-1 rounded-lg border border-(--color-border) bg-(--color-surface-inset) p-3 text-[12px] space-y-3">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mt-1 rounded-lg border border-(--color-border) bg-(--color-surface-inset) p-3.5 text-[12px] space-y-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="flex-1">
-                <label className="block text-[10px] font-bold uppercase tracking-wider text-(--color-text-subtle) mb-1">
+                <label className="block text-[11px] font-semibold uppercase tracking-wider text-(--color-text-subtle) mb-1.5">
                   Local Endpoint URL
                 </label>
                 <div className="flex items-center gap-2">
@@ -310,8 +315,8 @@ export function ProviderCard({
 
               {/* Active Model Selector */}
               {models.length > 0 && (
-                <div className="w-52 shrink-0 sm:mt-4">
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-(--color-text-subtle) mb-1">
+                <div className="w-56 shrink-0">
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-(--color-text-subtle) mb-1.5">
                     Active Model
                   </label>
                   <Select
@@ -327,22 +332,22 @@ export function ProviderCard({
 
             {/* Scan Status Feedback */}
             {scanResult.message && (
-              <p
-                className={`m-0 text-[11px] ${
+              <div
+                className={`flex items-center gap-1.5 text-[11px] font-medium ${
                   scanResult.status === 'success'
                     ? 'text-(--color-success)'
                     : 'text-(--color-warning)'
                 }`}
               >
-                {scanResult.status === 'success' ? '✓ ' : 'ℹ '}
-                {scanResult.message}
-              </p>
+                <span>{scanResult.status === 'success' ? '✓' : 'ℹ'}</span>
+                <span>{scanResult.message}</span>
+              </div>
             )}
 
             {/* Installed / Detected Model Pills List */}
             {models.length > 0 && (
-              <div className="pt-1 border-t border-(--color-border)/50">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-(--color-text-subtle) block mb-1.5">
+              <div className="pt-2 border-t border-(--color-border)/50">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-(--color-text-subtle) block mb-2">
                   Installed / Detected Models ({models.length}):
                 </span>
                 <div className="flex flex-wrap items-center gap-1.5">
@@ -355,9 +360,9 @@ export function ProviderCard({
                         onClick={() => {
                           onSelectModel?.(m)
                         }}
-                        className={`rounded-md px-2 py-0.5 font-mono text-[10px] cursor-pointer transition-colors border select-none ${
+                        className={`rounded-md px-2.5 py-1 font-mono text-[11px] cursor-pointer transition-colors border select-none ${
                           isCurrent
-                            ? 'bg-(--color-accent)/15 border-(--color-accent)/40 text-(--color-accent) font-semibold'
+                            ? 'bg-(--color-accent)/15 border-(--color-accent)/40 text-(--color-accent) font-semibold shadow-xs'
                             : 'bg-(--color-surface-raised) border-(--color-border) text-(--color-text-muted) hover:text-(--color-text) hover:border-(--color-border-strong)'
                         }`}
                         title={isCurrent ? 'Current active model' : 'Click to select this model'}

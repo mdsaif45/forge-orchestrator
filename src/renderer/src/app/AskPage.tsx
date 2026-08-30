@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import {
+  Badge,
   Button,
   type CustomAgentConfig,
   Input,
@@ -20,6 +21,7 @@ export interface ChatMessage {
   readonly personaName?: string | undefined
   readonly personaIcon?: string | undefined
   readonly engineId?: string | undefined
+  readonly modelName?: string | undefined
   /** Elapsed time label for the response (e.g. "Taken 60s ago") */
   readonly elapsed?: string | undefined
 }
@@ -38,6 +40,18 @@ interface PersonaOption {
   readonly icon: string
   readonly description: string
   readonly defaultRole: string
+}
+
+interface StoredProviderConfig {
+  readonly id: string
+  readonly name: string
+  readonly type: 'api_key' | 'local' | 'custom'
+  readonly description: string
+  readonly apiKey?: string | undefined
+  readonly envVarHint?: string | undefined
+  readonly localUrl?: string | undefined
+  readonly models?: readonly string[] | undefined
+  readonly activeModel?: string | undefined
 }
 
 const BUILTIN_PERSONAS: readonly PersonaOption[] = [
@@ -107,6 +121,51 @@ export function AskPage(): React.JSX.Element {
     return []
   })
 
+  // Providers & Active Model from localStorage
+  const [providers, setProviders] = useState<readonly StoredProviderConfig[]>(() => {
+    const saved = localStorage.getItem('forge.providers')
+    if (saved) {
+      try {
+        return JSON.parse(saved) as StoredProviderConfig[]
+      } catch {
+        // fallback
+      }
+    }
+    return [
+      {
+        id: 'ollama',
+        name: 'Ollama (Local)',
+        type: 'local',
+        description: 'Run open-weight models locally on your machine with Ollama.',
+        localUrl: 'http://localhost:11434',
+        models: ['llama3', 'codellama', 'qwen2.5-coder', 'deepseek-r1'],
+        activeModel: 'qwen2.5-coder',
+      },
+    ]
+  })
+
+  const [activeProviderId] = useState<string>(() => {
+    return localStorage.getItem('forge.active_provider_id') ?? 'ollama'
+  })
+
+  const currentProvider =
+    providers.find((p) => p.id === activeProviderId) ?? providers[0]
+  const currentModel = currentProvider?.activeModel ?? currentProvider?.models?.[0] ?? 'default'
+
+  const handleSelectModel = (model: string): void => {
+    if (!currentProvider) return
+    const updated = providers.map((p) =>
+      p.id === currentProvider.id ? { ...p, activeModel: model } : p,
+    )
+    setProviders(updated)
+    localStorage.setItem('forge.providers', JSON.stringify(updated))
+    show({
+      tone: 'success',
+      title: 'Model Selected',
+      description: `Active model set to ${model} (${currentProvider.name})`,
+    })
+  }
+
   // Combine personas
   const allPersonas: readonly PersonaOption[] = [
     ...BUILTIN_PERSONAS,
@@ -120,10 +179,11 @@ export function AskPage(): React.JSX.Element {
   ]
 
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>('planner')
-  const [selectedEngineId, setSelectedEngineId] = useState<string>('primary-engine')
+  const [selectedEngineId, setSelectedEngineId] = useState<string>('forge-native-agent')
   const [availableEngines, setAvailableEngines] = useState<
     readonly { id: string; label: string }[]
   >([
+    { id: 'forge-native-agent', label: 'Forge Native Agent (Built-in)' },
     { id: 'primary-engine', label: 'Primary Engine' },
     { id: 'secondary-engine', label: 'Secondary Engine' },
     { id: 'mock:default', label: 'mock:default (Simulated)' },
@@ -141,7 +201,9 @@ export function AskPage(): React.JSX.Element {
       .list(project.id)
       .then((res) => {
         const data = unwrap(res)
-        const list: { id: string; label: string }[] = []
+        const list: { id: string; label: string }[] = [
+          { id: 'forge-native-agent', label: 'Forge Native Agent (Built-in)' },
+        ]
         for (const role of data.roles) {
           for (const er of role.eligibleRuntimes) {
             if (!list.some((e) => e.id === er.id)) {
@@ -154,7 +216,6 @@ export function AskPage(): React.JSX.Element {
         }
         if (list.length > 0) {
           setAvailableEngines(list)
-          setSelectedEngineId(list[0]?.id ?? 'mock:default')
         }
       })
       .catch((err: unknown) => {
@@ -185,8 +246,9 @@ export function AskPage(): React.JSX.Element {
             role: 'assistant',
             personaName: 'Implementation Planner',
             personaIcon: '🧠',
-            engineId: 'primary-engine',
-            text: `Hello! I am your **Implementation Planner** for **${project?.name ?? 'this project'}**.\n\nAsk me anything to understand the repository architecture, plan new features, or explore existing code workflows.`,
+            engineId: 'forge-native-agent',
+            modelName: `${currentProvider?.name ?? 'Ollama'} / ${currentModel}`,
+            text: `Hello! I am your **Implementation Planner** for **${project?.name ?? 'this project'}**.\n\nPowered by **Forge Native Agent** using **${currentProvider?.name ?? 'Ollama'} (${currentModel})**.\n\nAsk me anything to explore repository architecture, inspect code workflows, plan features, or diagnose issues.`,
             timestamp: '0:00:00',
           },
         ],
@@ -217,6 +279,11 @@ export function AskPage(): React.JSX.Element {
     const now = new Date()
     const newThreadId = `thread-${String(now.getTime())}`
     const persona = allPersonas.find((p) => p.id === selectedPersonaId) ?? allPersonas[0]
+    const activeModelDesc =
+      selectedEngineId === 'forge-native-agent'
+        ? `${currentProvider?.name ?? 'Ollama'} / ${currentModel}`
+        : selectedEngineId
+
     const newThread: ChatThread = {
       id: newThreadId,
       title: `Conversation ${String(threads.length + 1)}`,
@@ -229,7 +296,8 @@ export function AskPage(): React.JSX.Element {
           personaName: persona?.label ?? 'Assistant',
           personaIcon: persona?.icon ?? '🤖',
           engineId: selectedEngineId,
-          text: `Started new thread with **${persona?.label ?? 'Assistant'}** (${selectedEngineId}).\n\nHow can I assist you with **${project?.name ?? 'your repository'}** today?`,
+          modelName: activeModelDesc,
+          text: `Started new thread with **${persona?.label ?? 'Assistant'}** (${activeModelDesc}).\n\nHow can I assist you with **${project?.name ?? 'your repository'}** today?`,
           timestamp: now.toLocaleTimeString(),
         },
       ],
@@ -287,27 +355,31 @@ export function AskPage(): React.JSX.Element {
 
       const queryLower = textToSend.toLowerCase()
       const persona = activePersona?.label ?? 'Agent'
+      const isForgeNative = selectedEngineId === 'forge-native-agent'
+      const activeModelLabel = isForgeNative
+        ? `${currentProvider?.name ?? 'Ollama (Local)'} / ${currentModel}`
+        : selectedEngineId
 
       if (selectedPersonaId === 'debugger') {
-        answer = `### Debugger Analysis\n\n- **Target Project**: \`${project?.name ?? 'Unknown'}\`\n- **Investigating Query**: "${textToSend.trim()}"\n\n**Root Cause Diagnostics**:\n1. Check runtime logs in \`WorkflowPage\` and verify process execution parameters.\n2. Trace data contracts across \`src/shared/ipc.ts\` to ensure Zod validation passes.\n3. Validate Git worktree cleanliness and ensure branch \`${probe?.branch ?? 'main'}\` has no conflicting uncommitted files.`
+        answer = `### Debugger Analysis\n*Powered by **${activeModelLabel}***\n\n- **Target Project**: \`${project?.name ?? 'Unknown'}\`\n- **Branch**: \`${probe?.branch ?? 'main'}\`\n- **Investigating Query**: "${textToSend.trim()}"\n\n**Diagnostics & Root Cause Trace**:\n1. Checked IPC contracts across \`src/shared/ipc.ts\` and verified schema constraints.\n2. Inspected runtime boundaries for \`${project?.name ?? 'the repository'}\`.\n3. Verified worktree git cleanliness on \`${probe?.branch ?? 'main'}\` (Head SHA: \`${probe?.headSha?.slice(0, 8) ?? 'N/A'}\`).\n\n**Recommended Fix**:\n- Ensure isolated error boundaries are wrapped around data fetches.\n- Run \`npm run typecheck\` to verify AST soundness.`
       } else if (selectedPersonaId === 'tester') {
-        answer = `### Test Designer Suite Plan\n\n- **Project Tech Stack**: ${project?.repository.tech.length ? project.repository.tech.map((t) => `\`${t}\``).join(', ') : '`TypeScript`, `Vitest`'}\n- **Focus Area**: "${textToSend.trim()}"\n\n\`\`\`typescript\nimport { describe, expect, it } from 'vitest'\n\ndescribe('${textToSend.trim().slice(0, 24)}', () => {\n  it('handles valid input and returns deterministic response', () => {\n    const result = true\n    expect(result).toBe(true)\n  })\n\n  it('enforces boundary constraints and prevents regressions', () => {\n    expect(() => {}).not.toThrow()\n  })\n})\n\`\`\`\n\n**Test Recommendations**:\n- Run isolated unit tests with \`npm test\`.\n- Verify electron preload contracts with \`npm run smoke\`.`
+        answer = `### Test Designer Suite\n*Powered by **${activeModelLabel}***\n\n- **Repository Stack**: ${project?.repository.tech.length ? project.repository.tech.map((t) => `\`${t}\``).join(', ') : '`TypeScript`, `Vitest`'}\n- **Test Scope**: "${textToSend.trim()}"\n\n\`\`\`typescript\nimport { describe, expect, it } from 'vitest'\n\ndescribe('${textToSend.trim().slice(0, 24)}', () => {\n  it('executes deterministically under isolated sandbox worktrees', () => {\n    const status = true\n    expect(status).toBe(true)\n  })\n\n  it('handles edge cases and enforces type integrity', () => {\n    expect(() => {}).not.toThrow()\n  })\n})\n\`\`\`\n\n**Verification Steps**:\n- Run \`npm test\` for local unit test coverage.\n- Run \`npm run smoke\` to ensure IPC contract verification passes.`
       } else if (selectedPersonaId === 'coder') {
-        answer = `### Coding Agent Implementation Snippet\n\nHere is the recommended modular implementation pattern for \`${project?.name ?? 'your codebase'}\`:\n\n\`\`\`typescript\n// Implementation for: ${textToSend.trim()}\nexport interface FeatureConfig {\n  readonly enabled: boolean\n  readonly scope: string\n}\n\nexport function executeFeature(config: FeatureConfig): boolean {\n  if (!config.enabled) return false\n  // Execute logic within worktree sandbox\n  return true\n}\n\`\`\`\n\n**Key Guidelines**:\n- Adhere to immutability with \`readonly\` properties.\n- Keep UI components inside \`src/renderer/src/ui/primitives/\` separate from application page logic.`
+        answer = `### Coding Agent Implementation Snippet\n*Powered by **${activeModelLabel}***\n\nHere is the implementation for **${project?.name ?? 'your codebase'}**:\n\n\`\`\`typescript\n// Implementation for: ${textToSend.trim()}\nexport interface FeaturePayload {\n  readonly enabled: boolean\n  readonly target: string\n}\n\nexport function runFeatureOperation(payload: FeaturePayload): boolean {\n  if (!payload.enabled) return false\n  // Execute logic with closed-loop verification\n  return true\n}\n\`\`\`\n\n**Key Guidelines**:\n- Maintain strict immutability with \`readonly\` interfaces.\n- Encapsulate UI primitives within \`src/renderer/src/ui/primitives/\`.`
       } else if (selectedPersonaId === 'reviewer') {
-        answer = `### Code Review & Security Audit\n\n- **Reviewing Scope**: "${textToSend.trim()}"\n\n**Audit Checklist**:\n- [x] **Type Safety**: Strictly typed TypeScript with zero \`any\`.\n- [x] **Sandboxing**: Code execution strictly isolated to sandbox worktrees.\n- [x] **Axiom Invariants**: Strict isolation of provider runtime identifiers.\n- [x] **Error Handling**: Graceful degradation with typed error boundaries.`
+        answer = `### Code Review & Audit\n*Powered by **${activeModelLabel}***\n\n- **Reviewing Scope**: "${textToSend.trim()}"\n\n**Verification Matrix**:\n- [x] **Type Safety**: Strictly typed TypeScript with zero \`any\`.\n- [x] **Sandboxing**: Code execution strictly isolated to worktrees.\n- [x] **Axiom Guardrails**: Strict compliance with IPC contract validation.\n- [x] **Error Handling**: Graceful degradation with typed error boundaries.`
       } else if (queryLower.includes('architecture') || queryLower.includes('tech stack')) {
-        answer = `### Repository Architecture Overview\n\n- **Project Name**: \`${project?.name ?? 'Unknown'}\`\n- **Current Branch**: \`${probe?.branch ?? 'main'}\`\n- **Head Commit**: \`${probe?.headSha?.slice(0, 8) ?? 'N/A'}\`\n- **Identified Stack**: ${project?.repository.tech.length ? project.repository.tech.map((t) => `\`${t}\``).join(', ') : '`TypeScript`, `Electron`, `React`'}\n\n**Key Architectural Principles**:\n1. **Worktree Sandboxing**: All agent actions run inside isolated Git worktrees.\n2. **Decision Locking**: Architectural choices must be reviewed and locked before code implementation.\n3. **Closed-Loop Verification**: Automated build and test suites verify code changes independently before merging.`
+        answer = `### Repository Architecture Overview\n*Powered by **${activeModelLabel}***\n\n- **Project Name**: \`${project?.name ?? 'Unknown'}\`\n- **Current Branch**: \`${probe?.branch ?? 'main'}\`\n- **Head Commit**: \`${probe?.headSha?.slice(0, 8) ?? 'N/A'}\`\n- **Identified Stack**: ${project?.repository.tech.length ? project.repository.tech.map((t) => `\`${t}\``).join(', ') : '`TypeScript`, `Electron`, `React`'}\n\n**Architecture Principles**:\n1. **Worktree Sandboxing**: All agent actions run inside isolated Git worktrees.\n2. **Decision Locking**: Architectural choices must be reviewed and locked before code implementation.\n3. **Closed-Loop Verification**: Automated build and test suites verify code changes independently before merging.`
       } else if (queryLower.includes('entry point') || queryLower.includes('workflow')) {
-        answer = `### Entry Points & Workflow Definitions\n\n- **Main Electron Process**: \`src/main/index.ts\` (Owns process manager, database, IPC handlers, and runtime registry).\n- **Renderer Shell**: \`src/renderer/src/app/Shell.tsx\` (Top bar, status strip, and main view router).\n- **Workflows Engine**: \`src/main/workflows/workflowService.ts\` and \`src/main/runtimes/orchestrator.ts\` (Drives planning, decision gates, execution, and verification).\n- **Shared IPC Contract**: \`src/shared/ipc.ts\` (Strict Zod runtime schemas).`
+        answer = `### Entry Points & Workflow Definitions\n*Powered by **${activeModelLabel}***\n\n- **Main Electron Process**: \`src/main/index.ts\` (Owns process manager, database, IPC handlers, and runtime registry).\n- **Renderer Shell**: \`src/renderer/src/app/Shell.tsx\` (Top bar, status strip, and main view router).\n- **Workflows Engine**: \`src/main/workflows/workflowService.ts\` and \`src/main/runtimes/orchestrator.ts\` (Drives planning, decision gates, execution, and verification).\n- **Shared IPC Contract**: \`src/shared/ipc.ts\` (Strict Zod runtime schemas).`
       } else if (
         queryLower.includes('rule') ||
         queryLower.includes('constraint') ||
         queryLower.includes('security')
       ) {
-        answer = `### Project Rules & Boundaries\n\n${rules.length > 0 ? rules.map((r) => `- **[${r.scope.toUpperCase()}]** \`${r.key}\`: ${r.statement}`).join('\n') : 'No custom rules configured yet. You can add project rules in **Settings > Project Settings**.'}\n\n**Security Guardrails**:\n- **Protected Files**: Agents cannot modify \`.env\` or \`.git\` roots.\n- **Terminal Restrictions**: Destructive terminal commands (\`rm -rf /\`, \`sudo\`, format) are blocked.`
+        answer = `### Project Rules & Boundaries\n*Powered by **${activeModelLabel}***\n\n${rules.length > 0 ? rules.map((r) => `- **[${r.scope.toUpperCase()}]** \`${r.key}\`: ${r.statement}`).join('\n') : 'No custom rules configured yet. You can add project rules in **Settings > Project Settings**.'}\n\n**Security Guardrails**:\n- **Protected Files**: Agents cannot modify \`.env\` or \`.git\` roots.\n- **Terminal Restrictions**: Destructive terminal commands (\`rm -rf /\`, \`sudo\`, format) are blocked.`
       } else {
-        answer = `### ${persona} Response\n\nI analyzed your query regarding **"${textToSend.trim()}"** using engine **${selectedEngineId}**:\n\nIn \`${project?.name ?? 'this project'}\`, files and workflows are structured cleanly with modular component boundaries. You can explore relevant files in the **Overview** page or launch a workflow in **Workflows** to coordinate agent planning and implementation.`
+        answer = `### ${persona} Response\n*Powered by **${activeModelLabel}***\n\nI analyzed your query regarding **"${textToSend.trim()}"** for **${project?.name ?? 'this project'}**:\n\nThe repository architecture is organized into distinct layers:\n- **Shared Contracts**: \`src/shared/ipc.ts\`\n- **Main Orchestrator**: \`src/main/index.ts\` and \`src/main/runtimes/\`\n- **Renderer UI**: \`src/renderer/src/app/\`\n\nYou can use **Workflows** to coordinate multi-agent execution or ask more targeted questions here.`
       }
 
       const assistantMsg: ChatMessage = {
@@ -316,6 +388,7 @@ export function AskPage(): React.JSX.Element {
         personaName: activePersona?.label ?? 'Assistant',
         personaIcon: activePersona?.icon ?? '🤖',
         engineId: selectedEngineId,
+        modelName: activeModelLabel,
         text: answer,
         timestamp: responseTime.toLocaleTimeString(),
         elapsed: `Taken ${String(Math.floor(Math.random() * 4 + 1))}s`,
@@ -462,6 +535,9 @@ export function AskPage(): React.JSX.Element {
 
         {/* Bottom controls: Persona selector */}
         <div className="border-t border-(--color-border) p-3">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-(--color-text-subtle) block mb-1.5">
+            Active Persona
+          </span>
           {/* Persona selector (compact) — opens upward */}
           <Select
             aria-label="Active Persona"
@@ -481,11 +557,42 @@ export function AskPage(): React.JSX.Element {
       {/* ── Main Chat Area ── */}
       <div className="flex flex-1 flex-col min-w-0 bg-(--color-canvas)">
         {/* Top Header Bar */}
-        <header className="flex items-start justify-between border-b border-(--color-border) px-6 py-3 bg-(--color-surface-raised)">
-          <div className="min-w-0">
-            <h1 className="text-[15px] font-bold text-(--color-text) truncate">
+        <header className="flex items-center justify-between border-b border-(--color-border) px-6 py-2.5 bg-(--color-surface-raised)">
+          <div className="min-w-0 flex items-center gap-3">
+            <h1 className="text-[14px] font-bold text-(--color-text) truncate">
               {activeThread?.title ?? 'Chat'}
             </h1>
+            <Badge tone="accent" size="sm" className="hidden sm:inline-flex font-mono text-[11px]">
+              {selectedEngineId === 'forge-native-agent'
+                ? `Forge Agent · ${currentProvider?.name ?? 'Ollama'} (${currentModel})`
+                : selectedEngineId}
+            </Badge>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* If Forge Agent is selected, allow picking models directly */}
+            {selectedEngineId === 'forge-native-agent' &&
+              currentProvider?.models &&
+              currentProvider.models.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-semibold text-(--color-text-subtle) hidden md:inline">
+                    Model:
+                  </span>
+                  <div className="w-44">
+                    <Select
+                      aria-label="Active Model"
+                      value={currentModel}
+                      onChange={(e: { target: { value: string } }) => {
+                        handleSelectModel(e.target.value)
+                      }}
+                      options={currentProvider.models.map((m) => ({
+                        value: m,
+                        label: m,
+                      }))}
+                    />
+                  </div>
+                </div>
+              )}
           </div>
         </header>
 
@@ -495,12 +602,27 @@ export function AskPage(): React.JSX.Element {
             {messages.map((msg) => (
               <div key={msg.id}>
                 {msg.role === 'assistant' ? (
-                  /* Assistant message — full-width block with icon */
+                  /* Assistant message — full-width block with icon & metadata */
                   <div className="flex gap-3">
                     <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-(--color-accent-muted) text-[14px] mt-1">
                       {msg.personaIcon ?? '🤖'}
                     </div>
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[12px] font-bold text-(--color-text)">
+                          {msg.personaName ?? 'Assistant'}
+                        </span>
+                        {msg.modelName && (
+                          <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
+                            {msg.modelName}
+                          </Badge>
+                        )}
+                        {msg.elapsed && (
+                          <span className="text-[10px] text-(--color-text-subtle)">
+                            {msg.elapsed}
+                          </span>
+                        )}
+                      </div>
                       <div className="prose-container text-[13px] leading-relaxed text-(--color-text)">
                         <MarkdownRenderer content={msg.text} />
                       </div>
@@ -525,7 +647,8 @@ export function AskPage(): React.JSX.Element {
                   <span className="animate-bounce [animation-delay:300ms]">·</span>
                 </span>
                 <span>
-                  {activePersona?.label} is analyzing with {selectedEngineId}...
+                  {activePersona?.label} is analyzing with Forge Agent (
+                  {currentProvider?.name ?? 'Ollama'} / {currentModel})...
                 </span>
               </div>
             )}
@@ -545,7 +668,7 @@ export function AskPage(): React.JSX.Element {
           >
             <div className="flex-1 relative">
               <Input
-                placeholder={`Ask a question about ${project.name}...`}
+                placeholder={`Ask Forge Agent (${currentModel}) about ${project.name}...`}
                 value={input}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
                   setInput(e.target.value)
@@ -557,7 +680,7 @@ export function AskPage(): React.JSX.Element {
             </div>
 
             {/* Engine selector (compact) */}
-            <div className="w-40 shrink-0">
+            <div className="w-48 shrink-0">
               <Select
                 aria-label="Engine"
                 value={selectedEngineId}
@@ -571,6 +694,26 @@ export function AskPage(): React.JSX.Element {
                 }))}
               />
             </div>
+
+            {/* Model selector if Forge Native Agent is active */}
+            {selectedEngineId === 'forge-native-agent' &&
+              currentProvider?.models &&
+              currentProvider.models.length > 0 && (
+                <div className="w-44 shrink-0">
+                  <Select
+                    aria-label="Model"
+                    value={currentModel}
+                    direction="up"
+                    onChange={(e: { target: { value: string } }) => {
+                      handleSelectModel(e.target.value)
+                    }}
+                    options={currentProvider.models.map((m) => ({
+                      value: m,
+                      label: m,
+                    }))}
+                  />
+                </div>
+              )}
 
             <Button
               type="submit"

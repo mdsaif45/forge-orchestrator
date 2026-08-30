@@ -319,7 +319,7 @@ export function AskPage(): React.JSX.Element {
     }
   }
 
-  const handleSend = (queryText?: string): void => {
+  const handleSend = async (queryText?: string): Promise<void> => {
     const textToSend = queryText ?? input
     if (textToSend.trim() === '' || thinking || activeThread === undefined) return
 
@@ -348,62 +348,87 @@ export function AskPage(): React.JSX.Element {
     setInput('')
     setThinking(true)
 
-    // Generate persona-specific contextual response
-    setTimeout(() => {
-      const responseTime = new Date()
-      let answer: string
+    const startTime = Date.now()
+    const isForgeNative = selectedEngineId === 'forge-native-agent'
+    const activeModelLabel = isForgeNative
+      ? `${currentProvider?.name ?? 'Ollama (Local)'} / ${currentModel}`
+      : selectedEngineId
 
-      const queryLower = textToSend.toLowerCase()
-      const persona = activePersona?.label ?? 'Agent'
-      const isForgeNative = selectedEngineId === 'forge-native-agent'
-      const activeModelLabel = isForgeNative
-        ? `${currentProvider?.name ?? 'Ollama (Local)'} / ${currentModel}`
-        : selectedEngineId
+    // Construct system prompt with repository context & active persona
+    const systemPrompt = `You are ${activePersona?.label ?? 'an AI Assistant'}, an expert software engineering persona inside Forge Orchestrator.
+Project Context:
+- Name: ${project?.name ?? 'Unknown'}
+- Branch: ${probe?.branch ?? 'main'}
+- Head Commit: ${probe?.headSha?.slice(0, 8) ?? 'N/A'}
+- Tech Stack: ${project?.repository.tech.length ? project.repository.tech.join(', ') : 'TypeScript'}
+- Rules & Guardrails: ${rules.length > 0 ? rules.map((r) => `[${r.scope}] ${r.statement}`).join('; ') : 'None'}
 
-      if (selectedPersonaId === 'debugger') {
-        answer = `### Debugger Analysis\n*Powered by **${activeModelLabel}***\n\n- **Target Project**: \`${project?.name ?? 'Unknown'}\`\n- **Branch**: \`${probe?.branch ?? 'main'}\`\n- **Investigating Query**: "${textToSend.trim()}"\n\n**Diagnostics & Root Cause Trace**:\n1. Checked IPC contracts across \`src/shared/ipc.ts\` and verified schema constraints.\n2. Inspected runtime boundaries for \`${project?.name ?? 'the repository'}\`.\n3. Verified worktree git cleanliness on \`${probe?.branch ?? 'main'}\` (Head SHA: \`${probe?.headSha?.slice(0, 8) ?? 'N/A'}\`).\n\n**Recommended Fix**:\n- Ensure isolated error boundaries are wrapped around data fetches.\n- Run \`npm run typecheck\` to verify AST soundness.`
-      } else if (selectedPersonaId === 'tester') {
-        answer = `### Test Designer Suite\n*Powered by **${activeModelLabel}***\n\n- **Repository Stack**: ${project?.repository.tech.length ? project.repository.tech.map((t) => `\`${t}\``).join(', ') : '`TypeScript`, `Vitest`'}\n- **Test Scope**: "${textToSend.trim()}"\n\n\`\`\`typescript\nimport { describe, expect, it } from 'vitest'\n\ndescribe('${textToSend.trim().slice(0, 24)}', () => {\n  it('executes deterministically under isolated sandbox worktrees', () => {\n    const status = true\n    expect(status).toBe(true)\n  })\n\n  it('handles edge cases and enforces type integrity', () => {\n    expect(() => {}).not.toThrow()\n  })\n})\n\`\`\`\n\n**Verification Steps**:\n- Run \`npm test\` for local unit test coverage.\n- Run \`npm run smoke\` to ensure IPC contract verification passes.`
-      } else if (selectedPersonaId === 'coder') {
-        answer = `### Coding Agent Implementation Snippet\n*Powered by **${activeModelLabel}***\n\nHere is the implementation for **${project?.name ?? 'your codebase'}**:\n\n\`\`\`typescript\n// Implementation for: ${textToSend.trim()}\nexport interface FeaturePayload {\n  readonly enabled: boolean\n  readonly target: string\n}\n\nexport function runFeatureOperation(payload: FeaturePayload): boolean {\n  if (!payload.enabled) return false\n  // Execute logic with closed-loop verification\n  return true\n}\n\`\`\`\n\n**Key Guidelines**:\n- Maintain strict immutability with \`readonly\` interfaces.\n- Encapsulate UI primitives within \`src/renderer/src/ui/primitives/\`.`
-      } else if (selectedPersonaId === 'reviewer') {
-        answer = `### Code Review & Audit\n*Powered by **${activeModelLabel}***\n\n- **Reviewing Scope**: "${textToSend.trim()}"\n\n**Verification Matrix**:\n- [x] **Type Safety**: Strictly typed TypeScript with zero \`any\`.\n- [x] **Sandboxing**: Code execution strictly isolated to worktrees.\n- [x] **Axiom Guardrails**: Strict compliance with IPC contract validation.\n- [x] **Error Handling**: Graceful degradation with typed error boundaries.`
-      } else if (queryLower.includes('architecture') || queryLower.includes('tech stack')) {
-        answer = `### Repository Architecture Overview\n*Powered by **${activeModelLabel}***\n\n- **Project Name**: \`${project?.name ?? 'Unknown'}\`\n- **Current Branch**: \`${probe?.branch ?? 'main'}\`\n- **Head Commit**: \`${probe?.headSha?.slice(0, 8) ?? 'N/A'}\`\n- **Identified Stack**: ${project?.repository.tech.length ? project.repository.tech.map((t) => `\`${t}\``).join(', ') : '`TypeScript`, `Electron`, `React`'}\n\n**Architecture Principles**:\n1. **Worktree Sandboxing**: All agent actions run inside isolated Git worktrees.\n2. **Decision Locking**: Architectural choices must be reviewed and locked before code implementation.\n3. **Closed-Loop Verification**: Automated build and test suites verify code changes independently before merging.`
-      } else if (queryLower.includes('entry point') || queryLower.includes('workflow')) {
-        answer = `### Entry Points & Workflow Definitions\n*Powered by **${activeModelLabel}***\n\n- **Main Electron Process**: \`src/main/index.ts\` (Owns process manager, database, IPC handlers, and runtime registry).\n- **Renderer Shell**: \`src/renderer/src/app/Shell.tsx\` (Top bar, status strip, and main view router).\n- **Workflows Engine**: \`src/main/workflows/workflowService.ts\` and \`src/main/runtimes/orchestrator.ts\` (Drives planning, decision gates, execution, and verification).\n- **Shared IPC Contract**: \`src/shared/ipc.ts\` (Strict Zod runtime schemas).`
-      } else if (
-        queryLower.includes('rule') ||
-        queryLower.includes('constraint') ||
-        queryLower.includes('security')
-      ) {
-        answer = `### Project Rules & Boundaries\n*Powered by **${activeModelLabel}***\n\n${rules.length > 0 ? rules.map((r) => `- **[${r.scope.toUpperCase()}]** \`${r.key}\`: ${r.statement}`).join('\n') : 'No custom rules configured yet. You can add project rules in **Settings > Project Settings**.'}\n\n**Security Guardrails**:\n- **Protected Files**: Agents cannot modify \`.env\` or \`.git\` roots.\n- **Terminal Restrictions**: Destructive terminal commands (\`rm -rf /\`, \`sudo\`, format) are blocked.`
-      } else {
-        answer = `### ${persona} Response\n*Powered by **${activeModelLabel}***\n\nI analyzed your query regarding **"${textToSend.trim()}"** for **${project?.name ?? 'this project'}**:\n\nThe repository architecture is organized into distinct layers:\n- **Shared Contracts**: \`src/shared/ipc.ts\`\n- **Main Orchestrator**: \`src/main/index.ts\` and \`src/main/runtimes/\`\n- **Renderer UI**: \`src/renderer/src/app/\`\n\nYou can use **Workflows** to coordinate multi-agent execution or ask more targeted questions here.`
+Persona Role:
+- ${activePersona?.description ?? 'Provide helpful code explanations and guidance.'}
+
+Instructions:
+- Provide clear, direct, accurate, and context-aware responses.
+- Use markdown formatting, code blocks, bullet points, and actionable solutions.`
+
+    // Prepare chat history
+    const historyPayload = updatedMessages
+      .filter((m) => m.id !== 'welcome')
+      .map((m) => ({
+        role: m.role,
+        content: m.text,
+      }))
+
+    let answer = ''
+
+    try {
+      const res = await window.forge.provider.chat({
+        providerId: currentProvider?.id ?? 'ollama',
+        model: currentModel,
+        endpointUrl: currentProvider?.localUrl,
+        apiKey: currentProvider?.apiKey,
+        systemPrompt,
+        messages: historyPayload,
+      })
+
+      if (res.ok && res.value.ok && res.value.content.trim() !== '') {
+        answer = res.value.content
+      } else if (res.ok && res.value.error) {
+        answer = `⚠️ **Error from ${activeModelLabel}**:\n\n${res.value.error}\n\n*Make sure your local provider is running (e.g. \`ollama serve\` on ${currentProvider?.localUrl ?? 'http://localhost:11434'}) and model \`${currentModel}\` is installed.*`
       }
+    } catch (err) {
+      console.error('Chat error:', err)
+      answer = `⚠️ **Connection Error**:\n\nCould not reach ${activeModelLabel}. Please verify that the provider service is running.`
+    }
 
-      const assistantMsg: ChatMessage = {
-        id: `ai-${responseTime.getTime().toString()}`,
-        role: 'assistant',
-        personaName: activePersona?.label ?? 'Assistant',
-        personaIcon: activePersona?.icon ?? '🤖',
-        engineId: selectedEngineId,
-        modelName: activeModelLabel,
-        text: answer,
-        timestamp: responseTime.toLocaleTimeString(),
-        elapsed: `Taken ${String(Math.floor(Math.random() * 4 + 1))}s`,
-      }
+    // Fallback if empty
+    if (!answer) {
+      answer = `⚠️ **Unable to connect to ${activeModelLabel}**.\n\nPlease verify that your local endpoint (${currentProvider?.localUrl ?? 'http://localhost:11434'}) is active and model \`${currentModel}\` is available.`
+    }
 
-      const finalMessages = [...updatedMessages, assistantMsg]
-      const finalThread: ChatThread = {
-        ...updatedThread,
-        messages: finalMessages,
-      }
+    const elapsedSeconds = Math.max(1, Math.round((Date.now() - startTime) / 1000))
+    const responseTime = new Date()
 
-      const finalThreads = threads.map((t) => (t.id === activeThread.id ? finalThread : t))
-      saveThreads(finalThreads)
-      setThinking(false)
-    }, 600)
+    const assistantMsg: ChatMessage = {
+      id: `ai-${responseTime.getTime().toString()}`,
+      role: 'assistant',
+      personaName: activePersona?.label ?? 'Assistant',
+      personaIcon: activePersona?.icon ?? '🤖',
+      engineId: selectedEngineId,
+      modelName: activeModelLabel,
+      text: answer,
+      timestamp: responseTime.toLocaleTimeString(),
+      elapsed: `Taken ${String(elapsedSeconds)}s`,
+    }
+
+    const finalMessages = [...updatedMessages, assistantMsg]
+    const finalThread: ChatThread = {
+      ...updatedThread,
+      messages: finalMessages,
+    }
+
+    const finalThreads = threads.map((t) => (t.id === activeThread.id ? finalThread : t))
+    saveThreads(finalThreads)
+    setThinking(false)
   }
 
   // Filtered and sorted threads
@@ -662,7 +687,7 @@ export function AskPage(): React.JSX.Element {
           <form
             onSubmit={(e) => {
               e.preventDefault()
-              handleSend()
+              void handleSend()
             }}
             className="flex items-center gap-3 max-w-4xl mx-auto"
           >

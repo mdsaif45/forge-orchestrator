@@ -270,6 +270,23 @@ export interface ForgeApi {
         readonly error: string | null
       }>
     >
+    chat: (request: {
+      readonly providerId: string
+      readonly model: string
+      readonly endpointUrl?: string | undefined
+      readonly apiKey?: string | undefined
+      readonly systemPrompt?: string | undefined
+      readonly messages: readonly {
+        readonly role: 'user' | 'assistant' | 'system'
+        readonly content: string
+      }[]
+    }) => Promise<
+      IpcResult<{
+        readonly ok: boolean
+        readonly content: string
+        readonly error: string | null
+      }>
+    >
   }
   readonly onWorkflowEvent: (listener: (event: WorkflowEventPayload) => void) => () => void
   readonly onWorkflowLog: (listener: (log: WorkflowLogPayload) => void) => () => void

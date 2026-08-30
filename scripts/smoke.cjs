@@ -110,6 +110,10 @@ app.whenReady().then(async () => {
     ok: true,
     value: { ok: true, models: [], error: null },
   }))
+  ipcMain.handle('provider:chat', () => ({
+    ok: true,
+    value: { ok: true, content: 'Mock response', error: null },
+  }))
 
   await window.loadFile(join(__dirname, '../out/renderer/index.html'))
 

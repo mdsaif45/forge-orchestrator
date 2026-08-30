@@ -841,6 +841,28 @@ export const IPC_CONTRACT = {
       error: z.string().nullable(),
     }),
   },
+  'provider:chat': {
+    request: z.strictObject({
+      providerId: z.string(),
+      model: z.string(),
+      endpointUrl: z.string().optional(),
+      apiKey: z.string().optional(),
+      systemPrompt: z.string().optional(),
+      messages: z
+        .array(
+          z.strictObject({
+            role: z.enum(['user', 'assistant', 'system']),
+            content: z.string(),
+          }),
+        )
+        .readonly(),
+    }),
+    response: z.strictObject({
+      ok: z.boolean(),
+      content: z.string(),
+      error: z.string().nullable(),
+    }),
+  },
 } as const satisfies IpcContractShape
 
 interface IpcChannelSpec {

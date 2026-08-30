@@ -111,6 +111,7 @@ const api: ForgeApi = {
   provider: {
     scanModels: (providerId, endpointUrl) =>
       call('provider:scanModels', { providerId, endpointUrl }),
+    chat: (request) => call('provider:chat', request),
   },
   onWorkflowEvent: (listener) => {
     const handler = (_event: unknown, payload: unknown) => {

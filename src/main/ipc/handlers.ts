@@ -202,6 +202,8 @@ export function createIpcHandlers({
       return { savedPath: result.filePath }
     },
 
+    'workflow:getLogs': (request) => workflows.getLogs(request),
+
     'question:list': ({ projectId, unansweredOnly }) => ({
       questions: questions.list(projectId, unansweredOnly),
     }),

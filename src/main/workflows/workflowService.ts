@@ -77,6 +77,7 @@ export class WorkflowService {
   private readonly registry: RuntimeRegistry
   private readonly bindings: BindingStore
   private readonly running = new Map<string, AbortController>()
+  private readonly stepLogs = new Map<string, WorkflowLogPayload[]>()
 
   constructor(private readonly options: WorkflowServiceOptions) {
     this.workflows = new WorkflowStore(options.db)
@@ -139,6 +140,30 @@ export class WorkflowService {
     const list = this.workflows.listForProject(projectIdSchema.parse(projectId))
     const active = list.find((wf) => wf.finishedAt === null && !isTerminalWorkflowState(wf.state))
     return active === undefined ? null : this.toDetailView(active)
+  }
+
+  getLogs(request: { workflowId: string; stepIndex?: number | undefined }): {
+    readonly logs: readonly WorkflowLogPayload[]
+  } {
+    const list = this.stepLogs.get(request.workflowId) ?? []
+    if (request.stepIndex !== undefined) {
+      return { logs: list.filter((l) => l.stepIndex === request.stepIndex) }
+    }
+    return { logs: list }
+  }
+
+  logStep(workflowId: string, log: { stepIndex: number; text: string; at?: string }): void {
+    const at = log.at ?? new Date().toISOString()
+    const payload: WorkflowLogPayload = {
+      workflowId,
+      stepIndex: log.stepIndex,
+      text: log.text,
+      at,
+    }
+    const current = this.stepLogs.get(workflowId) ?? []
+    current.push(payload)
+    this.stepLogs.set(workflowId, current)
+    this.options.emitLog?.(payload)
   }
 
   async getPacket(packetRef: string): Promise<PromptPacketView | null> {
@@ -638,6 +663,9 @@ export class WorkflowService {
             detail: question.question,
             at: question.askedAt,
           })
+        },
+        onLog: (stepIndex, text) => {
+          this.logStep(workflowId, { stepIndex, text })
         },
         signal: controller.signal,
       })

@@ -597,6 +597,15 @@ export const IPC_CONTRACT = {
       savedPath: z.string().nullable(),
     }),
   },
+  'workflow:getLogs': {
+    request: z.strictObject({
+      workflowId: z.string(),
+      stepIndex: z.number().optional(),
+    }),
+    response: z.strictObject({
+      logs: z.array(workflowLogPayloadSchema).readonly(),
+    }),
+  },
   /**
    * The registered runtimes and whether each is real.
    *

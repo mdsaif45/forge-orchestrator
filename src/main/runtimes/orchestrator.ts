@@ -153,6 +153,7 @@ export interface RunOptions {
     criteria: readonly CriterionResult[],
   ) => Promise<ReviewOutcome | null>
   readonly onQuestion?: (question: OpenQuestion) => Promise<void> | void
+  readonly onLog?: ((stepIndex: number, text: string) => void) | undefined
   readonly signal?: AbortSignal
 }
 
@@ -328,9 +329,22 @@ export class Orchestrator {
         this.timestamp(),
       )
 
+      options.onLog?.(
+        step.index,
+        `[STAGE START] Stage ${String(step.index + 1)}: ${templateStep.label} (${templateStep.role})`,
+      )
+
       if (templateStep.role === 'user') {
         this.deps.workflows.startStep(options.workflowId, step, 'user', this.timestamp())
+        options.onLog?.(
+          step.index,
+          '[HUMAN GATE] Waiting for user approval on proposed architectural plan...',
+        )
         const approved = await options.approve(step)
+        options.onLog?.(
+          step.index,
+          `[HUMAN GATE] User ${approved ? 'APPROVED' : 'REJECTED'} plan.`,
+        )
 
         this.deps.workflows.finishStep(
           options.workflowId,
@@ -364,7 +378,12 @@ export class Orchestrator {
 
       if (templateStep.role === 'system') {
         this.deps.workflows.startStep(options.workflowId, step, 'system', this.timestamp())
+        options.onLog?.(step.index, '[VERIFICATION] Running build and test verification suite...')
         const result = await options.verify(step)
+        options.onLog?.(
+          step.index,
+          `[VERIFICATION] Result: ${result.passed ? 'PASSED' : 'FAILED'} — ${result.detail}`,
+        )
 
         // Kept for the review step, which is checked against the same criteria rather
         // than re-deriving them — asking twice would risk two answers.
@@ -412,6 +431,15 @@ export class Orchestrator {
         previousAttempt,
       })
 
+      options.onLog?.(
+        step.index,
+        `[PROMPT SENT TO AGENT]\nObjective: ${packet.objective}\nScope Allowed Paths: ${
+          packet.allowedPaths.length > 0 ? packet.allowedPaths.join(', ') : '(all paths in worktree)'
+        }\nActive Rules: ${String(packet.rules.length)}\nLocked Decisions: ${String(
+          packet.lockedDecisions.length,
+        )}`,
+      )
+
       // Snapshotted before the step runs, so a resumed step replays this exact packet (#28).
       const contextRef = await this.deps.packets.save(packet)
       this.deps.workflows.startStep(
@@ -432,19 +460,6 @@ export class Orchestrator {
         repositoryPath: options.repositoryPath,
         role: templateStep.role,
         ...(binding.accountId === null ? {} : { accountId: binding.accountId }),
-        // Derived from the role's own permissions, never a global default. A planner is
-        // read-only by design, so granting it edit rights at the CLI level let it change
-        // a file and then be halted for reporting the change — the work done, the
-        // workflow refused. Telling the agent what it may do beats punishing it after.
-        //
-        // `auto` for a read-only role, after measuring the alternatives: `plan` ends by
-        // presenting a plan for interactive approval rather than replying, and `manual`
-        // waits for an approval that a `-p` run can never give. Both produce no report
-        // block at all, so the step fails for a reason unrelated to the work. `auto`
-        // lets the agent answer while the CLI decides permissions.
-        //
-        // Forge's own guards remain the real boundary either way: the reconciler halts
-        // a read-only role that reports a modified file, whatever the CLI allowed.
         permissionMode: permits(binding, 'writeFiles') ? 'acceptEdits' : 'auto',
         timeoutMs: options.limits.stepTimeoutMs,
       })
@@ -452,6 +467,11 @@ export class Orchestrator {
       let report: AgentReport | null = null
       let failure: string | null = null
       let providerLimit = false
+
+      options.onLog?.(
+        step.index,
+        `[AGENT EXECUTION] Spawning ${binding.runtimeId} process in repository...`,
+      )
 
       try {
         const result = await exchange(runtime, session, packet)
@@ -467,12 +487,7 @@ export class Orchestrator {
       }
 
       if (report === null) {
-        // A spent provider limit is not a failed step. The agent did nothing wrong, the
-        // code is fine, and an immediate retry fails identically — recording a `fail`
-        // verdict would read as "the agent failed" and spend a retry on a certainty.
-        //
-        // Left un-finished rather than marked failed, so resuming after switching account
-        // or waiting out the window continues from this step (#137).
+        options.onLog?.(step.index, `[AGENT ERROR] ${failure ?? 'No usable report produced'}`)
         if (providerLimit) {
           workflow = this.halt(options.workflowId, 'provider-limit', providerLimitReason(failure))
           break
@@ -486,9 +501,6 @@ export class Orchestrator {
           this.timestamp(),
         )
 
-        // A protocol or runtime failure is a policy halt rather than a limit: the run did not
-        // run out of room, something went wrong. Retry policy belongs to the caller, which
-        // knows whether the failure was transient (#29).
         workflow = this.halt(
           options.workflowId,
           'permission-violation',
@@ -496,6 +508,15 @@ export class Orchestrator {
         )
         break
       }
+
+      options.onLog?.(
+        step.index,
+        `[AGENT REPORT RECEIVED]\nStatus: ${report.status}\nSummary: ${report.summary}\nFiles Changed: ${
+          report.filesChanged.length > 0 ? report.filesChanged.join(', ') : '(none)'
+        }\nCommands Run: ${
+          report.commandsRun.length > 0 ? report.commandsRun.join(', ') : '(none)'
+        }`,
+      )
 
       const assessment = assessReport(report)
 

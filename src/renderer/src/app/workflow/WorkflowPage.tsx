@@ -122,13 +122,37 @@ export function WorkflowPage(): React.JSX.Element {
         if (cancelled) return
         const active = unwrap(res)
         setWorkflow(active)
-        if (active !== null && active.steps.length > 0) {
-          const currentRunning = active.steps.find((s: WorkflowStepView) => s.state === 'running')
-          if (currentRunning !== undefined) {
-            setSelectedStep(currentRunning)
-          } else {
-            setSelectedStep(active.steps[active.steps.length - 1] ?? null)
+        if (active !== null) {
+          if (active.steps.length > 0) {
+            const currentRunning = active.steps.find((s: WorkflowStepView) => s.state === 'running')
+            if (currentRunning !== undefined) {
+              setSelectedStep(currentRunning)
+            } else {
+              setSelectedStep(active.steps[0] ?? null)
+            }
           }
+
+          window.forge.workflow
+            .getLogs({ workflowId: active.id })
+            .then((logRes) => {
+              if (cancelled) return
+              const histLogs = unwrap(logRes).logs
+              if (histLogs.length > 0) {
+                setLogs(
+                  histLogs.map((l) => {
+                    const logTime = new Date(l.at)
+                    return {
+                      id: `hist-${String(logTime.getTime())}-${String(Math.random())}`,
+                      timestamp: logTime.toLocaleTimeString(),
+                      text: `[STEP ${String(l.stepIndex)}] ${l.text}`,
+                    }
+                  }),
+                )
+              }
+            })
+            .catch((err: unknown) => {
+              console.error('Failed to get historical workflow logs:', err)
+            })
         }
       })
       .catch((err: unknown) => {
@@ -158,6 +182,27 @@ export function WorkflowPage(): React.JSX.Element {
           })
           .catch((err: unknown) => {
             console.error('Failed to update workflow:', err)
+          })
+
+        window.forge.workflow
+          .getLogs({ workflowId: payload.workflowId })
+          .then((logRes) => {
+            const histLogs = unwrap(logRes).logs
+            if (histLogs.length > 0) {
+              setLogs(
+                histLogs.map((l) => {
+                  const logTime = new Date(l.at)
+                  return {
+                    id: `hist-${String(logTime.getTime())}-${String(Math.random())}`,
+                    timestamp: logTime.toLocaleTimeString(),
+                    text: `[STEP ${String(l.stepIndex)}] ${l.text}`,
+                  }
+                }),
+              )
+            }
+          })
+          .catch((err: unknown) => {
+            console.error('Failed to get logs on event:', err)
           })
       }
 

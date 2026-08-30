@@ -141,6 +141,10 @@ export interface ForgeApi {
     >
     /** `savedPath` is null when the user cancels the save dialog. */
     saveReport: (workflowId: string) => Promise<IpcResult<{ readonly savedPath: string | null }>>
+    getLogs: (request: {
+      readonly workflowId: string
+      readonly stepIndex?: number | undefined
+    }) => Promise<IpcResult<{ readonly logs: readonly WorkflowLogPayload[] }>>
   }
   readonly question: {
     list: (

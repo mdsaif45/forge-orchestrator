@@ -61,6 +61,7 @@ const api: ForgeApi = {
     getPacket: (packetRef) => call('workflow:getPacket', { packetRef }),
     exportReport: (workflowId) => call('workflow:exportReport', { workflowId }),
     saveReport: (workflowId) => call('workflow:saveReport', { workflowId }),
+    getLogs: (request) => call('workflow:getLogs', request),
   },
   question: {
     list: (projectId, unansweredOnly) => call('question:list', { projectId, unansweredOnly }),

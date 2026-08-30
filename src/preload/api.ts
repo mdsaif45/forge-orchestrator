@@ -239,7 +239,7 @@ export interface ForgeApi {
   readonly terminal: {
     spawn: (request: {
       readonly projectId: string
-      readonly runtimeId?: string | undefined
+      readonly runtimeId?: string | null | undefined
       readonly command?: string | undefined
       readonly args?: readonly string[] | undefined
       readonly cwd?: string | undefined

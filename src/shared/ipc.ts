@@ -787,7 +787,7 @@ export const IPC_CONTRACT = {
   'terminal:spawn': {
     request: z.strictObject({
       projectId: z.string(),
-      runtimeId: z.string().optional(),
+      runtimeId: z.string().nullable().optional(),
       command: z.string().optional(),
       args: z.array(z.string()).readonly().optional(),
       cwd: z.string().optional(),

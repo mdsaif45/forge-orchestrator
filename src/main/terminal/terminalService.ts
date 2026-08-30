@@ -26,7 +26,7 @@ export class TerminalService {
 
   async spawn(req: {
     readonly projectId: string
-    readonly runtimeId?: string | undefined
+    readonly runtimeId?: string | null | undefined
     readonly command?: string | undefined
     readonly args?: readonly string[] | undefined
     readonly cwd?: string | undefined
@@ -43,7 +43,7 @@ export class TerminalService {
     const targetCwd = req.cwd ?? detail.project.repository.absolutePath
 
     const resolvedCli =
-      req.runtimeId !== undefined && this.options.runtimeExecutable !== undefined
+      req.runtimeId !== null && req.runtimeId !== undefined && this.options.runtimeExecutable !== undefined
         ? this.options.runtimeExecutable(req.runtimeId)
         : undefined
 

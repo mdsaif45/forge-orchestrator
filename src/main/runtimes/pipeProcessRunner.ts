@@ -13,8 +13,8 @@ export interface PipeProcessRunnerOptions {
   readonly orphans?: OrphanTracker
 }
 
-const DEFAULT_IDLE_TIMEOUT_MS = 180_000
-const DEFAULT_HARD_TIMEOUT_MS = 900_000
+const DEFAULT_IDLE_TIMEOUT_MS = 600_000
+const DEFAULT_HARD_TIMEOUT_MS = 1_800_000
 
 /**
  * A `ProcessRunner` over pipes rather than a pty, for a turn that carries a prompt.

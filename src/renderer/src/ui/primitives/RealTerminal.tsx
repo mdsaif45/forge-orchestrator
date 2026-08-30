@@ -115,14 +115,18 @@ export function RealTerminal({
     terminalInstanceRef.current = term
     fitAddonRef.current = fitAddon
 
-    // Initial fit
-    setTimeout(() => {
-      try {
-        fitAddon.fit()
-      } catch {
-        // ignore initial fit error before render
-      }
-    }, 50)
+    // Fitted synchronously, before the spawn effect reads `term.cols`/`term.rows`.
+    // Deferred in a timeout, the PTY was created at xterm's default 80x24 while the
+    // pane was far wider, so the CLI wrapped its banner to 80 columns and the output
+    // arrived visibly shattered mid-word. React runs child effects before the parent's,
+    // but both effects live here, so ordering alone is not enough — the size has to be
+    // real by the time it is read.
+    try {
+      fitAddon.fit()
+    } catch {
+      // The container can still be unlaid-out on the very first paint; the
+      // ResizeObserver below fits again as soon as it has a box.
+    }
 
     // Resize observer
     const resizeObserver = new ResizeObserver(() => {
@@ -152,6 +156,16 @@ export function RealTerminal({
 
     const term = terminalInstanceRef.current
     if (term === null) return
+
+    // Re-fitted here as well as on creation: this effect re-runs when the runtime or
+    // command changes, and the pane may have been resized since. The PTY's size is
+    // fixed at spawn, so a stale value here is what the CLI formats against for the
+    // whole session.
+    try {
+      fitAddonRef.current?.fit()
+    } catch {
+      // Falls back to the last good size rather than blocking the spawn.
+    }
 
     window.forge.terminal
       .spawn({

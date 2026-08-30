@@ -39,7 +39,9 @@ export function CreateAgentDialog({
   onSave,
 }: CreateAgentDialogProps): React.JSX.Element {
   const [name, setName] = useState('')
-  const [roleType, setRoleType] = useState<'planner' | 'implementer' | 'reviewer' | 'custom'>('planner')
+  const [roleType, setRoleType] = useState<'planner' | 'implementer' | 'reviewer' | 'custom'>(
+    'planner',
+  )
   const [runtimeId, setRuntimeId] = useState(availableRuntimes[0]?.id ?? 'mock:default')
   const [instructions, setInstructions] = useState('')
   const [capabilities, setCapabilities] = useState<readonly string[]>([

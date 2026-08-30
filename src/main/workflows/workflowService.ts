@@ -49,7 +49,7 @@ import { DecisionStore } from '../db/decisionStore'
 import { ChangeSetStore } from '../db/changeSetStore'
 import { PacketStore } from '../context/packetStore'
 import { readRepositoryInstructions } from '../context/repositoryInstructions'
-import { GitService } from '../git'
+import { GitService, WorktreeService, type PreparedWorktree } from '../git'
 import { buildChangeSet } from '../evidence/changeSetBuilder'
 import { verifyStep } from '../evidence/verifier'
 import { bindRole, BindingSet } from '../runtimes/bindings'
@@ -62,6 +62,13 @@ export interface WorkflowServiceOptions {
   readonly db: ForgeDatabase
   readonly projects: ProjectService
   readonly packetDir: string
+  /**
+   * Where per-workflow isolated worktrees are created.
+   *
+   * Optional so existing callers (tests, the dogfood harness) keep working; when it is
+   * absent a workflow runs against the project checkout exactly as before.
+   */
+  readonly worktreeRoot?: string
   readonly registry: RuntimeRegistry
   readonly emitEvent?: (event: WorkflowEventPayload) => void
   readonly emitLog?: (log: WorkflowLogPayload) => void
@@ -448,7 +455,11 @@ export class WorkflowService {
                 completionCriteria.push({ kind: 'build', description: 'Build passes', params: {} })
               }
               if (projectDetail.project.repository.testCommand !== null) {
-                completionCriteria.push({ kind: 'tests', description: 'Test suite passes', params: {} })
+                completionCriteria.push({
+                  kind: 'tests',
+                  description: 'Test suite passes',
+                  params: {},
+                })
               }
 
               const task: Task = {
@@ -501,8 +512,23 @@ export class WorkflowService {
     const controller = new AbortController()
     this.running.set(workflowId, controller)
 
-    const gitService = new GitService({ repositoryPath })
-    const baseSha = await gitService.headSha()
+    const baseSha = await new GitService({ repositoryPath }).headSha()
+
+    // Agents run here, not in the user's checkout. `agentPath` stays equal to
+    // `repositoryPath` only when no worktree root is configured, which keeps the
+    // existing test harnesses running against a plain directory.
+    let worktree: PreparedWorktree | null = null
+    if (this.options.worktreeRoot !== undefined) {
+      worktree = await new WorktreeService({
+        repositoryPath,
+        root: this.options.worktreeRoot,
+      }).prepare(workflowId)
+    }
+    const agentPath = worktree?.path ?? repositoryPath
+
+    // Reads the worktree the agents actually edited. Pointed at the project checkout
+    // it would report a clean tree for every run and the change set would be empty.
+    const gitService = new GitService({ repositoryPath: agentPath })
 
     // Ensure runtimes are bound for the template
     const bindings = this.resolveBindings(projectId)
@@ -599,7 +625,8 @@ export class WorkflowService {
         workflowId,
         template: FEATURE_IMPLEMENTATION,
         bindings,
-        repositoryPath,
+        // The isolated worktree, not the user's checkout (see WorktreeService).
+        repositoryPath: agentPath,
         limits: this.workflows.find(workflowId)?.limits ?? {
           maxIterations: 5,
           stepTimeoutMs: 30 * 60 * 1000,
@@ -616,7 +643,7 @@ export class WorkflowService {
           },
         },
         approve: () => Promise.resolve(true),
-        verify: async (step) => {
+        verify: async (step, report) => {
           const projectDetail = await this.options.projects.get(projectId)
           const project = projectDetail?.project
           if (project === undefined) return { passed: true, detail: 'verification skipped' }
@@ -631,7 +658,7 @@ export class WorkflowService {
             },
             workflowId,
             stepId: step.id,
-            report: null,
+            report,
             task,
           })
           return {
@@ -673,6 +700,9 @@ export class WorkflowService {
       console.error(`Workflow ${workflowId} failed execution:`, err)
     } finally {
       this.running.delete(workflowId)
+      // Disposed even when the run threw or was cancelled: a worktree left behind
+      // holds a lock on its directory and shows up in `git worktree list` forever.
+      await worktree?.dispose()
       const finished = this.workflows.find(workflowId)
       if (finished !== null) {
         this.notifyEvent({

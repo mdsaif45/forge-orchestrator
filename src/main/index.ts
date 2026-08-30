@@ -214,6 +214,9 @@ if (!claimSingleInstance()) {
       db,
       projects: projectService,
       packetDir: join(app.getPath('userData'), 'packets'),
+      // Under userData rather than beside the repository, so Forge never creates
+      // directories inside a project the user did not ask it to write to.
+      worktreeRoot: join(app.getPath('userData'), 'worktrees'),
       registry,
       emitEvent: (payload) => {
         for (const win of BrowserWindow.getAllWindows()) {

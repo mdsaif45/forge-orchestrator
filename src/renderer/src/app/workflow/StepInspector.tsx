@@ -1,6 +1,14 @@
 import React, { useEffect, useState } from 'react'
 import type { PromptPacketView, WorkflowStepView } from '@shared/ipc'
-import { AgentTerminal, Badge, Button, MarkdownRenderer, Spinner, TabPanel, Tabs } from '@renderer/ui'
+import {
+  AgentTerminal,
+  Badge,
+  Button,
+  MarkdownRenderer,
+  Spinner,
+  TabPanel,
+  Tabs,
+} from '@renderer/ui'
 import { unwrap } from '@renderer/ipc'
 
 export interface StepInspectorProps {
@@ -18,7 +26,11 @@ const TAB_ITEMS: readonly { readonly value: StepTab; readonly label: string }[] 
   { value: 'verdict', label: 'Verdict & Evidence' },
 ]
 
-export function StepInspector({ step, stepLogs = [], onClose }: StepInspectorProps): React.JSX.Element {
+export function StepInspector({
+  step,
+  stepLogs = [],
+  onClose,
+}: StepInspectorProps): React.JSX.Element {
   const [packetState, setPacketState] = useState<{
     ref: string
     packet: PromptPacketView | null
@@ -66,7 +78,8 @@ export function StepInspector({ step, stepLogs = [], onClose }: StepInspectorPro
   if (step === null) {
     return (
       <div className="flex h-full items-center justify-center rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-6 text-center text-[13px] text-(--color-text-muted)">
-        Click any stage node in the workflow graph to inspect live terminal logs, prompt packets, and findings.
+        Click any stage node in the workflow graph to inspect live terminal logs, prompt packets,
+        and findings.
       </div>
     )
   }
@@ -114,11 +127,7 @@ export function StepInspector({ step, stepLogs = [], onClose }: StepInspectorPro
           {step.verdict !== null && (
             <Badge
               tone={
-                step.verdict === 'pass'
-                  ? 'success'
-                  : step.verdict === 'fail'
-                    ? 'danger'
-                    : 'neutral'
+                step.verdict === 'pass' ? 'success' : step.verdict === 'fail' ? 'danger' : 'neutral'
               }
               size="sm"
             >
@@ -169,7 +178,8 @@ export function StepInspector({ step, stepLogs = [], onClose }: StepInspectorPro
                 <div>
                   <span className="font-semibold text-(--color-text-muted)">Runtime Engine:</span>
                   <p className="font-mono text-(--color-accent)">
-                    {step.runtimeId ?? (step.role === 'user' ? 'Human Gate' : 'system / Forge internal')}
+                    {step.runtimeId ??
+                      (step.role === 'user' ? 'Human Gate' : 'system / Forge internal')}
                   </p>
                 </div>
                 <div>
@@ -180,7 +190,9 @@ export function StepInspector({ step, stepLogs = [], onClose }: StepInspectorPro
             </div>
 
             <div>
-              <span className="text-[11px] font-semibold text-(--color-text-muted)">Timing & Execution:</span>
+              <span className="text-[11px] font-semibold text-(--color-text-muted)">
+                Timing & Execution:
+              </span>
               <p className="mt-1 font-mono text-[11px] text-(--color-text-muted)">
                 Started: {step.startedAt ?? 'Pending'} <br />
                 Finished: {step.finishedAt ?? (step.state === 'running' ? 'In progress...' : '—')}
@@ -189,7 +201,9 @@ export function StepInspector({ step, stepLogs = [], onClose }: StepInspectorPro
 
             {step.reportStatus !== null && (
               <div className="rounded-lg border border-(--color-border) bg-(--color-surface-inset) p-3">
-                <span className="text-[11px] font-semibold text-(--color-text-muted)">Agent Output Summary:</span>
+                <span className="text-[11px] font-semibold text-(--color-text-muted)">
+                  Agent Output Summary:
+                </span>
                 <div className="mt-2">
                   <MarkdownRenderer content={step.reportStatus} />
                 </div>
@@ -223,7 +237,9 @@ export function StepInspector({ step, stepLogs = [], onClose }: StepInspectorPro
           ) : packet !== null ? (
             <div className="space-y-4">
               <div>
-                <span className="text-[11px] font-semibold text-(--color-text-muted)">Objective:</span>
+                <span className="text-[11px] font-semibold text-(--color-text-muted)">
+                  Objective:
+                </span>
                 <div className="mt-1 rounded-lg border border-(--color-border) bg-(--color-surface-inset) p-3">
                   <MarkdownRenderer content={packet.objective} />
                 </div>
@@ -231,7 +247,9 @@ export function StepInspector({ step, stepLogs = [], onClose }: StepInspectorPro
 
               {packet.constraints.length > 0 && (
                 <div>
-                  <span className="text-[11px] font-semibold text-(--color-text-muted)">Constraints & Rules:</span>
+                  <span className="text-[11px] font-semibold text-(--color-text-muted)">
+                    Constraints & Rules:
+                  </span>
                   <ul className="mt-1 list-disc pl-4 text-[12px] text-(--color-text-muted)">
                     {packet.constraints.map((c) => (
                       <li key={c}>{c}</li>
@@ -242,7 +260,9 @@ export function StepInspector({ step, stepLogs = [], onClose }: StepInspectorPro
 
               {packet.allowedPaths.length > 0 && (
                 <div>
-                  <span className="text-[11px] font-semibold text-(--color-text-muted)">Allowed Scope Paths:</span>
+                  <span className="text-[11px] font-semibold text-(--color-text-muted)">
+                    Allowed Scope Paths:
+                  </span>
                   <div className="mt-1 flex flex-wrap gap-1">
                     {packet.allowedPaths.map((p) => (
                       <Badge key={p} tone="neutral" size="sm" className="font-mono">
@@ -284,8 +304,12 @@ export function StepInspector({ step, stepLogs = [], onClose }: StepInspectorPro
             </div>
             {step.changeSetId !== null && (
               <div>
-                <span className="text-[11px] font-semibold text-(--color-text-muted)">Recorded ChangeSet:</span>
-                <p className="font-mono text-[12px] text-(--color-text-muted)">{step.changeSetId}</p>
+                <span className="text-[11px] font-semibold text-(--color-text-muted)">
+                  Recorded ChangeSet:
+                </span>
+                <p className="font-mono text-[12px] text-(--color-text-muted)">
+                  {step.changeSetId}
+                </p>
               </div>
             )}
           </div>

@@ -268,4 +268,3 @@ export interface ForgeApi {
     listener: (payload: { readonly terminalId: string; readonly exitCode: number | null }) => void,
   ) => () => void
 }
-

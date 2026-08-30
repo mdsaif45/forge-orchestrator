@@ -87,21 +87,36 @@ export function FileIcon({
   // 1. TypeScript & TSX
   if (name.endsWith('.d.ts')) {
     return (
-      <span className={cn(iconClass, 'flex items-center justify-center rounded-(--radius-sm) bg-[#3178c6]/20 text-[9px] font-bold text-[#3178c6]')}>
+      <span
+        className={cn(
+          iconClass,
+          'flex items-center justify-center rounded-(--radius-sm) bg-[#3178c6]/20 text-[9px] font-bold text-[#3178c6]',
+        )}
+      >
         D
       </span>
     )
   }
   if (ext === 'ts') {
     return (
-      <span className={cn(iconClass, 'flex items-center justify-center rounded-(--radius-sm) bg-[#3178c6]/20 text-[9px] font-bold text-[#3178c6]')}>
+      <span
+        className={cn(
+          iconClass,
+          'flex items-center justify-center rounded-(--radius-sm) bg-[#3178c6]/20 text-[9px] font-bold text-[#3178c6]',
+        )}
+      >
         TS
       </span>
     )
   }
   if (ext === 'tsx') {
     return (
-      <span className={cn(iconClass, 'flex items-center justify-center rounded-(--radius-sm) bg-[#00d8ff]/20 text-[8px] font-bold text-[#00d8ff]')}>
+      <span
+        className={cn(
+          iconClass,
+          'flex items-center justify-center rounded-(--radius-sm) bg-[#00d8ff]/20 text-[8px] font-bold text-[#00d8ff]',
+        )}
+      >
         ⚛
       </span>
     )
@@ -110,14 +125,24 @@ export function FileIcon({
   // 2. JavaScript & JSX
   if (ext === 'js' || ext === 'mjs' || ext === 'cjs') {
     return (
-      <span className={cn(iconClass, 'flex items-center justify-center rounded-(--radius-sm) bg-[#f7df1e]/20 text-[9px] font-bold text-[#f7df1e]')}>
+      <span
+        className={cn(
+          iconClass,
+          'flex items-center justify-center rounded-(--radius-sm) bg-[#f7df1e]/20 text-[9px] font-bold text-[#f7df1e]',
+        )}
+      >
         JS
       </span>
     )
   }
   if (ext === 'jsx') {
     return (
-      <span className={cn(iconClass, 'flex items-center justify-center rounded-(--radius-sm) bg-[#f7df1e]/20 text-[8px] font-bold text-[#f7df1e]')}>
+      <span
+        className={cn(
+          iconClass,
+          'flex items-center justify-center rounded-(--radius-sm) bg-[#f7df1e]/20 text-[8px] font-bold text-[#f7df1e]',
+        )}
+      >
         ⚛
       </span>
     )
@@ -126,14 +151,24 @@ export function FileIcon({
   // 3. JSON & Configurations
   if (ext === 'json' || ext === 'jsonc' || ext === 'json5') {
     return (
-      <span className={cn(iconClass, 'flex items-center justify-center text-[10px] font-bold text-[#cbcb41]')}>
+      <span
+        className={cn(
+          iconClass,
+          'flex items-center justify-center text-[10px] font-bold text-[#cbcb41]',
+        )}
+      >
         {'{ }'}
       </span>
     )
   }
   if (ext === 'yml' || ext === 'yaml' || ext === 'toml') {
     return (
-      <span className={cn(iconClass, 'flex items-center justify-center text-[9px] font-bold text-[#cb171e]')}>
+      <span
+        className={cn(
+          iconClass,
+          'flex items-center justify-center text-[9px] font-bold text-[#cb171e]',
+        )}
+      >
         ⚙
       </span>
     )
@@ -142,14 +177,24 @@ export function FileIcon({
   // 4. Styles & HTML
   if (ext === 'css' || ext === 'scss' || ext === 'sass' || ext === 'less') {
     return (
-      <span className={cn(iconClass, 'flex items-center justify-center text-[10px] font-bold text-[#42a5f5]')}>
+      <span
+        className={cn(
+          iconClass,
+          'flex items-center justify-center text-[10px] font-bold text-[#42a5f5]',
+        )}
+      >
         #
       </span>
     )
   }
   if (ext === 'html' || ext === 'htm') {
     return (
-      <span className={cn(iconClass, 'flex items-center justify-center text-[9px] font-bold text-[#e44d26]')}>
+      <span
+        className={cn(
+          iconClass,
+          'flex items-center justify-center text-[9px] font-bold text-[#e44d26]',
+        )}
+      >
         &lt;&gt;
       </span>
     )
@@ -172,21 +217,36 @@ export function FileIcon({
   // 6. Python, Rust, Go, SQL
   if (ext === 'py') {
     return (
-      <span className={cn(iconClass, 'flex items-center justify-center text-[9px] font-bold text-[#3776ab]')}>
+      <span
+        className={cn(
+          iconClass,
+          'flex items-center justify-center text-[9px] font-bold text-[#3776ab]',
+        )}
+      >
         Py
       </span>
     )
   }
   if (ext === 'rs') {
     return (
-      <span className={cn(iconClass, 'flex items-center justify-center text-[9px] font-bold text-[#dea584]')}>
+      <span
+        className={cn(
+          iconClass,
+          'flex items-center justify-center text-[9px] font-bold text-[#dea584]',
+        )}
+      >
         🦀
       </span>
     )
   }
   if (ext === 'go') {
     return (
-      <span className={cn(iconClass, 'flex items-center justify-center text-[9px] font-bold text-[#00add8]')}>
+      <span
+        className={cn(
+          iconClass,
+          'flex items-center justify-center text-[9px] font-bold text-[#00add8]',
+        )}
+      >
         Go
       </span>
     )
@@ -209,9 +269,21 @@ export function FileIcon({
   }
 
   // 7. Shell & Scripts
-  if (ext === 'sh' || ext === 'bash' || ext === 'zsh' || ext === 'ps1' || ext === 'bat' || ext === 'cmd') {
+  if (
+    ext === 'sh' ||
+    ext === 'bash' ||
+    ext === 'zsh' ||
+    ext === 'ps1' ||
+    ext === 'bat' ||
+    ext === 'cmd'
+  ) {
     return (
-      <span className={cn(iconClass, 'flex items-center justify-center text-[9px] font-mono font-bold text-(--color-success)')}>
+      <span
+        className={cn(
+          iconClass,
+          'flex items-center justify-center text-[9px] font-mono font-bold text-(--color-success)',
+        )}
+      >
         $_
       </span>
     )
@@ -238,14 +310,24 @@ export function FileIcon({
   // 9. Special dotfiles
   if (name.startsWith('.git') || name === '.gitignore') {
     return (
-      <span className={cn(iconClass, 'flex items-center justify-center text-[9px] font-bold text-[#f05032]')}>
+      <span
+        className={cn(
+          iconClass,
+          'flex items-center justify-center text-[9px] font-bold text-[#f05032]',
+        )}
+      >
         git
       </span>
     )
   }
   if (name.includes('license')) {
     return (
-      <span className={cn(iconClass, 'flex items-center justify-center text-[9px] font-bold text-[#d29922]')}>
+      <span
+        className={cn(
+          iconClass,
+          'flex items-center justify-center text-[9px] font-bold text-[#d29922]',
+        )}
+      >
         §
       </span>
     )

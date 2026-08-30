@@ -73,8 +73,8 @@ function WelcomeWorkspace(): React.JSX.Element {
           Welcome to Forge
         </h2>
         <p className="max-w-lg text-[13px] leading-relaxed text-(--color-text-muted)">
-          An autonomous agent orchestrator with Git worktree isolation, decision locking,
-          and verifiable automated milestones.
+          An autonomous agent orchestrator with Git worktree isolation, decision locking, and
+          verifiable automated milestones.
         </p>
       </div>
 
@@ -100,7 +100,8 @@ function WelcomeWorkspace(): React.JSX.Element {
             <span>📁</span> Git Repository Binding
           </div>
           <p className="text-[12px] text-(--color-text-muted) leading-relaxed">
-            Live branch detection, dirty file tracking, and automatic tech stack analysis from git metadata.
+            Live branch detection, dirty file tracking, and automatic tech stack analysis from git
+            metadata.
           </p>
         </div>
 
@@ -109,7 +110,8 @@ function WelcomeWorkspace(): React.JSX.Element {
             <span>🔒</span> Decision Locking
           </div>
           <p className="text-[12px] text-(--color-text-muted) leading-relaxed">
-            Every architectural decision must be explicitly approved and locked before agents can write code.
+            Every architectural decision must be explicitly approved and locked before agents can
+            write code.
           </p>
         </div>
 
@@ -118,7 +120,8 @@ function WelcomeWorkspace(): React.JSX.Element {
             <span>🌳</span> Worktree Isolation
           </div>
           <p className="text-[12px] text-(--color-text-muted) leading-relaxed">
-            Multi-agent execution runs in dedicated worktrees, protecting your active working tree and branch.
+            Multi-agent execution runs in dedicated worktrees, protecting your active working tree
+            and branch.
           </p>
         </div>
       </div>

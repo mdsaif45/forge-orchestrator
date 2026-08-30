@@ -131,7 +131,10 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps):
     }
     if (line.startsWith('# ')) {
       elements.push(
-        <h2 key={`h2-${String(i)}`} className="mt-3 mb-1.5 text-[15px] font-bold text-(--color-text)">
+        <h2
+          key={`h2-${String(i)}`}
+          className="mt-3 mb-1.5 text-[15px] font-bold text-(--color-text)"
+        >
           {renderInline(line.slice(2))}
         </h2>,
       )
@@ -141,7 +144,10 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps):
     // Bullet points
     if (line.startsWith('- ') || line.startsWith('* ')) {
       elements.push(
-        <li key={`li-${String(i)}`} className="ml-4 list-disc text-[12px] leading-relaxed text-(--color-text)">
+        <li
+          key={`li-${String(i)}`}
+          className="ml-4 list-disc text-[12px] leading-relaxed text-(--color-text)"
+        >
           {renderInline(line.slice(2))}
         </li>,
       )
@@ -152,7 +158,10 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps):
     const numMatch = NUM_REGEX.exec(line)
     if (numMatch?.[2] !== undefined) {
       elements.push(
-        <div key={`num-${String(i)}`} className="ml-2 flex items-start gap-1.5 text-[12px] leading-relaxed text-(--color-text)">
+        <div
+          key={`num-${String(i)}`}
+          className="ml-2 flex items-start gap-1.5 text-[12px] leading-relaxed text-(--color-text)"
+        >
           <span className="font-semibold text-(--color-text-muted)">{numMatch[1]}.</span>
           <span>{renderInline(numMatch[2])}</span>
         </div>,

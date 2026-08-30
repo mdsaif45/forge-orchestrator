@@ -160,7 +160,10 @@ export function CodeViewer({
           <FileIcon fileName={fileName} className="size-4.5 shrink-0" />
 
           {/* Breadcrumbs */}
-          <nav aria-label="Breadcrumbs" className="flex min-w-0 items-center gap-1 text-(length:--text-xs)">
+          <nav
+            aria-label="Breadcrumbs"
+            className="flex min-w-0 items-center gap-1 text-(length:--text-xs)"
+          >
             {segments.map((seg, idx) => (
               <span key={idx} className="flex items-center gap-1 text-(--color-text-muted)">
                 <span className="truncate max-w-[120px]">{seg}</span>
@@ -235,7 +238,12 @@ export function CodeViewer({
                 )}
                 title="Word wrap"
               >
-                <svg viewBox="0 0 16 16" fill="currentColor" className="size-3.5" aria-hidden="true">
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  className="size-3.5"
+                  aria-hidden="true"
+                >
                   <path d="M2.5 4h11a.5.5 0 0 1 .5.5v3a2.5 2.5 0 0 1-2.5 2.5H4.707l1.647 1.646a.5.5 0 0 1-.708.708l-2.5-2.5a.5.5 0 0 1 0-.708l2.5-2.5a.5.5 0 1 1 .708.708L4.707 9H11.5a1.5 1.5 0 0 0 1.5-1.5v-2.5H2.5a.5.5 0 0 1 0-1Z" />
                 </svg>
               </button>
@@ -249,7 +257,14 @@ export function CodeViewer({
                 className="rounded-(--radius-sm) p-1 text-(--color-text-muted) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors"
                 title="Previous hunk"
               >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" className="size-3.5" aria-hidden="true">
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  className="size-3.5"
+                  aria-hidden="true"
+                >
                   <path d="m4 10 4-4 4 4" />
                 </svg>
               </button>
@@ -263,7 +278,14 @@ export function CodeViewer({
                 className="rounded-(--radius-sm) p-1 text-(--color-text-muted) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors"
                 title="Next hunk"
               >
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.75" className="size-3.5" aria-hidden="true">
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  className="size-3.5"
+                  aria-hidden="true"
+                >
                   <path d="m4 6 4 4 4-4" />
                 </svg>
               </button>
@@ -280,7 +302,12 @@ export function CodeViewer({
                 )}
                 title={diffLayout === 'split' ? 'Unified diff' : 'Side by side diff'}
               >
-                <svg viewBox="0 0 16 16" fill="currentColor" className="size-3.5" aria-hidden="true">
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="currentColor"
+                  className="size-3.5"
+                  aria-hidden="true"
+                >
                   <path d="M1.5 2.5A1.5 1.5 0 0 1 3 1h10a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-1.5 1.5H3a1.5 1.5 0 0 1-1.5-1.5v-11ZM7.5 2H3a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h4.5V2Zm1 12H13a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5H8.5v12Z" />
                 </svg>
                 <span>{diffLayout === 'split' ? 'Split' : 'Unified'}</span>
@@ -292,8 +319,8 @@ export function CodeViewer({
             {copied ? 'Copied' : 'Copy Path'}
           </Button>
 
-          {onSaveFile !== undefined && (
-            !isEditMode ? (
+          {onSaveFile !== undefined &&
+            (!isEditMode ? (
               <Button
                 size="sm"
                 variant="secondary"
@@ -329,8 +356,7 @@ export function CodeViewer({
                   {isSaving ? 'Saving…' : 'Save Changes'}
                 </Button>
               </>
-            )
-          )}
+            ))}
         </div>
       </div>
 
@@ -379,7 +405,9 @@ export function CodeViewer({
             /* Zed-Style Side-by-Side (Split) Diff View */
             <div className="min-w-fit py-1">
               {splitDiffRows.length === 0 ? (
-                <div className="p-8 text-center text-(--color-text-muted)">No diff content for this file.</div>
+                <div className="p-8 text-center text-(--color-text-muted)">
+                  No diff content for this file.
+                </div>
               ) : (
                 splitDiffRows.map((row, idx) => {
                   if (row.isHunk) {
@@ -391,7 +419,9 @@ export function CodeViewer({
                       >
                         <span>{row.hunkText}</span>
                         {row.hunkInfo && (
-                          <span className="text-(--color-text-muted) text-[10px]">{row.hunkInfo}</span>
+                          <span className="text-(--color-text-muted) text-[10px]">
+                            {row.hunkInfo}
+                          </span>
                         )}
                       </div>
                     )
@@ -416,18 +446,33 @@ export function CodeViewer({
                       : 'border-l-2 border-transparent hover:bg-(--color-surface-raised)/30'
 
                   return (
-                    <div key={idx} className="flex border-b border-(--color-border)/20 text-[11px] leading-relaxed">
+                    <div
+                      key={idx}
+                      className="flex border-b border-(--color-border)/20 text-[11px] leading-relaxed"
+                    >
                       {/* Left Pane (Old / Deletions) */}
-                      <div className={cn('flex w-1/2 items-start border-r border-(--color-border) px-2 py-[1px]', oldBg)}>
+                      <div
+                        className={cn(
+                          'flex w-1/2 items-start border-r border-(--color-border) px-2 py-[1px]',
+                          oldBg,
+                        )}
+                      >
                         <span className="w-8 shrink-0 select-none text-right font-mono text-[10px] text-(--color-text-subtle) opacity-60 pr-2">
                           {oldLine?.lineNumber ?? ''}
                         </span>
                         <span className="w-4 shrink-0 select-none text-center font-mono font-bold text-(--color-danger)">
                           {isOldDel ? '-' : ''}
                         </span>
-                        <div className={cn('flex-1 font-mono', wordWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre')}>
+                        <div
+                          className={cn(
+                            'flex-1 font-mono',
+                            wordWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre',
+                          )}
+                        >
                           {oldLine?.tokens.map((token, tIdx) => {
-                            const colorClass = token.type ? TOKEN_COLOR_MAP[token.type] : 'text-(--color-text)'
+                            const colorClass = token.type
+                              ? TOKEN_COLOR_MAP[token.type]
+                              : 'text-(--color-text)'
                             return (
                               <span key={tIdx} className={colorClass}>
                                 {token.text}
@@ -445,9 +490,16 @@ export function CodeViewer({
                         <span className="w-4 shrink-0 select-none text-center font-mono font-bold text-(--color-success)">
                           {isNewAdd ? '+' : ''}
                         </span>
-                        <div className={cn('flex-1 font-mono', wordWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre')}>
+                        <div
+                          className={cn(
+                            'flex-1 font-mono',
+                            wordWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre',
+                          )}
+                        >
                           {newLine?.tokens.map((token, tIdx) => {
-                            const colorClass = token.type ? TOKEN_COLOR_MAP[token.type] : 'text-(--color-text)'
+                            const colorClass = token.type
+                              ? TOKEN_COLOR_MAP[token.type]
+                              : 'text-(--color-text)'
                             return (
                               <span key={tIdx} className={colorClass}>
                                 {token.text}
@@ -465,7 +517,9 @@ export function CodeViewer({
             /* Zed-Style Unified Diff Rendering */
             <div className="min-w-fit py-1">
               {parsedDiff.length === 0 ? (
-                <div className="p-8 text-center text-(--color-text-muted)">No diff content for this file.</div>
+                <div className="p-8 text-center text-(--color-text-muted)">
+                  No diff content for this file.
+                </div>
               ) : (
                 parsedDiff.map((diffLine, idx) => {
                   if (diffLine.type === 'header') {
@@ -488,7 +542,9 @@ export function CodeViewer({
                       >
                         <span>{diffLine.text}</span>
                         {diffLine.hunkInfo && (
-                          <span className="text-(--color-text-muted) text-[10px]">{diffLine.hunkInfo}</span>
+                          <span className="text-(--color-text-muted) text-[10px]">
+                            {diffLine.hunkInfo}
+                          </span>
                         )}
                       </div>
                     )
@@ -525,16 +581,29 @@ export function CodeViewer({
                       <span
                         className={cn(
                           'w-5 shrink-0 select-none text-center font-mono font-bold',
-                          isAdd ? 'text-(--color-success)' : isDel ? 'text-(--color-danger)' : 'text-(--color-text-subtle) opacity-30',
+                          isAdd
+                            ? 'text-(--color-success)'
+                            : isDel
+                              ? 'text-(--color-danger)'
+                              : 'text-(--color-text-subtle) opacity-30',
                         )}
                       >
                         {isAdd ? '+' : isDel ? '-' : ' '}
                       </span>
 
                       {/* Syntax Highlighted Code Content */}
-                      <div className={cn('flex-1 font-mono', wordWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre break-words')}>
+                      <div
+                        className={cn(
+                          'flex-1 font-mono',
+                          wordWrap
+                            ? 'whitespace-pre-wrap break-words'
+                            : 'whitespace-pre break-words',
+                        )}
+                      >
                         {diffLine.tokens.map((token, tokenIdx) => {
-                          const colorClass = token.type ? TOKEN_COLOR_MAP[token.type] : 'text-(--color-text)'
+                          const colorClass = token.type
+                            ? TOKEN_COLOR_MAP[token.type]
+                            : 'text-(--color-text)'
                           return (
                             <span key={tokenIdx} className={colorClass}>
                               {token.text}
@@ -551,7 +620,8 @@ export function CodeViewer({
         ) : (
           /* Zed-Style Standard Code Rendering */
           <div className="min-w-fit py-2">
-            {highlightedCodeLines.length === 0 || (highlightedCodeLines.length === 1 && highlightedCodeLines[0]?.[0]?.text === '') ? (
+            {highlightedCodeLines.length === 0 ||
+            (highlightedCodeLines.length === 1 && highlightedCodeLines[0]?.[0]?.text === '') ? (
               <div className="p-8 text-center text-(--color-text-muted)">File is empty.</div>
             ) : (
               highlightedCodeLines.map((tokens, idx) => {
@@ -567,9 +637,16 @@ export function CodeViewer({
                     </span>
 
                     {/* Syntax Highlighted Tokens */}
-                    <div className={cn('flex-1 font-mono', wordWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre break-words')}>
+                    <div
+                      className={cn(
+                        'flex-1 font-mono',
+                        wordWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre break-words',
+                      )}
+                    >
                       {tokens.map((token, tokenIdx) => {
-                        const colorClass = token.type ? TOKEN_COLOR_MAP[token.type] : 'text-(--color-text)'
+                        const colorClass = token.type
+                          ? TOKEN_COLOR_MAP[token.type]
+                          : 'text-(--color-text)'
                         return (
                           <span key={tokenIdx} className={colorClass}>
                             {token.text}

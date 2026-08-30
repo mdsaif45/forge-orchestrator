@@ -587,4 +587,3 @@ describe('ProjectService.update', () => {
     expect(result).toBe(false)
   })
 })
-

@@ -28,9 +28,7 @@ export function WorkflowPreflight({
           {template?.name ?? 'No template selected'}
         </h2>
         {template !== null && (
-          <p className="mt-1 text-[12px] text-(--color-text-muted)">
-            {template.description}
-          </p>
+          <p className="mt-1 text-[12px] text-(--color-text-muted)">{template.description}</p>
         )}
       </div>
 
@@ -68,7 +66,8 @@ export function WorkflowPreflight({
         </div>
         {blockers.length === 0 ? (
           <p className="text-[12px] text-(--color-success)">
-            Ready to start. Forge will coordinate planning, implementation in an isolated worktree, and changeset review.
+            Ready to start. Forge will coordinate planning, implementation in an isolated worktree,
+            and changeset review.
           </p>
         ) : (
           <ul className="grid gap-1.5 list-none p-0 m-0">
@@ -77,9 +76,7 @@ export function WorkflowPreflight({
                 <Badge tone={blocker.blocking ? 'danger' : 'neutral'} size="sm">
                   {blocker.blocking ? 'blocked' : 'info'}
                 </Badge>
-                <span className="text-[12px] text-(--color-text-muted)">
-                  {blocker.detail}
-                </span>
+                <span className="text-[12px] text-(--color-text-muted)">{blocker.detail}</span>
               </li>
             ))}
           </ul>
@@ -103,8 +100,7 @@ function collectBlockers(
 
   if (onlySimulated) {
     found.push({
-      detail:
-        'Running in simulated sandbox mode. A scripted workflow scenario will execute.',
+      detail: 'Running in simulated sandbox mode. A scripted workflow scenario will execute.',
       blocking: false,
     })
   }

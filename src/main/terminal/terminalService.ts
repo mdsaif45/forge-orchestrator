@@ -43,7 +43,9 @@ export class TerminalService {
     const targetCwd = req.cwd ?? detail.project.repository.absolutePath
 
     const resolvedCli =
-      req.runtimeId !== null && req.runtimeId !== undefined && this.options.runtimeExecutable !== undefined
+      req.runtimeId !== null &&
+      req.runtimeId !== undefined &&
+      this.options.runtimeExecutable !== undefined
         ? this.options.runtimeExecutable(req.runtimeId)
         : undefined
 

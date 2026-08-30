@@ -126,7 +126,10 @@ export function LiveLogViewer({ logs, onClear }: LiveLogViewerProps): React.JSX.
           </div>
         ) : (
           filteredLogs.map((log) => (
-            <div key={log.id} className="flex gap-2 py-0.5 hover:bg-(--color-surface-raised)/40 rounded-sm">
+            <div
+              key={log.id}
+              className="flex gap-2 py-0.5 hover:bg-(--color-surface-raised)/40 rounded-sm"
+            >
               <span className="text-(--color-text-subtle) select-none">[{log.timestamp}]</span>
               <span className="break-all whitespace-pre-wrap">{log.text}</span>
             </div>

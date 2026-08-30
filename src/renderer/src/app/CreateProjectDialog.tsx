@@ -290,7 +290,8 @@ function RepositoryStatus({
 
       {probe.dirty && (
         <p className="m-0 text-[11px] text-(--color-text-muted)">
-          {probe.dirtyCount} uncommitted change{probe.dirtyCount === 1 ? '' : 's'}. This does not block creation — a workflow will capture its own base commit.
+          {probe.dirtyCount} uncommitted change{probe.dirtyCount === 1 ? '' : 's'}. This does not
+          block creation — a workflow will capture its own base commit.
         </p>
       )}
 

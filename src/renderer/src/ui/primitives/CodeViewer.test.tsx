@@ -50,13 +50,7 @@ describe('CodeViewer', () => {
 
   it('handles edit mode and saving', () => {
     const onSave = vi.fn()
-    render(
-      <CodeViewer
-        filePath="src/App.tsx"
-        content="const a = 1"
-        onSaveFile={onSave}
-      />,
-    )
+    render(<CodeViewer filePath="src/App.tsx" content="const a = 1" onSaveFile={onSave} />)
 
     expect(screen.getByRole('button', { name: 'Edit File' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Edit File' }))

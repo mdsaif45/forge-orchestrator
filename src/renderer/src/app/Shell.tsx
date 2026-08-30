@@ -126,15 +126,9 @@ export function Shell(): React.JSX.Element {
         </Dialog>
       )}
 
-      <CreateProjectDialog
-        open={createProjectOpen}
-        onClose={closeCreateProject}
-      />
+      <CreateProjectDialog open={createProjectOpen} onClose={closeCreateProject} />
 
-      <SettingsDialog
-        open={settingsOpen}
-        onClose={closeSettings}
-      />
+      <SettingsDialog open={settingsOpen} onClose={closeSettings} />
     </div>
   )
 }

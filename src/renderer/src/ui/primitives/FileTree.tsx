@@ -34,7 +34,8 @@ export function FileTree({
   className,
 }: FileTreeProps): React.JSX.Element {
   // If allFiles is provided or mode is 'tree', use tree view; otherwise default to flat if only changed files passed
-  const isTreeMode = mode === 'tree' || (mode === undefined && allFiles !== undefined && allFiles.length > 0)
+  const isTreeMode =
+    mode === 'tree' || (mode === undefined && allFiles !== undefined && allFiles.length > 0)
 
   if (!isTreeMode) {
     return (
@@ -335,7 +336,11 @@ function TreeNodeItem({
       {/* Change indicator and diff stats */}
       <div className="flex shrink-0 items-center gap-1 font-mono text-[10px]">
         {statusLetter && statusTone && (
-          <Badge tone={statusTone} size="sm" className="font-mono text-[9px] px-1 py-0 h-4 min-w-4 flex items-center justify-center">
+          <Badge
+            tone={statusTone}
+            size="sm"
+            className="font-mono text-[9px] px-1 py-0 h-4 min-w-4 flex items-center justify-center"
+          >
             {statusLetter}
           </Badge>
         )}
@@ -438,7 +443,11 @@ function FlatFileTree({
                 )}
               >
                 <div className="flex min-w-0 items-center gap-2">
-                  <Badge tone={statusTone} size="sm" className="font-mono text-[9px] px-1 py-0 h-4 min-w-4 flex items-center justify-center">
+                  <Badge
+                    tone={statusTone}
+                    size="sm"
+                    className="font-mono text-[9px] px-1 py-0 h-4 min-w-4 flex items-center justify-center"
+                  >
                     {statusLetter}
                   </Badge>
                   <FileIcon fileName={file.path} />

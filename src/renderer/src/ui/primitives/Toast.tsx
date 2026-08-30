@@ -107,13 +107,9 @@ function ToastItem({
   return (
     <div className={cn(toast({ tone: message.tone }))}>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <p className="text-[13px] font-medium text-(--color-text)">
-          {message.title}
-        </p>
+        <p className="text-[13px] font-medium text-(--color-text)">{message.title}</p>
         {message.description !== undefined ? (
-          <p className="text-[12px] break-words text-(--color-text-muted)">
-            {message.description}
-          </p>
+          <p className="text-[12px] break-words text-(--color-text-muted)">{message.description}</p>
         ) : null}
       </div>
 

@@ -56,8 +56,8 @@ export function DeleteProjectDialog({
             Are you sure you want to remove &ldquo;{project.name}&rdquo;?
           </p>
           <p className="mt-1.5 mb-0 text-(--color-text-muted)">
-            This will permanently remove this project, all its workflow runs, decisions, questions, and
-            session history from Forge.
+            This will permanently remove this project, all its workflow runs, decisions, questions,
+            and session history from Forge.
           </p>
         </div>
 

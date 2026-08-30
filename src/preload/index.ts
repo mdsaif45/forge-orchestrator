@@ -147,4 +147,3 @@ const api: ForgeApi = {
 }
 
 contextBridge.exposeInMainWorld('forge', api)
-

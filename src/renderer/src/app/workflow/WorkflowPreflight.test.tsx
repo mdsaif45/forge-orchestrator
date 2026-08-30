@@ -89,7 +89,9 @@ describe('WorkflowPreflight', () => {
       />,
     )
 
-    expect(screen.getByText(/verify code changes using build checks and Git diff/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/verify code changes using build checks and Git diff/),
+    ).toBeInTheDocument()
     expect(screen.queryByText('blocked')).not.toBeInTheDocument()
   })
 

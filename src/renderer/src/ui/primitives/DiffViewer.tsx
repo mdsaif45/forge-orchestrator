@@ -4,11 +4,7 @@ import { Badge } from './Badge'
 import { Button } from './Button'
 import { FileIcon } from './FileIcons'
 import { Textarea } from './Input'
-import {
-  parseDiffLines,
-  type ParsedDiffLine,
-  type TokenType,
-} from './syntaxHighlighter'
+import { parseDiffLines, type ParsedDiffLine, type TokenType } from './syntaxHighlighter'
 import { cn } from '../cn'
 
 export interface DiffViewerProps {
@@ -98,8 +94,8 @@ export function DiffViewer({
         </div>
 
         <div className="flex items-center gap-2">
-          {onSaveFile !== undefined && (
-            !isEditMode ? (
+          {onSaveFile !== undefined &&
+            (!isEditMode ? (
               <Button
                 size="sm"
                 variant="secondary"
@@ -134,8 +130,7 @@ export function DiffViewer({
                   {isSaving ? 'Saving…' : 'Save Changes'}
                 </Button>
               </>
-            )
-          )}
+            ))}
         </div>
       </div>
 
@@ -191,7 +186,9 @@ export function DiffViewer({
                     >
                       <span>{diffLine.text}</span>
                       {diffLine.hunkInfo && (
-                        <span className="text-(--color-text-muted) text-[10px]">{diffLine.hunkInfo}</span>
+                        <span className="text-(--color-text-muted) text-[10px]">
+                          {diffLine.hunkInfo}
+                        </span>
                       )}
                     </div>
                   )
@@ -228,7 +225,11 @@ export function DiffViewer({
                     <span
                       className={cn(
                         'w-5 shrink-0 select-none text-center font-mono font-bold',
-                        isAdd ? 'text-(--color-success)' : isDel ? 'text-(--color-danger)' : 'text-(--color-text-subtle) opacity-30',
+                        isAdd
+                          ? 'text-(--color-success)'
+                          : isDel
+                            ? 'text-(--color-danger)'
+                            : 'text-(--color-text-subtle) opacity-30',
                       )}
                     >
                       {isAdd ? '+' : isDel ? '-' : ' '}
@@ -237,7 +238,9 @@ export function DiffViewer({
                     {/* Syntax Highlighted Code Content */}
                     <div className="flex-1 whitespace-pre break-words font-mono">
                       {diffLine.tokens.map((token, tIdx) => {
-                        const colorClass = token.type ? TOKEN_COLOR_MAP[token.type] : 'text-(--color-text)'
+                        const colorClass = token.type
+                          ? TOKEN_COLOR_MAP[token.type]
+                          : 'text-(--color-text)'
                         return (
                           <span key={tIdx} className={colorClass}>
                             {token.text}

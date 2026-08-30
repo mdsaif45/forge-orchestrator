@@ -73,9 +73,7 @@ export function AddProviderDialog({
       open={open}
       onClose={onClose}
       title={
-        apiType === 'openai'
-          ? 'Add OpenAI-Compatible Provider'
-          : 'Add Messages-Compatible Provider'
+        apiType === 'openai' ? 'Add OpenAI-Compatible Provider' : 'Add Messages-Compatible Provider'
       }
       description="Configure a custom API endpoint, key, and model parameters for agent execution."
       size="lg"

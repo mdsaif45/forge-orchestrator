@@ -121,13 +121,13 @@ export function AskPage(): React.JSX.Element {
 
   const [selectedPersonaId, setSelectedPersonaId] = useState<string>('planner')
   const [selectedEngineId, setSelectedEngineId] = useState<string>('primary-engine')
-  const [availableEngines, setAvailableEngines] = useState<readonly { id: string; label: string }[]>(
-    [
-      { id: 'primary-engine', label: 'Primary Engine' },
-      { id: 'secondary-engine', label: 'Secondary Engine' },
-      { id: 'mock:default', label: 'mock:default (Simulated)' },
-    ],
-  )
+  const [availableEngines, setAvailableEngines] = useState<
+    readonly { id: string; label: string }[]
+  >([
+    { id: 'primary-engine', label: 'Primary Engine' },
+    { id: 'secondary-engine', label: 'Secondary Engine' },
+    { id: 'mock:default', label: 'mock:default (Simulated)' },
+  ])
 
   // Sort state for sidebar
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest')

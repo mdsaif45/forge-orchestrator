@@ -532,25 +532,38 @@ export function SettingsContent(): React.JSX.Element {
         >
           <div className="grid gap-3 text-[12px] text-(--color-text)">
             <p className="text-(--color-text-muted)">
-              Forge enforces strict execution boundaries so autonomous agents cannot corrupt repositories or execute dangerous system commands.
+              Forge enforces strict execution boundaries so autonomous agents cannot corrupt
+              repositories or execute dangerous system commands.
             </p>
             <div className="rounded-xl bg-(--color-surface-inset) border border-(--color-border) p-3 font-mono text-[11px] space-y-1.5">
               {activePermissionsModal === 'files' && (
                 <>
-                  <p className="text-(--color-success)">ALLOW: Isolated Git Worktree (Read & Write)</p>
-                  <p className="text-(--color-danger)">DENY: .git metadata, .env secrets, *.pem, System roots</p>
+                  <p className="text-(--color-success)">
+                    ALLOW: Isolated Git Worktree (Read & Write)
+                  </p>
+                  <p className="text-(--color-danger)">
+                    DENY: .git metadata, .env secrets, *.pem, System roots
+                  </p>
                 </>
               )}
               {activePermissionsModal === 'network' && (
                 <>
-                  <p className="text-(--color-success)">ALLOW: Configured LLM Providers, Git Remotes</p>
-                  <p className="text-(--color-danger)">DENY: Arbitrary outbound unverified network endpoints</p>
+                  <p className="text-(--color-success)">
+                    ALLOW: Configured LLM Providers, Git Remotes
+                  </p>
+                  <p className="text-(--color-danger)">
+                    DENY: Arbitrary outbound unverified network endpoints
+                  </p>
                 </>
               )}
               {activePermissionsModal === 'terminal' && (
                 <>
-                  <p className="text-(--color-success)">ALLOW: git, npm, pnpm, yarn, cargo, pytest, vitest, tsc</p>
-                  <p className="text-(--color-danger)">DENY: rm -rf /, format, sudo, systemctl, registry edits</p>
+                  <p className="text-(--color-success)">
+                    ALLOW: git, npm, pnpm, yarn, cargo, pytest, vitest, tsc
+                  </p>
+                  <p className="text-(--color-danger)">
+                    DENY: rm -rf /, format, sudo, systemctl, registry edits
+                  </p>
                 </>
               )}
             </div>
@@ -635,12 +648,7 @@ export function SettingsDialog({
           <div className="flex items-center gap-2">
             <span className="text-[14px] font-semibold text-(--color-text)">Settings</span>
           </div>
-          <IconButton
-            size="sm"
-            label="Close settings"
-            icon={<CloseIcon />}
-            onClick={onClose}
-          />
+          <IconButton size="sm" label="Close settings" icon={<CloseIcon />} onClick={onClose} />
         </div>
 
         {/* Modal 2-Level Settings Body */}
@@ -710,13 +718,16 @@ function GeneralGlobalSettings({
       <div>
         <h1 className="text-[18px] font-bold text-(--color-text)">General Settings</h1>
         <p className="mt-1 text-[12px] text-(--color-text-muted)">
-          Configure global agent instructions, visual appearance, notifications, and workflow sandboxing.
+          Configure global agent instructions, visual appearance, notifications, and workflow
+          sandboxing.
         </p>
       </div>
 
       {/* Global Instructions Card */}
       <section className="grid gap-2">
-        <h2 className="text-[13px] font-semibold text-(--color-text)">Global Instructions for Agent</h2>
+        <h2 className="text-[13px] font-semibold text-(--color-text)">
+          Global Instructions for Agent
+        </h2>
         <Card tone="raised" className="p-4 space-y-2">
           <p className="m-0 text-[12px] text-(--color-text-muted)">
             Forge includes these directives in the prompt packet across every workflow and project.
@@ -938,11 +949,10 @@ function GeneralGlobalSettings({
         <Card tone="raised" className="divide-y divide-(--color-border)">
           <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="max-w-md">
-              <p className="m-0 font-medium text-[13px] text-(--color-text)">
-                Workspace Isolation
-              </p>
+              <p className="m-0 font-medium text-[13px] text-(--color-text)">Workspace Isolation</p>
               <p className="m-0 mt-0.5 text-[12px] text-(--color-text-muted)">
-                Runs agent tasks inside dedicated Git worktrees to prevent dirtying your active branch.
+                Runs agent tasks inside dedicated Git worktrees to prevent dirtying your active
+                branch.
               </p>
             </div>
             <div className="w-56">
@@ -1188,10 +1198,26 @@ function CustomizationsGlobalSettings(): React.JSX.Element {
 
       <Card tone="raised" className="divide-y divide-(--color-border)">
         {[
-          { name: 'dev-mcp', desc: 'Code search, file inspections, and repository tools', status: 'Connected' },
-          { name: 'mongodb', desc: 'MongoDB collection queries and schema analysis', status: 'Connected' },
-          { name: 'mysql-mcp', desc: 'MySQL table inspection and structured query tools', status: 'Connected' },
-          { name: 'oracle-db', desc: 'Oracle Database schema and execution support', status: 'Connected' },
+          {
+            name: 'dev-mcp',
+            desc: 'Code search, file inspections, and repository tools',
+            status: 'Connected',
+          },
+          {
+            name: 'mongodb',
+            desc: 'MongoDB collection queries and schema analysis',
+            status: 'Connected',
+          },
+          {
+            name: 'mysql-mcp',
+            desc: 'MySQL table inspection and structured query tools',
+            status: 'Connected',
+          },
+          {
+            name: 'oracle-db',
+            desc: 'Oracle Database schema and execution support',
+            status: 'Connected',
+          },
         ].map((server) => (
           <div key={server.name} className="flex items-center justify-between p-4">
             <div>
@@ -1202,7 +1228,9 @@ function CustomizationsGlobalSettings(): React.JSX.Element {
             </div>
             <div className="flex items-center gap-2">
               <StatusDot status="passed" label={server.status} />
-              <span className="text-[11px] font-medium text-(--color-success)">{server.status}</span>
+              <span className="text-[11px] font-medium text-(--color-success)">
+                {server.status}
+              </span>
             </div>
           </div>
         ))}
@@ -1260,7 +1288,12 @@ function ProjectLevelSettings({
           </p>
         </div>
 
-        <Button size="sm" variant="secondary" onClick={onEditProject} className="rounded-lg text-[12px]">
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={onEditProject}
+          className="rounded-lg text-[12px]"
+        >
           Edit Repository
         </Button>
       </div>
@@ -1271,7 +1304,9 @@ function ProjectLevelSettings({
         <Card tone="raised">
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 p-4 text-[12px]">
             <dt className="font-semibold text-(--color-text-muted)">Path:</dt>
-            <dd className="font-mono text-(--color-text) break-all">{project.repository.absolutePath}</dd>
+            <dd className="font-mono text-(--color-text) break-all">
+              {project.repository.absolutePath}
+            </dd>
 
             <dt className="font-semibold text-(--color-text-muted)">Default Branch:</dt>
             <dd className="font-mono text-(--color-text)">{project.repository.defaultBranch}</dd>
@@ -1282,15 +1317,21 @@ function ProjectLevelSettings({
                 <dd className="font-mono text-(--color-text)">{probe.branch ?? 'detached'}</dd>
 
                 <dt className="font-semibold text-(--color-text-muted)">Head Commit:</dt>
-                <dd className="font-mono text-(--color-text)">{probe.headSha?.slice(0, 10) ?? 'None'}</dd>
+                <dd className="font-mono text-(--color-text)">
+                  {probe.headSha?.slice(0, 10) ?? 'None'}
+                </dd>
               </>
             )}
 
             <dt className="font-semibold text-(--color-text-muted)">Build Command:</dt>
-            <dd className="font-mono text-(--color-text)">{project.repository.buildCommand ?? 'None'}</dd>
+            <dd className="font-mono text-(--color-text)">
+              {project.repository.buildCommand ?? 'None'}
+            </dd>
 
             <dt className="font-semibold text-(--color-text-muted)">Test Command:</dt>
-            <dd className="font-mono text-(--color-text)">{project.repository.testCommand ?? 'None'}</dd>
+            <dd className="font-mono text-(--color-text)">
+              {project.repository.testCommand ?? 'None'}
+            </dd>
           </dl>
         </Card>
       </section>
@@ -1306,7 +1347,9 @@ function ProjectLevelSettings({
 
         <Card tone="raised" className="p-4 space-y-4">
           {rules.length === 0 ? (
-            <p className="text-[12px] text-(--color-text-muted)">No rules defined for this project yet.</p>
+            <p className="text-[12px] text-(--color-text-muted)">
+              No rules defined for this project yet.
+            </p>
           ) : (
             <ul className="space-y-2 list-none p-0 m-0">
               {rules.map((rule: RuleView) => (
@@ -1394,7 +1437,8 @@ function ProjectLevelSettings({
                 Remove Project from Forge
               </p>
               <p className="m-0 mt-0.5 text-[12px] text-(--color-text-muted)">
-                Removes this project from your Forge active workspaces. All files on disk remain untouched.
+                Removes this project from your Forge active workspaces. All files on disk remain
+                untouched.
               </p>
             </div>
             <Button

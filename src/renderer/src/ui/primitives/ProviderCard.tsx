@@ -72,9 +72,7 @@ export function ProviderCard({
         {/* Header Row */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <span className="text-[14px] font-bold tracking-tight text-(--color-text)">
-              {name}
-            </span>
+            <span className="text-[14px] font-bold tracking-tight text-(--color-text)">{name}</span>
             {isActive ? (
               <Badge tone="accent" size="sm" className="font-semibold">
                 Active Provider
@@ -114,7 +112,8 @@ export function ProviderCard({
           <p className="m-0 leading-relaxed">{description}</p>
           {envVarHint && !isConfigured && (
             <p className="m-0 mt-0.5 text-[11px] text-(--color-text-subtle)">
-              Or set the <code className="font-mono text-(--color-text)">{envVarHint}</code> env var.
+              Or set the <code className="font-mono text-(--color-text)">{envVarHint}</code> env
+              var.
             </p>
           )}
         </div>
@@ -127,7 +126,9 @@ export function ProviderCard({
                 <div className="flex items-center gap-2">
                   <StatusDot status="passed" label="Configured" />
                   <span className="font-mono text-(--color-text-muted)">
-                    {effectiveApiKey.length > 8 ? `••••••••••••${effectiveApiKey.slice(-4)}` : '••••••••••••••••'}
+                    {effectiveApiKey.length > 8
+                      ? `••••••••••••${effectiveApiKey.slice(-4)}`
+                      : '••••••••••••••••'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2">

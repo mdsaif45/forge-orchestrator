@@ -225,9 +225,17 @@ export function Select({
                   className={cn(
                     'flex items-center justify-between gap-3 rounded-lg px-2.5 py-1.5 text-[13px] transition-colors select-none cursor-pointer',
                     option.disabled && 'cursor-not-allowed opacity-40',
-                    !option.disabled && isSelected && 'bg-(--color-accent-muted) font-semibold text-(--color-text)',
-                    !option.disabled && !isSelected && isFocused && 'bg-(--color-surface) text-(--color-text)',
-                    !option.disabled && !isSelected && !isFocused && 'text-(--color-text) hover:bg-(--color-surface)',
+                    !option.disabled &&
+                      isSelected &&
+                      'bg-(--color-accent-muted) font-semibold text-(--color-text)',
+                    !option.disabled &&
+                      !isSelected &&
+                      isFocused &&
+                      'bg-(--color-surface) text-(--color-text)',
+                    !option.disabled &&
+                      !isSelected &&
+                      !isFocused &&
+                      'text-(--color-text) hover:bg-(--color-surface)',
                   )}
                 >
                   <span className="truncate">{option.label}</span>

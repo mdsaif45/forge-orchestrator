@@ -20,7 +20,8 @@ const DEFAULT_BUILTIN_AGENTS: readonly CustomAgentConfig[] = [
     name: 'Alex (Planner)',
     roleType: 'planner',
     runtimeId: 'primary-engine',
-    instructions: 'Explores codebase, identifies dependencies, and proposes robust architectural decisions.',
+    instructions:
+      'Explores codebase, identifies dependencies, and proposes robust architectural decisions.',
     capabilities: ['repo-read', 'plan'],
   },
   {
@@ -28,7 +29,8 @@ const DEFAULT_BUILTIN_AGENTS: readonly CustomAgentConfig[] = [
     name: 'Sam (Implementer)',
     roleType: 'implementer',
     runtimeId: 'secondary-engine',
-    instructions: 'Writes clean, modular code inside isolated worktrees, adhering strictly to project guidelines.',
+    instructions:
+      'Writes clean, modular code inside isolated worktrees, adhering strictly to project guidelines.',
     capabilities: ['repo-read', 'file-write', 'terminal'],
   },
   {
@@ -36,7 +38,8 @@ const DEFAULT_BUILTIN_AGENTS: readonly CustomAgentConfig[] = [
     name: 'Morgan (Reviewer)',
     roleType: 'reviewer',
     runtimeId: 'primary-engine',
-    instructions: 'Audits diffs, verifies locked decisions, and checks for edge cases and regressions.',
+    instructions:
+      'Audits diffs, verifies locked decisions, and checks for edge cases and regressions.',
     capabilities: ['repo-read', 'review', 'test'],
   },
 ]
@@ -137,10 +140,7 @@ export function AgentsPage(): React.JSX.Element {
   const availableRuntimesMap = new Map<string, string>()
   for (const r of roles) {
     for (const er of r.eligibleRuntimes) {
-      availableRuntimesMap.set(
-        er.id,
-        er.simulated ? `${er.id} (simulated)` : er.id,
-      )
+      availableRuntimesMap.set(er.id, er.simulated ? `${er.id} (simulated)` : er.id)
     }
   }
 
@@ -148,7 +148,10 @@ export function AgentsPage(): React.JSX.Element {
     availableRuntimesMap.set('mock:default', 'mock:default (simulated)')
   }
 
-  const availableRuntimes = [...availableRuntimesMap.entries()].map(([id, label]) => ({ id, label }))
+  const availableRuntimes = [...availableRuntimesMap.entries()].map(([id, label]) => ({
+    id,
+    label,
+  }))
 
   return (
     <div className="flex h-full flex-col gap-6 p-6 overflow-auto">
@@ -162,7 +165,8 @@ export function AgentsPage(): React.JSX.Element {
             </Badge>
           </div>
           <p className="text-[12px] text-(--color-text-muted)">
-            Manage agent personas, custom system directives, and assign model engines to pipeline stages.
+            Manage agent personas, custom system directives, and assign model engines to pipeline
+            stages.
           </p>
         </div>
 
@@ -222,7 +226,8 @@ export function AgentsPage(): React.JSX.Element {
                     </Badge>
                   </div>
                   <p className="m-0 font-mono text-[11px] text-(--color-text-muted)">
-                    Current Engine: <span className="text-(--color-text)">{binding?.runtimeId ?? 'Not bound'}</span>
+                    Current Engine:{' '}
+                    <span className="text-(--color-text)">{binding?.runtimeId ?? 'Not bound'}</span>
                   </p>
                 </div>
 
@@ -265,7 +270,9 @@ export function AgentsPage(): React.JSX.Element {
       <section className="grid gap-3 pt-2">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-[14px] font-bold text-(--color-text)">Available Agents & Personas</h2>
+            <h2 className="text-[14px] font-bold text-(--color-text)">
+              Available Agents & Personas
+            </h2>
             <p className="m-0 text-[12px] text-(--color-text-muted)">
               Custom agent profiles equipped with specialized directives and capabilities.
             </p>
@@ -278,8 +285,13 @@ export function AgentsPage(): React.JSX.Element {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
           {customAgents.map((agent) => {
             const roleBinding = roles.find((r) => r.role === agent.roleType)
-            const activeRuntime = roleBinding?.binding?.runtimeId ?? agent.runtimeId
             const isAssigned = roleBinding?.binding !== null && roleBinding?.binding !== undefined
+            // The stored binding only. Falling back to the persona's own `runtimeId`
+            // showed 'primary-engine' — a label with no registered runtime behind it —
+            // on a role the engine considered unbound, so the page read "Bound to
+            // planner / Engine: primary-engine" while the role assignment above it
+            // read "Not bound" and the workflow silently ran on `mock:default`.
+            const activeRuntime = roleBinding?.binding?.runtimeId ?? 'Not bound'
             return (
               <AgentCard
                 key={agent.id}

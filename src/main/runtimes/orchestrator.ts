@@ -128,7 +128,19 @@ export interface RunOptions {
    * The evidence layer (#33–#35) will supply this. Until then a caller provides it, which is
    * what lets the loop be exercised end to end before the runners exist.
    */
-  readonly verify: (step: WorkflowStep) => Promise<{
+  readonly verify: (
+    step: WorkflowStep,
+    /**
+     * The most recent agent report, or null before any agent has produced one.
+     *
+     * Passed explicitly because `WorkflowStep` records only `reportStatus`, not the
+     * report itself, and a criterion such as `no-assumptions` can only be evaluated
+     * against the report's own fields. Without it every such criterion resolved to
+     * `unknown`, which the verifier correctly treats as a failure — so a workflow
+     * whose repository has no build or test command could never pass verification.
+     */
+    report: AgentReport | null,
+  ) => Promise<{
     readonly passed: boolean
     readonly detail: string
     /**
@@ -231,6 +243,9 @@ export class Orchestrator {
     // Set by the verify step, read by the review step (#35 -> #36).
     let criteria: readonly CriterionResult[] = []
     let previousAttempt: StepContext['previousAttempt'] = null
+    // Set by the most recent agent step, read by the verify step, which needs the
+    // report's own fields to evaluate report-derived criteria (#35).
+    let lastReport: AgentReport | null = null
     let stepCounter = 0
 
     let workflow = this.deps.workflows.apply(
@@ -341,10 +356,7 @@ export class Orchestrator {
           '[HUMAN GATE] Waiting for user approval on proposed architectural plan...',
         )
         const approved = await options.approve(step)
-        options.onLog?.(
-          step.index,
-          `[HUMAN GATE] User ${approved ? 'APPROVED' : 'REJECTED'} plan.`,
-        )
+        options.onLog?.(step.index, `[HUMAN GATE] User ${approved ? 'APPROVED' : 'REJECTED'} plan.`)
 
         this.deps.workflows.finishStep(
           options.workflowId,
@@ -379,7 +391,7 @@ export class Orchestrator {
       if (templateStep.role === 'system') {
         this.deps.workflows.startStep(options.workflowId, step, 'system', this.timestamp())
         options.onLog?.(step.index, '[VERIFICATION] Running build and test verification suite...')
-        const result = await options.verify(step)
+        const result = await options.verify(step, lastReport)
         options.onLog?.(
           step.index,
           `[VERIFICATION] Result: ${result.passed ? 'PASSED' : 'FAILED'} — ${result.detail}`,
@@ -434,7 +446,9 @@ export class Orchestrator {
       options.onLog?.(
         step.index,
         `[PROMPT SENT TO AGENT]\nObjective: ${packet.objective}\nScope Allowed Paths: ${
-          packet.allowedPaths.length > 0 ? packet.allowedPaths.join(', ') : '(all paths in worktree)'
+          packet.allowedPaths.length > 0
+            ? packet.allowedPaths.join(', ')
+            : '(all paths in worktree)'
         }\nActive Rules: ${String(packet.rules.length)}\nLocked Decisions: ${String(
           packet.lockedDecisions.length,
         )}`,
@@ -508,6 +522,10 @@ export class Orchestrator {
         )
         break
       }
+
+      // Held for the verify step, which runs after this one and cannot recover the
+      // report from the persisted `WorkflowStep` (it stores only `reportStatus`).
+      lastReport = report
 
       options.onLog?.(
         step.index,

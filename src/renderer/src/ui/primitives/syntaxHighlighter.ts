@@ -39,16 +39,20 @@ export interface SplitDiffRow {
   readonly isHunk?: boolean | undefined
   readonly hunkText?: string | undefined
   readonly hunkInfo?: string | undefined
-  readonly oldLine?: {
-    readonly lineNumber: number | null
-    readonly type: 'context' | 'del' | 'empty'
-    readonly tokens: HighlightedLine
-  } | undefined
-  readonly newLine?: {
-    readonly lineNumber: number | null
-    readonly type: 'context' | 'add' | 'empty'
-    readonly tokens: HighlightedLine
-  } | undefined
+  readonly oldLine?:
+    | {
+        readonly lineNumber: number | null
+        readonly type: 'context' | 'del' | 'empty'
+        readonly tokens: HighlightedLine
+      }
+    | undefined
+  readonly newLine?:
+    | {
+        readonly lineNumber: number | null
+        readonly type: 'context' | 'add' | 'empty'
+        readonly tokens: HighlightedLine
+      }
+    | undefined
 }
 
 export function detectLanguage(filePath: string): string {
@@ -65,53 +69,234 @@ export function detectLanguage(filePath: string): string {
   if (ext === 'rs') return 'rust'
   if (ext === 'go') return 'go'
   if (ext === 'sql') return 'sql'
-  if (ext === 'sh' || ext === 'bash' || ext === 'zsh' || ext === 'ps1' || ext === 'bat' || ext === 'cmd') return 'shell'
+  if (
+    ext === 'sh' ||
+    ext === 'bash' ||
+    ext === 'zsh' ||
+    ext === 'ps1' ||
+    ext === 'bat' ||
+    ext === 'cmd'
+  )
+    return 'shell'
   if (ext === 'yml' || ext === 'yaml' || ext === 'toml') return 'yaml'
   if (ext === 'dart') return 'typescript'
   if (ext === 'diff' || ext === 'patch') return 'diff'
 
-  if (name.startsWith('.git') || name === '.gitignore' || name === '.editorconfig' || name === '.npmrc') return 'shell'
+  if (
+    name.startsWith('.git') ||
+    name === '.gitignore' ||
+    name === '.editorconfig' ||
+    name === '.npmrc'
+  )
+    return 'shell'
   return 'plain'
 }
 
 const JS_KEYWORDS = new Set([
-  'import', 'export', 'from', 'default', 'as', 'const', 'let', 'var', 'function', 'return',
-  'if', 'else', 'switch', 'case', 'break', 'continue', 'for', 'while', 'do', 'try', 'catch',
-  'finally', 'throw', 'new', 'typeof', 'instanceof', 'void', 'delete', 'in', 'of', 'async',
-  'await', 'yield', 'class', 'extends', 'super', 'this', 'interface', 'type', 'enum',
-  'implements', 'public', 'private', 'protected', 'readonly', 'static', 'abstract', 'override',
-  'declare', 'namespace', 'module', 'require', 'debugger', 'is', 'keyof', 'infer', 'never', 'unknown',
-  'final', 'late', 'required', 'factory', 'mixin', 'typedef', 'with'
+  'import',
+  'export',
+  'from',
+  'default',
+  'as',
+  'const',
+  'let',
+  'var',
+  'function',
+  'return',
+  'if',
+  'else',
+  'switch',
+  'case',
+  'break',
+  'continue',
+  'for',
+  'while',
+  'do',
+  'try',
+  'catch',
+  'finally',
+  'throw',
+  'new',
+  'typeof',
+  'instanceof',
+  'void',
+  'delete',
+  'in',
+  'of',
+  'async',
+  'await',
+  'yield',
+  'class',
+  'extends',
+  'super',
+  'this',
+  'interface',
+  'type',
+  'enum',
+  'implements',
+  'public',
+  'private',
+  'protected',
+  'readonly',
+  'static',
+  'abstract',
+  'override',
+  'declare',
+  'namespace',
+  'module',
+  'require',
+  'debugger',
+  'is',
+  'keyof',
+  'infer',
+  'never',
+  'unknown',
+  'final',
+  'late',
+  'required',
+  'factory',
+  'mixin',
+  'typedef',
+  'with',
 ])
 
 const JS_CONSTANTS = new Set(['true', 'false', 'null', 'undefined', 'NaN', 'Infinity'])
 
 const PYTHON_KEYWORDS = new Set([
-  'def', 'class', 'import', 'from', 'as', 'return', 'if', 'elif', 'else', 'for', 'while',
-  'break', 'continue', 'try', 'except', 'finally', 'raise', 'with', 'yield', 'lambda',
-  'pass', 'global', 'nonlocal', 'assert', 'del', 'async', 'await', 'in', 'is', 'not', 'and', 'or'
+  'def',
+  'class',
+  'import',
+  'from',
+  'as',
+  'return',
+  'if',
+  'elif',
+  'else',
+  'for',
+  'while',
+  'break',
+  'continue',
+  'try',
+  'except',
+  'finally',
+  'raise',
+  'with',
+  'yield',
+  'lambda',
+  'pass',
+  'global',
+  'nonlocal',
+  'assert',
+  'del',
+  'async',
+  'await',
+  'in',
+  'is',
+  'not',
+  'and',
+  'or',
 ])
 
 const PYTHON_CONSTANTS = new Set(['True', 'False', 'None'])
 
 const RUST_KEYWORDS = new Set([
-  'fn', 'let', 'mut', 'pub', 'struct', 'enum', 'impl', 'trait', 'match', 'if', 'else',
-  'for', 'while', 'loop', 'break', 'continue', 'return', 'use', 'mod', 'type', 'const',
-  'static', 'async', 'await', 'move', 'where', 'as', 'in', 'ref', 'self', 'Self', 'dyn', 'crate'
+  'fn',
+  'let',
+  'mut',
+  'pub',
+  'struct',
+  'enum',
+  'impl',
+  'trait',
+  'match',
+  'if',
+  'else',
+  'for',
+  'while',
+  'loop',
+  'break',
+  'continue',
+  'return',
+  'use',
+  'mod',
+  'type',
+  'const',
+  'static',
+  'async',
+  'await',
+  'move',
+  'where',
+  'as',
+  'in',
+  'ref',
+  'self',
+  'Self',
+  'dyn',
+  'crate',
 ])
 
 const SQL_KEYWORDS = new Set([
-  'select', 'from', 'where', 'insert', 'into', 'values', 'update', 'set', 'delete',
-  'join', 'left', 'right', 'inner', 'outer', 'full', 'cross', 'on', 'group', 'by',
-  'order', 'having', 'limit', 'offset', 'create', 'table', 'index', 'view', 'drop',
-  'alter', 'add', 'column', 'primary', 'key', 'foreign', 'references', 'unique',
-  'not', 'null', 'and', 'or', 'in', 'is', 'like', 'between', 'exists', 'case', 'when',
-  'then', 'else', 'end', 'as', 'union', 'all', 'distinct', 'cascade'
+  'select',
+  'from',
+  'where',
+  'insert',
+  'into',
+  'values',
+  'update',
+  'set',
+  'delete',
+  'join',
+  'left',
+  'right',
+  'inner',
+  'outer',
+  'full',
+  'cross',
+  'on',
+  'group',
+  'by',
+  'order',
+  'having',
+  'limit',
+  'offset',
+  'create',
+  'table',
+  'index',
+  'view',
+  'drop',
+  'alter',
+  'add',
+  'column',
+  'primary',
+  'key',
+  'foreign',
+  'references',
+  'unique',
+  'not',
+  'null',
+  'and',
+  'or',
+  'in',
+  'is',
+  'like',
+  'between',
+  'exists',
+  'case',
+  'when',
+  'then',
+  'else',
+  'end',
+  'as',
+  'union',
+  'all',
+  'distinct',
+  'cascade',
 ])
 
 const NUM_JSON_REGEX = /^-?\d+(\.\d+)?([eE][+-]?\d+)?/
 const TAG_REGEX = /^<\/?([a-zA-Z0-9_\-.]+)/
-const NUM_CODE_REGEX = /^(0x[0-9a-fA-F_]+|0b[01_]+|0o[0-7_]+|\d[\d_]*(\.[\d_]+)?([eE][+-]?[\d_]+)?n?)/
+const NUM_CODE_REGEX =
+  /^(0x[0-9a-fA-F_]+|0b[01_]+|0o[0-7_]+|\d[\d_]*(\.[\d_]+)?([eE][+-]?[\d_]+)?n?)/
 const HUNK_REGEX = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/
 
 /**
@@ -124,7 +309,12 @@ export function highlightLine(line: string, lang: string): HighlightedLine {
 
   // 1. Diff Lines (standalone)
   if (lang === 'diff') {
-    if (line.startsWith('diff --git') || line.startsWith('index ') || line.startsWith('--- ') || line.startsWith('+++ ')) {
+    if (
+      line.startsWith('diff --git') ||
+      line.startsWith('index ') ||
+      line.startsWith('--- ') ||
+      line.startsWith('+++ ')
+    ) {
       return [{ text: line, type: 'diff-header' }]
     }
     if (line.startsWith('@@')) {
@@ -292,7 +482,11 @@ function tokenizeCodeLine(line: string, lang: string): HighlightedLine {
     }
 
     // Single-line comments
-    if (line.startsWith('//', i) || (['python', 'shell', 'yaml'].includes(lang) && char === '#') || (lang === 'sql' && line.startsWith('--', i))) {
+    if (
+      line.startsWith('//', i) ||
+      (['python', 'shell', 'yaml'].includes(lang) && char === '#') ||
+      (lang === 'sql' && line.startsWith('--', i))
+    ) {
       tokens.push({ text: line.slice(i), type: 'comment' })
       break
     }
@@ -418,9 +612,10 @@ function tokenizeCodeLine(line: string, lang: string): HighlightedLine {
  * Tokenizes multi-line code into a matrix of highlighted token spans per line.
  */
 export function highlightCode(code: string, filePathOrLang: string): readonly HighlightedLine[] {
-  const lang = filePathOrLang.includes('/') || filePathOrLang.includes('.')
-    ? detectLanguage(filePathOrLang)
-    : filePathOrLang
+  const lang =
+    filePathOrLang.includes('/') || filePathOrLang.includes('.')
+      ? detectLanguage(filePathOrLang)
+      : filePathOrLang
 
   const lines = code.split('\n')
   return lines.map((line) => highlightLine(line, lang))
@@ -430,9 +625,10 @@ export function highlightCode(code: string, filePathOrLang: string): readonly Hi
  * Parses unified diff patch text into structured lines with line numbers and syntax tokenization.
  */
 export function parseDiffLines(patch: string, filePathOrLang: string): readonly ParsedDiffLine[] {
-  const targetLang = filePathOrLang.includes('/') || filePathOrLang.includes('.')
-    ? detectLanguage(filePathOrLang)
-    : filePathOrLang
+  const targetLang =
+    filePathOrLang.includes('/') || filePathOrLang.includes('.')
+      ? detectLanguage(filePathOrLang)
+      : filePathOrLang
 
   const rawLines = patch.split('\n')
   const result: ParsedDiffLine[] = []

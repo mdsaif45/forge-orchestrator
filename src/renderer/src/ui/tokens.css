@@ -64,7 +64,8 @@
   --color-syntax-constant: #d19a66;
 
   /* ---- Typography ---- */
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-sans:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', ui-monospace, Menlo, monospace;
 
   --text-2xs: 0.6875rem;
@@ -221,4 +222,3 @@
   --shadow-md: 0 4px 12px rgb(0 0 0 / 0.08);
   --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.12);
 }
-

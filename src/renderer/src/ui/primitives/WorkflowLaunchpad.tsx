@@ -44,11 +44,14 @@ export function WorkflowLaunchpad({
                 ⚡
               </span>
               <h2 className="text-[18px] font-bold text-(--color-text)">
-                Launch Multi-Agent Work on <span className="text-(--color-accent)">{projectName}</span>
+                Launch Multi-Agent Work on{' '}
+                <span className="text-(--color-accent)">{projectName}</span>
               </h2>
             </div>
             <p className="max-w-2xl text-[12px] leading-relaxed text-(--color-text-muted)">
-              Autonomous agent teams collaborate under a shared protocol: planning architecture, pausing for human review gates, executing sandboxed edits in a git worktree, and auditing code quality before merge.
+              Autonomous agent teams collaborate under a shared protocol: planning architecture,
+              pausing for human review gates, executing sandboxed edits in a git worktree, and
+              auditing code quality before merge.
             </p>
             <div className="pt-1 text-[11px] font-mono text-(--color-text-subtle)">
               Repository Path: <span className="text-(--color-text)">{repositoryPath}</span>
@@ -73,7 +76,9 @@ export function WorkflowLaunchpad({
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-[14px] font-bold text-(--color-text)">Select a Workflow Template</h3>
+            <h3 className="text-[14px] font-bold text-(--color-text)">
+              Select a Workflow Template
+            </h3>
             <p className="text-[11px] text-(--color-text-muted)">
               Choose the execution pipeline that matches your objective.
             </p>
@@ -181,7 +186,8 @@ export function WorkflowLaunchpad({
             <div className="flex items-center justify-between">
               <span className="text-base">🧠</span>
               <Badge tone="neutral" size="sm" className="font-mono text-[9px]">
-                {bindings?.roles.find((r) => r.role === 'planner')?.binding?.runtimeId ?? 'primary-engine'}
+                {bindings?.roles.find((r) => r.role === 'planner')?.binding?.runtimeId ??
+                  'primary-engine'}
               </Badge>
             </div>
             <h4 className="text-[12px] font-bold text-(--color-text)">Alex (Planner)</h4>
@@ -207,7 +213,8 @@ export function WorkflowLaunchpad({
             <div className="flex items-center justify-between">
               <span className="text-base">💻</span>
               <Badge tone="neutral" size="sm" className="font-mono text-[9px]">
-                {bindings?.roles.find((r) => r.role === 'implementer')?.binding?.runtimeId ?? 'secondary-engine'}
+                {bindings?.roles.find((r) => r.role === 'implementer')?.binding?.runtimeId ??
+                  'secondary-engine'}
               </Badge>
             </div>
             <h4 className="text-[12px] font-bold text-(--color-text)">Sam (Implementer)</h4>
@@ -220,7 +227,8 @@ export function WorkflowLaunchpad({
             <div className="flex items-center justify-between">
               <span className="text-base">🔍</span>
               <Badge tone="neutral" size="sm" className="font-mono text-[9px]">
-                {bindings?.roles.find((r) => r.role === 'reviewer')?.binding?.runtimeId ?? 'primary-engine'}
+                {bindings?.roles.find((r) => r.role === 'reviewer')?.binding?.runtimeId ??
+                  'primary-engine'}
               </Badge>
             </div>
             <h4 className="text-[12px] font-bold text-(--color-text)">Morgan (Reviewer)</h4>

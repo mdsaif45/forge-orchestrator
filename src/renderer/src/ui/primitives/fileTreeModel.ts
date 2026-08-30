@@ -150,10 +150,7 @@ export function buildFileTree(
  * Recursively filters the tree matching nodes by query substring.
  * Preserves directory ancestry if any child matches.
  */
-export function filterFileTree(
-  nodes: readonly TreeNode[],
-  query: string,
-): readonly TreeNode[] {
+export function filterFileTree(nodes: readonly TreeNode[], query: string): readonly TreeNode[] {
   const trimmed = query.trim().toLowerCase()
   if (!trimmed) return nodes
 

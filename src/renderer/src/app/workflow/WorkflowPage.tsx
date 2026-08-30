@@ -66,7 +66,10 @@ function describeWorkflowState(workflow: WorkflowDetailView): string {
   }
 }
 
-function getPersonaForRole(role: string): { readonly persona: string; readonly stageLabel: string } {
+function getPersonaForRole(role: string): {
+  readonly persona: string
+  readonly stageLabel: string
+} {
   switch (role) {
     case 'planner':
       return { persona: 'Alex (Planner)', stageLabel: 'Stage 1 • Planning' }
@@ -213,7 +216,9 @@ export function WorkflowPage(): React.JSX.Element {
             if (updated !== null) {
               setWorkflow(updated)
               if (selectedStep !== null) {
-                const refreshed = updated.steps.find((s: WorkflowStepView) => s.id === selectedStep.id)
+                const refreshed = updated.steps.find(
+                  (s: WorkflowStepView) => s.id === selectedStep.id,
+                )
                 if (refreshed !== undefined) setSelectedStep(refreshed)
               }
             }
@@ -280,7 +285,10 @@ export function WorkflowPage(): React.JSX.Element {
       .then((res) => {
         const list = unwrap(res).templates
         setBaseTemplates(list)
-        if (list.length > 0 && !list.some((t: WorkflowTemplateView) => t.id === selectedTemplateId)) {
+        if (
+          list.length > 0 &&
+          !list.some((t: WorkflowTemplateView) => t.id === selectedTemplateId)
+        ) {
           setSelectedTemplateId(list[0]?.id ?? 'feature')
         }
       })
@@ -366,7 +374,9 @@ export function WorkflowPage(): React.JSX.Element {
       // Satisfy Axiom A4 by ensuring at least one approved/locked decision exists
       const existingDecisionsRes = await window.forge.decision.list(project.id)
       const existingDecisions = unwrap(existingDecisionsRes)
-      const hasLocked = existingDecisions.decisions.some((d) => d.status === 'locked' || d.status === 'approved')
+      const hasLocked = existingDecisions.decisions.some(
+        (d) => d.status === 'locked' || d.status === 'approved',
+      )
       if (!hasLocked) {
         const proposedRes = await window.forge.decision.propose({
           projectId: project.id,
@@ -637,8 +647,7 @@ export function WorkflowPage(): React.JSX.Element {
             )}
           </div>
           <p className="text-[12px] text-(--color-text-muted)">
-            Repository:{' '}
-            <span className="font-semibold text-(--color-text)">{project.name}</span>
+            Repository: <span className="font-semibold text-(--color-text)">{project.name}</span>
           </p>
         </div>
 
@@ -722,7 +731,10 @@ export function WorkflowPage(): React.JSX.Element {
           </span>
           <span className="text-(--color-text-subtle)">
             (Iteration {String(workflow.iteration + 1)} of {String(workflow.limits.maxIterations)}
-            {workflow.iteration === 0 ? ' • Initial Run' : ` • Retry Cycle ${String(workflow.iteration)}`})
+            {workflow.iteration === 0
+              ? ' • Initial Run'
+              : ` • Retry Cycle ${String(workflow.iteration)}`}
+            )
           </span>
         </div>
 
@@ -746,7 +758,10 @@ export function WorkflowPage(): React.JSX.Element {
 
       {/* 3. INTERACTIVE PLAN REVIEW BANNER WHEN AWAITING USER APPROVAL */}
       {isAwaitingApproval && (
-        <Card tone="raised" className="border-(--color-warning)/50 bg-(--color-warning)/10 p-3.5 shadow-xs">
+        <Card
+          tone="raised"
+          className="border-(--color-warning)/50 bg-(--color-warning)/10 p-3.5 shadow-xs"
+        >
           <div className="flex flex-col gap-3">
             <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-2.5">
@@ -761,7 +776,8 @@ export function WorkflowPage(): React.JSX.Element {
                     </Badge>
                   </div>
                   <p className="m-0 text-[11px] text-(--color-text-muted)">
-                    Alex (Planner) has produced the plan below. Review the blueprint and click Approve to authorize implementation.
+                    Alex (Planner) has produced the plan below. Review the blueprint and click
+                    Approve to authorize implementation.
                   </p>
                 </div>
               </div>
@@ -816,7 +832,15 @@ export function WorkflowPage(): React.JSX.Element {
                       role={step.role}
                       label={persona}
                       stageLabel={stageLabel}
-                      state={step.state as 'pending' | 'running' | 'completed' | 'failed' | 'halted' | 'awaiting_user'}
+                      state={
+                        step.state as
+                          | 'pending'
+                          | 'running'
+                          | 'completed'
+                          | 'failed'
+                          | 'halted'
+                          | 'awaiting_user'
+                      }
                       verdict={step.verdict}
                       runtimeId={step.runtimeId}
                       selected={isSelected}
@@ -880,7 +904,11 @@ export function WorkflowPage(): React.JSX.Element {
                 key={`${project.id}-${effectiveSelectedStep?.runtimeId ?? 'default'}-${effectiveSelectedStep?.id ?? 'main'}`}
                 projectId={project.id}
                 runtimeId={effectiveSelectedStep?.runtimeId}
-                personaName={effectiveSelectedStep !== null ? getPersonaForRole(effectiveSelectedStep.role).persona : undefined}
+                personaName={
+                  effectiveSelectedStep !== null
+                    ? getPersonaForRole(effectiveSelectedStep.role).persona
+                    : undefined
+                }
                 title={`${effectiveSelectedStep !== null ? getPersonaForRole(effectiveSelectedStep.role).persona : 'Agent'} Terminal`}
                 className="flex-1 min-h-[300px]"
               />
@@ -888,7 +916,11 @@ export function WorkflowPage(): React.JSX.Element {
               <AgentTerminal
                 logs={logs}
                 title="Live Workflow & Agent Protocol"
-                personaName={effectiveSelectedStep !== null ? getPersonaForRole(effectiveSelectedStep.role).persona : undefined}
+                personaName={
+                  effectiveSelectedStep !== null
+                    ? getPersonaForRole(effectiveSelectedStep.role).persona
+                    : undefined
+                }
                 runtimeId={effectiveSelectedStep?.runtimeId}
                 repositoryPath={project.repository.absolutePath}
                 isRunning={isRunning}

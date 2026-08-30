@@ -147,7 +147,8 @@ export function AgentTerminal({
           )}
           {personaName && (
             <div>
-              Active Persona: <span className="font-semibold text-(--color-text)">{personaName}</span>
+              Active Persona:{' '}
+              <span className="font-semibold text-(--color-text)">{personaName}</span>
             </div>
           )}
         </div>
@@ -211,7 +212,9 @@ export function AgentTerminal({
         {isRunning && (
           <div className="flex items-center gap-2 pt-1 text-(--color-accent) font-mono">
             <span className="animate-pulse">▌</span>
-            <span className="text-[10px] text-(--color-text-subtle)">Agent executing turn in worktree...</span>
+            <span className="text-[10px] text-(--color-text-subtle)">
+              Agent executing turn in worktree...
+            </span>
           </div>
         )}
       </div>

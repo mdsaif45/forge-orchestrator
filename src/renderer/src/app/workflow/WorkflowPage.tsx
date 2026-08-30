@@ -416,6 +416,13 @@ export function WorkflowPage(): React.JSX.Element {
     })
   })()
 
+  const effectiveSelectedStep =
+    selectedStep ??
+    stageSteps.find((s) => s.state === 'running') ??
+    stageSteps.find((s) => s.state === 'awaiting_user') ??
+    stageSteps[0] ??
+    null
+
   if (project === null) {
     return (
       <div className="flex h-full flex-col">
@@ -643,6 +650,7 @@ export function WorkflowPage(): React.JSX.Element {
             <div className="flex items-center gap-3">
               {stageSteps.map((step: WorkflowStepView, idx: number) => {
                 const { persona, stageLabel } = getPersonaForRole(step.role)
+                const isSelected = effectiveSelectedStep?.id === step.id
                 return (
                   <React.Fragment key={step.id}>
                     <WorkflowNode
@@ -652,7 +660,7 @@ export function WorkflowPage(): React.JSX.Element {
                       state={step.state as 'pending' | 'running' | 'completed' | 'failed' | 'halted' | 'awaiting_user'}
                       verdict={step.verdict}
                       runtimeId={step.runtimeId}
-                      selected={selectedStep?.id === step.id}
+                      selected={isSelected}
                       active={step.state === 'running'}
                       onClick={() => {
                         setSelectedStep(step)
@@ -710,19 +718,19 @@ export function WorkflowPage(): React.JSX.Element {
 
             {terminalMode === 'real-pty' ? (
               <RealTerminal
-                key={`${project.id}-${selectedStep?.runtimeId ?? 'default'}-${selectedStep?.id ?? 'main'}`}
+                key={`${project.id}-${effectiveSelectedStep?.runtimeId ?? 'default'}-${effectiveSelectedStep?.id ?? 'main'}`}
                 projectId={project.id}
-                runtimeId={selectedStep?.runtimeId}
-                personaName={selectedStep !== null ? getPersonaForRole(selectedStep.role).persona : undefined}
-                title={`${selectedStep !== null ? getPersonaForRole(selectedStep.role).persona : 'Agent'} Terminal`}
+                runtimeId={effectiveSelectedStep?.runtimeId}
+                personaName={effectiveSelectedStep !== null ? getPersonaForRole(effectiveSelectedStep.role).persona : undefined}
+                title={`${effectiveSelectedStep !== null ? getPersonaForRole(effectiveSelectedStep.role).persona : 'Agent'} Terminal`}
                 className="flex-1 min-h-[300px]"
               />
             ) : (
               <AgentTerminal
                 logs={logs}
                 title="Live Workflow & Agent Protocol"
-                personaName={selectedStep !== null ? getPersonaForRole(selectedStep.role).persona : undefined}
-                runtimeId={selectedStep?.runtimeId}
+                personaName={effectiveSelectedStep !== null ? getPersonaForRole(effectiveSelectedStep.role).persona : undefined}
+                runtimeId={effectiveSelectedStep?.runtimeId}
                 repositoryPath={project.repository.absolutePath}
                 isRunning={isRunning}
                 onClear={() => {
@@ -749,7 +757,7 @@ export function WorkflowPage(): React.JSX.Element {
         {/* Right Column: Step Inspector Panel with Live Console Tab */}
         <Card tone="raised" className="flex flex-col overflow-hidden">
           <StepInspector
-            step={selectedStep}
+            step={effectiveSelectedStep}
             stepLogs={logs}
             onClose={() => {
               setSelectedStep(null)

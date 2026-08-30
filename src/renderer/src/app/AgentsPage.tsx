@@ -17,7 +17,7 @@ import { useProjectStore } from './projectStore'
 const DEFAULT_BUILTIN_AGENTS: readonly CustomAgentConfig[] = [
   {
     id: 'agent-planner-default',
-    name: 'Architecture Planner',
+    name: 'Alex (Planner)',
     roleType: 'planner',
     runtimeId: 'primary-engine',
     instructions: 'Explores codebase, identifies dependencies, and proposes robust architectural decisions.',
@@ -25,7 +25,7 @@ const DEFAULT_BUILTIN_AGENTS: readonly CustomAgentConfig[] = [
   },
   {
     id: 'agent-implementer-default',
-    name: 'Core Implementer',
+    name: 'Sam (Implementer)',
     roleType: 'implementer',
     runtimeId: 'secondary-engine',
     instructions: 'Writes clean, modular code inside isolated worktrees, adhering strictly to project guidelines.',
@@ -33,7 +33,7 @@ const DEFAULT_BUILTIN_AGENTS: readonly CustomAgentConfig[] = [
   },
   {
     id: 'agent-reviewer-default',
-    name: 'Quality & Security Reviewer',
+    name: 'Morgan (Reviewer)',
     roleType: 'reviewer',
     runtimeId: 'primary-engine',
     instructions: 'Audits diffs, verifies locked decisions, and checks for edge cases and regressions.',
@@ -277,19 +277,20 @@ export function AgentsPage(): React.JSX.Element {
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
           {customAgents.map((agent) => {
-            const isAssigned = roles.some((r) => r.binding?.runtimeId === agent.runtimeId)
-            const assignedRoleObj = roles.find((r) => r.binding?.runtimeId === agent.runtimeId)
+            const roleBinding = roles.find((r) => r.role === agent.roleType)
+            const activeRuntime = roleBinding?.binding?.runtimeId ?? agent.runtimeId
+            const isAssigned = roleBinding?.binding !== null && roleBinding?.binding !== undefined
             return (
               <AgentCard
                 key={agent.id}
                 id={agent.id}
                 name={agent.name}
                 roleType={agent.roleType}
-                runtimeId={agent.runtimeId}
+                runtimeId={activeRuntime}
                 instructions={agent.instructions}
                 capabilities={agent.capabilities}
                 isAssigned={isAssigned}
-                assignedRole={assignedRoleObj?.role}
+                assignedRole={roleBinding?.role}
                 isCustom={!DEFAULT_BUILTIN_AGENTS.some((d) => d.id === agent.id)}
                 onDelete={
                   !DEFAULT_BUILTIN_AGENTS.some((d) => d.id === agent.id)

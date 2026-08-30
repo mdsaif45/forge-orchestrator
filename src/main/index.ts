@@ -255,6 +255,7 @@ if (!claimSingleInstance()) {
     const terminalService = new TerminalService({
       processes,
       projects: projectService,
+      runtimeExecutable,
       emitData: (payload) => {
         for (const win of BrowserWindow.getAllWindows()) {
           if (!win.isDestroyed()) {

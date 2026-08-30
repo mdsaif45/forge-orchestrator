@@ -710,10 +710,11 @@ export function WorkflowPage(): React.JSX.Element {
 
             {terminalMode === 'real-pty' ? (
               <RealTerminal
+                key={`${project.id}-${selectedStep?.runtimeId ?? 'default'}-${selectedStep?.id ?? 'main'}`}
                 projectId={project.id}
-                personaName={selectedStep !== null ? getPersonaForRole(selectedStep.role).persona : undefined}
                 runtimeId={selectedStep?.runtimeId}
-                title="Interactive Agent Terminal (node-pty)"
+                personaName={selectedStep !== null ? getPersonaForRole(selectedStep.role).persona : undefined}
+                title={`${selectedStep !== null ? getPersonaForRole(selectedStep.role).persona : 'Agent'} Terminal`}
                 className="flex-1 min-h-[300px]"
               />
             ) : (

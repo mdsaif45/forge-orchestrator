@@ -14,6 +14,7 @@ export interface TerminalEventExitPayload {
 export interface TerminalServiceOptions {
   readonly processes: ProcessManager
   readonly projects: ProjectService
+  readonly runtimeExecutable?: ((runtimeId: string) => string) | undefined
   readonly emitData: (payload: TerminalEventDataPayload) => void
   readonly emitExit: (payload: TerminalEventExitPayload) => void
 }
@@ -25,6 +26,7 @@ export class TerminalService {
 
   async spawn(req: {
     readonly projectId: string
+    readonly runtimeId?: string | undefined
     readonly command?: string | undefined
     readonly args?: readonly string[] | undefined
     readonly cwd?: string | undefined
@@ -40,9 +42,13 @@ export class TerminalService {
     const terminalId = `term-${Date.now().toString()}-${Math.random().toString(36).slice(2, 7)}`
     const targetCwd = req.cwd ?? detail.project.repository.absolutePath
 
-    // Default command: if not specified, default to powershell on win32 or sh on posix
+    const resolvedCli =
+      req.runtimeId !== undefined && this.options.runtimeExecutable !== undefined
+        ? this.options.runtimeExecutable(req.runtimeId)
+        : undefined
+
     const defaultShell = process.platform === 'win32' ? 'powershell.exe' : 'bash'
-    const command = req.command ?? defaultShell
+    const command = req.command ?? resolvedCli ?? defaultShell
     const args = req.args ?? []
 
     const handle = await this.options.processes.spawn({

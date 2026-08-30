@@ -275,9 +275,15 @@ export class ProcessManager {
     // a child, and defaulting to drop means a new secret-shaped variable is excluded
     // without anyone remembering to exclude it (rule R7).
     const childEnv = buildChildEnv(process.env, request.env ?? {})
+    const resolved = resolveCommand(request.command, childEnv)
+    const isCmdShim = process.platform === 'win32' && /\.(cmd|bat)$/i.test(resolved)
+    const finalCommand = isCmdShim
+      ? (childEnv.COMSPEC ?? process.env.COMSPEC ?? 'cmd.exe')
+      : resolved
+    const finalArgs = isCmdShim ? ['/d', '/c', resolved, ...request.args] : [...request.args]
 
     try {
-      run.pty = spawnPty(resolveCommand(request.command, childEnv), [...request.args], {
+      run.pty = spawnPty(finalCommand, finalArgs, {
         cwd: request.cwd,
         env: childEnv,
         cols: request.cols ?? 120,

@@ -155,6 +155,7 @@ export function RealTerminal({
     window.forge.terminal
       .spawn({
         projectId,
+        ...(runtimeId !== null && runtimeId !== undefined ? { runtimeId } : {}),
         ...(command !== undefined ? { command } : {}),
         ...(args !== undefined ? { args } : {}),
         ...(cwd !== undefined ? { cwd } : {}),
@@ -211,7 +212,7 @@ export function RealTerminal({
         void window.forge.terminal.kill(activeTermId)
       }
     }
-  }, [projectId, command, cwd, args])
+  }, [projectId, runtimeId, command, cwd, args])
 
   const handleClear = (): void => {
     terminalInstanceRef.current?.clear()

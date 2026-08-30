@@ -65,8 +65,8 @@ export function StartWorkflowDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="Start New Workflow"
-      description="Define the feature or bug fix requirements for your agent to plan and implement."
+      title="Start New Work"
+      description="Define task requirements and objectives for your agents to plan and execute in sandbox."
       size="lg"
       footer={
         <div className="flex items-center justify-end gap-2">
@@ -112,8 +112,8 @@ export function StartWorkflowDialog({
           />
         </div>
 
-        {/* Feature Title */}
-        <Field label="Feature or Task Title" required hint="Short, descriptive headline for this task">
+        {/* Work / Task Title */}
+        <Field label="Work / Task Title" required hint="Short, descriptive headline for this task">
           {() => (
             <Input
               placeholder="e.g. Add dark mode toggle with persistent state"

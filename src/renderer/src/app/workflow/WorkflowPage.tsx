@@ -35,18 +35,18 @@ function describeWorkflowState(workflow: WorkflowDetailView): string {
     case 'DISCUSSING':
       return 'Discussing requirements'
     case 'PLANNING':
-      return 'Planning implementation'
+      return 'Planning implementation blueprint'
     case 'AWAITING_APPROVAL':
     case 'AWAITING_USER':
-      return 'Awaiting your approval'
+      return 'Plan ready — Awaiting your approval'
     case 'DECISIONS_PENDING':
-      return 'Reviewing decisions'
+      return 'Reviewing proposed decisions'
     case 'IMPLEMENTING':
-      return 'Implementing in worktree'
+      return 'Implementing changes in sandbox'
     case 'VERIFYING':
-      return 'Verifying changes'
+      return 'Verifying tests & build suite'
     case 'REVIEWING':
-      return 'Reviewing code quality'
+      return 'Reviewing code quality & security'
     case 'CORRECTING':
       return 'Refining implementation'
     case 'DONE':
@@ -54,11 +54,28 @@ function describeWorkflowState(workflow: WorkflowDetailView): string {
     case 'CANCELLED':
       return 'Workflow cancelled'
     case 'HALTED_POLICY':
-      return 'Halted (Policy violation or agent exit)'
+      return 'Halted: Policy violation or agent exit'
     case 'HALTED_LIMIT':
-      return 'Halted (Limit reached)'
+      return 'Halted: Iteration limit reached'
     default:
       return workflow.state
+  }
+}
+
+function getPersonaForRole(role: string): { readonly persona: string; readonly stageLabel: string } {
+  switch (role) {
+    case 'planner':
+      return { persona: 'Alex (Planner)', stageLabel: 'Stage 1 • Planning' }
+    case 'user':
+      return { persona: 'You (Approval Gate)', stageLabel: 'Stage 2 • Review Gate' }
+    case 'implementer':
+      return { persona: 'Sam (Implementer)', stageLabel: 'Stage 3 • Sandbox Code' }
+    case 'reviewer':
+      return { persona: 'Morgan (Reviewer)', stageLabel: 'Stage 4 • Code Audit' }
+    case 'system':
+      return { persona: 'Forge Engine', stageLabel: 'Stage • Verification' }
+    default:
+      return { persona: role, stageLabel: `Stage • ${role}` }
   }
 }
 
@@ -226,6 +243,11 @@ export function WorkflowPage(): React.JSX.Element {
           timestamp: now.toLocaleTimeString(),
           text: `[START] Task "${data.title}" initiated (${started.templateId})`,
         },
+        {
+          id: `init-planner-${String(now.getTime())}`,
+          timestamp: now.toLocaleTimeString(),
+          text: `[PLANNER] Alex (Planner) starting architectural analysis and dependency scan...`,
+        },
       ])
       show({
         tone: 'success',
@@ -262,7 +284,7 @@ export function WorkflowPage(): React.JSX.Element {
       show({
         tone: 'success',
         title: 'Entered Implementation Mode',
-        description: 'Decisions locked. Agent authorized to implement changes in sandbox.',
+        description: 'Decisions locked. Sam (Implementer) authorized to write changes in worktree.',
       })
     } catch (err: unknown) {
       show({
@@ -389,30 +411,40 @@ export function WorkflowPage(): React.JSX.Element {
           </div>
 
           {workflow !== null && (
-            <>
+            <div className="flex items-center gap-2">
+              {/* Dynamic Clean Status Pill */}
               <div
-                className="flex items-center gap-2 rounded-full border border-(--color-border) bg-(--color-surface-raised) px-3 py-1 text-[12px]"
+                className={`flex items-center gap-2 rounded-full border px-3 py-1 text-[12px] ${
+                  status === 'failed'
+                    ? 'border-(--color-danger)/30 bg-(--color-danger)/10 text-(--color-danger)'
+                    : 'border-(--color-border) bg-(--color-surface-raised) text-(--color-text)'
+                }`}
                 title={workflow.state}
               >
                 <StatusDot status={status} pulse={isRunning} />
-                <span className="font-semibold text-(--color-text)">
-                  {describeWorkflowState(workflow)}
+                <span className="font-semibold">
+                  {workflow.state.startsWith('HALTED')
+                    ? `Halted: ${workflow.haltReason ?? 'Policy violation or agent exit'}`
+                    : describeWorkflowState(workflow)}
                 </span>
-                <span className="text-(--color-text-muted)">
+                <span className="text-(--color-text-muted) text-[11px]">
                   (iteration {String(workflow.iteration)} of {String(workflow.limits.maxIterations)})
                 </span>
               </div>
 
-              <Badge
-                tone={isDiscussionMode ? 'warning' : 'accent'}
-                size="sm"
-                className="rounded-full"
-              >
-                {isDiscussionMode
-                  ? 'PLANNING MODE (Read-only Sandbox)'
-                  : 'IMPLEMENTATION MODE (Decision Locked)'}
-              </Badge>
-            </>
+              {/* Mode Badge - Only show when active, not when halted */}
+              {!isTerminal && (
+                <Badge
+                  tone={isDiscussionMode ? 'warning' : 'accent'}
+                  size="sm"
+                  className="rounded-full"
+                >
+                  {isDiscussionMode
+                    ? 'PLANNING MODE (Read-only Sandbox)'
+                    : 'IMPLEMENTATION MODE (Decision Locked)'}
+                </Badge>
+              )}
+            </div>
           )}
         </div>
 
@@ -427,7 +459,7 @@ export function WorkflowPage(): React.JSX.Element {
               disabled={actionInProgress}
               className="h-8 rounded-lg text-[12px]"
             >
-              + Start New Feature
+              + Start New Work
             </Button>
           ) : isAwaitingApproval ? (
             <div className="flex items-center gap-2">
@@ -478,6 +510,43 @@ export function WorkflowPage(): React.JSX.Element {
         </div>
       </div>
 
+      {/* Interactive Plan Review Banner when awaiting approval */}
+      {isAwaitingApproval && (
+        <Card tone="raised" className="border-(--color-warning)/40 bg-(--color-warning)/5 p-3.5">
+          <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-2.5">
+              <span className="text-[18px]">📋</span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-[13px] font-bold text-(--color-text)">
+                    Plan Ready for Your Review
+                  </span>
+                  <Badge tone="warning" size="sm">
+                    Human Gate
+                  </Badge>
+                </div>
+                <p className="m-0 text-[11px] text-(--color-text-muted)">
+                  Alex (Planner) has produced the architectural plan. Review proposed decisions in the inspector and approve to authorize Sam (Implementer) to write code.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <Button
+                variant="primary"
+                onClick={() => {
+                  void handleApproveAndImplement()
+                }}
+                disabled={actionInProgress}
+                className="h-7 text-[11px] font-semibold"
+              >
+                ✓ Approve & Start Implementation
+              </Button>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* Main Content Area */}
       <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-3 overflow-hidden">
         {/* Left 2 Columns: Workflow Pipeline & Live Logs */}
@@ -496,33 +565,37 @@ export function WorkflowPage(): React.JSX.Element {
           {workflow !== null && (
             <Card tone="raised" className="p-4 overflow-x-auto">
               <div className="flex items-center gap-3">
-                {workflow.steps.map((step: WorkflowStepView, idx: number) => (
-                  <React.Fragment key={step.id}>
-                    <WorkflowNode
-                      role={step.role}
-                      label={step.role.toUpperCase()}
-                      state={step.state as 'pending' | 'running' | 'completed' | 'failed' | 'halted' | 'awaiting_user'}
-                      verdict={step.verdict}
-                      runtimeId={step.runtimeId}
-                      selected={selectedStep?.id === step.id}
-                      active={step.state === 'running'}
-                      onClick={() => {
-                        setSelectedStep(step)
-                      }}
-                    />
-                    {idx < workflow.steps.length - 1 && (
-                      <WorkflowEdge
-                        state={
-                          workflow.steps[idx + 1]?.state === 'running'
-                            ? 'active'
-                            : step.state === 'completed'
-                              ? 'completed'
-                              : 'pending'
-                        }
+                {workflow.steps.map((step: WorkflowStepView, idx: number) => {
+                  const { persona, stageLabel } = getPersonaForRole(step.role)
+                  return (
+                    <React.Fragment key={step.id}>
+                      <WorkflowNode
+                        role={step.role}
+                        label={persona}
+                        stageLabel={stageLabel}
+                        state={step.state as 'pending' | 'running' | 'completed' | 'failed' | 'halted' | 'awaiting_user'}
+                        verdict={step.verdict}
+                        runtimeId={step.runtimeId}
+                        selected={selectedStep?.id === step.id}
+                        active={step.state === 'running'}
+                        onClick={() => {
+                          setSelectedStep(step)
+                        }}
                       />
-                    )}
-                  </React.Fragment>
-                ))}
+                      {idx < workflow.steps.length - 1 && (
+                        <WorkflowEdge
+                          state={
+                            workflow.steps[idx + 1]?.state === 'running'
+                              ? 'active'
+                              : step.state === 'completed'
+                                ? 'completed'
+                                : 'pending'
+                          }
+                        />
+                      )}
+                    </React.Fragment>
+                  )
+                })}
               </div>
             </Card>
           )}
@@ -566,7 +639,7 @@ export function WorkflowPage(): React.JSX.Element {
             <ScrollArea className="flex-1 bg-(--color-surface-inset) p-4">
               {logs.length === 0 ? (
                 <p className="text-[12px] text-(--color-text-muted) italic">
-                  No execution logs recorded yet. Start a workflow to stream agent actions and verification steps.
+                  No execution logs recorded yet. Start new work to stream agent actions and verification steps.
                 </p>
               ) : (
                 <div className="space-y-1 font-mono text-[12px]">
@@ -607,7 +680,7 @@ export function WorkflowPage(): React.JSX.Element {
         </Card>
       </div>
 
-      {/* Start New Workflow / Feature Requirements Modal */}
+      {/* Start New Work / Requirements Modal */}
       <StartWorkflowDialog
         open={startDialogOpen}
         templates={allTemplates}

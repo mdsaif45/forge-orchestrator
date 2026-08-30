@@ -12,13 +12,16 @@ export type WorkflowNodeState =
 
 export interface WorkflowNodeProps extends React.HTMLAttributes<HTMLButtonElement> {
   readonly role: string
-  readonly label: string
+  readonly label?: string | undefined
+  readonly personaName?: string | undefined
+  readonly personaIcon?: string | undefined
+  readonly stageLabel?: string | undefined
   readonly state: WorkflowNodeState
-  readonly runtimeId?: string | null
-  readonly verdict?: string | null
-  readonly simulated?: boolean | null
-  readonly selected?: boolean
-  readonly active?: boolean
+  readonly runtimeId?: string | null | undefined
+  readonly verdict?: string | null | undefined
+  readonly simulated?: boolean | null | undefined
+  readonly selected?: boolean | undefined
+  readonly active?: boolean | undefined
 }
 
 export const WorkflowNode = React.forwardRef<HTMLButtonElement, WorkflowNodeProps>(
@@ -26,6 +29,9 @@ export const WorkflowNode = React.forwardRef<HTMLButtonElement, WorkflowNodeProp
     {
       role,
       label,
+      personaName,
+      personaIcon,
+      stageLabel,
       state,
       runtimeId,
       verdict,
@@ -51,6 +57,43 @@ export const WorkflowNode = React.forwardRef<HTMLButtonElement, WorkflowNodeProp
                 ? 'waiting'
                 : 'idle'
 
+    // Determine friendly human persona display
+    const resolvedIcon =
+      personaIcon ??
+      (role === 'planner'
+        ? '🧠'
+        : role === 'user'
+          ? '👤'
+          : role === 'implementer'
+            ? '💻'
+            : role === 'reviewer'
+              ? '🔍'
+              : '⚙️')
+
+    const resolvedPersona =
+      personaName ??
+      (role === 'planner'
+        ? 'Alex (Planner)'
+        : role === 'user'
+          ? 'You (Approval Gate)'
+          : role === 'implementer'
+            ? 'Sam (Implementer)'
+            : role === 'reviewer'
+              ? 'Morgan (Reviewer)'
+              : 'Forge Engine')
+
+    const resolvedStage =
+      stageLabel ??
+      (role === 'planner'
+        ? 'Planning Phase'
+        : role === 'user'
+          ? 'Human Review'
+          : role === 'implementer'
+            ? 'Sandbox Execution'
+            : role === 'reviewer'
+              ? 'Quality Audit'
+              : 'Verification')
+
     return (
       <button
         ref={ref}
@@ -61,66 +104,61 @@ export const WorkflowNode = React.forwardRef<HTMLButtonElement, WorkflowNodeProp
         className={cn(
           'group relative flex flex-col items-start gap-1.5 rounded-xl border p-3 text-left transition-all duration-(--duration-fast) cursor-pointer select-none',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-border-focus)',
-          'min-w-[140px] max-w-[200px]',
+          'min-w-[170px] max-w-[220px]',
           selected
-            ? 'border-(--color-accent) bg-(--color-accent-muted) shadow-sm ring-1 ring-(--color-accent)'
+            ? 'border-(--color-accent) bg-(--color-accent)/10 shadow-sm ring-1 ring-(--color-accent)'
             : 'border-(--color-border) bg-(--color-surface-raised) hover:border-(--color-border-strong) hover:bg-(--color-surface)',
-          active ? 'ring-2 ring-(--color-accent)/50' : undefined,
+          active ? 'ring-2 ring-(--color-accent)/60 animate-pulse' : undefined,
           className,
         )}
         {...rest}
       >
-        <div className="flex w-full items-center justify-between gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-(--color-text-subtle)">
-            {role}
+        {/* Top: Stage Tag & Live Status Dot */}
+        <div className="flex w-full items-center justify-between gap-2 border-b border-(--color-border)/40 pb-1.5">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-(--color-text-subtle) truncate">
+            {resolvedStage}
           </span>
           <StatusDot status={status} pulse={state === 'running' || active} />
         </div>
 
-        <div className="flex items-center gap-1.5">
-          <span className="text-[13px] font-medium text-(--color-text)">
-            {label}
-          </span>
+        {/* Middle: Friendly Persona Name & Icon */}
+        <div className="flex items-center gap-2 py-0.5 w-full">
+          <span className="text-[16px] shrink-0">{resolvedIcon}</span>
+          <div className="truncate">
+            <span className="text-[13px] font-bold text-(--color-text) truncate block">
+              {label ?? resolvedPersona}
+            </span>
+            {label && label !== resolvedPersona && (
+              <span className="text-[10px] text-(--color-text-muted) truncate block">
+                {resolvedPersona}
+              </span>
+            )}
+          </div>
         </div>
 
-        <div className="mt-1 flex w-full items-center justify-between gap-1.5 text-[11px] text-(--color-text-muted)">
-          <span className="truncate">{runtimeId ?? state}</span>
+        {/* Bottom: Engine & Verdict */}
+        <div className="mt-1 flex w-full items-center justify-between gap-1.5 text-[11px] text-(--color-text-muted) border-t border-(--color-border)/30 pt-1.5">
+          <span className="font-mono text-[10px] truncate max-w-[90px]" title={runtimeId ?? state}>
+            {runtimeId ?? (role === 'user' ? 'human-gate' : state)}
+          </span>
           {verdict !== undefined && verdict !== null && (
             <span
               className={cn(
-                'shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase',
+                'shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase',
                 simulated === true
                   ? 'bg-(--color-surface-inset) text-(--color-text-muted) ring-1 ring-(--color-border)'
                   : verdict === 'pass'
-                    ? 'bg-(--color-success-muted) text-(--color-success)'
+                    ? 'bg-(--color-success)/15 text-(--color-success)'
                     : verdict === 'fail'
-                      ? 'bg-(--color-danger-muted) text-(--color-danger)'
+                      ? 'bg-(--color-danger)/15 text-(--color-danger)'
                       : 'bg-(--color-surface-inset) text-(--color-text-muted)',
               )}
-              title={
-                simulated === true
-                  ? 'Simulated: replayed from a scripted scenario, not real work'
-                  : undefined
-              }
             >
               {simulated === true ? `sim ${verdict}` : verdict}
             </span>
           )}
         </div>
-
-        {simulated === true && (
-          <span
-            className={cn(
-              'mt-1.5 block w-full rounded-md border border-(--color-warning)/40 bg-(--color-warning-muted) px-2 py-0.5 text-center',
-              'font-mono text-[9px] font-bold uppercase tracking-wider text-(--color-warning)',
-            )}
-          >
-            SIMULATED
-          </span>
-        )}
       </button>
     )
-  },
+  }
 )
-
-WorkflowNode.displayName = 'WorkflowNode'

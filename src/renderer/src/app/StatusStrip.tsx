@@ -1,43 +1,29 @@
 import type { ProjectView } from '@shared/ipc'
-import { Badge, Button, Select, Separator, StatusDot } from '../ui'
+import { Badge, Button, Select, Separator } from '../ui'
 
 /**
  * The always-visible frameless title bar / status strip.
  *
- * Provides window drag region, active project switcher, and real-time workflow status.
+ * Provides window drag region, active project switcher, and kitchen sink access.
  */
 export interface StatusStripProps {
   readonly projects: readonly ProjectView[]
   readonly selectedProjectId: string | null
   readonly onSelectProject: (projectId: string) => void
   readonly onNewProject: () => void
-  readonly workflowState: WorkflowStatePlaceholder
+  readonly workflowState?: WorkflowStatePlaceholder | undefined
   readonly onOpenKitchenSink: () => void
 }
 
 export type WorkflowStatePlaceholder = 'idle' | 'running' | 'waiting' | 'passed' | 'failed'
-
-const STATE_PRESENTATION: Record<
-  WorkflowStatePlaceholder,
-  { readonly label: string; readonly status: 'idle' | 'running' | 'waiting' | 'passed' | 'failed' }
-> = {
-  idle: { label: 'Idle', status: 'idle' },
-  running: { label: 'Running', status: 'running' },
-  waiting: { label: 'Waiting for you', status: 'waiting' },
-  passed: { label: 'Complete', status: 'passed' },
-  failed: { label: 'Halted', status: 'failed' },
-}
 
 export function StatusStrip({
   projects,
   selectedProjectId,
   onSelectProject,
   onNewProject,
-  workflowState,
   onOpenKitchenSink,
 }: StatusStripProps): React.JSX.Element {
-  const presentation = STATE_PRESENTATION[workflowState]
-
   return (
     <header className="app-drag-region flex h-[38px] shrink-0 select-none items-center gap-2.5 border-b border-(--color-border) bg-(--color-surface) px-3 pr-36 text-(--color-text) transition-colors duration-(--duration-fast)">
       {/* Brand & App Title */}
@@ -76,20 +62,7 @@ export function StatusStrip({
         </Button>
       </div>
 
-      {/* Global Workflow Status Indicator */}
-      <div
-        aria-live="polite"
-        className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-(--color-border) bg-(--color-surface-raised) px-2.5 py-0.5 text-[11px] text-(--color-text-muted)"
-      >
-        <StatusDot
-          status={presentation.status}
-          pulse={workflowState === 'running'}
-          label={presentation.label}
-        />
-        <span className="font-medium text-(--color-text)">{presentation.label}</span>
-      </div>
-
-      <Separator orientation="vertical" className="h-3.5" />
+      <div className="ml-auto" />
 
       <Badge tone="neutral" size="sm" className="rounded-md font-mono text-[10px]">
         pre-alpha
@@ -102,7 +75,7 @@ export function StatusStrip({
             size="sm"
             variant="ghost"
             onClick={onOpenKitchenSink}
-            className="h-7 rounded-lg px-2 text-[11px] text-(--color-text-muted)"
+            className="h-6 rounded px-2 text-[11px] font-mono text-(--color-text-subtle) hover:text-(--color-text)"
           >
             Kitchen sink
           </Button>

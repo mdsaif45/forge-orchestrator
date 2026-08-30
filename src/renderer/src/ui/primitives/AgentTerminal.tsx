@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { AnsiRenderer } from './AnsiRenderer'
 import { Badge } from './Badge'
 import { Button } from './Button'
 
@@ -13,6 +14,7 @@ export interface AgentTerminalProps {
   readonly title?: string | undefined
   readonly personaName?: string | undefined
   readonly runtimeId?: string | null | undefined
+  readonly repositoryPath?: string | undefined
   readonly isRunning?: boolean | undefined
   readonly onSendInput?: ((text: string) => void) | undefined
   readonly onClear?: (() => void) | undefined
@@ -24,6 +26,7 @@ export function AgentTerminal({
   title = 'Live Agent Terminal',
   personaName,
   runtimeId,
+  repositoryPath,
   isRunning = false,
   onSendInput,
   onClear,
@@ -56,7 +59,7 @@ export function AgentTerminal({
         className ?? ''
       }`}
     >
-      {/* Terminal Title Bar */}
+      {/* Terminal Title Bar with Window Controls & Status */}
       <div className="flex items-center justify-between border-b border-(--color-border) bg-(--color-surface-raised) px-3.5 py-2 select-none">
         <div className="flex items-center gap-2.5">
           <div className="flex items-center gap-1.5">
@@ -126,11 +129,29 @@ export function AgentTerminal({
         </div>
       </div>
 
-      {/* Terminal Output Console */}
+      {/* Terminal Output Stream */}
       <div
         ref={scrollRef}
-        className="flex-1 p-4 font-mono text-[11px] leading-relaxed overflow-y-auto min-h-[180px] max-h-[360px] space-y-1 select-text bg-(--color-surface-inset)"
+        className="flex-1 p-4 font-mono text-[11px] leading-relaxed overflow-y-auto min-h-[220px] max-h-[420px] space-y-1.5 select-text bg-(--color-surface-inset)"
       >
+        {/* Authentic CLI Header Banner */}
+        <div className="mb-3 rounded border border-(--color-border)/60 bg-(--color-surface)/40 p-2.5 text-[10px] font-mono text-(--color-text-muted) space-y-1">
+          <div className="flex items-center justify-between text-(--color-accent)">
+            <span className="font-bold">⚡ Forge Agent Runtime • Interactive Session</span>
+            <span>{runtimeId ?? 'primary-engine'}</span>
+          </div>
+          {repositoryPath && (
+            <div className="truncate text-(--color-text-subtle)">
+              Workspace: <span className="text-(--color-text)">{repositoryPath}</span>
+            </div>
+          )}
+          {personaName && (
+            <div>
+              Active Persona: <span className="font-semibold text-(--color-text)">{personaName}</span>
+            </div>
+          )}
+        </div>
+
         {logs.length === 0 ? (
           <div className="text-(--color-text-subtle) italic py-2">
             No console output yet. Agent terminal session will stream live output here.
@@ -156,9 +177,15 @@ export function AgentTerminal({
               log.text.includes('[PLANNER]') ||
               log.text.startsWith('>')
 
+            const isThinking =
+              log.text.startsWith('* ') ||
+              log.text.includes('Cooked for') ||
+              log.text.includes('Churned for') ||
+              log.text.includes('thinking')
+
             return (
               <div key={log.id || `log-${String(index)}`} className="flex items-start gap-2.5">
-                <span className="text-(--color-text-subtle) shrink-0 select-none text-[10px]">
+                <span className="text-(--color-text-subtle) shrink-0 select-none text-[10px] pt-0.5">
                   {log.timestamp}
                 </span>
                 <span
@@ -167,12 +194,14 @@ export function AgentTerminal({
                       ? 'text-(--color-danger) font-semibold'
                       : isSuccess
                         ? 'text-(--color-success) font-medium'
-                        : isCommand
-                          ? 'text-(--color-accent) font-semibold'
-                          : 'text-(--color-text)'
+                        : isThinking
+                          ? 'text-(--color-text-muted) italic'
+                          : isCommand
+                            ? 'text-(--color-accent) font-semibold'
+                            : 'text-(--color-text)'
                   }
                 >
-                  {log.text}
+                  <AnsiRenderer text={log.text} />
                 </span>
               </div>
             )
@@ -187,7 +216,7 @@ export function AgentTerminal({
         )}
       </div>
 
-      {/* Interactive Terminal Input Bar */}
+      {/* Interactive Terminal Prompt & Input Bar */}
       {onSendInput !== undefined && (
         <div className="flex items-center gap-2 border-t border-(--color-border) bg-(--color-surface) p-2">
           <span className="pl-2 font-mono text-(--color-accent) font-bold select-none">&gt;</span>
@@ -203,7 +232,7 @@ export function AgentTerminal({
                 handleSend()
               }
             }}
-            placeholder="Send command or message to agent..."
+            placeholder="Type prompt or command for agent session (e.g. 'tell me about the architecture')..."
             className="flex-1 bg-transparent font-mono text-[11px] text-(--color-text) placeholder-(--color-text-subtle) focus:outline-none"
           />
           <Button
@@ -211,7 +240,7 @@ export function AgentTerminal({
             variant="primary"
             onClick={handleSend}
             disabled={inputVal.trim() === ''}
-            className="h-6 px-2.5 text-[10px] font-mono"
+            className="h-6 px-2.5 text-[10px] font-mono font-semibold"
           >
             Send
           </Button>

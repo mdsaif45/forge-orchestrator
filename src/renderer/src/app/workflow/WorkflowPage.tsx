@@ -647,6 +647,7 @@ export function WorkflowPage(): React.JSX.Element {
             title="Live Workflow & Agent Terminal"
             personaName={selectedStep !== null ? getPersonaForRole(selectedStep.role).persona : undefined}
             runtimeId={selectedStep?.runtimeId}
+            repositoryPath={project.repository.absolutePath}
             isRunning={isRunning}
             onClear={() => {
               setLogs([])

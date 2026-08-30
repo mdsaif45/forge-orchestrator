@@ -88,3 +88,8 @@ export {
   type AgentTerminalProps,
   type TerminalLogEntry,
 } from './primitives/AgentTerminal'
+export {
+  AnsiRenderer,
+  type AnsiRendererProps,
+  parseAnsi,
+} from './primitives/AnsiRenderer'

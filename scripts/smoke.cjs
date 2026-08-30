@@ -106,6 +106,10 @@ app.whenReady().then(async () => {
   ipcMain.handle('git:getWorkingDiff', () => ({ ok: true, value: { files: [], patch: '' } }))
   ipcMain.handle('git:readFile', () => ({ ok: true, value: { content: '' } }))
   ipcMain.handle('git:writeFile', () => ({ ok: true, value: { success: true } }))
+  ipcMain.handle('provider:scanModels', () => ({
+    ok: true,
+    value: { ok: true, models: [], error: null },
+  }))
 
   await window.loadFile(join(__dirname, '../out/renderer/index.html'))
 

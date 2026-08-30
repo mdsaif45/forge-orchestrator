@@ -830,6 +830,17 @@ export const IPC_CONTRACT = {
     }),
     response: empty,
   },
+  'provider:scanModels': {
+    request: z.strictObject({
+      providerId: z.string(),
+      endpointUrl: z.string(),
+    }),
+    response: z.strictObject({
+      ok: z.boolean(),
+      models: z.array(z.string()).readonly(),
+      error: z.string().nullable(),
+    }),
+  },
 } as const satisfies IpcContractShape
 
 interface IpcChannelSpec {

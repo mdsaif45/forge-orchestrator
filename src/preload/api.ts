@@ -259,6 +259,18 @@ export interface ForgeApi {
     ) => Promise<IpcResult<Record<string, never>>>
     kill: (terminalId: string) => Promise<IpcResult<Record<string, never>>>
   }
+  readonly provider: {
+    scanModels: (
+      providerId: string,
+      endpointUrl: string,
+    ) => Promise<
+      IpcResult<{
+        readonly ok: boolean
+        readonly models: readonly string[]
+        readonly error: string | null
+      }>
+    >
+  }
   readonly onWorkflowEvent: (listener: (event: WorkflowEventPayload) => void) => () => void
   readonly onWorkflowLog: (listener: (log: WorkflowLogPayload) => void) => () => void
   readonly onTerminalData: (

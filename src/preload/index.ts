@@ -108,6 +108,10 @@ const api: ForgeApi = {
     resize: (terminalId, cols, rows) => call('terminal:resize', { terminalId, cols, rows }),
     kill: (terminalId) => call('terminal:kill', { terminalId }),
   },
+  provider: {
+    scanModels: (providerId, endpointUrl) =>
+      call('provider:scanModels', { providerId, endpointUrl }),
+  },
   onWorkflowEvent: (listener) => {
     const handler = (_event: unknown, payload: unknown) => {
       listener(payload as Parameters<typeof listener>[0])

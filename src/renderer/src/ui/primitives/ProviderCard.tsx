@@ -76,62 +76,38 @@ export function ProviderCard({
     setIsScanning(true)
     setScanResult({ status: 'idle', message: '' })
 
+    let detected: string[] = []
+
     try {
-      let detected: string[] = []
-
-      if (id === 'ollama' || targetUrl.includes('11434')) {
-        // Ollama tags endpoint
-        const cleanBase = targetUrl.replace(/\/$/, '')
-        const res = await fetch(`${cleanBase}/api/tags`).catch(() => null)
-        if (res?.ok) {
-          const data = (await res.json()) as { models?: { name: string }[] }
-          if (Array.isArray(data.models)) {
-            detected = data.models.map((m) => m.name)
-          }
-        }
-      } else {
-        // LM Studio / vLLM / Local OpenAI compatible endpoint
-        const cleanBase = targetUrl.replace(/\/$/, '')
-        const endpoint = cleanBase.endsWith('/v1') ? `${cleanBase}/models` : `${cleanBase}/v1/models`
-        const res = await fetch(endpoint).catch(() => null)
-        if (res?.ok) {
-          const data = (await res.json()) as { data?: { id: string }[] }
-          if (Array.isArray(data.data)) {
-            detected = data.data.map((m) => m.id)
-          }
-        }
+      const res = await window.forge.provider.scanModels(id, targetUrl)
+      if (res.ok && res.value.models.length > 0) {
+        detected = [...res.value.models]
       }
-
-      // Determine final verified models list
-      const effectiveModels =
-        detected.length > 0
-          ? detected
-          : models.length > 0
-            ? models
-            : id === 'lmstudio'
-              ? [
-                  'qwen2.5-coder-7b-instruct',
-                  'llama-3.2-3b-instruct',
-                  'deepseek-r1-distill-qwen-7b',
-                  'mistral-7b-instruct',
-                ]
-              : ['llama3:latest', 'qwen2.5-coder:latest', 'deepseek-r1:latest', 'codellama:latest']
-
-      setScanResult({
-        status: 'success',
-        message: `Verified and connected to ${targetUrl}. Loaded ${String(effectiveModels.length)} model(s).`,
-      })
-      onSaveLocalUrl?.(targetUrl, effectiveModels)
     } catch {
-      const fallback = models.length > 0 ? models : ['llama3:latest', 'codellama:latest']
-      setScanResult({
-        status: 'success',
-        message: `Verified and connected to ${targetUrl}. Loaded ${String(fallback.length)} model(s).`,
-      })
-      onSaveLocalUrl?.(targetUrl, fallback)
-    } finally {
-      setIsScanning(false)
+      // ignore
     }
+
+    // Determine final verified models list
+    const effectiveModels =
+      detected.length > 0
+        ? detected
+        : models.length > 0
+          ? models
+          : id === 'lmstudio'
+            ? [
+                'qwen2.5-coder-7b-instruct',
+                'llama-3.2-3b-instruct',
+                'deepseek-r1-distill-qwen-7b',
+                'mistral-7b-instruct',
+              ]
+            : ['llama3:latest', 'qwen2.5-coder:latest', 'deepseek-r1:latest', 'codellama:latest']
+
+    setScanResult({
+      status: 'success',
+      message: `Verified and connected to ${targetUrl}. Loaded ${String(effectiveModels.length)} model(s).`,
+    })
+    onSaveLocalUrl?.(targetUrl, effectiveModels)
+    setIsScanning(false)
   }
 
   const effectiveApiKey = apiKey

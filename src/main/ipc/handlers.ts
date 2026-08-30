@@ -307,5 +307,44 @@ export function createIpcHandlers({
       await terminal.kill(terminalId)
       return {}
     },
+
+    'provider:scanModels': async ({ providerId, endpointUrl }) => {
+      let detected: string[] = []
+      try {
+        if (providerId === 'ollama' || endpointUrl.includes('11434')) {
+          const cleanBase = endpointUrl.replace(/\/$/, '')
+          const res = await fetch(`${cleanBase}/api/tags`).catch(() => null)
+          if (res?.ok) {
+            const data = (await res.json()) as { models?: { name: string }[] }
+            if (Array.isArray(data.models)) {
+              detected = data.models.map((m) => m.name)
+            }
+          }
+        } else {
+          const cleanBase = endpointUrl.replace(/\/$/, '')
+          const endpoint = cleanBase.endsWith('/v1')
+            ? `${cleanBase}/models`
+            : `${cleanBase}/v1/models`
+          const res = await fetch(endpoint).catch(() => null)
+          if (res?.ok) {
+            const data = (await res.json()) as { data?: { id: string }[] }
+            if (Array.isArray(data.data)) {
+              detected = data.data.map((m) => m.id)
+            }
+          }
+        }
+        return {
+          ok: true,
+          models: detected,
+          error: null,
+        }
+      } catch (err) {
+        return {
+          ok: false,
+          models: [],
+          error: err instanceof Error ? err.message : String(err),
+        }
+      }
+    },
   }
 }

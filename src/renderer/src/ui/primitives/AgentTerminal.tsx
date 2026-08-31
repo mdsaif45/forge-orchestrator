@@ -132,7 +132,7 @@ export function AgentTerminal({
       {/* Terminal Output Stream */}
       <div
         ref={scrollRef}
-        className="flex-1 p-4 font-mono text-[11px] leading-relaxed overflow-y-auto min-h-[220px] max-h-[420px] space-y-1.5 select-text bg-(--color-surface-inset)"
+        className="flex-1 p-4 font-mono text-[11px] leading-relaxed overflow-y-auto min-h-[220px] space-y-1.5 select-text bg-(--color-surface-inset)"
       >
         {/* Authentic CLI Header Banner */}
         <div className="mb-3 rounded border border-(--color-border)/60 bg-(--color-surface)/40 p-2.5 text-[10px] font-mono text-(--color-text-muted) space-y-1">

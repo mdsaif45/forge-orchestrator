@@ -1,36 +1,33 @@
 import React, { useEffect, useState } from 'react'
 import type { PromptPacketView, WorkflowStepView } from '@shared/ipc'
-import {
-  AgentTerminal,
-  Badge,
-  Button,
-  MarkdownRenderer,
-  Spinner,
-  TabPanel,
-  Tabs,
-} from '@renderer/ui'
+import { Badge, Button, MarkdownRenderer, Spinner, TabPanel, Tabs } from '@renderer/ui'
 import { unwrap } from '@renderer/ipc'
 
 export interface StepInspectorProps {
   readonly step: WorkflowStepView | null
-  readonly stepLogs?: readonly { readonly timestamp: string; readonly text: string }[] | undefined
   readonly onClose?: () => void
 }
 
-type StepTab = 'summary' | 'logs' | 'packet' | 'verdict'
+type StepTab = 'summary' | 'packet' | 'verdict'
 
+/**
+ * Four tabs became three.
+ *
+ * "Live Console & Output" rendered the same log the terminal below already shows, at a
+ * third of the width — two panes competing to be the place you watch. The terminal won,
+ * because it is the one the user asked to be real.
+ *
+ * "Prompt Packet" stays but is renamed: it is the exact text Forge sent this agent, and
+ * it is the only way to tell a bad instruction from a bad agent. "Prompt Packet" named
+ * Forge's internal type; "Instruction Sent" names what the user is looking at.
+ */
 const TAB_ITEMS: readonly { readonly value: StepTab; readonly label: string }[] = [
   { value: 'summary', label: 'Summary' },
-  { value: 'logs', label: 'Live Console & Output' },
-  { value: 'packet', label: 'Prompt Packet' },
+  { value: 'packet', label: 'Instruction Sent' },
   { value: 'verdict', label: 'Verdict & Evidence' },
 ]
 
-export function StepInspector({
-  step,
-  stepLogs = [],
-  onClose,
-}: StepInspectorProps): React.JSX.Element {
+export function StepInspector({ step, onClose }: StepInspectorProps): React.JSX.Element {
   const [packetState, setPacketState] = useState<{
     ref: string
     packet: PromptPacketView | null
@@ -94,15 +91,6 @@ export function StepInspector({
           : step.role === 'reviewer'
             ? 'Morgan (Reviewer)'
             : 'Forge Engine'
-
-  const filteredLogs = stepLogs.filter(
-    (l) =>
-      l.text.includes(`[STEP ${String(step.index)}]`) ||
-      l.text.toLowerCase().includes(step.role) ||
-      l.text.toLowerCase().includes(personaName.toLowerCase().split(' ')[0] ?? ''),
-  )
-
-  const displayLogs = filteredLogs.length > 0 ? filteredLogs : stepLogs
 
   return (
     <div className="flex h-full flex-col rounded-xl border border-(--color-border) bg-(--color-surface-raised) text-[13px] shadow-xs overflow-hidden">
@@ -212,23 +200,7 @@ export function StepInspector({
           </div>
         </TabPanel>
 
-        {/* LIVE CONSOLE & OUTPUT TAB */}
-        <TabPanel active={activeTab === 'logs'}>
-          <AgentTerminal
-            logs={displayLogs.map((l, i) => ({
-              id: `term-log-${String(i)}`,
-              timestamp: l.timestamp,
-              text: l.text,
-            }))}
-            title={`${personaName} Terminal`}
-            personaName={personaName}
-            runtimeId={step.runtimeId}
-            isRunning={step.state === 'running'}
-            className="min-h-[300px]"
-          />
-        </TabPanel>
-
-        {/* PROMPT PACKET TAB */}
+        {/* INSTRUCTION SENT TAB */}
         <TabPanel active={activeTab === 'packet'}>
           {loading ? (
             <div className="flex justify-center p-6">

@@ -14,7 +14,6 @@ import {
   Card,
   CreateTemplateDialog,
   MarkdownRenderer,
-  RealTerminal,
   StartWorkflowDialog,
   StatusDot,
   useToast,
@@ -108,7 +107,6 @@ export function WorkflowPage(): React.JSX.Element {
   const [bindings, setBindings] = useState<RoleBindingsView | null>(null)
   const [logs, setLogs] = useState<readonly LogEntry[]>([])
   const [selectedStep, setSelectedStep] = useState<WorkflowStepView | null>(null)
-  const [terminalMode, setTerminalMode] = useState<'real-pty' | 'protocol'>('real-pty')
   const [actionInProgress, setActionInProgress] = useState<boolean>(false)
   const [startDialogOpen, setStartDialogOpen] = useState<boolean>(false)
   const [createTemplateOpen, setCreateTemplateOpen] = useState<boolean>(false)
@@ -866,82 +864,43 @@ export function WorkflowPage(): React.JSX.Element {
             </div>
           </Card>
 
-          {/* Live Agent Terminal / Console with Switcher */}
+          {/* One terminal, showing the step that is actually running. */}
           <div className="flex flex-1 flex-col overflow-hidden">
             <div className="flex items-center justify-between pb-2">
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTerminalMode('real-pty')
-                  }}
-                  className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold cursor-pointer transition-colors ${
-                    terminalMode === 'real-pty'
-                      ? 'bg-(--color-surface-raised) text-(--color-text) border border-(--color-border) shadow-xs'
-                      : 'text-(--color-text-muted) hover:text-(--color-text)'
-                  }`}
-                >
-                  💻 Live CLI Terminal (node-pty / xterm)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTerminalMode('protocol')
-                  }}
-                  className={`rounded-lg px-2.5 py-1 text-[11px] font-semibold cursor-pointer transition-colors ${
-                    terminalMode === 'protocol'
-                      ? 'bg-(--color-surface-raised) text-(--color-text) border border-(--color-border) shadow-xs'
-                      : 'text-(--color-text-muted) hover:text-(--color-text)'
-                  }`}
-                >
-                  📋 Protocol Log Stream
-                </button>
-              </div>
+              <span className="text-[11px] font-semibold text-(--color-text)">
+                {/* Named for the persona, not the transport. "node-pty / xterm" told the
+                    user which library renders the pane, which is not something they can
+                    act on; which agent is talking is. */}
+                {effectiveSelectedStep === null
+                  ? 'Terminal'
+                  : `Terminal — ${getPersonaForRole(effectiveSelectedStep.role).persona}`}
+              </span>
             </div>
 
-            {terminalMode === 'real-pty' ? (
-              <RealTerminal
-                key={`${project.id}-${effectiveSelectedStep?.runtimeId ?? 'default'}-${effectiveSelectedStep?.id ?? 'main'}`}
-                projectId={project.id}
-                runtimeId={effectiveSelectedStep?.runtimeId}
-                personaName={
-                  effectiveSelectedStep !== null
-                    ? getPersonaForRole(effectiveSelectedStep.role).persona
-                    : undefined
-                }
-                title={`${effectiveSelectedStep !== null ? getPersonaForRole(effectiveSelectedStep.role).persona : 'Agent'} Terminal`}
-                className="flex-1 min-h-[300px]"
-              />
-            ) : (
-              <AgentTerminal
-                logs={logs}
-                title="Live Workflow & Agent Protocol"
-                personaName={
-                  effectiveSelectedStep !== null
-                    ? getPersonaForRole(effectiveSelectedStep.role).persona
-                    : undefined
-                }
-                runtimeId={effectiveSelectedStep?.runtimeId}
-                repositoryPath={project.repository.absolutePath}
-                isRunning={isRunning}
-                onClear={() => {
-                  setLogs([])
-                }}
-                onSendInput={(input) => {
-                  const now = new Date()
-                  setLogs((prev) => [
-                    ...prev,
-                    {
-                      id: `input-${String(now.getTime())}`,
-                      timestamp: now.toLocaleTimeString(),
-                      text: `> ${input}`,
-                    },
-                  ])
-                  show({ tone: 'neutral', title: 'Input submitted to agent console' })
-                }}
-                className="flex-1 min-h-[300px]"
-              />
-            )}
+            {/* The step's real output. `RealTerminal` spawned a SECOND CLI session in the
+                repository and showed its idle banner while the working agent ran
+                unobserved — it looked like transparency and conveyed nothing about the
+                run (#154). The scratch session it provided is not worth a decoy. */}
+            <AgentTerminal
+              logs={logs}
+              title={
+                effectiveSelectedStep === null
+                  ? 'Terminal'
+                  : `${getPersonaForRole(effectiveSelectedStep.role).persona} Terminal`
+              }
+              personaName={
+                effectiveSelectedStep !== null
+                  ? getPersonaForRole(effectiveSelectedStep.role).persona
+                  : undefined
+              }
+              runtimeId={effectiveSelectedStep?.runtimeId}
+              repositoryPath={project.repository.absolutePath}
+              isRunning={isRunning}
+              onClear={() => {
+                setLogs([])
+              }}
+              className="flex-1 min-h-[300px]"
+            />
           </div>
         </div>
 
@@ -949,7 +908,6 @@ export function WorkflowPage(): React.JSX.Element {
         <Card tone="raised" className="flex flex-col overflow-hidden">
           <StepInspector
             step={effectiveSelectedStep}
-            stepLogs={logs}
             onClose={() => {
               setSelectedStep(null)
             }}

@@ -7,7 +7,8 @@ import {
   compileContext,
   completionCriterionSchema,
   decisionIdSchema,
-  FEATURE_IMPLEMENTATION,
+  TEMPLATES,
+  isTemplateId,
   FORGE_DEFAULT_RULES,
   isTerminalWorkflowState,
   projectIdSchema,
@@ -27,6 +28,7 @@ import {
   type ResolvableRule,
   type RuleScope,
   type Task,
+  type TemplateId,
   type Workflow,
   type WorkflowId,
 } from '@shared/domain'
@@ -512,6 +514,14 @@ export class WorkflowService {
     const controller = new AbortController()
     this.running.set(workflowId, controller)
 
+    // Read from the stored workflow rather than threaded through the signature, so the
+    // template the user picked survives a resume as well as the initial run.
+    const storedTemplateId = this.workflows.find(workflowId)?.templateId ?? 'feature'
+    // Narrowed by lookup rather than cast: the stored value is a plain string from the
+    // database, so a row written by an older build (or a template since removed) must
+    // fall back rather than index TEMPLATES with a key it does not have.
+    const templateId: TemplateId = isTemplateId(storedTemplateId) ? storedTemplateId : 'feature'
+
     const baseSha = await new GitService({ repositoryPath }).headSha()
 
     // Agents run here, not in the user's checkout. `agentPath` stays equal to
@@ -519,10 +529,14 @@ export class WorkflowService {
     // existing test harnesses running against a plain directory.
     let worktree: PreparedWorktree | null = null
     if (this.options.worktreeRoot !== undefined) {
-      worktree = await new WorktreeService({
+      const worktrees = new WorktreeService({
         repositoryPath,
         root: this.options.worktreeRoot,
-      }).prepare(workflowId)
+      })
+      // Clears anything a previous session was killed before disposing, so a crash
+      // does not leave worktrees registered against the user's repository forever.
+      await worktrees.reclaimAbandoned()
+      worktree = await worktrees.prepare(workflowId)
     }
     const agentPath = worktree?.path ?? repositoryPath
 
@@ -621,9 +635,17 @@ export class WorkflowService {
     })
 
     try {
+      // Resolved from the workflow's own `templateId`. It was hardcoded to
+      // FEATURE_IMPLEMENTATION, so every template ran the feature pipeline: the header
+      // read "Template: security" — echoing the stored string — while the engine
+      // executed the feature steps, which is a UI that reports something the run did
+      // not do. Measured in an audit run that selected Security Audit and completed
+      // five feature stages.
+      const template = TEMPLATES[templateId]
+
       await orchestrator.run({
         workflowId,
-        template: FEATURE_IMPLEMENTATION,
+        template,
         bindings,
         // The isolated worktree, not the user's checkout (see WorktreeService).
         repositoryPath: agentPath,
@@ -693,6 +715,31 @@ export class WorkflowService {
         },
         onLog: (stepIndex, text) => {
           this.logStep(workflowId, { stepIndex, text })
+        },
+        // Rendered into the existing log stream for now (#152). The typed IPC channel a
+        // live view will subscribe to is #153; until it exists, surfacing tool calls as
+        // text is what makes them visible at all — previously they reached nothing.
+        //
+        // Only `tool` and `usage` are rendered. `chunk` would duplicate the reply the
+        // step already logs, and `state` duplicates the stage transitions around it.
+        onRuntimeEvent: (stepIndex, event) => {
+          if (event.type === 'tool') {
+            const detail = event.detail === '' ? '' : ` ${event.detail}`
+            this.logStep(workflowId, { stepIndex, text: `[TOOL] ${event.name}${detail}` })
+            return
+          }
+
+          if (event.type === 'usage') {
+            const parts = [
+              event.inputTokens === null ? null : `in ${String(event.inputTokens)}`,
+              event.outputTokens === null ? null : `out ${String(event.outputTokens)}`,
+              event.costUsd === null ? null : `$${event.costUsd.toFixed(4)}`,
+            ].filter((part): part is string => part !== null)
+
+            if (parts.length > 0) {
+              this.logStep(workflowId, { stepIndex, text: `[USAGE] ${parts.join(' · ')}` })
+            }
+          }
         },
         signal: controller.signal,
       })

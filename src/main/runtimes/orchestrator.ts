@@ -19,6 +19,7 @@ import {
   type PromptPacket,
   type QuestionId,
   type ReviewOutcome,
+  type RuntimeEvent,
   type Role,
   type WorkflowId,
   type WorkflowLimits,
@@ -166,6 +167,14 @@ export interface RunOptions {
   ) => Promise<ReviewOutcome | null>
   readonly onQuestion?: (question: OpenQuestion) => Promise<void> | void
   readonly onLog?: ((stepIndex: number, text: string) => void) | undefined
+  /**
+   * Every runtime event of every agent step, as it happens (#152).
+   *
+   * Separate from `onLog`, which carries formatted prose at stage boundaries. This is the
+   * raw typed stream — tool calls, usage, state — that a live view renders. Kept as its
+   * own channel so the log stays readable text and the view is not left parsing it.
+   */
+  readonly onRuntimeEvent?: ((stepIndex: number, event: RuntimeEvent) => void) | undefined
   readonly signal?: AbortSignal
 }
 
@@ -488,7 +497,9 @@ export class Orchestrator {
       )
 
       try {
-        const result = await exchange(runtime, session, packet)
+        const result = await exchange(runtime, session, packet, (event) => {
+          options.onRuntimeEvent?.(step.index, event)
+        })
 
         if (result.ok) {
           report = result.report

@@ -16,7 +16,7 @@ import {
   type RuntimeStatus,
   type SessionHandle,
 } from '@shared/domain'
-import { exchange } from './exchange'
+import { exchange, type ExchangeOutcome } from './exchange'
 import { MockAgentRuntime } from './mockRuntime'
 import { SCENARIOS, type Scenario } from './scenario'
 
@@ -325,5 +325,67 @@ describe('the correction on the re-prompt', () => {
     // The two attempts must differ. Byte-identical retries were the actual bug: a real
     // agent gave the same malformed reply twice and the run halted blaming the agent.
     expect(renderPromptPacket(runtime.received[0]!)).not.toEqual(rendered)
+  })
+})
+
+describe('event forwarding (#152)', () => {
+  const runObserved = async (
+    scenario: Scenario,
+    onEvent?: (event: RuntimeEvent) => void,
+  ): Promise<ExchangeOutcome> => {
+    const runtime = new MockAgentRuntime({ scenario })
+    const session = await runtime.start({ repositoryPath: workDir, role: 'implementer' })
+    try {
+      return await exchange(runtime, session, packet(), onEvent)
+    } finally {
+      await runtime.dispose(session)
+    }
+  }
+
+  it('produces an identical outcome with and without an observer', async () => {
+    // The contract that makes streaming safe to add: observing must not change the
+    // protocol. A fresh runtime per run, because a session is consumed by its turn.
+    const withoutObserver = await runObserved(SCENARIOS.happy)
+
+    const seen: RuntimeEvent[] = []
+    const withObserver = await runObserved(SCENARIOS.happy, (event) => seen.push(event))
+
+    expect(withObserver).toEqual(withoutObserver)
+    expect(seen.length).toBeGreaterThan(0)
+  })
+
+  it('forwards a tool event, which is the whole point of the live view', async () => {
+    const seen: RuntimeEvent[] = []
+    await runObserved(SCENARIOS.happy, (event) => seen.push(event))
+
+    expect(seen.some((event) => event.type === 'tool')).toBe(true)
+  })
+
+  it('forwards terminal events, not only the ones before them', async () => {
+    // A consumer that stopped at the last non-terminal event would show a step that
+    // starts and never visibly ends.
+    const seen: RuntimeEvent[] = []
+    await runObserved(SCENARIOS.happy, (event) => seen.push(event))
+
+    const terminal = seen.filter(
+      (event) =>
+        event.type === 'result' ||
+        event.type === 'error' ||
+        (event.type === 'state' && event.state !== 'working'),
+    )
+    expect(terminal.length).toBeGreaterThan(0)
+  })
+
+  it('keeps forwarding across the re-prompt, not just the first attempt', async () => {
+    // `noReport` replies without a report block, which triggers the single correction
+    // re-prompt. Observation has to survive that second turn, or the live view goes
+    // blank at exactly the moment a user most needs to see what is happening.
+    const seen: RuntimeEvent[] = []
+    const outcome = await runObserved(SCENARIOS.noReport, (event) => seen.push(event))
+
+    expect(outcome.retried).toBe(true)
+    // Two turns' worth of `working` transitions is what shows the retry really ran.
+    const working = seen.filter((e) => e.type === 'state' && e.state === 'working')
+    expect(working.length).toBeGreaterThanOrEqual(2)
   })
 })

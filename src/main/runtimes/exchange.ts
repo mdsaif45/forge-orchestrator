@@ -69,7 +69,10 @@ export type ExchangeOutcome =
  * event exists for runtimes that can produce one directly, and the mock does, so both paths
  * are handled rather than assumed.
  */
-async function collectTurn(events: AsyncIterator<RuntimeEvent>): Promise<
+async function collectTurn(
+  events: AsyncIterator<RuntimeEvent>,
+  onEvent: ((event: RuntimeEvent) => void) | undefined,
+): Promise<
   | { readonly kind: 'report'; readonly report: AgentReport }
   | { readonly kind: 'text'; readonly text: string }
   | {
@@ -92,6 +95,15 @@ async function collectTurn(events: AsyncIterator<RuntimeEvent>): Promise<
     }
 
     const event = next.value
+
+    // Forwarded before it is interpreted, so an observer sees the turn as it happens
+    // rather than after it ends (#152). Every event goes through, including the terminal
+    // ones — a consumer that stops at `result` would never learn how the turn finished.
+    //
+    // Deliberately not wrapped in try/catch: a throwing observer is a bug in the caller,
+    // and swallowing it here would hide it while leaving the live view silently broken.
+    // The orchestrator's own handler only pushes to an emitter.
+    onEvent?.(event)
 
     switch (event.type) {
       case 'chunk': {
@@ -162,6 +174,15 @@ export async function exchange(
   runtime: IAgentRuntime,
   session: SessionHandle,
   packet: PromptPacket,
+  /**
+   * Observes every runtime event as it arrives, for the live view (#152).
+   *
+   * Purely additive: the outcome this function returns is identical with and without it,
+   * which is what lets streaming be added without touching the protocol. Adapters can
+   * emit all they like, but until this existed the turn loop read the stream and threw
+   * it away, so nothing downstream could see a step in progress.
+   */
+  onEvent?: (event: RuntimeEvent) => void,
 ): Promise<ExchangeOutcome> {
   const events = runtime.events(session)[Symbol.asyncIterator]()
   const transcript: string[] = []
@@ -188,7 +209,7 @@ export async function exchange(
     transcript.push(renderPromptPacket(sent))
     await runtime.send(session, sent)
 
-    const turn = await collectTurn(events)
+    const turn = await collectTurn(events, onEvent)
 
     if (turn.kind === 'error') {
       return {

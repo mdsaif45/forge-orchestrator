@@ -175,6 +175,22 @@ export interface RunOptions {
    * own channel so the log stays readable text and the view is not left parsing it.
    */
   readonly onRuntimeEvent?: ((stepIndex: number, event: RuntimeEvent) => void) | undefined
+  /**
+   * A step's process, once it starts, so the UI can attach to the real run (#170).
+   *
+   * Separate from `onRuntimeEvent`, which carries parsed events. This is the
+   * process itself — what a terminal pane needs in order to be the session rather
+   * than a transcript of it.
+   */
+  readonly onStepProcess?:
+    | ((
+        stepIndex: number,
+        process: {
+          readonly write?: (input: string) => void
+          readonly resize?: (cols: number, rows: number) => void
+        },
+      ) => void)
+    | undefined
   readonly signal?: AbortSignal
 }
 
@@ -485,6 +501,19 @@ export class Orchestrator {
         ...(binding.accountId === null ? {} : { accountId: binding.accountId }),
         permissionMode: permits(binding, 'writeFiles') ? 'acceptEdits' : 'auto',
         timeoutMs: options.limits.stepTimeoutMs,
+        // Published so the UI can attach to this step's real process rather than
+        // spawning a second session and rendering that (#170). Passed through
+        // rather than handled here: the orchestrator does not know what a pane is.
+        ...(options.onStepProcess === undefined
+          ? {}
+          : {
+              onProcess: (process: {
+                readonly write?: (input: string) => void
+                readonly resize?: (cols: number, rows: number) => void
+              }) => {
+                options.onStepProcess?.(step.index, process)
+              },
+            }),
       })
 
       let report: AgentReport | null = null

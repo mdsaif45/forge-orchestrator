@@ -72,6 +72,13 @@ export function createPipeProcessRunner(options: PipeProcessRunnerOptions = {}):
       startedAt: new Date().toISOString(),
     })
 
+    // Published so a pane can attach to the real run (#170). Neither `write` nor
+    // `resize` is offered: this runner sends the prompt on stdin and closes it, and
+    // a pipe has no window size. Declaring the absence lets a caller show "this
+    // session cannot take input" instead of accepting text that goes nowhere —
+    // which is the defect the dead input box in the workflow pane already was.
+    runOptions.onProcess?.({})
+
     let stdout = ''
     let stderr = ''
     // Held in an object rather than a `let`: it is only ever assigned inside a callback,

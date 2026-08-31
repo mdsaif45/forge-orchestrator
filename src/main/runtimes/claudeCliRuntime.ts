@@ -39,6 +39,21 @@ export type ProcessRunner = (
     readonly stdin?: string
     readonly onStdout?: (chunk: string) => void
     readonly onStderr?: (chunk: string) => void
+    /**
+     * Hands the caller a way to reach the running process (#170).
+     *
+     * The workflow pane used to spawn its own CLI session and render that, while
+     * the agent doing the work ran unobserved. Attaching to the real one needs a
+     * reference to it, and only the runner has that.
+     *
+     * `write` is optional because not every runner can accept input mid-run: a
+     * pipe runner closes stdin after the prompt. Declared rather than faked, so a
+     * caller can tell "this session cannot take input" from "input was ignored".
+     */
+    readonly onProcess?: (process: {
+      readonly write?: (input: string) => void
+      readonly resize?: (cols: number, rows: number) => void
+    }) => void
     readonly signal?: AbortSignal
   },
 ) => Promise<ProcessRunnerResult>
@@ -253,6 +268,10 @@ export class ClaudeCliRuntime implements IAgentRuntime {
           // decides what isolating a process to an account means, and enrolment already
           // depends on it. Two copies would be two places to get Windows wrong.
           ...(accountHome === null ? {} : { env: accountEnv(accountHome) }),
+          // Forwarded so the caller can attach to the running process (#170).
+          ...(session.options.onProcess === undefined
+            ? {}
+            : { onProcess: session.options.onProcess }),
           signal: session.abortController.signal,
           onStdout: (chunk) => {
             // Accumulated, and deliberately NOT emitted as a chunk.

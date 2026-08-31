@@ -164,6 +164,10 @@ export class AntigravityCliRuntime implements IAgentRuntime {
       //                 so a role that must run commands needs the blunt flag.
       const result = await this.runner(this.executable, this.argsFor(session, promptText), {
         cwd: session.options.repositoryPath,
+        // Forwarded so the caller can attach to the running process (#170).
+        ...(session.options.onProcess === undefined
+          ? {}
+          : { onProcess: session.options.onProcess }),
         signal: session.abortController.signal,
         onStdout: (chunk) => {
           // Accumulated, deliberately not emitted. The envelope wraps the reply, so the

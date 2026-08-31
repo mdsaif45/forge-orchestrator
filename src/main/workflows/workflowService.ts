@@ -56,6 +56,7 @@ import { buildChangeSet } from '../evidence/changeSetBuilder'
 import { verifyStep } from '../evidence/verifier'
 import { bindRole, BindingSet } from '../runtimes/bindings'
 import { BindingStore } from '../db/bindingStore'
+import { ClaudeTrustStore } from '../runtimes/claudeTrust'
 import { Orchestrator } from '../runtimes/orchestrator'
 import type { RuntimeRegistry } from '../runtimes/registry'
 import type { ProjectService } from '../projects/projectService'
@@ -539,6 +540,16 @@ export class WorkflowService {
       worktree = await worktrees.prepare(workflowId)
     }
     const agentPath = worktree?.path ?? repositoryPath
+
+    // Recorded before any agent is spawned into this path. On a directory it has
+    // not seen, the Claude CLI blocks at startup on "Quick safety check: Is this a
+    // project you created or one you trust?" — and every worktree is a fresh path,
+    // so it would fire on every run (#166/#167).
+    //
+    // Not fatal when it fails: the run still proceeds, and the user answers the
+    // dialog once by hand. Failing the workflow over a config file Forge does not
+    // own would be worse than the dialog it avoids.
+    await new ClaudeTrustStore().trust(agentPath)
 
     // Reads the worktree the agents actually edited. Pointed at the project checkout
     // it would report a clean tree for every run and the change set would be empty.

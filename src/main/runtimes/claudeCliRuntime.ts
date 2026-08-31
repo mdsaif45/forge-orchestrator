@@ -13,6 +13,7 @@ import {
   type SessionOptions,
 } from '@shared/domain'
 import { accountEnv } from '../accounts/accountAuth'
+import { observeStreamLine, takeCompleteLines } from './claudeStream'
 
 export interface ProcessRunnerResult {
   readonly exitCode: number
@@ -201,6 +202,14 @@ export class ClaudeCliRuntime implements IAgentRuntime {
     if (!this.runner) return
 
     let accumulatedOutput = ''
+    // Held across `onStdout` calls: a read boundary falls mid-line, so the tail of one
+    // chunk is the head of the next (`takeCompleteLines`).
+    let streamBuffer = ''
+    // A holder rather than a `let`: control-flow analysis narrows `let x = false` to the
+    // literal type and cannot see the `onStdout` closure assigning it, so the check after
+    // the run is reported as always-falsy — while annotating the `let` trips the
+    // inferrable-types rule instead. A mutable field is also honest about the aliasing.
+    const stream = { limitReached: false }
 
     try {
       const result = await this.runner(
@@ -226,8 +235,13 @@ export class ClaudeCliRuntime implements IAgentRuntime {
         // and so cannot be used with a Pro subscription (measured in the #20 spike).
         [
           '-p',
+          // `stream-json` rather than `json`, so tool calls and provider-limit signals
+          // arrive while the turn is running instead of only at the end (#150). It
+          // requires `--verbose`; without it the CLI emits the envelope alone and the
+          // live view is blind again.
           '--output-format',
-          'json',
+          'stream-json',
+          '--verbose',
           '--safe-mode',
           '--permission-mode',
           session.options.permissionMode ?? DEFAULT_PERMISSION_MODE,
@@ -241,7 +255,7 @@ export class ClaudeCliRuntime implements IAgentRuntime {
           ...(accountHome === null ? {} : { env: accountEnv(accountHome) }),
           signal: session.abortController.signal,
           onStdout: (chunk) => {
-            // Accumulated, deliberately NOT emitted as a chunk.
+            // Accumulated, and deliberately NOT emitted as a chunk.
             //
             // `exchange()` builds the reply from chunk text, and `parseAgentReport`
             // takes the *first* REPORT_BEGIN it finds. Emitting the raw envelope as
@@ -254,6 +268,29 @@ export class ClaudeCliRuntime implements IAgentRuntime {
             // below is emitted.
             accumulatedOutput += chunk
             session.lastActivityAt = this.now()
+
+            // Observed for the live view only (#150). Tool calls and provider limits are
+            // emitted as they happen so a user can watch the work; assistant prose is
+            // not, for the double-parse reason above — the reply text still reaches
+            // `exchange()` exactly once, from the terminal result below.
+            streamBuffer += chunk
+            const { lines, rest } = takeCompleteLines(streamBuffer)
+            streamBuffer = rest
+
+            for (const line of lines) {
+              const observed = observeStreamLine(line)
+
+              for (const tool of observed.tools) {
+                this.pushEvent(session, {
+                  type: 'tool',
+                  at: this.now(),
+                  name: tool.name,
+                  detail: tool.detail,
+                })
+              }
+
+              if (observed.providerLimitReached) stream.limitReached = true
+            }
           },
           onStderr: (chunk) => {
             session.lastActivityAt = this.now()
@@ -266,6 +303,25 @@ export class ClaudeCliRuntime implements IAgentRuntime {
         },
       )
 
+      // A spent limit is checked before the empty-output case: the CLI reports the limit
+      // *in* its output, so `accumulatedOutput` is never empty when one occurs and the
+      // branch below could never see it. Lint caught this as an always-falsy condition —
+      // the halt would have been unreachable in exactly the situation it exists for.
+      if (stream.limitReached) {
+        session.state = 'failed'
+        session.failure = "The provider reported this account's rate limit is spent"
+        this.pushEvent(session, {
+          type: 'error',
+          at: this.now(),
+          message: session.failure,
+          // Retrying now fails identically and burns an iteration on something no retry
+          // can fix; the remedies are another account, another provider, or waiting (#147).
+          retryable: false,
+          providerLimit: true,
+        })
+        return
+      }
+
       if (result.exitCode !== 0 && accumulatedOutput.trim() === '') {
         session.state = 'failed'
         session.failure = `CLI process exited with code ${String(result.exitCode)}: ${result.stderr}`
@@ -274,7 +330,8 @@ export class ClaudeCliRuntime implements IAgentRuntime {
           at: this.now(),
           message: session.failure,
           retryable: true,
-          // No measured limit detector yet (#137); an ordinary error until one exists.
+          // A limit is handled above, where the output is non-empty; reaching here means
+          // the process died without saying anything, which is an ordinary failure.
           providerLimit: false,
         })
         return
@@ -424,19 +481,44 @@ export class ClaudeCliRuntime implements IAgentRuntime {
  * is the text the agent wrote.
  */
 function extractResultText(output: string): string | null {
-  const trimmed = output.trim()
-  if (!trimmed.startsWith('{')) return null
+  // The transport is NDJSON since #150, so the envelope is one line among many rather
+  // than the whole of stdout. Parsing the buffer as a single object — which is what
+  // this did — returns null against a stream and silently falls back to raw stdout,
+  // putting every intermediate JSON line into the text `parseAgentReport` reads.
+  const result = findTerminalResult(output)
+  if (result === null) return null
 
-  try {
-    const parsed: unknown = JSON.parse(trimmed)
-    if (typeof parsed !== 'object' || parsed === null) return null
+  const text = result.result
+  return typeof text === 'string' ? text : null
+}
 
-    const result = (parsed as { readonly result?: unknown }).result
-    return typeof result === 'string' ? result : null
-  } catch {
-    // Not JSON, or truncated. The raw output already reached the caller as chunks.
-    return null
+/**
+ * The terminal `result` line of an NDJSON turn, or a whole-buffer envelope.
+ *
+ * Scanned from the end: the reply is the last thing the CLI writes, and a turn whose
+ * *content* mentions a result line should not be mistaken for the line itself. Falls
+ * back to parsing the entire buffer so a build configured for `--output-format json`
+ * still works — the two formats then differ only in how many lines they occupy.
+ */
+function findTerminalResult(output: string): Record<string, unknown> | null {
+  const lines = output.split('\n')
+
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index]?.trim() ?? ''
+    if (!line.startsWith('{')) continue
+
+    try {
+      const parsed: unknown = JSON.parse(line)
+      if (typeof parsed !== 'object' || parsed === null) continue
+
+      const record = parsed as Record<string, unknown>
+      if (record.type === 'result' || typeof record.result === 'string') return record
+    } catch {
+      // A partial or non-JSON line; keep scanning backwards.
+    }
   }
+
+  return null
 }
 
 /**
@@ -458,28 +540,24 @@ function extractUsage(output: string): {
   readonly inputTokens: number | null
   readonly outputTokens: number | null
 } | null {
-  const trimmed = output.trim()
-  if (!trimmed.startsWith('{')) return null
+  // Read from the terminal result line, for the same reason as `extractResultText`:
+  // under NDJSON the buffer is many lines, and the per-message `usage` figures on
+  // intermediate `assistant` lines are partial. The result's totals are the turn's.
+  const envelope = findTerminalResult(output)
+  if (envelope === null) return null
 
-  try {
-    const parsed: unknown = JSON.parse(trimmed)
-    if (typeof parsed !== 'object' || parsed === null) return null
+  const numberOrNull = (value: unknown): number | null =>
+    typeof value === 'number' && Number.isFinite(value) ? value : null
 
-    const envelope = parsed as {
-      readonly total_cost_usd?: unknown
-      readonly usage?: { readonly input_tokens?: unknown; readonly output_tokens?: unknown }
-    }
+  const usage =
+    typeof envelope.usage === 'object' && envelope.usage !== null
+      ? (envelope.usage as Record<string, unknown>)
+      : null
 
-    const numberOrNull = (value: unknown): number | null =>
-      typeof value === 'number' && Number.isFinite(value) ? value : null
+  const costUsd = numberOrNull(envelope.total_cost_usd)
+  const inputTokens = usage === null ? null : numberOrNull(usage.input_tokens)
+  const outputTokens = usage === null ? null : numberOrNull(usage.output_tokens)
 
-    const costUsd = numberOrNull(envelope.total_cost_usd)
-    const inputTokens = numberOrNull(envelope.usage?.input_tokens)
-    const outputTokens = numberOrNull(envelope.usage?.output_tokens)
-
-    if (costUsd === null && inputTokens === null && outputTokens === null) return null
-    return { costUsd, inputTokens, outputTokens }
-  } catch {
-    return null
-  }
+  if (costUsd === null && inputTokens === null && outputTokens === null) return null
+  return { costUsd, inputTokens, outputTokens }
 }

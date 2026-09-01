@@ -314,10 +314,10 @@ worse than no line, because the next person will trust it.
 
 ---
 
-## 9. Deciding when a hosted turn has ended — UNSOLVED
+## 9. Deciding when a hosted turn has ended — RESOLVED (#169, hooks)
 
-A headless run ends when the process exits. A hosted session never exits, so the
-end of a turn must be read off the screen. **Four rules have now been tried
+A headless run ends when the process exits. A hosted session never exits, so
+screen-scraping was tried first for the end of a turn. **Four rules were tried
 against the real CLI and all four were wrong**, each in a different way:
 
 ```
@@ -355,14 +355,52 @@ That boot noise is the trap under all four attempts: any rule keyed on "the
 screen looks idle" or "the screen changed" fires during startup, before the
 prompt has even been received.
 
-### Directions not yet tried
+### The fix: hooks, not the screen
 
-- wait for the boot to settle (no change for N seconds) before sending at all
-- track the caret's *row*, which moves down as output accumulates, rather than
-  its presence
-- use hooks (`Stop` fires when a turn ends) instead of reading the screen —
-  hooks are already verified working, and this is what the hosted design was
-  meant to rely on
+The `Stop` hook fires while the turn's process is still running, and its
+payload's `last_assistant_message` is the exact reply text, byte for byte,
+multi-line preserved. Watching a log file the hook appends to removes the need
+to read the screen for completion at all — see §6 and `claudeHooks.ts`.
 
-The third is almost certainly the right answer, and is #169. Screen-scraping a
-turn boundary may simply be the wrong mechanism.
+```
+Stop fired at              turn_started_ms + 6.8s   (measured)
+last_assistant_message  ===  the exact stdout text, multi-line preserved
+```
+
+Boot noise still had to be handled separately: the caret is visible within a
+second of boot, well before MCP-authentication warnings, `SessionStart` hook
+output, and plugin banners finish painting, so typing immediately after the
+caret first appears sends the prompt into that trailing noise. The fix is
+`HostedSession.waitForBootSettled()` — wait for the caret, then wait again
+until the screen stops changing for ~1.5s — run once per session before its
+first turn only.
+
+### A second, unrelated bug found the same way: prompt truncation via paste-detection
+
+Fixing boot timing did not fix everything. A real turn still came back
+answering only a *fragment* of the prompt — "It looks like your message got
+cut off — I only see a fragment about a report schema" — which was the exact
+tail of `REPORT_INSTRUCTIONS`, the last section `renderPromptPacket()` emits.
+
+Measured directly: writing a short prompt (~500 chars) as one `write()` call
+lands intact. Writing a real prompt packet (~1300 chars, the same content,
+same method) shows `[Pasted text #1] paste again to expand` in the CLI's own
+input box before Enter is even sent — Ink's paste-timing heuristic decided a
+fast, large `write()` was a paste, but with no bracketed-paste markers telling
+it where that paste began, only the tail survived to the buffer that got
+submitted.
+
+```
+plain write(), ~500 chars    full text lands, no paste UI
+plain write(), ~1300 chars   "paste again to expand", model sees only the tail
+\x1b[200~ … \x1b[201~-wrapped write(), ~1300 chars
+                              full text lands, "paste again to expand" still
+                              shows (expected — same as a human pasting) but
+                              the underlying buffer submitted on Enter is whole
+```
+
+Fix: `promptKeystrokes()` wraps the flattened prompt in real bracketed-paste
+markers before writing it, giving the CLI an explicit start and end instead of
+letting it guess one from arrival speed. Verified against the real CLI: the
+same prompt that previously came back "cut off" now reads the objective,
+calls the right tool, and reports correctly.

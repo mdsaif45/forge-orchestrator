@@ -73,9 +73,14 @@ describe('turnLooksComplete', () => {
 })
 
 describe('promptKeystrokes', () => {
-  it('sends the text, pauses, then submits', () => {
+  it('sends the text wrapped in bracketed paste, pauses, then submits', () => {
+    // Not decoration: without these markers a prompt over ~1200 characters
+    // arrived at the model as only its last fragment, because the CLI's input
+    // still captured it as a paste by arrival speed alone but had no marker
+    // saying where that paste began. Measured against the real CLI — see
+    // `docs/CLI-FIELD-GUIDE.md`.
     const keys = promptKeystrokes('do the thing')
-    expect(keys.map((k) => k.text)).toEqual(['do the thing', '\r'])
+    expect(keys.map((k) => k.text)).toEqual(['\x1b[200~do the thing\x1b[201~', '\r'])
     expect(keys[0]?.pauseMs).toBeGreaterThan(0)
   })
 
@@ -83,7 +88,7 @@ describe('promptKeystrokes', () => {
     // A prompt packet is multi-line by construction. Sent raw, each newline is a
     // submit, and the agent receives the first line as the whole instruction.
     const keys = promptKeystrokes('line one\nline two\r\nline three')
-    expect(keys[0]?.text).toBe('line one line two line three')
+    expect(keys[0]?.text).toBe('\x1b[200~line one line two line three\x1b[201~')
     expect(keys[0]?.text).not.toContain('\n')
   })
 

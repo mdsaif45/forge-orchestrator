@@ -121,6 +121,53 @@ export class HostedSession {
   }
 
   /**
+   * Waits until the screen stops changing for `quietMs`, on top of
+   * `waitForPrompt`'s caret check.
+   *
+   * Measured against the real CLI: the prompt caret is visible within the
+   * first second of boot, well before MCP-authentication warnings,
+   * SessionStart hook output, and plugin banners have finished painting. A
+   * prompt typed as soon as the caret appears can be swallowed by that
+   * trailing boot noise, or answered by the model as if it were part of the
+   * banner rather than the user's instruction — measured directly: a real
+   * turn sent right after `waitForPrompt` resolved got a reply about the
+   * global CLAUDE.md's own caveman-mode instruction, not the task, because the
+   * prompt landed mid-boot.
+   *
+   * Only needed once, for the very first turn on a freshly spawned process —
+   * a resumed or already-idle session has no boot noise left to wait out.
+   */
+  async waitForBootSettled(quietMs = 1500): Promise<void> {
+    const ready = await this.waitForPrompt()
+    if (ready !== 'ready') return
+
+    // Measured in poll ticks, not `Date.now()`. This method's whole purpose is
+    // to wait out a real duration, and a caller that injects a fake `sleep` for
+    // testability needs that duration to scale with the fake clock too — a
+    // wall-clock deadline here takes the real 1.5s+ regardless of what `sleep`
+    // resolves to, which is the exact "test that sleeps encodes one machine's
+    // timing" problem this project's own tests exist to avoid.
+    const pollMs = 250
+    const quietTicks = Math.max(1, Math.ceil(quietMs / pollMs))
+    const deadlineTicks = Math.ceil(this.timeoutMs / pollMs)
+
+    let last = this.visible()
+    let quietFor = 0
+
+    for (let tick = 0; tick < deadlineTicks; tick += 1) {
+      await this.sleep(pollMs)
+      const now = this.visible()
+      if (now !== last) {
+        last = now
+        quietFor = 0
+      } else {
+        quietFor += 1
+        if (quietFor >= quietTicks) return
+      }
+    }
+  }
+
+  /**
    * Sends one prompt and waits for the turn to finish.
    *
    * The busy indicator is checked before the idle prompt box, because the box is
@@ -136,6 +183,13 @@ export class HostedSession {
     // A turn is only "complete" once work has been observed. Without this the
     // very first poll sees the idle box the prompt was typed into and returns
     // immediately, before the agent has done anything at all.
+    //
+    // "Work" cannot mean the busy indicator alone: measured against the real CLI,
+    // the caret is back on screen within a second of submitting while the agent is
+    // still thinking, so a poll landing in that window called a 13s turn complete
+    // before any answer existed. The screen must also CHANGE from what was there
+    // when the prompt was sent.
+    const submitted = this.visible()
     let sawWork = false
 
     const result = await this.pollUntil(() => {
@@ -148,6 +202,9 @@ export class HostedSession {
         sawWork = true
         return null
       }
+
+      // An unchanged screen means nothing has happened yet, however idle it looks.
+      if (screen !== submitted) sawWork = true
 
       return sawWork ? 'ready' : null
     })

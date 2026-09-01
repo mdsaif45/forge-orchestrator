@@ -99,7 +99,7 @@ describe('HostedSession', () => {
     await session.receive(READY)
     await session.runTurn('do the thing')
 
-    expect(written).toEqual(['do the thing', '\r'])
+    expect(written).toEqual(['\x1b[200~do the thing\x1b[201~', '\r'])
   })
 
   it('does not call a turn complete before any work is seen', async () => {
@@ -175,7 +175,7 @@ describe('HostedSession', () => {
     await session.receive(ANSWERED)
     expect((await second).kind).toBe('answered')
 
-    expect(written).toEqual(['first', '\r', 'second', '\r'])
+    expect(written).toEqual(['\x1b[200~first\x1b[201~', '\r', '\x1b[200~second\x1b[201~', '\r'])
   })
 
   it('does not wait on the wall clock', async () => {

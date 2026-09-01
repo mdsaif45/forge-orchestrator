@@ -91,13 +91,27 @@ export function turnLooksComplete(screen: string): boolean {
  * A prompt is sent as one write rather than per-character: measured, the TUI does
  * not echo per keystroke under ConPTY, and typing character by character bought
  * nothing but latency.
+ *
+ * Wrapped in bracketed-paste markers (`\x1b[200~` … `\x1b[201~`), which is not
+ * decoration. Without them, a real prompt (over ~1200 characters, measured)
+ * arrived at the model as only its last fragment — the CLI's input still showed
+ * a "paste again to expand" placeholder, so the text had been captured as a
+ * paste by timing alone, but with no markers telling it where that paste
+ * started, only a tail survived to submission. A real turn sent this way came
+ * back "It looks like your message got cut off — I only see a fragment about a
+ * report schema", which is the exact tail of `REPORT_INSTRUCTIONS`. Wrapping the
+ * write in the real escape sequence gives the CLI an explicit start and end for
+ * the paste instead of making it guess one from arrival speed, and the full
+ * prompt reaches the model — verified against the real CLI, which then read
+ * the objective and answered it correctly.
  */
 export function promptKeystrokes(prompt: string): readonly { text: string; pauseMs: number }[] {
+  // Newlines inside a prompt would submit it early, one line at a time. The
+  // packet is multi-line by construction, so they are flattened rather than
+  // sent — a prompt that submits itself in fragments is not the prompt.
+  const flattened = prompt.replace(/\r?\n/g, ' ')
   return [
-    // Newlines inside a prompt would submit it early, one line at a time. The
-    // packet is multi-line by construction, so they are flattened rather than
-    // sent — a prompt that submits itself in fragments is not the prompt.
-    { text: prompt.replace(/\r?\n/g, ' '), pauseMs: 1200 },
+    { text: `\x1b[200~${flattened}\x1b[201~`, pauseMs: 1200 },
     { text: '\r', pauseMs: 0 },
   ]
 }

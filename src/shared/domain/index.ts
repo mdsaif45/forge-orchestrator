@@ -301,6 +301,7 @@ export {
   SECURITY_AUDIT,
   templateStepSchema,
   TEMPLATES,
+  isTemplateId,
   TEST_COVERAGE,
   validateTemplate,
   workflowTemplateSchema,
@@ -343,3 +344,4 @@ export {
   permissionModeSchema,
   type PermissionMode,
 } from './permissionMode'
+export { permissionForRole, type RolePermission } from './rolePermission'

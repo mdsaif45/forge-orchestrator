@@ -9,6 +9,7 @@ import {
   haltStateFor,
   questionIdSchema,
   stepIdSchema,
+  permissionForRole,
   validateTemplate,
   type Actor,
   type AgentReport,
@@ -495,11 +496,18 @@ export class Orchestrator {
         ? null
         : new Set(((await this.deps.measureChange())?.files ?? []).map((file) => file.path))
 
+      const rolePermission = permissionForRole(templateStep.role, permits(binding, 'writeFiles'))
+      options.onLog?.(step.index, `[PERMISSION] ${rolePermission.mode} — ${rolePermission.reason}`)
+
       const session = await runtime.start({
         repositoryPath: options.repositoryPath,
         role: templateStep.role,
         ...(binding.accountId === null ? {} : { accountId: binding.accountId }),
-        permissionMode: permits(binding, 'writeFiles') ? 'acceptEdits' : 'auto',
+        // Derived per role, with the reason recorded (#173). `acceptEdits` was
+        // wrong for both halves: a read-only role does not need it, and an
+        // implementer stops on a permission dialog it still prompts for — measured
+        // waiting forever with nothing present to answer.
+        permissionMode: rolePermission.mode,
         timeoutMs: options.limits.stepTimeoutMs,
         // Published so the UI can attach to this step's real process rather than
         // spawning a second session and rendering that (#170). Passed through

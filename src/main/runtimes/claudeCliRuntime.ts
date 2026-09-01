@@ -6,6 +6,7 @@ import {
   sessionIdSchema,
   type Capability,
   type IAgentRuntime,
+  type PermissionMode,
   type PromptPacket,
   type RuntimeEvent,
   type RuntimeStatus,
@@ -258,8 +259,7 @@ export class ClaudeCliRuntime implements IAgentRuntime {
           'stream-json',
           '--verbose',
           '--safe-mode',
-          '--permission-mode',
-          session.options.permissionMode ?? DEFAULT_PERMISSION_MODE,
+          ...claudePermissionArgs(session.options.permissionMode ?? DEFAULT_PERMISSION_MODE),
         ],
         {
           cwd: session.options.repositoryPath,
@@ -579,4 +579,29 @@ function extractUsage(output: string): {
 
   if (costUsd === null && inputTokens === null && outputTokens === null) return null
   return { costUsd, inputTokens, outputTokens }
+}
+
+/**
+ * Forge's permission mode as this CLI's own flags.
+ *
+ * Not a pass-through. `permissionMode` is Forge's vocabulary; only some of its
+ * values are also valid `--permission-mode` arguments, and handing the CLI an
+ * unknown one is a spawn-time failure rather than a graceful default.
+ *
+ * ```
+ * plan                --permission-mode plan          read-only by construction
+ * bypassPermissions   --dangerously-skip-permissions  no prompting at all
+ * everything else     --permission-mode <mode>        passed through
+ * ```
+ *
+ * `bypassPermissions` maps to a differently named flag because that is what the
+ * CLI calls it. Measured (#166): under `acceptEdits` a real turn ran its tools and
+ * then stopped on "Do you want to proceed?" with nothing present to answer, and
+ * waited forever. An unattended step cannot depend on a prompt no one will see —
+ * the disposable worktree and Forge's own diff reconciliation are the boundary
+ * (A3), not a dialog inside the CLI.
+ */
+function claudePermissionArgs(mode: PermissionMode): readonly string[] {
+  if (mode === 'bypassPermissions') return ['--dangerously-skip-permissions']
+  return ['--permission-mode', mode]
 }

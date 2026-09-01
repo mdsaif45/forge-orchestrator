@@ -285,6 +285,22 @@ describe('permission mode', () => {
 
     expect(args[args.indexOf('--permission-mode') + 1]).toBe('plan')
   })
+
+  it('maps bypassPermissions to the flag this CLI actually has', async () => {
+    // `--permission-mode bypassPermissions` is not a value the CLI accepts; the
+    // equivalent is a differently named flag. Passing Forge's own vocabulary
+    // straight through would be a spawn-time failure rather than a graceful
+    // default — and this is the mode an unattended implementer now runs under
+    // (#173), so getting it wrong would break every writing step.
+    const args = await argsFor({
+      repositoryPath: 'd:/repo',
+      role: 'implementer',
+      permissionMode: 'bypassPermissions',
+    })
+
+    expect(args).toContain('--dangerously-skip-permissions')
+    expect(args).not.toContain('--permission-mode')
+  })
 })
 
 describe('the result envelope', () => {

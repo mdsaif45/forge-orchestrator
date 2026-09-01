@@ -309,9 +309,13 @@ export class AntigravityCliRuntime implements IAgentRuntime {
    */
   private argsFor(session: ActiveSession, promptText: string): readonly string[] {
     // `writeFiles` is not on the session, but the permission mode the orchestrator
-    // derived from it is: a role that may write gets `acceptEdits`, a read-only role
-    // gets something else (#130).
-    const mayWrite = (session.options.permissionMode ?? DEFAULT_PERMISSION_MODE) === 'acceptEdits'
+    // derived from it is (#130). Tested by exclusion rather than equality: the modes
+    // that mean "may write" are open-ended, while `plan` means read-only by
+    // definition. An equality check against `acceptEdits` silently withheld write
+    // permission the moment the orchestrator started sending `bypassPermissions`
+    // (#173), which would look like an implementer that ran and changed nothing.
+    const mode = session.options.permissionMode ?? DEFAULT_PERMISSION_MODE
+    const mayWrite = mode !== 'plan'
 
     return [
       // Attached, not separated. `-p <prompt>` makes agy take the following flag as its
@@ -329,7 +333,9 @@ export class AntigravityCliRuntime implements IAgentRuntime {
       // `--settings` flag to carry a narrower allow-rule, so a role that must run
       // commands needs the blunt one. Scoped to roles that already hold write
       // permission; Forge's reconciler and scope enforcement remain the real boundary.
-      ...(mayWrite ? ['--dangerously-skip-permissions'] : ['--mode=accept-edits']),
+      // A read-only role gets agy's plan mode, which cannot edit by construction —
+      // it does not merely decline, so a mis-set flag cannot let it through.
+      ...(mayWrite ? ['--dangerously-skip-permissions'] : ['--mode=plan']),
     ]
   }
 

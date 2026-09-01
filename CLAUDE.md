@@ -8,6 +8,8 @@ building it.
 
 ```
 README.md              what Forge is · the seven axioms
+docs/NORTH-STAR.md     what Forge is aiming at, and the measured gap  ** READ FIRST **
+docs/CLI-FIELD-GUIDE.md  every measured fact about the CLIs  ** BEFORE TOUCHING AN ADAPTER **
 docs/ARCHITECTURE.md   processes · IPC contract · verification layers
 docs/DOMAIN.md         entities · state machine  (specification, not yet code)
 docs/PLAN.md           milestones · known toolchain traps

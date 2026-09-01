@@ -207,6 +207,8 @@ Windows. No agent orchestration exists yet — that begins at M2.
 
 | Document | Contents |
 |----------|----------|
+| [`docs/NORTH-STAR.md`](docs/NORTH-STAR.md) | what Forge is aiming at, the workflow it serves, and the measured gap |
+| [`docs/CLI-FIELD-GUIDE.md`](docs/CLI-FIELD-GUIDE.md) | every measured fact about the agent CLIs — flags, payloads, traps |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | processes, IPC contract, security posture, verification layers |
 | [`docs/DOMAIN.md`](docs/DOMAIN.md) | entities and the workflow state machine (specification) |
 | [`docs/PLAN.md`](docs/PLAN.md) | milestones, and the toolchain traps found along the way |

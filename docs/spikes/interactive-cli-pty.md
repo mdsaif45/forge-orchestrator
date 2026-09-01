@@ -105,3 +105,50 @@ So #169's mechanism is sound.
 - `Error: AttachConsole failed` on stderr during these runs is pre-existing
   ConPTY noise, not a failure.
 - A bash heredoc mangles backslashes in probe scripts. Write the file directly.
+
+---
+
+## Follow-up: the open question, settled
+
+Re-run with the trust store in place and a real terminal emulator
+(`@xterm/headless`) holding screen state, rather than a regex over raw bytes.
+
+```
+--permission-mode acceptEdits      turn starts, tools run, then STOPS on:
+
+    Bash command
+      Read data.txt
+    Do you want to proceed?
+     > 1. Yes   2. Yes, allow reading from ... from this project   3. No
+
+--dangerously-skip-permissions     ANSWERED in ~9s
+    > Read data.txt and tell me the number inside it.
+    ● 42
+```
+
+So the turn was never stalled. It was **waiting for a permission decision** that
+nothing was there to make — the same class of blocker as the trust dialog, one
+layer in.
+
+Two things this settles:
+
+- **A hosted interactive turn completes on Windows**, in seconds. ADR-003's
+  premise is sound end to end, not just at boot.
+- **The earlier probe's ANSI stripping was hiding it.** A real emulator shows the
+  dialog plainly. Every future reading of a hosted pane should come from an
+  emulator, never from a regex over raw bytes.
+
+### What this means for the permission model
+
+`acceptEdits` auto-approves *edits* and still prompts for other tool use. Under
+the headless `-p` path that prompt could never appear, so Forge never had to
+answer one. A hosted session can be asked, which is a capability, not a problem:
+the permission dialog is exactly where a human belongs (A7, and the owner's own
+loop). But until Forge can surface and answer it, an unattended hosted run needs
+a mode that does not stop.
+
+`--dangerously-skip-permissions` makes it run, and is the blunt instrument. It is
+acceptable only because the worktree is disposable and Forge reconciles the diff
+afterwards (A3) — the sandbox is the boundary, not the CLI's own prompt. Whether
+to keep it or to surface the prompt to the user is a product decision, and is its
+own issue rather than something to settle inside an adapter.

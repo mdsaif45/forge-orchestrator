@@ -14,6 +14,7 @@ import {
   type SessionOptions,
 } from '@shared/domain'
 import { accountEnv } from '../accounts/accountAuth'
+import { claudeSessionId } from './claudeSession'
 import { observeStreamLine, takeCompleteLines } from './claudeStream'
 
 export interface ProcessRunnerResult {
@@ -259,6 +260,13 @@ export class ClaudeCliRuntime implements IAgentRuntime {
           'stream-json',
           '--verbose',
           '--safe-mode',
+          // A stable id for this step's conversation, derived rather than stored so
+          // it survives a Forge restart (#167). Measured: the CLI honours a supplied
+          // id exactly and `--resume` against it recalls the earlier turn, which is
+          // what a warm session across steps will be built on.
+          ...(session.options.resumeKey === undefined
+            ? []
+            : ['--session-id', claudeSessionId(session.options.resumeKey)]),
           ...claudePermissionArgs(session.options.permissionMode ?? DEFAULT_PERMISSION_MODE),
         ],
         {

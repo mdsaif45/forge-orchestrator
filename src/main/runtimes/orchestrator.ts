@@ -508,6 +508,14 @@ export class Orchestrator {
         // implementer stops on a permission dialog it still prompts for — measured
         // waiting forever with nothing present to answer.
         permissionMode: rolePermission.mode,
+        // A stable identity for this conversation, so an adapter that can resume
+        // knows which to resume. The iteration is part of it: a correction retry
+        // must not continue the transcript that produced the rejected report.
+        resumeKey: {
+          workflowId: options.workflowId,
+          stepIndex: step.index,
+          iteration: workflow.iteration,
+        },
         timeoutMs: options.limits.stepTimeoutMs,
         // Published so the UI can attach to this step's real process rather than
         // spawning a second session and rendering that (#170). Passed through

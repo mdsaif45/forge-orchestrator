@@ -17,6 +17,7 @@ import { RuntimeRegistry, runtimeExecutable } from './runtimes/registry'
 import { ClaudeCliRuntime } from './runtimes/claudeCliRuntime'
 import { AntigravityCliRuntime } from './runtimes/antigravityCliRuntime'
 import { createPipeProcessRunner } from './runtimes/pipeProcessRunner'
+import { AgentSessionRegistry } from './terminal/sessionRegistry'
 import { TerminalService } from './terminal/terminalService'
 import { BindingService } from './bindings/bindingService'
 import { AccountHomes } from './accounts/accountHomes'
@@ -181,6 +182,8 @@ if (!claimSingleInstance()) {
     const accountHomes = new AccountHomes(join(app.getPath('userData'), 'accounts'))
 
     const registry = new RuntimeRegistry()
+    const agentSessions = new AgentSessionRegistry()
+
     registry.register(new MockAgentRuntime({ scenario: SCENARIOS.fullRun, id: 'mock:default' }))
 
     // The real CLI, driven through the pty. `homeForAccount` resolves a bound account
@@ -214,6 +217,9 @@ if (!claimSingleInstance()) {
       db,
       projects: projectService,
       packetDir: join(app.getPath('userData'), 'packets'),
+      // Where a running step's process is published, so the workflow pane can
+      // attach to the real run rather than spawning a second session (#170).
+      sessions: agentSessions,
       // Under userData rather than beside the repository, so Forge never creates
       // directories inside a project the user did not ask it to write to.
       worktreeRoot: join(app.getPath('userData'), 'worktrees'),

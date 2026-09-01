@@ -1,4 +1,19 @@
-import type { ProcessHandle } from '../process/processManager'
+/**
+ * What a pane can do with a step's process.
+ *
+ * Narrower than `ProcessHandle` on purpose. A pane needs to write to the session
+ * and resize it; it has no business cancelling the step or awaiting its outcome —
+ * those belong to the workflow engine, which owns the run's lifetime.
+ *
+ * Both members are optional because not every transport carries them: a pipe
+ * closes stdin after the prompt and has no window size, a pty has both. Declaring
+ * the absence lets the UI say "this session cannot take input" instead of
+ * accepting text that goes nowhere.
+ */
+export interface AttachableProcess {
+  readonly write?: (input: string) => void
+  readonly resize?: (cols: number, rows: number) => void
+}
 
 /**
  * Where a running step's process is published so the UI can attach to it.
@@ -18,10 +33,11 @@ import type { ProcessHandle } from '../process/processManager'
  * one would leak handles between tests — the same reasoning as `RuntimeRegistry`.
  *
  * It holds no process state of its own. `ProcessManager` owns lifetime; this owns
- * only the mapping, so a handle that dies is unpublished rather than reaped here.
+ * only the mapping, and the caller that published a handle retires it when the
+ * step ends.
  */
 export class AgentSessionRegistry {
-  private readonly handles = new Map<string, ProcessHandle>()
+  private readonly handles = new Map<string, AttachableProcess>()
   private readonly listeners = new Set<(key: string) => void>()
 
   /**
@@ -32,20 +48,24 @@ export class AgentSessionRegistry {
    * show a frozen screen while the retry ran invisibly — the original defect, in
    * a narrower form.
    */
-  publish(key: string, handle: ProcessHandle): void {
+  publish(key: string, handle: AttachableProcess): void {
     this.handles.set(key, handle)
     for (const listener of this.listeners) listener(key)
+  }
 
-    // Unpublished on exit rather than left to be garbage: a caller that attaches
-    // after the step ends must be told there is nothing live, not handed a handle
-    // whose process is gone.
-    void handle.completed.then(() => {
-      if (this.handles.get(key) === handle) this.handles.delete(key)
-    })
+  /**
+   * Removes a step's process once it is no longer running.
+   *
+   * Guarded by identity: a correction retry publishes a new process under the same
+   * key, and the one it replaced can exit *afterwards*. An unguarded delete would
+   * then remove the live handle and blank a pane showing a running step.
+   */
+  retire(key: string, handle: AttachableProcess): void {
+    if (this.handles.get(key) === handle) this.handles.delete(key)
   }
 
   /** The live handle for a step, or null when it is not running. */
-  lookup(key: string): ProcessHandle | null {
+  lookup(key: string): AttachableProcess | null {
     return this.handles.get(key) ?? null
   }
 

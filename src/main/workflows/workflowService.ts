@@ -57,6 +57,7 @@ import { verifyStep } from '../evidence/verifier'
 import { bindRole, BindingSet } from '../runtimes/bindings'
 import { BindingStore } from '../db/bindingStore'
 import { ClaudeTrustStore } from '../runtimes/claudeTrust'
+import { agentSessionKey, type AgentSessionRegistry } from '../terminal/sessionRegistry'
 import { Orchestrator } from '../runtimes/orchestrator'
 import type { RuntimeRegistry } from '../runtimes/registry'
 import type { ProjectService } from '../projects/projectService'
@@ -73,6 +74,13 @@ export interface WorkflowServiceOptions {
    */
   readonly worktreeRoot?: string
   readonly registry: RuntimeRegistry
+  /**
+   * Where a running step's process is published, so the UI can attach to it (#170).
+   *
+   * Optional so existing callers keep working: without it a workflow still runs,
+   * and the pane simply has nothing live to show.
+   */
+  readonly sessions?: AgentSessionRegistry
   readonly emitEvent?: (event: WorkflowEventPayload) => void
   readonly emitLog?: (log: WorkflowLogPayload) => void
 }
@@ -525,6 +533,10 @@ export class WorkflowService {
 
     const baseSha = await new GitService({ repositoryPath }).headSha()
 
+    // Retired in the `finally` below, so a crashed or cancelled run does not leave
+    // the pane attached to processes that are gone.
+    const liveSessions: { key: string; handle: { write?: (i: string) => void } }[] = []
+
     // Agents run here, not in the user's checkout. `agentPath` stays equal to
     // `repositoryPath` only when no worktree root is configured, which keeps the
     // existing test harnesses running against a plain directory.
@@ -733,6 +745,16 @@ export class WorkflowService {
         //
         // Only `tool` and `usage` are rendered. `chunk` would duplicate the reply the
         // step already logs, and `state` duplicates the stage transitions around it.
+        // Published so the workflow pane can attach to the step's real process
+        // rather than spawning a second session and rendering that (#170).
+        onStepProcess: (stepIndex, agentProcess) => {
+          const key = agentSessionKey(workflowId, stepIndex)
+          this.options.sessions?.publish(key, agentProcess)
+          // Retired when the step's own log records it finished. Left published, a
+          // pane opened later would attach to a process that has already exited
+          // and show a frozen screen rather than an honest empty one.
+          liveSessions.push({ key, handle: agentProcess })
+        },
         onRuntimeEvent: (stepIndex, event) => {
           if (event.type === 'tool') {
             const detail = event.detail === '' ? '' : ` ${event.detail}`
@@ -760,6 +782,7 @@ export class WorkflowService {
       this.running.delete(workflowId)
       // Disposed even when the run threw or was cancelled: a worktree left behind
       // holds a lock on its directory and shows up in `git worktree list` forever.
+      for (const session of liveSessions) this.options.sessions?.retire(session.key, session.handle)
       await worktree?.dispose()
       const finished = this.workflows.find(workflowId)
       if (finished !== null) {

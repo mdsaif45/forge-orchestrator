@@ -29,7 +29,15 @@
  * appeared to hang (#166).
  */
 export function isPromptReady(screen: string): boolean {
-  return /for shortcuts|Try "/.test(screen)
+  // The prompt caret is the marker, not the hint text beside it. Measured: under
+  // `--dangerously-skip-permissions` the idle screen reads
+  // "> >> bypass permissions on (shift+tab to cycle)" and never says
+  // "for shortcuts" or 'Try "' at all — those come from a different launch mode.
+  // Keying on the hint made the runtime wait 240s for a turn that had finished.
+  //
+  // The hints are still accepted, because they DO appear in the default mode and
+  // a caret alone is a weaker signal.
+  return /❯|▶▶|for shortcuts|Try "/.test(screen)
 }
 
 /**
@@ -66,7 +74,10 @@ export function blockingPrompt(screen: string): 'trust' | 'permission' | null {
 export function turnLooksComplete(screen: string): boolean {
   // The busy indicator is the most reliable negative: while it is on screen the
   // agent is still working, whatever else the pane shows.
-  if (/esc to interrupt|Cooking|Searching for|Thinking/i.test(screen)) return false
+  // Present-tense only. "Cogitated for 2s" and "Cooked for 5s" are what the CLI
+  // prints when a turn has ENDED — matching those would make a finished turn look
+  // like a running one forever.
+  if (/esc to interrupt|Cooking|Searching for|Thinking|Cogitating/i.test(screen)) return false
   return isPromptReady(screen)
 }
 

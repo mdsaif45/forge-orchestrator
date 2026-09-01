@@ -15,6 +15,7 @@ import { WorkflowService } from './workflows/workflowService'
 import { MockAgentRuntime } from './runtimes/mockRuntime'
 import { RuntimeRegistry, runtimeExecutable } from './runtimes/registry'
 import { ClaudeCliRuntime } from './runtimes/claudeCliRuntime'
+import { HostedClaudeRuntime } from './runtimes/hostedClaudeRuntime'
 import { AntigravityCliRuntime } from './runtimes/antigravityCliRuntime'
 import { createPipeProcessRunner } from './runtimes/pipeProcessRunner'
 import { AgentSessionRegistry } from './terminal/sessionRegistry'
@@ -203,6 +204,13 @@ if (!claimSingleInstance()) {
         runner: createPipeProcessRunner({ orphans }),
       }),
     )
+
+    // The same CLI hosted as a live interactive session, registered ALONGSIDE the
+    // headless adapter rather than replacing it (#167/#170). The headless path
+    // works today; this one is proven for a single turn and not yet for a
+    // five-stage workflow with retries. Two ids let a binding choose, so both can
+    // be run against the same repository and compared before anything is deleted.
+    registry.register(new HostedClaudeRuntime({ processes }))
 
     // Late-bound on purpose: WorkflowService depends on ProjectService, so reading it
     // through a closure is what keeps the construction order one-way while still

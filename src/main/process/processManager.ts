@@ -110,6 +110,14 @@ export interface ProcessHandle {
   readonly runId: string
   /** Redacted output as it arrives, for a live log. */
   onData(listener: (text: string) => void): () => void
+  /**
+   * Unredacted, unstripped output, for rendering a terminal screen.
+   *
+   * Use `onData` for anything that reads or stores output. This exists only for a
+   * consumer that must reproduce what the process painted, which is impossible
+   * once escape sequences are removed.
+   */
+  onRawData?(listener: (text: string) => void): () => void
   /** Resolves when the run ends, however it ends. Never rejects. */
   readonly completed: Promise<ProcessOutcome>
   write(input: string): void
@@ -319,6 +327,10 @@ export class ProcessManager {
   private handleFor(run: Run, completed: Promise<ProcessOutcome>): ProcessHandle {
     return {
       runId: run.runId,
+      onRawData: (listener: (text: string) => void) => {
+        run.emitter.on('raw', listener)
+        return () => run.emitter.off('raw', listener)
+      },
       onData: (listener) => {
         run.emitter.on('data', listener)
         return () => {
@@ -372,6 +384,16 @@ export class ProcessManager {
     }
 
     run.emitter.emit('data', safe)
+    // The unmodified bytes, for a consumer that must reproduce the screen rather
+    // than read it. A terminal emulator needs the cursor addressing and repaints
+    // that `stripAnsi` removes; given the redacted stream it renders plain text
+    // and can never resolve what is actually displayed (#170).
+    //
+    // Deliberately a second channel rather than a relaxation of the first: the
+    // stripping above is what keeps a redaction pattern from being defeated by an
+    // escape sequence landing mid-token, and that guarantee is not negotiable.
+    // Only a caller that asks for raw output gets it.
+    run.emitter.emit('raw', data)
 
     // Re-armed on every chunk: the idle timeout measures silence, not total duration.
     this.armIdleTimer(run)

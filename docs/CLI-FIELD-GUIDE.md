@@ -311,3 +311,58 @@ lint rule conflict   no-unnecessary-condition vs no-inferrable-types on a
 Only what was **measured**, with the command that measured it where the shape is
 not obvious. A line copied from documentation that later turns out to be wrong is
 worse than no line, because the next person will trust it.
+
+---
+
+## 9. Deciding when a hosted turn has ended — UNSOLVED
+
+A headless run ends when the process exits. A hosted session never exits, so the
+end of a turn must be read off the screen. **Four rules have now been tried
+against the real CLI and all four were wrong**, each in a different way:
+
+```
+rule                                   result          why it failed
+─────────────────────────────────────  ──────────────  ──────────────────────────
+"for shortcuts" / 'Try "' on screen    240s timeout    those strings never appear
+                                                       under --dangerously-skip-
+                                                       permissions; they belong
+                                                       to a different launch mode
+caret (>) visible                      13.5s, no answer the caret returns within a
+                                                       second of submitting, while
+                                                       the agent is still working
+caret + screen changed since submit    2.6s, no answer  the screen changes
+                                                       constantly — spinners,
+                                                       elapsed-time counters
+"42 is on screen" (the probe's own     false positive   the claude-mem banner
+ check, used to validate the others)                    contains :37777
+```
+
+The last row is the sharpest lesson: **the instrument used to check the rule was
+itself wrong**, so two of the earlier "failures" may have been misread.
+
+### What IS measured
+
+```
+a real turn answers in ~8s under --dangerously-skip-permissions
+the CLI is STILL BOOTING for several seconds after the prompt box first paints:
+  MCP authentication warnings, SessionStart hook output, plugin banners
+  all arrive after the caret is already visible
+busy words are present-tense while working ("Searching for", "esc to interrupt")
+and past-tense when done ("Cogitated for 2s", "Cooked for 5s")
+```
+
+That boot noise is the trap under all four attempts: any rule keyed on "the
+screen looks idle" or "the screen changed" fires during startup, before the
+prompt has even been received.
+
+### Directions not yet tried
+
+- wait for the boot to settle (no change for N seconds) before sending at all
+- track the caret's *row*, which moves down as output accumulates, rather than
+  its presence
+- use hooks (`Stop` fires when a turn ends) instead of reading the screen —
+  hooks are already verified working, and this is what the hosted design was
+  meant to rely on
+
+The third is almost certainly the right answer, and is #169. Screen-scraping a
+turn boundary may simply be the wrong mechanism.

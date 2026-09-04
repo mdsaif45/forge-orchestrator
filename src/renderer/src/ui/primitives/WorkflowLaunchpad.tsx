@@ -64,9 +64,10 @@ export function WorkflowLaunchpad({
               onClick={() => {
                 onStartWork(selectedTemplateId)
               }}
+              aria-label="Start Workflow"
               className="h-9 rounded-xl px-5 text-[13px] font-bold shadow-md cursor-pointer"
             >
-              + Start New Work
+              Start Workflow
             </Button>
           </div>
         </div>

@@ -86,10 +86,10 @@ function WelcomeWorkspace(): React.JSX.Element {
           onClick={openCreateProject}
           className="rounded-xl px-6 py-2.5 text-[13px] font-semibold shadow-md"
         >
-          <span className="mr-1.5 text-base font-bold">+</span> Open or Create Project
+          <span className="mr-1.5 text-base font-bold">+</span> Open Project
         </Button>
         <span className="text-[11px] text-(--color-text-subtle)">
-          Bind any local git repository to start orchestrating workflows
+          Bind any local folder to start orchestrating workflows
         </span>
       </div>
 
@@ -97,7 +97,7 @@ function WelcomeWorkspace(): React.JSX.Element {
       <div className="grid w-full grid-cols-1 gap-4 text-left md:grid-cols-3">
         <div className="flex flex-col gap-1.5 rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-4 shadow-xs">
           <div className="flex items-center gap-2 font-semibold text-(--color-text) text-[13px]">
-            <span>📁</span> Git Repository Binding
+            <span>📁</span> Codebase Integration
           </div>
           <p className="text-[12px] text-(--color-text-muted) leading-relaxed">
             Live branch detection, dirty file tracking, and automatic tech stack analysis from git

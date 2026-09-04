@@ -13,6 +13,7 @@ import {
   Textarea,
   useToast,
 } from '../ui'
+import { DefaultBranchField } from './DefaultBranchField'
 import { useProjectStore } from './projectStore'
 
 /** Reasons a folder cannot be bound at all, as opposed to reasons worth knowing. */
@@ -58,6 +59,7 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
 
   const [name, setName] = useState('')
   const [path, setPath] = useState('')
+  const [branch, setBranch] = useState('')
   const [rules, setRules] = useState('')
 
   const [probe, setProbe] = useState<RepositoryProbe | null>(null)
@@ -84,6 +86,10 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
       if (probeToken.current !== token) return
 
       setProbe(result)
+
+      if (result.isRepository && result.defaultBranch !== null) {
+        setBranch((curr) => (curr === '' ? (result.defaultBranch ?? '') : curr))
+      }
 
       // Auto-suggest project name from repository folder basename if name is empty
       if (result.isRepository) {
@@ -133,7 +139,7 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
       const created = await createProject({
         name: name.trim(),
         repositoryPath: path.trim(),
-        defaultBranch: probe.defaultBranch ?? 'main',
+        defaultBranch: branch.trim() !== '' ? branch.trim() : (probe.defaultBranch ?? 'main'),
         buildCommand: null,
         testCommand: null,
         tech: [],
@@ -232,10 +238,12 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
 
         <RepositoryStatus probing={probing} probe={probe} warnings={warnings} />
 
+        <DefaultBranchField probe={probe} value={branch} onChange={setBranch} />
+
         {/* Project Rules */}
         <Field
           label="Rules"
-          hint="Project-specific guidelines injected into agent workflows (e.g. 'never modify migrations without approval')."
+          hint="Project-specific guidelines injected into agent workflows (e.g. 'strictly type all code changes')."
         >
           {(bind) => (
             <Textarea

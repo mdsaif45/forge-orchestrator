@@ -21,9 +21,6 @@ export function Sidebar(): React.JSX.Element {
   const selectedProjectId = useProjectStore((state) => state.selectedProjectId)
   const [unansweredCount, setUnansweredCount] = useState(0)
 
-  const openSettings = useUiStore((state) => state.openSettings)
-  const settingsOpen = useUiStore((state) => state.settingsOpen)
-
   const primaryRoutes = ROUTES.filter((r) => r.path !== '/settings')
   const settingsRoute = ROUTES.find((r) => r.path === '/settings')
 
@@ -100,40 +97,10 @@ export function Sidebar(): React.JSX.Element {
           <Separator className="my-1" />
           {collapsed ? (
             <Tooltip content={settingsRoute.label} side="right">
-              <button
-                type="button"
-                onClick={openSettings}
-                aria-label={settingsRoute.label}
-                className={cn(
-                  'flex size-8 mx-auto items-center justify-center rounded-lg cursor-pointer',
-                  'text-[13px] font-medium transition-colors duration-(--duration-fast) ease-(--ease-out)',
-                  'outline-none focus-visible:ring-2 focus-visible:ring-(--color-border-focus)',
-                  '[&>svg]:size-4 [&>svg]:shrink-0',
-                  settingsOpen
-                    ? 'bg-(--color-surface-raised) text-(--color-text) shadow-xs border border-(--color-border)'
-                    : 'text-(--color-text-muted) hover:bg-(--color-surface-raised) hover:text-(--color-text)',
-                )}
-              >
-                {settingsRoute.icon}
-              </button>
+              <NavItem route={settingsRoute} collapsed />
             </Tooltip>
           ) : (
-            <button
-              type="button"
-              onClick={openSettings}
-              className={cn(
-                'flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 w-full cursor-pointer text-left',
-                'text-[13px] font-medium transition-colors duration-(--duration-fast) ease-(--ease-out)',
-                'outline-none focus-visible:ring-2 focus-visible:ring-(--color-border-focus)',
-                '[&>svg]:size-4 [&>svg]:shrink-0',
-                settingsOpen
-                  ? 'bg-(--color-surface-raised) text-(--color-text) shadow-xs border border-(--color-border)'
-                  : 'text-(--color-text-muted) hover:bg-(--color-surface-raised) hover:text-(--color-text)',
-              )}
-            >
-              {settingsRoute.icon}
-              <span className="truncate">{settingsRoute.label}</span>
-            </button>
+            <NavItem route={settingsRoute} collapsed={false} />
           )}
         </div>
       )}

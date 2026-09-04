@@ -8,6 +8,12 @@ import { defineConfig } from '@playwright/test'
  */
 export default defineConfig({
   testDir: './e2e',
+  testMatch:
+    process.env['FORGE_AUDIT'] === '1'
+      ? /transparency-audit\.spec\.ts/
+      : process.env['FORGE_DRIVE'] === '1'
+        ? /drive\.spec\.ts/
+        : /app\.spec\.ts/,
   // Electron launches one app instance per worker; serial keeps them from
   // contending over the same user-data directory.
   workers: 1,

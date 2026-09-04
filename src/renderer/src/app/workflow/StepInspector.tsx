@@ -23,7 +23,7 @@ type StepTab = 'summary' | 'packet' | 'verdict'
  */
 const TAB_ITEMS: readonly { readonly value: StepTab; readonly label: string }[] = [
   { value: 'summary', label: 'Summary' },
-  { value: 'packet', label: 'Instruction Sent' },
+  { value: 'packet', label: 'Prompt Packet' },
   { value: 'verdict', label: 'Verdict & Evidence' },
 ]
 

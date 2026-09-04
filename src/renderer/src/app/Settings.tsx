@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import type { ProjectDetail, RuleView } from '@shared/ipc'
+import { useEffect, useRef, useState } from 'react'
+import type { EffectiveRuleView, ProjectDetail } from '@shared/ipc'
 import {
   AddCliAgentDialog,
   AddMcpServerDialog,
@@ -7,10 +7,14 @@ import {
   Badge,
   Button,
   Card,
+  CardDescription,
+  CardHeader,
+  CardTitle,
   type CliAgentConfig,
   type CustomProviderConfig,
   Dialog,
   EmptyState,
+  Field,
   IconButton,
   Input,
   type McpServerConfig,
@@ -142,11 +146,25 @@ export function SettingsContent(): React.JSX.Element {
   const { theme, setTheme } = useTheme()
   const sidebarCollapsed = useUiStore((state) => state.sidebarCollapsed)
   const toggleSidebar = useUiStore((state) => state.toggleSidebar)
+  const userChangedSelection = useRef(false)
 
-  const [selection, setSelection] = useState<SettingsSelection>({
-    type: 'global',
-    globalTab: 'general',
+  const [selection, setSelection] = useState<SettingsSelection>(() => {
+    const activeId = useProjectStore.getState().selectedProjectId
+    if (activeId) {
+      return { type: 'project', projectId: activeId }
+    }
+    return {
+      type: 'global',
+      globalTab: 'general',
+    }
   })
+
+  useEffect(() => {
+    const activeId = detail?.project.id ?? selectedProjectId
+    if (activeId && selection.type === 'global' && !userChangedSelection.current) {
+      setSelection({ type: 'project', projectId: activeId })
+    }
+  }, [detail?.project.id, selectedProjectId, selection.type])
 
   // Global instructions state
   const [globalInstructions, setGlobalInstructions] = useState<string>(() => {
@@ -409,6 +427,9 @@ export function SettingsContent(): React.JSX.Element {
     <div className="flex h-full min-h-0 flex-1 bg-(--color-canvas)">
       {/* Left Settings Navigation Bar */}
       <aside className="w-56 shrink-0 border-r border-(--color-border) bg-(--color-surface) p-3">
+        <div className="px-2 py-2 mb-2 border-b border-(--color-border)">
+          <h1 className="text-[16px] font-bold text-(--color-text)">Settings</h1>
+        </div>
         <ScrollArea className="h-full">
           <div className="flex flex-col gap-4 text-[12px]">
             {/* Global Settings Section */}
@@ -431,6 +452,7 @@ export function SettingsContent(): React.JSX.Element {
                       key={tab.id}
                       type="button"
                       onClick={() => {
+                        userChangedSelection.current = true
                         setSelection({ type: 'global', globalTab: tab.id })
                       }}
                       className={`flex w-full items-center rounded-lg px-2.5 py-1.5 text-left text-[13px] font-medium transition-colors cursor-pointer select-none ${
@@ -471,6 +493,7 @@ export function SettingsContent(): React.JSX.Element {
                         key={proj.id}
                         type="button"
                         onClick={() => {
+                          userChangedSelection.current = true
                           setSelection({ type: 'project', projectId: proj.id })
                           void selectProject(proj.id)
                         }}
@@ -601,14 +624,16 @@ export function SettingsContent(): React.JSX.Element {
       </main>
 
       {/* Add Custom Provider Dialog */}
-      <AddProviderDialog
-        open={addProviderOpen}
-        initialType={addProviderType}
-        onClose={() => {
-          setAddProviderOpen(false)
-        }}
-        onSave={handleAddCustomProvider}
-      />
+      {addProviderOpen && (
+        <AddProviderDialog
+          open
+          initialType={addProviderType}
+          onClose={() => {
+            setAddProviderOpen(false)
+          }}
+          onSave={handleAddCustomProvider}
+        />
+      )}
 
       {/* Permissions Modal */}
       {activePermissionsModal !== null && (
@@ -1466,13 +1491,15 @@ function CliAgentsGlobalSettings({
       </section>
 
       {/* Add CLI Agent Dialog */}
-      <AddCliAgentDialog
-        open={isAddDialogOpen}
-        onClose={() => {
-          setIsAddDialogOpen(false)
-        }}
-        onSave={handleAddAgent}
-      />
+      {isAddDialogOpen && (
+        <AddCliAgentDialog
+          open
+          onClose={() => {
+            setIsAddDialogOpen(false)
+          }}
+          onSave={handleAddAgent}
+        />
+      )}
     </div>
   )
 }
@@ -2034,13 +2061,15 @@ function CustomizationsGlobalSettings(): React.JSX.Element {
       </section>
 
       {/* Add MCP Server Dialog */}
-      <AddMcpServerDialog
-        open={isAddDialogOpen}
-        onClose={() => {
-          setIsAddDialogOpen(false)
-        }}
-        onSave={handleAddServer}
-      />
+      {isAddDialogOpen && (
+        <AddMcpServerDialog
+          open
+          onClose={() => {
+            setIsAddDialogOpen(false)
+          }}
+          onSave={handleAddServer}
+        />
+      )}
     </div>
   )
 }
@@ -2076,7 +2105,7 @@ function ProjectLevelSettings({
   readonly saveRule: () => Promise<void>
   readonly removeRule: (id: string) => Promise<void>
 }): React.JSX.Element {
-  const { project, rules, probe } = detail
+  const { project, rules, policy, probe } = detail
 
   return (
     <div className="grid gap-6">
@@ -2084,7 +2113,7 @@ function ProjectLevelSettings({
       <div className="flex items-center justify-between border-b border-(--color-border) pb-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-[18px] font-bold text-(--color-text)">{project.name}</h1>
+            <h2 className="text-[18px] font-bold text-(--color-text)">{project.name}</h2>
             <Badge tone="accent" size="sm" className="rounded-full">
               Project Settings
             </Badge>
@@ -2106,7 +2135,7 @@ function ProjectLevelSettings({
 
       {/* Bound Repository Summary */}
       <section className="grid gap-2">
-        <h2 className="text-[13px] font-semibold text-(--color-text)">Repository Details</h2>
+        <h3 className="text-[13px] font-semibold text-(--color-text)">Repository Details</h3>
         <Card tone="raised">
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 p-4 text-[12px]">
             <dt className="font-semibold text-(--color-text-muted)">Path:</dt>
@@ -2142,100 +2171,111 @@ function ProjectLevelSettings({
         </Card>
       </section>
 
-      {/* Project Rules */}
+      {/* Effective Policy */}
       <section className="grid gap-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-[13px] font-semibold text-(--color-text)">Project Rules</h2>
-          <Badge tone="neutral" size="sm" className="rounded-full">
-            {rules.length} Active
-          </Badge>
-        </div>
+        <Card tone="raised">
+          <CardHeader>
+            <div>
+              <CardTitle>Effective policy</CardTitle>
+              <CardDescription>
+                Every rule an agent in this project receives, after inheritance
+              </CardDescription>
+            </div>
+            <Badge tone="neutral" size="sm">
+              {policy.length}
+            </Badge>
+          </CardHeader>
 
-        <Card tone="raised" className="p-4 space-y-4">
-          {rules.length === 0 ? (
-            <p className="text-[12px] text-(--color-text-muted)">
-              No rules defined for this project yet.
-            </p>
-          ) : (
-            <ul className="space-y-2 list-none p-0 m-0">
-              {rules.map((rule: RuleView) => (
-                <li
-                  key={rule.id}
-                  className="flex items-start justify-between gap-3 rounded-lg border border-(--color-border) bg-(--color-surface-inset) p-2.5 text-[12px]"
-                >
-                  <div>
-                    <Badge tone="neutral" size="sm" className="mb-1">
-                      {rule.scope}
-                    </Badge>
-                    <p className="m-0 font-medium text-(--color-text)">{rule.statement}</p>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => {
-                      void removeRule(rule.id)
+          <ul className="mt-3 grid list-none gap-2 p-0">
+            {policy.map((rule) => (
+              <PolicyRow
+                key={rule.key}
+                rule={rule}
+                onRemove={
+                  rules.find((stored) => stored.key === rule.key && stored.scope === rule.scope)?.id
+                }
+                remove={removeRule}
+              />
+            ))}
+          </ul>
+        </Card>
+      </section>
+
+      {/* Set a Rule */}
+      <section className="grid gap-3">
+        <Card tone="raised">
+          <CardHeader>
+            <div>
+              <CardTitle>Set a rule</CardTitle>
+              <CardDescription>
+                Reuse a key to override that concern at a narrower scope
+              </CardDescription>
+            </div>
+          </CardHeader>
+
+          <div className="mt-3 grid gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Key" required hint="R4 to override a Forge default">
+                {(bind) => (
+                  <Input
+                    {...bind}
+                    value={keyState}
+                    placeholder="R4"
+                    onChange={(event) => {
+                      setKeyState(event.target.value)
                     }}
-                    className="text-[11px] text-(--color-danger) hover:text-(--color-danger)"
-                  >
-                    Remove
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
+                  />
+                )}
+              </Field>
 
-          <Separator />
+              <Field label="Scope" required>
+                {(bind) => (
+                  <Select
+                    {...bind}
+                    options={[
+                      { value: 'project', label: 'project' },
+                      { value: 'workspace', label: 'workspace' },
+                    ]}
+                    value={scopeState}
+                    onChange={(event) => {
+                      setScopeState(event.target.value)
+                    }}
+                  />
+                )}
+              </Field>
+            </div>
 
-          {/* Add Rule Form */}
-          <div className="space-y-3 pt-1">
-            <p className="font-semibold text-[12px] text-(--color-text)">Add New Rule</p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              <Input
-                placeholder="Rule key (e.g. strict-types)"
-                value={keyState}
-                onChange={(e) => {
-                  setKeyState(e.target.value)
-                }}
-                className="h-8 text-[12px]"
-              />
-              <Select
-                value={scopeState}
-                onChange={(e) => {
-                  setScopeState(e.target.value)
-                }}
-                options={[
-                  { value: 'project', label: 'Scope: Project' },
-                  { value: 'workflow', label: 'Scope: Workflow' },
-                  { value: 'step', label: 'Scope: Step' },
-                ]}
-              />
+            <Field label="Statement" required>
+              {(bind) => (
+                <Textarea
+                  {...bind}
+                  rows={3}
+                  value={statementState}
+                  placeholder="migrations may be modified in this project"
+                  onChange={(event) => {
+                    setStatementState(event.target.value)
+                  }}
+                />
+              )}
+            </Field>
+
+            <div className="flex justify-end">
               <Button
-                variant="primary"
-                disabled={savingRule || keyState.trim() === '' || statementState.trim() === ''}
                 onClick={() => {
                   void saveRule()
                 }}
-                className="h-8 text-[12px]"
+                disabled={savingRule || keyState.trim() === '' || statementState.trim() === ''}
               >
-                {savingRule ? 'Saving...' : 'Add Rule'}
+                {savingRule ? 'Saving…' : 'Set rule'}
               </Button>
             </div>
-            <Textarea
-              placeholder="Rule statement (e.g. All TypeScript code must be strictly typed with zero any)"
-              value={statementState}
-              onChange={(e) => {
-                setStatementState(e.target.value)
-              }}
-              rows={2}
-              className="text-[12px]"
-            />
           </div>
         </Card>
       </section>
 
       {/* Danger Zone */}
       <section className="grid gap-2 pt-4">
-        <h2 className="text-[13px] font-semibold text-(--color-danger)">Danger Zone</h2>
+        <h3 className="text-[13px] font-semibold text-(--color-danger)">Danger Zone</h3>
         <Card tone="raised" className="border-(--color-danger)/40 p-4">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -2259,5 +2299,73 @@ function ProjectLevelSettings({
         </Card>
       </section>
     </div>
+  )
+}
+
+function PolicyRow({
+  rule,
+  onRemove,
+  remove,
+}: {
+  readonly rule: EffectiveRuleView
+  readonly onRemove: string | undefined
+  readonly remove: (ruleId: string) => Promise<void>
+}): React.JSX.Element {
+  const overridden = rule.shadowed.length > 0
+
+  return (
+    <li className="grid gap-1 rounded-(--radius-md) border border-(--color-border) bg-(--color-surface-inset) p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <code className="rounded bg-(--color-surface) px-1.5 py-0.5 font-mono text-[11px] font-semibold text-(--color-text) border border-(--color-border)">
+          {rule.key}
+        </code>
+        <Badge tone="neutral" size="sm">
+          {rule.scope}
+        </Badge>
+        {overridden ? (
+          <Badge tone="warning" size="sm">
+            overrides {rule.shadowed.length}
+          </Badge>
+        ) : (
+          <Badge tone="neutral" size="sm">
+            inherited
+          </Badge>
+        )}
+        <span className="ml-auto text-[11px] text-(--color-text-muted)">{rule.source}</span>
+        {onRemove !== undefined && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              void remove(onRemove)
+            }}
+            className="h-6 text-[11px] text-(--color-danger) hover:text-(--color-danger)"
+          >
+            Remove
+          </Button>
+        )}
+      </div>
+
+      <p className="m-0 text-[12px] text-(--color-text)">{rule.statement}</p>
+
+      {overridden && (
+        <>
+          <Separator className="my-1" />
+          <div className="grid gap-1">
+            {rule.shadowed.map((shadowed) => (
+              <p
+                key={`${shadowed.scope}-${shadowed.source}`}
+                className="m-0 text-[11px] text-(--color-text-muted) line-through"
+              >
+                <Badge tone="neutral" size="sm">
+                  {shadowed.scope}
+                </Badge>{' '}
+                {shadowed.statement}
+              </p>
+            ))}
+          </div>
+        </>
+      )}
+    </li>
   )
 }

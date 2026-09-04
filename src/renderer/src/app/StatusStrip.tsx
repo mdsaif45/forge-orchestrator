@@ -56,9 +56,10 @@ export function StatusStrip({
           size="sm"
           variant="ghost"
           onClick={onNewProject}
+          aria-label="New project"
           className="h-7 rounded-lg px-2 text-[12px] font-medium text-(--color-text-muted) hover:text-(--color-text)"
         >
-          <span className="mr-1 text-[13px] font-bold">+</span> New
+          <span className="mr-1 text-[13px] font-bold">+</span> New project
         </Button>
       </div>
 

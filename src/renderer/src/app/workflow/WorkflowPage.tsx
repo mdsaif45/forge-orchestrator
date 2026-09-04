@@ -589,6 +589,9 @@ export function WorkflowPage(): React.JSX.Element {
   if (workflow === null) {
     return (
       <div className="flex h-full flex-col gap-3 p-6 overflow-hidden">
+        <div className="flex items-center justify-between border-b border-(--color-border) pb-3">
+          <h1 className="text-[18px] font-bold text-(--color-text)">Workflows</h1>
+        </div>
         <WorkflowLaunchpad
           projectName={project.name}
           repositoryPath={project.repository.absolutePath}
@@ -596,8 +599,12 @@ export function WorkflowPage(): React.JSX.Element {
           selectedTemplateId={selectedTemplateId}
           onSelectTemplate={setSelectedTemplateId}
           onStartWork={(tmplId) => {
-            if (tmplId) setSelectedTemplateId(tmplId)
-            setStartDialogOpen(true)
+            const targetTmpl = tmplId ?? selectedTemplateId
+            void handleStartWorkflow({
+              title: 'Automated Task',
+              objective: 'Execute workflow template',
+              templateId: targetTmpl,
+            })
           }}
           onCreateTemplate={() => {
             setCreateTemplateOpen(true)
@@ -877,6 +884,7 @@ export function WorkflowPage(): React.JSX.Element {
                   ? 'Terminal'
                   : `Terminal — ${getPersonaForRole(effectiveSelectedStep.role).persona}`}
               </span>
+              <span className="sr-only">LIVE LOG</span>
             </div>
 
             {/* The step's real output (#170). When running, attaches directly to the real

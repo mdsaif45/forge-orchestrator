@@ -258,6 +258,7 @@ export interface ForgeApi {
       rows: number,
     ) => Promise<IpcResult<Record<string, never>>>
     kill: (terminalId: string) => Promise<IpcResult<Record<string, never>>>
+    buffer: (terminalId: string) => Promise<IpcResult<{ readonly buffer: string }>>
   }
   readonly provider: {
     scanModels: (

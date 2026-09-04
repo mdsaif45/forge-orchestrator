@@ -14,7 +14,12 @@ import {
   type RuntimeEvent,
 } from '@shared/domain'
 import { GitService } from '../git'
-import { IncapableRuntimeError, RuntimeRegistry, UnknownRuntimeError } from './registry'
+import {
+  IncapableRuntimeError,
+  RuntimeRegistry,
+  runtimeExecutable,
+  UnknownRuntimeError,
+} from './registry'
 import { AntigravityCliRuntime } from './antigravityCliRuntime'
 import { ClaudeCliRuntime } from './claudeCliRuntime'
 import { MockAgentRuntime } from './mockRuntime'
@@ -460,5 +465,14 @@ describe('simulated declaration', () => {
     // Claude accounts that genuinely parallelise would be needlessly serialised.
     expect(new ClaudeCliRuntime().supportsAccountIsolation).toBe(true)
     expect(new AntigravityCliRuntime().supportsAccountIsolation).toBe(false)
+  })
+})
+
+describe('runtimeExecutable', () => {
+  it('maps runtime ids to their CLI executables', () => {
+    expect(runtimeExecutable('claude-cli')).toBe('claude')
+    expect(runtimeExecutable('claude-cli-hosted')).toBe('claude')
+    expect(runtimeExecutable('antigravity-cli')).toBe('agy')
+    expect(runtimeExecutable('unknown-id')).toBe('unknown-id')
   })
 })

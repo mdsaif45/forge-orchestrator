@@ -9,6 +9,7 @@ import { Button } from './Button'
 
 export interface RealTerminalProps {
   readonly projectId: string
+  readonly attachSessionKey?: string | null | undefined
   readonly command?: string | undefined
   readonly args?: readonly string[] | undefined
   readonly cwd?: string | undefined
@@ -21,6 +22,7 @@ export interface RealTerminalProps {
 
 export function RealTerminal({
   projectId,
+  attachSessionKey,
   command,
   args,
   cwd,
@@ -149,7 +151,7 @@ export function RealTerminal({
     }
   }, [isLight])
 
-  // Spawn Terminal Session
+  // Spawn or Attach Terminal Session
   useEffect(() => {
     let cancelled = false
     let activeTermId: string | null = null
@@ -165,6 +167,54 @@ export function RealTerminal({
       fitAddonRef.current?.fit()
     } catch {
       // Falls back to the last good size rather than blocking the spawn.
+    }
+
+    // Direct attachment to an existing live agent process (#170), with zero decoy session.
+    if (attachSessionKey !== undefined && attachSessionKey !== null) {
+      activeTermId = attachSessionKey
+      terminalIdRef.current = attachSessionKey
+
+      // Replay any buffered frames from before attachment
+      window.forge.terminal
+        .buffer(attachSessionKey)
+        .then((res) => {
+          if (cancelled) return
+          setIsRunning(true)
+          const initial = unwrap(res).buffer
+          if (initial.length > 0) {
+            term.write(initial)
+          }
+        })
+        .catch(() => undefined)
+
+      // Send keystrokes directly to the PTY
+      const dataListener = term.onData((data) => {
+        if (activeTermId !== null) {
+          void window.forge.terminal.write(activeTermId, data)
+        }
+      })
+
+      // Listen for output streaming from PTY
+      const unsubData = window.forge.onTerminalData((payload) => {
+        if (payload.terminalId === activeTermId) {
+          term.write(payload.chunk)
+        }
+      })
+
+      // Listen for process exit
+      const unsubExit = window.forge.onTerminalExit((payload) => {
+        if (payload.terminalId === activeTermId) {
+          setIsRunning(false)
+          onExitRef.current?.(payload.exitCode)
+        }
+      })
+
+      return () => {
+        cancelled = true
+        dataListener.dispose()
+        unsubData()
+        unsubExit()
+      }
     }
 
     window.forge.terminal
@@ -227,7 +277,7 @@ export function RealTerminal({
         void window.forge.terminal.kill(activeTermId)
       }
     }
-  }, [projectId, runtimeId, command, cwd, args])
+  }, [projectId, runtimeId, command, cwd, args, attachSessionKey])
 
   const handleClear = (): void => {
     terminalInstanceRef.current?.clear()
@@ -235,6 +285,17 @@ export function RealTerminal({
 
   const handleRestart = (): void => {
     terminalInstanceRef.current?.reset()
+    if (attachSessionKey !== undefined && attachSessionKey !== null) {
+      window.forge.terminal
+        .buffer(attachSessionKey)
+        .then((res) => {
+          const buf = unwrap(res).buffer
+          if (buf.length > 0) terminalInstanceRef.current?.write(buf)
+        })
+        .catch(() => undefined)
+      return
+    }
+
     if (terminalId !== null) {
       void window.forge.terminal.kill(terminalId)
     }

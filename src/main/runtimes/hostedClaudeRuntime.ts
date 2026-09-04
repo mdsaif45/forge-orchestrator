@@ -215,6 +215,10 @@ export class HostedClaudeRuntime implements IAgentRuntime {
       resize: (cols, rows) => {
         process.resize?.(cols, rows)
       },
+      onData: (listener) => {
+        const sub = process.onRawData?.bind(process) ?? process.onData.bind(process)
+        return sub(listener)
+      },
     })
 
     this.sessions.set(handle.sessionId, session)

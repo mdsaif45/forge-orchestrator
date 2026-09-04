@@ -107,4 +107,27 @@ describe('AgentSessionRegistry', () => {
 
     expect([...registry.liveKeys()].sort()).toEqual(['wf-1#0', 'wf-1#1'])
   })
+
+  it('supports streaming data through onData listener', () => {
+    const registry = new AgentSessionRegistry()
+    const received: string[] = []
+    const handle: AttachableProcess = {
+      write: vi.fn(),
+      resize: vi.fn(),
+      onData: (listener) => {
+        listener('hello world')
+        return () => undefined
+      },
+    }
+
+    registry.publish(agentSessionKey('wf-1', 0), handle)
+    const lookedUp = registry.lookup(agentSessionKey('wf-1', 0))
+    expect(lookedUp).toBe(handle)
+
+    lookedUp?.onData?.((chunk) => {
+      received.push(chunk)
+    })
+
+    expect(received).toEqual(['hello world'])
+  })
 })

@@ -1,5 +1,5 @@
 import { rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import { runGit, GitCommandError } from './exec'
 
 /**
@@ -39,6 +39,45 @@ export interface WorktreeServiceOptions {
 
 export class WorktreeService {
   constructor(private readonly options: WorktreeServiceOptions) {}
+
+  /**
+   * Removes worktrees left behind by a previous session.
+   *
+   * `dispose` runs in the workflow's `finally`, which a killed process never reaches —
+   * measured: closing the app mid-run left a worktree registered against the user's
+   * repository and a directory on disk, and `git worktree list` still showed it on the
+   * next launch. Pruning at startup keeps a crash from accumulating them.
+   *
+   * Only worktrees under this service's own root are touched, so a worktree the user
+   * created themselves is never removed.
+   */
+  async reclaimAbandoned(): Promise<void> {
+    const exec = { cwd: this.options.repositoryPath }
+
+    let listed: string
+    try {
+      listed = (await runGit(['worktree', 'list', '--porcelain'], exec)).stdout
+    } catch (error) {
+      if (error instanceof GitCommandError) return
+      throw error
+    }
+
+    const root = resolve(this.options.root)
+    for (const line of listed.split('\n')) {
+      if (!line.startsWith('worktree ')) continue
+
+      const path = line.slice('worktree '.length).trim()
+      // `relative` rather than a prefix test: a sibling directory whose name merely
+      // starts with the root's would otherwise match and be removed.
+      const rel = relative(root, resolve(path))
+      if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) continue
+
+      await runGit(['worktree', 'remove', '--force', path], exec).catch(() => undefined)
+      await rm(path, { recursive: true, force: true }).catch(() => undefined)
+    }
+
+    await runGit(['worktree', 'prune'], exec).catch(() => undefined)
+  }
 
   /**
    * Creates an isolated worktree for a workflow.

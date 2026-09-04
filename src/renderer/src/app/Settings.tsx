@@ -1294,7 +1294,8 @@ function CliAgentsGlobalSettings({
             </Badge>
           </div>
           <p className="mt-1 text-[12px] text-(--color-text-muted)">
-            Autonomous terminal engines and internal harnesses capable of planning, file modifications, and test execution.
+            Autonomous terminal engines and internal harnesses capable of planning, file
+            modifications, and test execution.
           </p>
         </div>
 
@@ -1337,7 +1338,8 @@ function CliAgentsGlobalSettings({
               <span className="font-mono font-semibold text-(--color-accent)">
                 {activeLlmProviderName} / {activeLlmModelName}
               </span>
-              ) with built-in tool execution: AST file editing, terminal commands, and closed-loop verification.
+              ) with built-in tool execution: AST file editing, terminal commands, and closed-loop
+              verification.
             </p>
           </div>
         </div>
@@ -1362,7 +1364,9 @@ function CliAgentsGlobalSettings({
                           {agent.name}
                         </span>
                         <Badge
-                          tone={agent.isBuiltin ? (isForgeNative ? 'accent' : 'neutral') : 'warning'}
+                          tone={
+                            agent.isBuiltin ? (isForgeNative ? 'accent' : 'neutral') : 'warning'
+                          }
                           size="sm"
                           className="font-mono text-[10px]"
                         >
@@ -1507,7 +1511,8 @@ function AIProvidersSettings({
         <div>
           <h1 className="text-[18px] font-bold text-(--color-text)">LLM Providers</h1>
           <p className="mt-1 text-[12px] text-(--color-text-muted)">
-            Manage API credentials and model endpoints. These power the Forge Native Agent as well as direct completions.
+            Manage API credentials and model endpoints. These power the Forge Native Agent as well
+            as direct completions.
           </p>
         </div>
 
@@ -1803,7 +1808,8 @@ function CustomizationsGlobalSettings(): React.JSX.Element {
             </Badge>
           </div>
           <p className="mt-1 text-[12px] text-(--color-text-muted)">
-            Integrated Model Context Protocol (MCP) tool servers providing extensible capabilities to agent workflows.
+            Integrated Model Context Protocol (MCP) tool servers providing extensible capabilities
+            to agent workflows.
           </p>
         </div>
 
@@ -1845,7 +1851,8 @@ function CustomizationsGlobalSettings(): React.JSX.Element {
       <section className="grid gap-3">
         {filteredServers.length === 0 ? (
           <Card tone="raised" className="p-8 text-center text-[13px] text-(--color-text-muted)">
-            No MCP servers match &quot;{searchQuery}&quot;. Click &quot;+ Add MCP Server&quot; to configure one.
+            No MCP servers match &quot;{searchQuery}&quot;. Click &quot;+ Add MCP Server&quot; to
+            configure one.
           </Card>
         ) : (
           filteredServers.map((server) => {
@@ -1992,7 +1999,8 @@ function CustomizationsGlobalSettings(): React.JSX.Element {
                           <div className="font-mono text-(--color-text-subtle) space-y-0.5">
                             {Object.entries(server.env).map(([k, v]) => (
                               <div key={k}>
-                                {k}=<span className="text-(--color-text)">{v.replace(/./g, '•')}</span>
+                                {k}=
+                                <span className="text-(--color-text)">{v.replace(/./g, '•')}</span>
                               </div>
                             ))}
                           </div>

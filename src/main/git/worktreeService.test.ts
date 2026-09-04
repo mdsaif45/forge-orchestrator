@@ -86,3 +86,47 @@ describe('WorktreeService', () => {
     expect(await new WorktreeService({ repositoryPath: repo, root }).prepare('wf-3')).toBeNull()
   })
 })
+
+describe('WorktreeService.reclaimAbandoned', () => {
+  const dirs: string[] = []
+
+  afterEach(async () => {
+    for (const dir of dirs.splice(0)) await removeTempDir(dir)
+  })
+
+  it('removes a worktree a killed session never disposed', async () => {
+    const repo = makeRepo()
+    const root = mkdtempSync(join(tmpdir(), 'forge-wt-root-'))
+    dirs.push(repo, root)
+
+    const service = new WorktreeService({ repositoryPath: repo, root })
+    const prepared = await service.prepare('wf-orphan')
+    if (prepared === null) throw new Error('expected a worktree')
+
+    // Stands in for the process being killed: prepared, dirty, never disposed.
+    writeFileSync(join(prepared.path, 'source.txt'), 'mid-run\n', 'utf8')
+    expect(git(repo, ['worktree', 'list'])).toContain('wf-orphan')
+
+    await service.reclaimAbandoned()
+
+    expect(git(repo, ['worktree', 'list'])).not.toContain('wf-orphan')
+    expect(existsSync(prepared.path)).toBe(false)
+  })
+
+  it('leaves a worktree the user created outside its root alone', async () => {
+    const repo = makeRepo()
+    const root = mkdtempSync(join(tmpdir(), 'forge-wt-root-'))
+    const theirs = join(mkdtempSync(join(tmpdir(), 'forge-wt-theirs-')), 'mine')
+    dirs.push(repo, root)
+
+    git(repo, ['worktree', 'add', '--detach', theirs, 'HEAD'])
+
+    await new WorktreeService({ repositoryPath: repo, root }).reclaimAbandoned()
+
+    // Forge must never reclaim a worktree it did not create.
+    expect(git(repo, ['worktree', 'list'])).toContain('mine')
+    expect(existsSync(theirs)).toBe(true)
+
+    git(repo, ['worktree', 'remove', '--force', theirs])
+  })
+})

@@ -830,6 +830,14 @@ export const IPC_CONTRACT = {
     }),
     response: empty,
   },
+  'terminal:buffer': {
+    request: z.strictObject({
+      terminalId: z.string(),
+    }),
+    response: z.strictObject({
+      buffer: z.string(),
+    }),
+  },
   'provider:scanModels': {
     request: z.strictObject({
       providerId: z.string(),

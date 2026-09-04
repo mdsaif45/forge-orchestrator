@@ -107,6 +107,7 @@ const api: ForgeApi = {
     write: (terminalId, data) => call('terminal:write', { terminalId, data }),
     resize: (terminalId, cols, rows) => call('terminal:resize', { terminalId, cols, rows }),
     kill: (terminalId) => call('terminal:kill', { terminalId }),
+    buffer: (terminalId) => call('terminal:buffer', { terminalId }),
   },
   provider: {
     scanModels: (providerId, endpointUrl) =>

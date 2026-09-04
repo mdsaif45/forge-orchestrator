@@ -332,8 +332,8 @@ export interface SessionOptions {
    * agent doing the work ran unobserved. Attaching to the real one needs a
    * reference to it, and only the runtime has that.
    *
-   * `write` and `resize` are optional because not every transport carries them: a
-   * pipe closes stdin after the prompt and has no window size, a pty has both.
+   * `write`, `resize`, and `onData` are optional because not every transport carries them: a
+   * pipe closes stdin after the prompt and has no window size, a pty has all three.
    * Declaring the absence lets the UI say "this session cannot take input" rather
    * than accepting text that goes nowhere — a dead input control is worse than a
    * missing one, and this app has already shipped that mistake once.
@@ -345,8 +345,17 @@ export interface SessionOptions {
     | ((process: {
         readonly write?: (input: string) => void
         readonly resize?: (cols: number, rows: number) => void
+        readonly onData?: (listener: (chunk: string) => void) => () => void
       }) => void)
     | undefined
+}
+
+/**
+ * The canonical session key a step's process is published under for UI attachment (#170).
+ * Composed as `${workflowId}#${stepIndex}`.
+ */
+export function agentSessionKey(workflowId: string, stepIndex: number): string {
+  return `${workflowId}#${String(stepIndex)}`
 }
 
 /** A live session. Opaque to the engine beyond its identifiers. */

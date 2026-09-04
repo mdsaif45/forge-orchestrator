@@ -336,22 +336,14 @@ function RuntimeCard(): React.JSX.Element {
       <div className="flex items-center gap-2">
         <StatusDot status="passed" label="Engine Connected" />
         <span className="font-semibold text-(--color-text)">Forge Engine Active</span>
-        <span className="font-mono text-(--color-text-muted)">v{info.version}</span>
+        <Code className="text-(--color-text-muted)">v{info.version}</Code>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 font-mono text-(--color-text-muted)">
-        <span className="rounded-md bg-(--color-surface-inset) px-2 py-0.5 border border-(--color-border)">
-          Electron {info.versions.electron}
-        </span>
-        <span className="rounded-md bg-(--color-surface-inset) px-2 py-0.5 border border-(--color-border)">
-          Node {info.versions.node}
-        </span>
-        <span className="rounded-md bg-(--color-surface-inset) px-2 py-0.5 border border-(--color-border)">
-          Chromium {info.versions.chrome.split('.')[0]}
-        </span>
-        <span className="rounded-md bg-(--color-surface-inset) px-2 py-0.5 border border-(--color-border)">
-          {info.platform}
-        </span>
+      <div className="flex flex-wrap items-center gap-2 text-(--color-text-muted)">
+        <Code>Electron {info.versions.electron}</Code>
+        <Code>Node {info.versions.node}</Code>
+        <Code>Chromium {info.versions.chrome.split('.')[0]}</Code>
+        <Code>{info.platform}</Code>
       </div>
     </div>
   )

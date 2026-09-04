@@ -191,8 +191,7 @@ export function AskPage(): React.JSX.Element {
     return localStorage.getItem('forge.active_provider_id') ?? 'ollama'
   })
 
-  const currentProvider =
-    providers.find((p) => p.id === activeProviderId) ?? providers[0]
+  const currentProvider = providers.find((p) => p.id === activeProviderId) ?? providers[0]
   const currentModel =
     currentProvider?.activeModel && currentProvider.activeModel.length > 0
       ? currentProvider.activeModel
@@ -493,7 +492,7 @@ Instructions:
     return (
       <div className="flex h-full flex-col">
         <div className="border-b border-(--color-border) px-6 py-4">
-          <h1 className="text-[16px] font-semibold text-(--color-text)">Ask Codebase</h1>
+          <h1 className="text-[16px] font-semibold text-(--color-text)">Ask</h1>
         </div>
         <div className="grid flex-1 place-content-center p-8 text-center text-[13px] text-(--color-text-muted)">
           Select or create a project from the top bar to explore and ask questions about its

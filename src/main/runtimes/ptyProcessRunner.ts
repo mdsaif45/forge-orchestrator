@@ -54,6 +54,10 @@ export function createPtyProcessRunner(options: PtyProcessRunnerOptions): Proces
       resize: (cols, rows) => {
         handle.resize?.(cols, rows)
       },
+      onData: (listener: (chunk: string) => void) => {
+        const sub = handle.onRawData?.bind(handle) ?? handle.onData.bind(handle)
+        return sub(listener)
+      },
     })
 
     const unsubscribe = handle.onData((text) => {

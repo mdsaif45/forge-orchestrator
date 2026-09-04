@@ -55,6 +55,7 @@ export type ProcessRunner = (
     readonly onProcess?: (process: {
       readonly write?: (input: string) => void
       readonly resize?: (cols: number, rows: number) => void
+      readonly onData?: (listener: (chunk: string) => void) => () => void
     }) => void
     readonly signal?: AbortSignal
   },

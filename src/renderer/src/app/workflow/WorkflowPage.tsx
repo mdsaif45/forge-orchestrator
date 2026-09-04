@@ -7,6 +7,7 @@ import type {
   WorkflowStepView,
   WorkflowTemplateView,
 } from '@shared/ipc'
+import { agentSessionKey } from '@shared/domain'
 import {
   AgentTerminal,
   Badge,
@@ -14,6 +15,7 @@ import {
   Card,
   CreateTemplateDialog,
   MarkdownRenderer,
+  RealTerminal,
   StartWorkflowDialog,
   StatusDot,
   useToast,
@@ -877,30 +879,40 @@ export function WorkflowPage(): React.JSX.Element {
               </span>
             </div>
 
-            {/* The step's real output. `RealTerminal` spawned a SECOND CLI session in the
-                repository and showed its idle banner while the working agent ran
-                unobserved — it looked like transparency and conveyed nothing about the
-                run (#154). The scratch session it provided is not worth a decoy. */}
-            <AgentTerminal
-              logs={logs}
-              title={
-                effectiveSelectedStep === null
-                  ? 'Terminal'
-                  : `${getPersonaForRole(effectiveSelectedStep.role).persona} Terminal`
-              }
-              personaName={
-                effectiveSelectedStep !== null
-                  ? getPersonaForRole(effectiveSelectedStep.role).persona
-                  : undefined
-              }
-              runtimeId={effectiveSelectedStep?.runtimeId}
-              repositoryPath={project.repository.absolutePath}
-              isRunning={isRunning}
-              onClear={() => {
-                setLogs([])
-              }}
-              className="flex-1 min-h-[300px]"
-            />
+            {/* The step's real output (#170). When running, attaches directly to the real
+                agent process via PTY, with zero decoy session. Keystrokes flow directly to
+                the active agent CLI. When idle or inspecting historical steps, shows the log transcript. */}
+            {effectiveSelectedStep !== null && effectiveSelectedStep.state === 'running' ? (
+              <RealTerminal
+                projectId={project.id}
+                attachSessionKey={agentSessionKey(workflow.id, effectiveSelectedStep.index)}
+                title={`Live Agent Terminal — ${getPersonaForRole(effectiveSelectedStep.role).persona}`}
+                personaName={getPersonaForRole(effectiveSelectedStep.role).persona}
+                runtimeId={effectiveSelectedStep.runtimeId}
+                className="flex-1 min-h-[300px]"
+              />
+            ) : (
+              <AgentTerminal
+                logs={logs}
+                title={
+                  effectiveSelectedStep === null
+                    ? 'Terminal'
+                    : `${getPersonaForRole(effectiveSelectedStep.role).persona} Terminal`
+                }
+                personaName={
+                  effectiveSelectedStep !== null
+                    ? getPersonaForRole(effectiveSelectedStep.role).persona
+                    : undefined
+                }
+                runtimeId={effectiveSelectedStep?.runtimeId}
+                repositoryPath={project.repository.absolutePath}
+                isRunning={isRunning}
+                onClear={() => {
+                  setLogs([])
+                }}
+                className="flex-1 min-h-[300px]"
+              />
+            )}
           </div>
         </div>
 

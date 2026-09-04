@@ -1,18 +1,23 @@
+import { agentSessionKey } from '@shared/domain'
+
+export { agentSessionKey }
+
 /**
  * What a pane can do with a step's process.
  *
- * Narrower than `ProcessHandle` on purpose. A pane needs to write to the session
- * and resize it; it has no business cancelling the step or awaiting its outcome —
- * those belong to the workflow engine, which owns the run's lifetime.
+ * Narrower than `ProcessHandle` on purpose. A pane needs to write to the session,
+ * resize it, and stream its raw data; it has no business cancelling the step or awaiting
+ * its outcome — those belong to the workflow engine, which owns the run's lifetime.
  *
- * Both members are optional because not every transport carries them: a pipe
- * closes stdin after the prompt and has no window size, a pty has both. Declaring
+ * Members are optional because not every transport carries them: a pipe
+ * closes stdin after the prompt and has no window size, a pty has all three. Declaring
  * the absence lets the UI say "this session cannot take input" instead of
  * accepting text that goes nowhere.
  */
 export interface AttachableProcess {
   readonly write?: (input: string) => void
   readonly resize?: (cols: number, rows: number) => void
+  readonly onData?: (listener: (chunk: string) => void) => () => void
 }
 
 /**
@@ -85,15 +90,4 @@ export class AgentSessionRegistry {
   liveKeys(): readonly string[] {
     return [...this.handles.keys()]
   }
-}
-
-/**
- * The id a step's process is published under.
- *
- * Composed rather than using the step id alone because the pane resolves what to
- * show from the workflow and the step index it is rendering, and does not have a
- * step id until it has already loaded the step.
- */
-export function agentSessionKey(workflowId: string, stepIndex: number): string {
-  return `${workflowId}#${String(stepIndex)}`
 }

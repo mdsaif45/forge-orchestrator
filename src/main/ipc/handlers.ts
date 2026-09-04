@@ -308,6 +308,10 @@ export function createIpcHandlers({
       return {}
     },
 
+    'terminal:buffer': ({ terminalId }) => ({
+      buffer: terminal.getBuffer(terminalId),
+    }),
+
     'provider:scanModels': async ({ providerId, endpointUrl }) => {
       try {
         const cleanBase = endpointUrl.replace(/\/$/, '')
@@ -342,9 +346,7 @@ export function createIpcHandlers({
           }
           const data = (await res.json()) as { data?: { id?: string }[] }
           if (Array.isArray(data.data)) {
-            detected = data.data
-              .map((m) => m.id ?? '')
-              .filter((id) => id.length > 0)
+            detected = data.data.map((m) => m.id ?? '').filter((id) => id.length > 0)
           }
         }
 

@@ -43,8 +43,7 @@ export function AddMcpServerDialog({
   const [envString, setEnvString] = useState('')
 
   const isValid =
-    name.trim() !== '' &&
-    (transport === 'stdio' ? command.trim() !== '' : url.trim() !== '')
+    name.trim() !== '' && (transport === 'stdio' ? command.trim() !== '' : url.trim() !== '')
 
   const handleSave = (): void => {
     if (!isValid) return
@@ -116,7 +115,11 @@ export function AddMcpServerDialog({
     >
       <div className="grid gap-4 text-[12px]">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Field label="Server Identifier / Name" required hint="e.g., github-mcp, postgres, filesystem">
+          <Field
+            label="Server Identifier / Name"
+            required
+            hint="e.g., github-mcp, postgres, filesystem"
+          >
             {() => (
               <Input
                 placeholder="my-mcp-server"
@@ -146,7 +149,10 @@ export function AddMcpServerDialog({
           </Field>
         </div>
 
-        <Field label="Description / Tool Purpose" hint="Brief summary of what capabilities this server adds">
+        <Field
+          label="Description / Tool Purpose"
+          hint="Brief summary of what capabilities this server adds"
+        >
           {() => (
             <Input
               placeholder="e.g. Database queries, schema migrations, and index inspections"
@@ -173,7 +179,10 @@ export function AddMcpServerDialog({
               )}
             </Field>
 
-            <Field label="Command Arguments" hint="Optional arguments passed to the command (space-separated)">
+            <Field
+              label="Command Arguments"
+              hint="Optional arguments passed to the command (space-separated)"
+            >
               {() => (
                 <Input
                   placeholder="postgresql://localhost:5432/mydb --readonly"

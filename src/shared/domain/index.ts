@@ -196,6 +196,7 @@ export { FORGE_DEFAULT_RULES, FORGE_DEFAULT_RULE_KEYS, type DefaultRule } from '
 
 export {
   agentReportSchema,
+  agentSessionKey,
   canHoldRole,
   hasDisqualifyingAssumptions,
   missingCapabilities,

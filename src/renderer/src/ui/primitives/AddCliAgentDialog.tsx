@@ -44,7 +44,9 @@ export function AddCliAgentDialog({
   const [name, setName] = useState('')
   const [command, setCommand] = useState('')
   const [description, setDescription] = useState('')
-  const [permissionMode, setPermissionMode] = useState<'developer' | 'ask' | 'headless'>('developer')
+  const [permissionMode, setPermissionMode] = useState<'developer' | 'ask' | 'headless'>(
+    'developer',
+  )
   const [argsTemplate, setArgsTemplate] = useState('--output json')
   const [selectedCapabilities, setSelectedCapabilities] = useState<readonly string[]>([
     'repo-read',
@@ -136,7 +138,11 @@ export function AddCliAgentDialog({
             )}
           </Field>
 
-          <Field label="Executable Command / Path" required hint="e.g. opencode, aider, path/to/bin">
+          <Field
+            label="Executable Command / Path"
+            required
+            hint="e.g. opencode, aider, path/to/bin"
+          >
             {() => (
               <Input
                 placeholder="opencode"

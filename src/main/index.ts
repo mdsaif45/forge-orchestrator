@@ -210,7 +210,12 @@ if (!claimSingleInstance()) {
     // works today; this one is proven for a single turn and not yet for a
     // five-stage workflow with retries. Two ids let a binding choose, so both can
     // be run against the same repository and compared before anything is deleted.
-    registry.register(new HostedClaudeRuntime({ processes }))
+    registry.register(
+      new HostedClaudeRuntime({
+        processes,
+        hookReceiverDir: join(app.getPath('userData'), 'hooks'),
+      }),
+    )
 
     // Late-bound on purpose: WorkflowService depends on ProjectService, so reading it
     // through a closure is what keeps the construction order one-way while still
@@ -273,6 +278,7 @@ if (!claimSingleInstance()) {
       processes,
       projects: projectService,
       runtimeExecutable,
+      sessions: agentSessions,
       emitData: (payload) => {
         for (const win of BrowserWindow.getAllWindows()) {
           if (!win.isDestroyed()) {

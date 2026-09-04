@@ -368,3 +368,8 @@ export function importTemplateJson(jsonText: string): {
     }
   }
 }
+
+/** Whether a stored string names a template this build knows how to run. */
+export function isTemplateId(value: string): value is TemplateId {
+  return Object.prototype.hasOwnProperty.call(TEMPLATES, value)
+}

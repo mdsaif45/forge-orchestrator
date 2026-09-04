@@ -55,7 +55,8 @@ export function ProviderCard({
   const [keyInput, setKeyInput] = useState('')
 
   // Local endpoint scanning states
-  const defaultUrl = localUrl ?? (id === 'lmstudio' ? 'http://localhost:1234/v1' : 'http://localhost:11434')
+  const defaultUrl =
+    localUrl ?? (id === 'lmstudio' ? 'http://localhost:1234/v1' : 'http://localhost:11434')
   const [endpointInput, setEndpointInput] = useState(defaultUrl)
   const [isScanning, setIsScanning] = useState(false)
   const [scanResult, setScanResult] = useState<{
@@ -95,8 +96,7 @@ export function ProviderCard({
         onSaveLocalUrl?.(targetUrl, [])
       }
     } catch (err) {
-      const errorMsg =
-        err instanceof Error ? err.message : `Failed to connect to ${targetUrl}`
+      const errorMsg = err instanceof Error ? err.message : `Failed to connect to ${targetUrl}`
       setScanResult({
         status: 'warning',
         message: errorMsg,

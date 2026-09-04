@@ -1,5 +1,6 @@
 import type { ProcessHandle, ProcessManager } from '../process/processManager'
 import type { ProjectService } from '../projects/projectService'
+import type { AgentSessionRegistry, AttachableProcess } from './sessionRegistry'
 
 export interface TerminalEventDataPayload {
   readonly terminalId: string
@@ -15,14 +16,66 @@ export interface TerminalServiceOptions {
   readonly processes: ProcessManager
   readonly projects: ProjectService
   readonly runtimeExecutable?: ((runtimeId: string) => string) | undefined
+  readonly sessions?: AgentSessionRegistry | undefined
   readonly emitData: (payload: TerminalEventDataPayload) => void
   readonly emitExit: (payload: TerminalEventExitPayload) => void
 }
 
+const MAX_BUFFER_LENGTH = 256 * 1024 // 256 KB rolling window
+
 export class TerminalService {
   private readonly sessions = new Map<string, ProcessHandle>()
+  private readonly buffers = new Map<string, string>()
+  private readonly agentSubscriptions = new Map<
+    string,
+    { handle: AttachableProcess; unsubscribe: () => void }
+  >()
 
-  constructor(private readonly options: TerminalServiceOptions) {}
+  constructor(private readonly options: TerminalServiceOptions) {
+    if (options.sessions !== undefined) {
+      options.sessions.onPublished((key) => {
+        this.attachAgentSession(key)
+      })
+    }
+  }
+
+  private attachAgentSession(key: string): void {
+    const registry = this.options.sessions
+    if (registry === undefined) return
+
+    const handle = registry.lookup(key)
+    if (handle === null) return
+
+    // Clean up previous subscription for this key if re-running
+    const previous = this.agentSubscriptions.get(key)
+    if (previous !== undefined) {
+      previous.unsubscribe()
+      this.agentSubscriptions.delete(key)
+    }
+
+    if (handle.onData !== undefined) {
+      const unsub = handle.onData((chunk) => {
+        this.recordChunk(key, chunk)
+        this.options.emitData({ terminalId: key, chunk })
+      })
+
+      this.agentSubscriptions.set(key, { handle, unsubscribe: unsub })
+    }
+  }
+
+  private recordChunk(terminalId: string, chunk: string): void {
+    const existing = this.buffers.get(terminalId) ?? ''
+    const combined = existing + chunk
+    if (combined.length > MAX_BUFFER_LENGTH) {
+      this.buffers.set(terminalId, combined.slice(combined.length - MAX_BUFFER_LENGTH))
+    } else {
+      this.buffers.set(terminalId, combined)
+    }
+  }
+
+  getBuffer(terminalId: string): string {
+    return this.buffers.get(terminalId) ?? ''
+  }
 
   async spawn(req: {
     readonly projectId: string
@@ -65,6 +118,7 @@ export class TerminalService {
     this.sessions.set(terminalId, handle)
 
     handle.onData((chunk) => {
+      this.recordChunk(terminalId, chunk)
       this.options.emitData({ terminalId, chunk })
     })
 
@@ -80,6 +134,12 @@ export class TerminalService {
     const handle = this.sessions.get(terminalId)
     if (handle !== undefined) {
       handle.write(data)
+      return
+    }
+
+    const agentProcess = this.options.sessions?.lookup(terminalId)
+    if (agentProcess?.write !== undefined) {
+      agentProcess.write(data)
     }
   }
 
@@ -87,6 +147,12 @@ export class TerminalService {
     const handle = this.sessions.get(terminalId)
     if (handle?.resize !== undefined) {
       handle.resize(cols, rows)
+      return
+    }
+
+    const agentProcess = this.options.sessions?.lookup(terminalId)
+    if (agentProcess?.resize !== undefined) {
+      agentProcess.resize(cols, rows)
     }
   }
 
@@ -95,6 +161,7 @@ export class TerminalService {
     if (handle !== undefined) {
       await handle.cancel('Terminal closed by user')
       this.sessions.delete(terminalId)
+      this.buffers.delete(terminalId)
     }
   }
 }

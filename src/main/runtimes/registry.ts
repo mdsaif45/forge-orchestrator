@@ -136,6 +136,7 @@ export class RuntimeRegistry {
 export function runtimeExecutable(runtimeId: string): string {
   const KNOWN: Record<string, string> = {
     'claude-cli': 'claude',
+    'claude-cli-hosted': 'claude',
     'antigravity-cli': 'agy',
   }
 

@@ -18,35 +18,35 @@ export function WorkflowEdge({
 
   return (
     <div
-      className={cn('flex items-center justify-center px-1 text-neutral-500', className)}
+      className={cn('flex items-center justify-center px-1 text-(--color-text-muted)', className)}
       {...rest}
     >
       <div className="flex items-center gap-1">
         <div
           className={cn(
-            'h-0.5 w-6 transition-colors',
+            'h-0.5 w-6 transition-colors duration-(--duration-base)',
             isCompleted
-              ? 'bg-emerald-500'
+              ? 'bg-(--color-success)'
               : isActive
-                ? 'bg-blue-500 animate-pulse'
+                ? 'bg-(--color-accent) animate-pulse'
                 : isFailed
-                  ? 'bg-red-500'
-                  : 'bg-neutral-800',
+                  ? 'bg-(--color-danger)'
+                  : 'bg-(--color-border-strong)',
           )}
         />
         {label !== undefined && (
-          <span className="text-[10px] font-mono text-neutral-400">{label}</span>
+          <span className="text-[10px] font-mono text-(--color-text-muted)">{label}</span>
         )}
         <svg
           className={cn(
-            'h-3 w-3 transition-colors',
+            'h-3 w-3 transition-colors duration-(--duration-base)',
             isCompleted
-              ? 'text-emerald-500'
+              ? 'text-(--color-success)'
               : isActive
-                ? 'text-blue-500'
+                ? 'text-(--color-accent)'
                 : isFailed
-                  ? 'text-red-500'
-                  : 'text-neutral-700',
+                  ? 'text-(--color-danger)'
+                  : 'text-(--color-border-strong)',
           )}
           fill="currentColor"
           viewBox="0 0 20 20"

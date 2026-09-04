@@ -16,6 +16,8 @@ import type { BindingService } from '../bindings/bindingService'
 import type { EnrollmentService } from '../accounts/enrollmentService'
 import { openTerminal } from '../accounts/terminalLauncher'
 
+import type { TerminalService } from '../terminal/terminalService'
+
 export interface IpcDependencies {
   readonly projects: ProjectService
   readonly workflows: WorkflowService
@@ -26,6 +28,7 @@ export interface IpcDependencies {
   readonly registry: RuntimeRegistry
   readonly bindings: BindingService
   readonly enrollment: EnrollmentService
+  readonly terminal: TerminalService
 }
 
 export function createIpcHandlers({
@@ -38,6 +41,7 @@ export function createIpcHandlers({
   registry,
   bindings,
   enrollment,
+  terminal,
 }: IpcDependencies): IpcHandlerMap {
   /**
    * Gathers everything a report needs and renders it.
@@ -138,6 +142,8 @@ export function createIpcHandlers({
 
     'project:update': (request) => projects.update(request),
 
+    'project:delete': ({ projectId }) => ({ success: projects.delete(projectId) }),
+
     'rule:set': ({ projectId, scope, key, statement }) =>
       projects.setRule(projectId, scope, key, statement),
 
@@ -195,6 +201,8 @@ export function createIpcHandlers({
       await writeFile(result.filePath, reportMarkdown, 'utf8')
       return { savedPath: result.filePath }
     },
+
+    'workflow:getLogs': (request) => workflows.getLogs(request),
 
     'question:list': ({ projectId, unansweredOnly }) => ({
       questions: questions.list(projectId, unansweredOnly),
@@ -282,5 +290,184 @@ export function createIpcHandlers({
 
     'template:get': ({ templateId }) =>
       Object.hasOwn(TEMPLATES, templateId) ? TEMPLATES[templateId as keyof typeof TEMPLATES] : null,
+
+    'terminal:spawn': async (request) => terminal.spawn(request),
+
+    'terminal:write': ({ terminalId, data }) => {
+      terminal.write(terminalId, data)
+      return {}
+    },
+
+    'terminal:resize': ({ terminalId, cols, rows }) => {
+      terminal.resize(terminalId, cols, rows)
+      return {}
+    },
+
+    'terminal:kill': async ({ terminalId }) => {
+      await terminal.kill(terminalId)
+      return {}
+    },
+
+    'terminal:buffer': ({ terminalId }) => ({
+      buffer: terminal.getBuffer(terminalId),
+    }),
+
+    'provider:scanModels': async ({ providerId, endpointUrl }) => {
+      try {
+        const cleanBase = endpointUrl.replace(/\/$/, '')
+        let detected: string[] = []
+
+        if (providerId === 'ollama' || cleanBase.includes('11434')) {
+          const res = await fetch(`${cleanBase}/api/tags`)
+          if (!res.ok) {
+            return {
+              ok: false,
+              models: [],
+              error: `Ollama returned HTTP ${String(res.status)}: ${res.statusText}`,
+            }
+          }
+          const data = (await res.json()) as { models?: { name?: string; model?: string }[] }
+          if (Array.isArray(data.models)) {
+            detected = data.models
+              .map((m) => m.name ?? m.model ?? '')
+              .filter((name) => name.length > 0)
+          }
+        } else {
+          const endpoint = cleanBase.endsWith('/v1')
+            ? `${cleanBase}/models`
+            : `${cleanBase}/v1/models`
+          const res = await fetch(endpoint)
+          if (!res.ok) {
+            return {
+              ok: false,
+              models: [],
+              error: `Service returned HTTP ${String(res.status)}: ${res.statusText}`,
+            }
+          }
+          const data = (await res.json()) as { data?: { id?: string }[] }
+          if (Array.isArray(data.data)) {
+            detected = data.data.map((m) => m.id ?? '').filter((id) => id.length > 0)
+          }
+        }
+
+        if (detected.length === 0) {
+          return {
+            ok: false,
+            models: [],
+            error: `Connected to ${endpointUrl}, but 0 models were found on this instance.`,
+          }
+        }
+
+        return {
+          ok: true,
+          models: detected,
+          error: null,
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return {
+          ok: false,
+          models: [],
+          error: `Could not connect to ${endpointUrl}. Service is offline or unreachable (${msg}).`,
+        }
+      }
+    },
+
+    'provider:chat': async ({ providerId, model, endpointUrl, apiKey, systemPrompt, messages }) => {
+      try {
+        const fullMessages = [
+          ...(systemPrompt ? [{ role: 'system' as const, content: systemPrompt }] : []),
+          ...messages,
+        ]
+
+        if (providerId === 'ollama' || endpointUrl?.includes('11434')) {
+          const cleanBase = (endpointUrl ?? 'http://localhost:11434').replace(/\/$/, '')
+          const res = await fetch(`${cleanBase}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              model,
+              messages: fullMessages,
+              stream: false,
+            }),
+          })
+
+          if (!res.ok) {
+            const errText = await res.text().catch(() => res.statusText)
+            return {
+              ok: false,
+              content: '',
+              error: `Ollama error (${String(res.status)}): ${errText}`,
+            }
+          }
+
+          const data = (await res.json()) as { message?: { content: string } }
+          return {
+            ok: true,
+            content: data.message?.content ?? '',
+            error: null,
+          }
+        }
+
+        // OpenAI / LM Studio / DeepSeek / Mistral / OpenRouter / Custom compatible endpoint
+        let targetEndpoint = endpointUrl ?? ''
+        if (!targetEndpoint) {
+          if (providerId === 'openai') targetEndpoint = 'https://api.openai.com/v1'
+          else if (providerId === 'deepseek') targetEndpoint = 'https://api.deepseek.com/v1'
+          else if (providerId === 'openrouter') targetEndpoint = 'https://openrouter.ai/api/v1'
+          else if (providerId === 'mistral') targetEndpoint = 'https://api.mistral.ai/v1'
+          else if (providerId === 'lmstudio') targetEndpoint = 'http://localhost:1234/v1'
+        }
+
+        const cleanBase = targetEndpoint.replace(/\/$/, '')
+        const url = cleanBase.endsWith('/chat/completions')
+          ? cleanBase
+          : cleanBase.endsWith('/v1')
+            ? `${cleanBase}/chat/completions`
+            : `${cleanBase}/v1/chat/completions`
+
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        }
+        if (apiKey) {
+          headers.Authorization = `Bearer ${apiKey}`
+        }
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({
+            model,
+            messages: fullMessages,
+            stream: false,
+          }),
+        })
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => res.statusText)
+          return {
+            ok: false,
+            content: '',
+            error: `API error (${String(res.status)}): ${errText}`,
+          }
+        }
+
+        const data = (await res.json()) as {
+          choices?: { message?: { content: string } }[]
+        }
+        const text = data.choices?.[0]?.message?.content ?? ''
+        return {
+          ok: true,
+          content: text,
+          error: null,
+        }
+      } catch (err) {
+        return {
+          ok: false,
+          content: '',
+          error: err instanceof Error ? err.message : String(err),
+        }
+      }
+    },
   }
 }

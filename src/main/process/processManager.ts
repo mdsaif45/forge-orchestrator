@@ -110,9 +110,18 @@ export interface ProcessHandle {
   readonly runId: string
   /** Redacted output as it arrives, for a live log. */
   onData(listener: (text: string) => void): () => void
+  /**
+   * Unredacted, unstripped output, for rendering a terminal screen.
+   *
+   * Use `onData` for anything that reads or stores output. This exists only for a
+   * consumer that must reproduce what the process painted, which is impossible
+   * once escape sequences are removed.
+   */
+  onRawData?(listener: (text: string) => void): () => void
   /** Resolves when the run ends, however it ends. Never rejects. */
   readonly completed: Promise<ProcessOutcome>
   write(input: string): void
+  resize?(cols: number, rows: number): void
   /** Escalating termination. Safe to call more than once. */
   cancel(reason?: string): Promise<void>
 }
@@ -274,9 +283,15 @@ export class ProcessManager {
     // a child, and defaulting to drop means a new secret-shaped variable is excluded
     // without anyone remembering to exclude it (rule R7).
     const childEnv = buildChildEnv(process.env, request.env ?? {})
+    const resolved = resolveCommand(request.command, childEnv)
+    const isCmdShim = process.platform === 'win32' && /\.(cmd|bat)$/i.test(resolved)
+    const finalCommand = isCmdShim
+      ? (childEnv.COMSPEC ?? process.env.COMSPEC ?? 'cmd.exe')
+      : resolved
+    const finalArgs = isCmdShim ? ['/d', '/c', resolved, ...request.args] : [...request.args]
 
     try {
-      run.pty = spawnPty(resolveCommand(request.command, childEnv), [...request.args], {
+      run.pty = spawnPty(finalCommand, finalArgs, {
         cwd: request.cwd,
         env: childEnv,
         cols: request.cols ?? 120,
@@ -312,6 +327,10 @@ export class ProcessManager {
   private handleFor(run: Run, completed: Promise<ProcessOutcome>): ProcessHandle {
     return {
       runId: run.runId,
+      onRawData: (listener: (text: string) => void) => {
+        run.emitter.on('raw', listener)
+        return () => run.emitter.off('raw', listener)
+      },
       onData: (listener) => {
         run.emitter.on('data', listener)
         return () => {
@@ -321,6 +340,13 @@ export class ProcessManager {
       completed,
       write: (input) => {
         run.pty?.write(input)
+      },
+      resize: (cols: number, rows: number) => {
+        try {
+          run.pty?.resize(cols, rows)
+        } catch {
+          // ignore resize errors if process is already exiting
+        }
       },
       cancel: async (reason = 'cancelled by Forge') => {
         await this.cancel(run.runId, reason)
@@ -358,6 +384,16 @@ export class ProcessManager {
     }
 
     run.emitter.emit('data', safe)
+    // The unmodified bytes, for a consumer that must reproduce the screen rather
+    // than read it. A terminal emulator needs the cursor addressing and repaints
+    // that `stripAnsi` removes; given the redacted stream it renders plain text
+    // and can never resolve what is actually displayed (#170).
+    //
+    // Deliberately a second channel rather than a relaxation of the first: the
+    // stripping above is what keeps a redaction pattern from being defeated by an
+    // escape sequence landing mid-token, and that guarantee is not negotiable.
+    // Only a caller that asks for raw output gets it.
+    run.emitter.emit('raw', data)
 
     // Re-armed on every chunk: the idle timeout measures silence, not total duration.
     this.armIdleTimer(run)

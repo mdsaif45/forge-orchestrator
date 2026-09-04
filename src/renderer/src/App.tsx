@@ -11,6 +11,7 @@ import { QuestionsPage } from './app/QuestionsPage'
 import { DecisionsPage } from './app/DecisionsPage'
 import { ChangesPage } from './app/ChangesPage'
 import { AgentsPage } from './app/AgentsPage'
+import { AskPage } from './app/AskPage'
 
 /**
  * Routes are generated from the route table, so navigation and routing cannot
@@ -28,14 +29,12 @@ const router = createHashRouter([
       ...ROUTES.map((route) => {
         // React Router expresses the index route as `index: true`, not as a path.
         if (route.path === '/') return { index: true as const, element: <Overview /> }
+        if (route.path === '/ask') return { path: 'ask', element: <AskPage /> }
         if (route.path === '/workflows') return { path: 'workflows', element: <WorkflowPage /> }
         if (route.path === '/questions') return { path: 'questions', element: <QuestionsPage /> }
         if (route.path === '/decisions') return { path: 'decisions', element: <DecisionsPage /> }
         if (route.path === '/changes') return { path: 'changes', element: <ChangesPage /> }
         if (route.path === '/agents') return { path: 'agents', element: <AgentsPage /> }
-        // Every route resolves to a real page. There is deliberately no fall-through
-        // placeholder any more: a nav item that led to an unbuilt screen read as a
-        // broken feature rather than an absent one (#102).
         return { path: 'settings', element: <Settings /> }
       }),
       { path: '*', element: <NotFound /> },

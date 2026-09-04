@@ -98,6 +98,8 @@ export interface ForgeApi {
       readonly testCommand?: string | null
       readonly tech?: readonly string[]
     }) => Promise<IpcResult<ProjectDetail | null>>
+    /** Permanently removes a project from Forge sessions and local SQLite database. */
+    delete: (projectId: string) => Promise<IpcResult<{ readonly success: boolean }>>
   }
   readonly rule: {
     /**
@@ -139,6 +141,10 @@ export interface ForgeApi {
     >
     /** `savedPath` is null when the user cancels the save dialog. */
     saveReport: (workflowId: string) => Promise<IpcResult<{ readonly savedPath: string | null }>>
+    getLogs: (request: {
+      readonly workflowId: string
+      readonly stepIndex?: number | undefined
+    }) => Promise<IpcResult<{ readonly logs: readonly WorkflowLogPayload[] }>>
   }
   readonly question: {
     list: (
@@ -234,6 +240,61 @@ export interface ForgeApi {
     list: () => Promise<IpcResult<{ readonly templates: readonly WorkflowTemplateView[] }>>
     get: (templateId: string) => Promise<IpcResult<WorkflowTemplateView | null>>
   }
+  readonly terminal: {
+    spawn: (request: {
+      readonly projectId: string
+      readonly runtimeId?: string | null | undefined
+      readonly command?: string | undefined
+      readonly args?: readonly string[] | undefined
+      readonly cwd?: string | undefined
+      readonly env?: Readonly<Record<string, string>> | undefined
+      readonly cols?: number | undefined
+      readonly rows?: number | undefined
+    }) => Promise<IpcResult<{ readonly terminalId: string; readonly pid?: number | undefined }>>
+    write: (terminalId: string, data: string) => Promise<IpcResult<Record<string, never>>>
+    resize: (
+      terminalId: string,
+      cols: number,
+      rows: number,
+    ) => Promise<IpcResult<Record<string, never>>>
+    kill: (terminalId: string) => Promise<IpcResult<Record<string, never>>>
+    buffer: (terminalId: string) => Promise<IpcResult<{ readonly buffer: string }>>
+  }
+  readonly provider: {
+    scanModels: (
+      providerId: string,
+      endpointUrl: string,
+    ) => Promise<
+      IpcResult<{
+        readonly ok: boolean
+        readonly models: readonly string[]
+        readonly error: string | null
+      }>
+    >
+    chat: (request: {
+      readonly providerId: string
+      readonly model: string
+      readonly endpointUrl?: string | undefined
+      readonly apiKey?: string | undefined
+      readonly systemPrompt?: string | undefined
+      readonly messages: readonly {
+        readonly role: 'user' | 'assistant' | 'system'
+        readonly content: string
+      }[]
+    }) => Promise<
+      IpcResult<{
+        readonly ok: boolean
+        readonly content: string
+        readonly error: string | null
+      }>
+    >
+  }
   readonly onWorkflowEvent: (listener: (event: WorkflowEventPayload) => void) => () => void
   readonly onWorkflowLog: (listener: (log: WorkflowLogPayload) => void) => () => void
+  readonly onTerminalData: (
+    listener: (payload: { readonly terminalId: string; readonly chunk: string }) => void,
+  ) => () => void
+  readonly onTerminalExit: (
+    listener: (payload: { readonly terminalId: string; readonly exitCode: number | null }) => void,
+  ) => () => void
 }

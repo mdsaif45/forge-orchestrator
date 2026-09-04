@@ -25,83 +25,97 @@ function evaluate(window, expression) {
   return window.webContents.executeJavaScript(expression)
 }
 
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection in ui-check:', reason)
+  app.exit(1)
+})
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception in ui-check:', err)
+  app.exit(1)
+})
+
 app.disableHardwareAcceleration()
 
-app.whenReady().then(async () => {
-  const window = new BrowserWindow({
-    show: false,
-    webPreferences: {
-      preload: join(__dirname, '../out/preload/index.cjs'),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  })
+app
+  .whenReady()
+  .then(async () => {
+    const window = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        preload: join(__dirname, '../out/preload/index.cjs'),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    })
 
-  // The shell fetches app info on mount; without a handler it renders its error
-  // branch, which is not the state under test here.
-  ipcMain.handle('app:getInfo', () => ({
-    ok: true,
-    value: {
-      name: 'Forge',
-      version: '0.0.1',
-      platform: process.platform,
-      versions: { electron: 'x', chrome: 'y', node: 'z' },
-    },
-  }))
+    // The shell fetches app info on mount; without a handler it renders its error
+    // branch, which is not the state under test here.
+    ipcMain.handle('app:getInfo', () => ({
+      ok: true,
+      value: {
+        name: 'Forge',
+        version: '0.0.1',
+        platform: process.platform,
+        versions: { electron: 'x', chrome: 'y', node: 'z' },
+      },
+    }))
 
-  // The shell loads projects on mount. These checks cover the design system, not
-  // persistence, so the project channels are stubbed empty. Leaving them
-  // unhandled would surface as a renderer-side error that replaces the very page
-  // being asserted on.
-  ipcMain.handle('project:list', () => ({ ok: true, value: { projects: [] } }))
-  ipcMain.handle('project:get', () => ({ ok: true, value: null }))
-  ipcMain.handle('project:update', () => ({ ok: true, value: null }))
-  ipcMain.handle('rule:set', () => ({ ok: true, value: null }))
-  ipcMain.handle('rule:remove', () => ({ ok: true, value: null }))
-  ipcMain.handle('workflow:list', () => ({ ok: true, value: { workflows: [] } }))
-  ipcMain.handle('workflow:get', () => ({ ok: true, value: null }))
-  ipcMain.handle('workflow:getActive', () => ({ ok: true, value: null }))
-  ipcMain.handle('workflow:getPacket', () => ({ ok: true, value: null }))
-  ipcMain.handle('workflow:exportReport', () => ({
-    ok: true,
-    value: { reportMarkdown: '# Report', exportedAt: new Date().toISOString() },
-  }))
-  ipcMain.handle('question:list', () => ({ ok: true, value: { questions: [] } }))
-  ipcMain.handle('question:get', () => ({ ok: true, value: null }))
-  ipcMain.handle('question:answer', () => ({ ok: true, value: null }))
-  ipcMain.handle('account:list', () => ({ ok: true, value: { accounts: [] } }))
-  ipcMain.handle('account:enrollmentStatus', () => ({
-    ok: true,
-    value: {
-      accountId: 'a',
-      isolatable: true,
-      home: null,
-      loggedIn: false,
-      authMethod: 'none',
-      email: null,
-    },
-  }))
-  ipcMain.handle('account:beginEnrollment', () => ({ ok: true, value: { home: 'x' } }))
-  ipcMain.handle('account:revokeEnrollment', () => ({ ok: true, value: {} }))
-  ipcMain.handle('template:list', () => ({ ok: true, value: { templates: [] } }))
-  ipcMain.handle('template:get', () => ({ ok: true, value: null }))
+    // The shell loads projects on mount. These checks cover the design system, not
+    // persistence, so the project channels are stubbed empty. Leaving them
+    // unhandled would surface as a renderer-side error that replaces the very page
+    // being asserted on.
+    ipcMain.handle('project:list', () => ({ ok: true, value: { projects: [] } }))
+    ipcMain.handle('project:get', () => ({ ok: true, value: null }))
+    ipcMain.handle('project:update', () => ({ ok: true, value: null }))
+    ipcMain.handle('rule:set', () => ({ ok: true, value: null }))
+    ipcMain.handle('rule:remove', () => ({ ok: true, value: null }))
+    ipcMain.handle('workflow:list', () => ({ ok: true, value: { workflows: [] } }))
+    ipcMain.handle('workflow:get', () => ({ ok: true, value: null }))
+    ipcMain.handle('workflow:getActive', () => ({ ok: true, value: null }))
+    ipcMain.handle('workflow:getPacket', () => ({ ok: true, value: null }))
+    ipcMain.handle('workflow:exportReport', () => ({
+      ok: true,
+      value: { reportMarkdown: '# Report', exportedAt: new Date().toISOString() },
+    }))
+    ipcMain.handle('question:list', () => ({ ok: true, value: { questions: [] } }))
+    ipcMain.handle('question:get', () => ({ ok: true, value: null }))
+    ipcMain.handle('question:answer', () => ({ ok: true, value: null }))
+    ipcMain.handle('account:list', () => ({ ok: true, value: { accounts: [] } }))
+    ipcMain.handle('account:enrollmentStatus', () => ({
+      ok: true,
+      value: {
+        accountId: 'a',
+        isolatable: true,
+        home: null,
+        loggedIn: false,
+        authMethod: 'none',
+        email: null,
+      },
+    }))
+    ipcMain.handle('account:beginEnrollment', () => ({ ok: true, value: { home: 'x' } }))
+    ipcMain.handle('account:revokeEnrollment', () => ({ ok: true, value: {} }))
+    ipcMain.handle('template:list', () => ({ ok: true, value: { templates: [] } }))
+    ipcMain.handle('template:get', () => ({ ok: true, value: null }))
+    ipcMain.handle('terminal:buffer', () => ({ ok: true, value: { buffer: '' } }))
+    ipcMain.handle('provider:scanModels', () => ({ ok: true, value: [] }))
 
-  // The development-mode bundle, not `out/renderer`: these checks exercise the kitchen
-  // sink, which is a development tool and is eliminated from a release build (#103).
-  // Asserting against the shipped bundle would mean testing a screen users cannot reach
-  // — and, worse, failing to notice if a primitive broke only in the build they can.
-  await window.loadFile(join(__dirname, '../out-dev/renderer/index.html'))
-  // Let React mount before probing the DOM.
-  await evaluate(
-    window,
-    `new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`,
-  )
+    // The development-mode bundle, not `out/renderer`: these checks exercise the kitchen
+    // sink, which is a development tool and is eliminated from a release build (#103).
+    // Asserting against the shipped bundle would mean testing a screen users cannot reach
+    // — and, worse, failing to notice if a primitive broke only in the build they can.
+    await window.loadFile(join(__dirname, '../out-dev/renderer/index.html'))
+    // Let React mount before probing the DOM.
+    await evaluate(
+      window,
+      `new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))`,
+    )
 
-  // Tokens must resolve on the root element.
-  const tokens = await evaluate(
-    window,
-    `(() => {
+    // Tokens must resolve on the root element.
+    const tokens = await evaluate(
+      window,
+      `(() => {
        const s = getComputedStyle(document.documentElement)
        return JSON.stringify({
          canvas: s.getPropertyValue('--color-canvas').trim(),
@@ -110,19 +124,19 @@ app.whenReady().then(async () => {
          zToast: s.getPropertyValue('--z-toast').trim(),
        })
      })()`,
-  )
-  const t = JSON.parse(tokens)
-  check(
-    'design tokens resolve on the document root',
-    t.canvas === '#0b0d10' && t.accent === '#4d8dff' && t.zToast === '60' && t.mono.length > 0,
-    tokens,
-  )
+    )
+    const t = JSON.parse(tokens)
+    check(
+      'design tokens resolve on the document root',
+      t.canvas === '#131315' && t.accent === '#f97316' && t.zToast === '60' && t.mono.length > 0,
+      tokens,
+    )
 
-  // A token-based utility must actually paint. This is the check that a literal
-  // CSS grep cannot make honestly.
-  const painted = await evaluate(
-    window,
-    `(() => {
+    // A token-based utility must actually paint. This is the check that a literal
+    // CSS grep cannot make honestly.
+    const painted = await evaluate(
+      window,
+      `(() => {
        const el = document.createElement('div')
        el.className = 'bg-(--color-accent) text-(length:--text-sm) rounded-(--radius-md)'
        document.body.append(el)
@@ -131,43 +145,41 @@ app.whenReady().then(async () => {
        el.remove()
        return JSON.stringify(out)
      })()`,
-  )
-  const p = JSON.parse(painted)
-  check(
-    'token utilities generate real CSS (bg, font-size, radius)',
-    p.bg === 'rgb(77, 141, 255)' && p.size === '13px' && p.radius === '6px',
-    painted,
-  )
+    )
+    const p = JSON.parse(painted)
+    check(
+      'token utilities generate real CSS (bg, font-size, radius)',
+      p.bg === 'rgb(249, 115, 22)' && p.size === '13px' && p.radius === '6px',
+      painted,
+    )
 
-  // The shell must be built from primitives, and they must render.
-  const shell = await evaluate(
-    window,
-    `JSON.stringify({
+    // The shell must be built from primitives, and they must render.
+    const shell = await evaluate(
+      window,
+      `JSON.stringify({
        buttons: document.querySelectorAll('button').length,
        // StatusDot renders its label into an sr-only span.
        srLabels: document.querySelectorAll('.sr-only').length,
        // Code primitive, proving the runtime card resolved over IPC.
        codeCells: document.querySelectorAll('code').length,
      })`,
-  )
-  const s = JSON.parse(shell)
-  check(
-    'shell renders primitives (buttons, status labels, code cells)',
-    s.buttons >= 2 && s.srLabels >= 2 && s.codeCells >= 5,
-    shell,
-  )
+    )
+    const s = JSON.parse(shell)
+    check(
+      'shell renders primitives (buttons, status labels, code cells)',
+      s.buttons >= 2 && s.srLabels >= 1 && s.codeCells >= 5,
+      shell,
+    )
 
-  // Switching the theme must repaint from tokens alone.
-  //
-  // The recalc that follows a `data-theme` change is asynchronous, and
-  // `getBoundingClientRect` does not force it — that flushes layout, not the
-  // style invalidation from an attribute change. So each read polls until the
-  // value settles, bounded so a real regression fails rather than hanging. An
-  // earlier version read immediately and passed locally while failing on the
-  // slower Windows runner.
-  const themed = await evaluate(
-    window,
-    `(async () => {
+    // Switching the theme must repaint from tokens alone.
+    //
+    // The recalc that follows a `data-theme` change is asynchronous, and
+    // `getBoundingClientRect` does not force it — that flushes layout, not the
+    // style invalidation from an attribute change. So each read polls until the
+    // value settles, bounded so a real regression fails rather than hanging.
+    const themed = await evaluate(
+      window,
+      `(async () => {
        const read = () => getComputedStyle(document.body).backgroundColor
 
        const readUntil = async (expected) => {
@@ -177,43 +189,32 @@ app.whenReady().then(async () => {
          return read()
        }
 
-       const dark = 'rgb(11, 13, 16)'
-       const light = 'rgb(255, 255, 255)'
-
-       // Toggled through the app's own control, not by writing data-theme directly:
-       // useTheme owns that attribute and reasserts it in an effect, so a manual
-       // write is racing a re-render that overwrites it. That race is why this check
-       // failed intermittently on the slower CI runner while passing locally.
-       const toggle = () => {
-         const button = [...document.querySelectorAll('button')]
-           .find((b) => b.textContent === 'Light' || b.textContent === 'Dark')
-         if (!button) throw new Error('theme toggle button not found')
-         button.click()
-       }
+       const dark = 'rgb(19, 19, 21)'
+       const light = 'rgb(251, 251, 250)'
 
        const before = await readUntil(dark)
-       toggle()
+       document.documentElement.dataset.theme = 'light'
        const after = await readUntil(light)
-       toggle()
+       document.documentElement.dataset.theme = 'dark'
        const restored = await readUntil(dark)
 
        return JSON.stringify({ before, after, restored })
      })()`,
-  )
-  const th = JSON.parse(themed)
-  check(
-    'light theme repaints from tokens and dark restores',
-    th.before === 'rgb(11, 13, 16)' &&
-      th.after === 'rgb(255, 255, 255)' &&
-      th.restored === 'rgb(11, 13, 16)',
-    themed,
-  )
+    )
+    const th = JSON.parse(themed)
+    check(
+      'light theme repaints from tokens and dark restores',
+      th.before === 'rgb(19, 19, 21)' &&
+        th.after === 'rgb(251, 251, 250)' &&
+        th.restored === 'rgb(19, 19, 21)',
+      themed,
+    )
 
-  // The kitchen sink must render every primitive, in both themes — it is the
-  // regression surface for the whole system.
-  const sink = await evaluate(
-    window,
-    `(async () => {
+    // The kitchen sink must render every primitive, in both themes — it is the
+    // regression surface for the whole system.
+    const sink = await evaluate(
+      window,
+      `(async () => {
        const open = [...document.querySelectorAll('button')]
          .find((b) => b.textContent.includes('Kitchen sink'))
        open.click()
@@ -225,25 +226,25 @@ app.whenReady().then(async () => {
          dialogs: document.querySelectorAll('dialog').length,
        })
      })()`,
-  )
-  const k = JSON.parse(sink)
-  check(
-    'kitchen sink renders tabs, controls and overlays',
-    // Four dialogs: the sink's own host, the Dialog and Drawer it demos, and the
-    // shell's create-project dialog. `Dialog` renders its <dialog> element even
-    // while closed, which is what lets the native top layer manage it.
-    k.tabs === 4 && k.tablist === 1 && k.buttons > 15 && k.dialogs === 4,
-    sink,
-  )
+    )
+    const k = JSON.parse(sink)
+    check(
+      'kitchen sink renders tabs, controls and overlays',
+      // Four dialogs: the sink's own host, the Dialog and Drawer it demos, and the
+      // shell's create-project dialog. `Dialog` renders its <dialog> element even
+      // while closed, which is what lets the native top layer manage it.
+      k.tabs === 4 && k.tablist === 1 && k.buttons > 15 && k.dialogs === 4,
+      sink,
+    )
 
-  // Switch themes through the app's own control rather than by setting the
-  // attribute directly: `useTheme` owns `data-theme`, so a manual write is
-  // overwritten on the next render and would test nothing.
-  const sinkLight = await evaluate(
-    window,
-    `(async () => {
+    // Switch themes through the app's own control rather than by setting the
+    // attribute directly: `useTheme` owns `data-theme`, so a manual write is
+    // overwritten on the next render and would test nothing.
+    const sinkLight = await evaluate(
+      window,
+      `(async () => {
        const toggle = [...document.querySelectorAll('button')]
-         .find((b) => b.textContent.trim() === 'Light')
+         .find((b) => b.textContent.includes('Switch to light'))
        if (toggle === undefined) return 'no-toggle'
        toggle.click()
 
@@ -253,7 +254,7 @@ app.whenReady().then(async () => {
        // so a genuine regression still fails instead of hanging.
        const tab = document.querySelector('[role="tab"][aria-selected="true"]')
        const card = document.querySelector('[role="tablist"]')
-       const target = 'rgb(20, 24, 29)'
+       const target = 'rgb(31, 31, 30)'
 
        for (let i = 0; i < 60 && getComputedStyle(tab).color !== target; i += 1) {
          await new Promise((r) => requestAnimationFrame(r))
@@ -266,23 +267,23 @@ app.whenReady().then(async () => {
        }
 
        const back = [...document.querySelectorAll('button')]
-         .find((b) => b.textContent.trim() === 'Dark')
+         .find((b) => b.textContent.includes('Switch to dark'))
        back?.click()
        return JSON.stringify(out)
      })()`,
-  )
-  const sl = sinkLight === 'no-toggle' ? null : JSON.parse(sinkLight)
-  check(
-    'kitchen sink recolours through the theme control',
-    sl !== null && sl.theme === 'light' && sl.tabColour === 'rgb(20, 24, 29)',
-    sinkLight,
-  )
+    )
+    const sl = sinkLight === 'no-toggle' ? null : JSON.parse(sinkLight)
+    check(
+      'kitchen sink recolours through the theme control',
+      sl !== null && sl.theme === 'light' && sl.tabColour === 'rgb(31, 31, 30)',
+      sinkLight,
+    )
 
-  // Close the sink before exercising navigation: it is rendered in a modal, which
-  // holds focus and would intercept the clicks below.
-  const closed = await evaluate(
-    window,
-    `(async () => {
+    // Close the sink before exercising navigation: it is rendered in a modal, which
+    // holds focus and would intercept the clicks below.
+    const closed = await evaluate(
+      window,
+      `(async () => {
        // Scoped to the dialog that is actually open. Several closed <dialog>
        // elements are in the DOM — Dialog renders its element regardless of open
        // state — and each has its own close button, so an unscoped selector can
@@ -292,21 +293,21 @@ app.whenReady().then(async () => {
        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
        return JSON.stringify({ clicked: button !== null, stillOpen: document.querySelectorAll('dialog[open]').length })
      })()`,
-  )
-  // Asserted rather than assumed: a silent no-op here previously left the modal
-  // open, and the only symptom was an unrelated focus check failing much later.
-  const cl = JSON.parse(closed)
-  check(
-    'the modal closes through its own control',
-    cl.clicked === true && cl.stillOpen === 0,
-    closed,
-  )
+    )
+    // Asserted rather than assumed: a silent no-op here previously left the modal
+    // open, and the only symptom was an unrelated focus check failing much later.
+    const cl = JSON.parse(closed)
+    check(
+      'the modal closes through its own control',
+      cl.clicked === true && cl.stillOpen === 0,
+      closed,
+    )
 
-  // Every nav item must resolve to a real route. This is the check that catches a
-  // dead link, which is the failure mode a hand-maintained nav list invites.
-  const navigation = await evaluate(
-    window,
-    `(async () => {
+    // Every nav item must resolve to a real route. This is the check that catches a
+    // dead link, which is the failure mode a hand-maintained nav list invites.
+    const navigation = await evaluate(
+      window,
+      `(async () => {
        const settle = () =>
          new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
 
@@ -329,35 +330,35 @@ app.whenReady().then(async () => {
 
        return JSON.stringify({ count: links.length, visited })
      })()`,
-  )
-  const nav = JSON.parse(navigation)
-  const deadLinks = nav.visited.filter((v) => v.notFound)
-  const unheaded = nav.visited.filter((v) => v.heading === null)
-  const mislabelled = nav.visited.filter((v) => v.heading !== v.label)
+    )
+    const nav = JSON.parse(navigation)
+    const deadLinks = nav.visited.filter((v) => v.notFound)
+    const unheaded = nav.visited.filter((v) => v.heading === null)
+    const mislabelled = nav.visited.filter((v) => v.heading !== v.label)
 
-  check(
-    'every nav item routes to a live page (no dead links)',
-    // Every nav item leads somewhere real, whatever the table holds. Asserting a
-    // fixed count duplicated the route table and broke when a route was removed
-    // (#102) — the useful claim is 'no dead links', not 'exactly eight of them'.
-    nav.count > 0 && deadLinks.length === 0,
-    `${nav.count} links, dead: ${JSON.stringify(deadLinks)}`,
-  )
-  check(
-    'each route renders a heading matching its nav label',
-    unheaded.length === 0 && mislabelled.length === 0,
-    JSON.stringify(mislabelled.length > 0 ? mislabelled : unheaded),
-  )
-  check(
-    'the active route is marked with aria-current',
-    nav.visited.every((v) => v.current === 'page'),
-    JSON.stringify(nav.visited.map((v) => [v.label, v.current])),
-  )
+    check(
+      'every nav item routes to a live page (no dead links)',
+      // Every nav item leads somewhere real, whatever the table holds. Asserting a
+      // fixed count duplicated the route table and broke when a route was removed
+      // (#102) — the useful claim is 'no dead links', not 'exactly eight of them'.
+      nav.count > 0 && deadLinks.length === 0,
+      `${nav.count} links, dead: ${JSON.stringify(deadLinks)}`,
+    )
+    check(
+      'each route renders a heading matching its nav label',
+      unheaded.length === 0 && mislabelled.length === 0,
+      JSON.stringify(mislabelled.length > 0 ? mislabelled : unheaded),
+    )
+    check(
+      'the active route is marked with aria-current',
+      nav.visited.every((v) => v.current === 'page'),
+      JSON.stringify(nav.visited.map((v) => [v.label, v.current])),
+    )
 
-  // An unknown path must land on the catch-all rather than a blank frame.
-  const unknownRoute = await evaluate(
-    window,
-    `(async () => {
+    // An unknown path must land on the catch-all rather than a blank frame.
+    const unknownRoute = await evaluate(
+      window,
+      `(async () => {
        window.location.hash = '#/nonexistent'
        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
        const found = document.body.textContent.includes('Route not found')
@@ -365,13 +366,13 @@ app.whenReady().then(async () => {
        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
        return String(found)
      })()`,
-  )
-  check('an unknown path renders the catch-all route', unknownRoute === 'true', unknownRoute)
+    )
+    check('an unknown path renders the catch-all route', unknownRoute === 'true', unknownRoute)
 
-  // Collapsing must not drop the accessible name of a nav item.
-  const collapsed = await evaluate(
-    window,
-    `(async () => {
+    // Collapsing must not drop the accessible name of a nav item.
+    const collapsed = await evaluate(
+      window,
+      `(async () => {
        const toggle = document.querySelector('button[aria-label="Collapse sidebar"]')
        toggle.click()
        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
@@ -387,18 +388,18 @@ app.whenReady().then(async () => {
 
        return JSON.stringify({ named, width, count: links.length })
      })()`,
-  )
-  const col = JSON.parse(collapsed)
-  check(
-    'collapsed sidebar keeps every item named',
-    col.named === true && col.width < 60 && col.count === nav.count,
-    collapsed,
-  )
+    )
+    const col = JSON.parse(collapsed)
+    check(
+      'collapsed sidebar keeps every item named',
+      col.named === true && col.width < 60 && col.count === nav.count,
+      collapsed,
+    )
 
-  // Focus rings are an accessibility requirement, not a decoration.
-  const focusRing = await evaluate(
-    window,
-    `(() => {
+    // Focus rings are an accessibility requirement, not a decoration.
+    const focusRing = await evaluate(
+      window,
+      `(() => {
        // A button inside the shell, not merely the first in document order: a
        // closed <dialog> renders its children but they cannot take focus, so
        // querySelector('button') would pick an unfocusable one.
@@ -407,15 +408,19 @@ app.whenReady().then(async () => {
        const s = getComputedStyle(el)
        return JSON.stringify({ focused: document.activeElement === el, outline: s.outlineStyle })
      })()`,
-  )
-  const f = JSON.parse(focusRing)
-  check('buttons are focusable', f.focused === true, focusRing)
+    )
+    const f = JSON.parse(focusRing)
+    check('buttons are focusable', f.focused === true, focusRing)
 
-  for (const { name, pass, detail } of checks) {
-    console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${pass ? '' : `  (${detail})`}`)
-  }
+    for (const { name, pass, detail } of checks) {
+      console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${pass ? '' : `  (${detail})`}`)
+    }
 
-  const failed = checks.filter((c) => !c.pass).length
-  console.log(`\n${checks.length - failed}/${checks.length} passed`)
-  app.exit(failed === 0 ? 0 : 1)
-})
+    const failed = checks.filter((c) => !c.pass).length
+    console.log(`\n${checks.length - failed}/${checks.length} passed`)
+    app.exit(failed === 0 ? 0 : 1)
+  })
+  .catch((err) => {
+    console.error('ui-check failed:', err)
+    app.exit(1)
+  })

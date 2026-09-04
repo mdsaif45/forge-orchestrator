@@ -7,8 +7,10 @@ import {
   compileContext,
   completionCriterionSchema,
   decisionIdSchema,
-  FEATURE_IMPLEMENTATION,
+  TEMPLATES,
+  isTemplateId,
   FORGE_DEFAULT_RULES,
+  isTerminalWorkflowState,
   projectIdSchema,
   questionIdSchema,
   repositoryIdSchema,
@@ -18,6 +20,7 @@ import {
   taskIdSchema,
   workflowIdSchema,
   type AgentBinding,
+  type CompletionCriterion,
   type LockedDecision,
   type OpenQuestion,
   type ProjectId,
@@ -25,6 +28,7 @@ import {
   type ResolvableRule,
   type RuleScope,
   type Task,
+  type TemplateId,
   type Workflow,
   type WorkflowId,
 } from '@shared/domain'
@@ -47,11 +51,13 @@ import { DecisionStore } from '../db/decisionStore'
 import { ChangeSetStore } from '../db/changeSetStore'
 import { PacketStore } from '../context/packetStore'
 import { readRepositoryInstructions } from '../context/repositoryInstructions'
-import { GitService } from '../git'
+import { GitService, WorktreeService, type PreparedWorktree } from '../git'
 import { buildChangeSet } from '../evidence/changeSetBuilder'
 import { verifyStep } from '../evidence/verifier'
 import { bindRole, BindingSet } from '../runtimes/bindings'
 import { BindingStore } from '../db/bindingStore'
+import { ClaudeTrustStore } from '../runtimes/claudeTrust'
+import { agentSessionKey, type AgentSessionRegistry } from '../terminal/sessionRegistry'
 import { Orchestrator } from '../runtimes/orchestrator'
 import type { RuntimeRegistry } from '../runtimes/registry'
 import type { ProjectService } from '../projects/projectService'
@@ -60,7 +66,21 @@ export interface WorkflowServiceOptions {
   readonly db: ForgeDatabase
   readonly projects: ProjectService
   readonly packetDir: string
+  /**
+   * Where per-workflow isolated worktrees are created.
+   *
+   * Optional so existing callers (tests, the dogfood harness) keep working; when it is
+   * absent a workflow runs against the project checkout exactly as before.
+   */
+  readonly worktreeRoot?: string
   readonly registry: RuntimeRegistry
+  /**
+   * Where a running step's process is published, so the UI can attach to it (#170).
+   *
+   * Optional so existing callers keep working: without it a workflow still runs,
+   * and the pane simply has nothing live to show.
+   */
+  readonly sessions?: AgentSessionRegistry
   readonly emitEvent?: (event: WorkflowEventPayload) => void
   readonly emitLog?: (log: WorkflowLogPayload) => void
 }
@@ -75,6 +95,7 @@ export class WorkflowService {
   private readonly registry: RuntimeRegistry
   private readonly bindings: BindingStore
   private readonly running = new Map<string, AbortController>()
+  private readonly stepLogs = new Map<string, WorkflowLogPayload[]>()
 
   constructor(private readonly options: WorkflowServiceOptions) {
     this.workflows = new WorkflowStore(options.db)
@@ -135,8 +156,32 @@ export class WorkflowService {
 
   getActive(projectId: string): WorkflowDetailView | null {
     const list = this.workflows.listForProject(projectIdSchema.parse(projectId))
-    const active = list.find((wf) => wf.finishedAt === null)
+    const active = list.find((wf) => wf.finishedAt === null && !isTerminalWorkflowState(wf.state))
     return active === undefined ? null : this.toDetailView(active)
+  }
+
+  getLogs(request: { workflowId: string; stepIndex?: number | undefined }): {
+    readonly logs: readonly WorkflowLogPayload[]
+  } {
+    const list = this.stepLogs.get(request.workflowId) ?? []
+    if (request.stepIndex !== undefined) {
+      return { logs: list.filter((l) => l.stepIndex === request.stepIndex) }
+    }
+    return { logs: list }
+  }
+
+  logStep(workflowId: string, log: { stepIndex: number; text: string; at?: string }): void {
+    const at = log.at ?? new Date().toISOString()
+    const payload: WorkflowLogPayload = {
+      workflowId,
+      stepIndex: log.stepIndex,
+      text: log.text,
+      at,
+    }
+    const current = this.stepLogs.get(workflowId) ?? []
+    current.push(payload)
+    this.stepLogs.set(workflowId, current)
+    this.options.emitLog?.(payload)
   }
 
   async getPacket(packetRef: string): Promise<PromptPacketView | null> {
@@ -176,12 +221,32 @@ export class WorkflowService {
     const now = new Date().toISOString()
     const tId = taskIdSchema.parse(input.taskId ?? randomUUID())
 
-    // Create default task if not present
+    // Create default task with criteria tailored to repository capabilities
+    const completionCriteria: CompletionCriterion[] = [
+      { kind: 'no-assumptions', description: 'No unverified assumptions', params: {} },
+    ]
+
+    if (projectDetail.project.repository.buildCommand !== null) {
+      completionCriteria.push({
+        kind: 'build',
+        description: 'Build passes',
+        params: {},
+      })
+    }
+
+    if (projectDetail.project.repository.testCommand !== null) {
+      completionCriteria.push({
+        kind: 'tests',
+        description: 'Test suite passes',
+        params: {},
+      })
+    }
+
     const task: Task = {
       id: tId,
       objective: input.objective ?? `Implement feature in ${projectDetail.project.name}`,
       constraints: [],
-      completionCriteria: [{ kind: 'tests', description: 'Test suite passes', params: {} }],
+      completionCriteria,
       scope: { allowedPaths: [], forbiddenPaths: [] },
       lockedDecisionIds: [],
       correctsTaskId: null,
@@ -233,6 +298,22 @@ export class WorkflowService {
 
     const now = new Date().toISOString()
     try {
+      const current = this.workflows.find(wId)
+      if (current !== null && isTerminalWorkflowState(current.state)) {
+        if (current.finishedAt === null) {
+          const finished = this.events.append(
+            {
+              type: 'workflow.finished',
+              payload: { workflowId: wId, state: current.state, finishedAt: now },
+            },
+            { projectId: this.workflows.projectIdOf(wId), actor: 'user', occurredAt: now },
+          )
+          applyEvent(this.options.db, finished)
+        }
+        const refreshed = this.workflows.find(wId)
+        return refreshed === null ? null : this.toDetailView(refreshed)
+      }
+
       const wf = this.workflows.apply(wId, 'cancelled', 'user', now, { reason })
       this.notifyEvent({
         workflowId: wId,
@@ -378,13 +459,25 @@ export class WorkflowService {
 
           void this.options.projects.get(pId).then((projectDetail) => {
             if (projectDetail !== null) {
+              const completionCriteria: CompletionCriterion[] = [
+                { kind: 'no-assumptions', description: 'No unverified assumptions', params: {} },
+              ]
+              if (projectDetail.project.repository.buildCommand !== null) {
+                completionCriteria.push({ kind: 'build', description: 'Build passes', params: {} })
+              }
+              if (projectDetail.project.repository.testCommand !== null) {
+                completionCriteria.push({
+                  kind: 'tests',
+                  description: 'Test suite passes',
+                  params: {},
+                })
+              }
+
               const task: Task = {
                 id: waiting.taskId,
                 objective: `Continue task ${waiting.taskId}`,
                 constraints: [],
-                completionCriteria: [
-                  { kind: 'tests', description: 'Test suite passes', params: {} },
-                ],
+                completionCriteria,
                 scope: { allowedPaths: [], forbiddenPaths: [] },
                 lockedDecisionIds: [],
                 correctsTaskId: null,
@@ -430,8 +523,49 @@ export class WorkflowService {
     const controller = new AbortController()
     this.running.set(workflowId, controller)
 
-    const gitService = new GitService({ repositoryPath })
-    const baseSha = await gitService.headSha()
+    // Read from the stored workflow rather than threaded through the signature, so the
+    // template the user picked survives a resume as well as the initial run.
+    const storedTemplateId = this.workflows.find(workflowId)?.templateId ?? 'feature'
+    // Narrowed by lookup rather than cast: the stored value is a plain string from the
+    // database, so a row written by an older build (or a template since removed) must
+    // fall back rather than index TEMPLATES with a key it does not have.
+    const templateId: TemplateId = isTemplateId(storedTemplateId) ? storedTemplateId : 'feature'
+
+    const baseSha = await new GitService({ repositoryPath }).headSha()
+
+    // Retired in the `finally` below, so a crashed or cancelled run does not leave
+    // the pane attached to processes that are gone.
+    const liveSessions: { key: string; handle: { write?: (i: string) => void } }[] = []
+
+    // Agents run here, not in the user's checkout. `agentPath` stays equal to
+    // `repositoryPath` only when no worktree root is configured, which keeps the
+    // existing test harnesses running against a plain directory.
+    let worktree: PreparedWorktree | null = null
+    if (this.options.worktreeRoot !== undefined) {
+      const worktrees = new WorktreeService({
+        repositoryPath,
+        root: this.options.worktreeRoot,
+      })
+      // Clears anything a previous session was killed before disposing, so a crash
+      // does not leave worktrees registered against the user's repository forever.
+      await worktrees.reclaimAbandoned()
+      worktree = await worktrees.prepare(workflowId)
+    }
+    const agentPath = worktree?.path ?? repositoryPath
+
+    // Recorded before any agent is spawned into this path. On a directory it has
+    // not seen, the Claude CLI blocks at startup on "Quick safety check: Is this a
+    // project you created or one you trust?" — and every worktree is a fresh path,
+    // so it would fire on every run (#166/#167).
+    //
+    // Not fatal when it fails: the run still proceeds, and the user answers the
+    // dialog once by hand. Failing the workflow over a config file Forge does not
+    // own would be worse than the dialog it avoids.
+    await new ClaudeTrustStore().trust(agentPath)
+
+    // Reads the worktree the agents actually edited. Pointed at the project checkout
+    // it would report a clean tree for every run and the change set would be empty.
+    const gitService = new GitService({ repositoryPath: agentPath })
 
     // Ensure runtimes are bound for the template
     const bindings = this.resolveBindings(projectId)
@@ -524,11 +658,20 @@ export class WorkflowService {
     })
 
     try {
+      // Resolved from the workflow's own `templateId`. It was hardcoded to
+      // FEATURE_IMPLEMENTATION, so every template ran the feature pipeline: the header
+      // read "Template: security" — echoing the stored string — while the engine
+      // executed the feature steps, which is a UI that reports something the run did
+      // not do. Measured in an audit run that selected Security Audit and completed
+      // five feature stages.
+      const template = TEMPLATES[templateId]
+
       await orchestrator.run({
         workflowId,
-        template: FEATURE_IMPLEMENTATION,
+        template,
         bindings,
-        repositoryPath,
+        // The isolated worktree, not the user's checkout (see WorktreeService).
+        repositoryPath: agentPath,
         limits: this.workflows.find(workflowId)?.limits ?? {
           maxIterations: 5,
           stepTimeoutMs: 30 * 60 * 1000,
@@ -545,7 +688,7 @@ export class WorkflowService {
           },
         },
         approve: () => Promise.resolve(true),
-        verify: async (step) => {
+        verify: async (step, report) => {
           const projectDetail = await this.options.projects.get(projectId)
           const project = projectDetail?.project
           if (project === undefined) return { passed: true, detail: 'verification skipped' }
@@ -560,7 +703,7 @@ export class WorkflowService {
             },
             workflowId,
             stepId: step.id,
-            report: null,
+            report,
             task,
           })
           return {
@@ -593,12 +736,54 @@ export class WorkflowService {
             at: question.askedAt,
           })
         },
+        onLog: (stepIndex, text) => {
+          this.logStep(workflowId, { stepIndex, text })
+        },
+        // Rendered into the existing log stream for now (#152). The typed IPC channel a
+        // live view will subscribe to is #153; until it exists, surfacing tool calls as
+        // text is what makes them visible at all — previously they reached nothing.
+        //
+        // Only `tool` and `usage` are rendered. `chunk` would duplicate the reply the
+        // step already logs, and `state` duplicates the stage transitions around it.
+        // Published so the workflow pane can attach to the step's real process
+        // rather than spawning a second session and rendering that (#170).
+        onStepProcess: (stepIndex, agentProcess) => {
+          const key = agentSessionKey(workflowId, stepIndex)
+          this.options.sessions?.publish(key, agentProcess)
+          // Retired when the step's own log records it finished. Left published, a
+          // pane opened later would attach to a process that has already exited
+          // and show a frozen screen rather than an honest empty one.
+          liveSessions.push({ key, handle: agentProcess })
+        },
+        onRuntimeEvent: (stepIndex, event) => {
+          if (event.type === 'tool') {
+            const detail = event.detail === '' ? '' : ` ${event.detail}`
+            this.logStep(workflowId, { stepIndex, text: `[TOOL] ${event.name}${detail}` })
+            return
+          }
+
+          if (event.type === 'usage') {
+            const parts = [
+              event.inputTokens === null ? null : `in ${String(event.inputTokens)}`,
+              event.outputTokens === null ? null : `out ${String(event.outputTokens)}`,
+              event.costUsd === null ? null : `$${event.costUsd.toFixed(4)}`,
+            ].filter((part): part is string => part !== null)
+
+            if (parts.length > 0) {
+              this.logStep(workflowId, { stepIndex, text: `[USAGE] ${parts.join(' · ')}` })
+            }
+          }
+        },
         signal: controller.signal,
       })
     } catch (err) {
       console.error(`Workflow ${workflowId} failed execution:`, err)
     } finally {
       this.running.delete(workflowId)
+      // Disposed even when the run threw or was cancelled: a worktree left behind
+      // holds a lock on its directory and shows up in `git worktree list` forever.
+      for (const session of liveSessions) this.options.sessions?.retire(session.key, session.handle)
+      await worktree?.dispose()
       const finished = this.workflows.find(workflowId)
       if (finished !== null) {
         this.notifyEvent({

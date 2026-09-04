@@ -1,15 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 
-export type Theme = 'dark' | 'light'
+export type Theme = 'dark' | 'light' | 'azure' | 'system'
 
 const STORAGE_KEY = 'forge.theme'
 
 /**
  * Theme state, applied as `data-theme` on the root element.
  *
- * Only the token layer reads the attribute, so no component knows a theme
- * exists. Dark is the default: Forge is a long-running tool, and the token file
- * defines dark as its base with light as the override.
+ * Supports 'dark', 'light', 'azure', and 'system' (which tracks the OS preference).
  */
 export function useTheme(): {
   readonly theme: Theme
@@ -19,13 +17,35 @@ export function useTheme(): {
   const [theme, setThemeState] = useState<Theme>(readStoredTheme)
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme
+    function applyTheme(): void {
+      if (theme === 'system') {
+        const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+        document.documentElement.dataset.theme = isDark ? 'dark' : 'light'
+      } else {
+        document.documentElement.dataset.theme = theme
+      }
+    }
+
+    applyTheme()
     localStorage.setItem(STORAGE_KEY, theme)
+
+    if (theme === 'system') {
+      const media = window.matchMedia('(prefers-color-scheme: dark)')
+      const handler = (): void => {
+        applyTheme()
+      }
+      media.addEventListener('change', handler)
+      return () => {
+        media.removeEventListener('change', handler)
+      }
+    }
+    return undefined
   }, [theme])
 
   const setTheme = useCallback((next: Theme) => {
     setThemeState(next)
   }, [])
+
   const toggleTheme = useCallback(() => {
     setThemeState((current) => (current === 'dark' ? 'light' : 'dark'))
   }, [])
@@ -35,5 +55,7 @@ export function useTheme(): {
 
 function readStoredTheme(): Theme {
   const stored = localStorage.getItem(STORAGE_KEY)
-  return stored === 'light' || stored === 'dark' ? stored : 'dark'
+  return stored === 'light' || stored === 'dark' || stored === 'azure' || stored === 'system'
+    ? stored
+    : 'dark'
 }

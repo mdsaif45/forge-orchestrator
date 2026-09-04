@@ -23,7 +23,7 @@ export function WorkflowGraph({
 }: WorkflowGraphProps): React.JSX.Element {
   if (workflow === null) {
     return (
-      <div className="flex items-center justify-center p-8 text-sm text-neutral-500">
+      <div className="flex items-center justify-center p-8 text-[13px] text-(--color-text-muted)">
         No active workflow selected. Click &quot;Start Workflow&quot; to begin.
       </div>
     )

@@ -42,6 +42,7 @@ const api: ForgeApi = {
     list: () => call('project:list', {}),
     get: (projectId) => call('project:get', { projectId }),
     update: (request) => call('project:update', request),
+    delete: (projectId) => call('project:delete', { projectId }),
   },
   rule: {
     set: (projectId, scope, key, statement) =>
@@ -60,6 +61,7 @@ const api: ForgeApi = {
     getPacket: (packetRef) => call('workflow:getPacket', { packetRef }),
     exportReport: (workflowId) => call('workflow:exportReport', { workflowId }),
     saveReport: (workflowId) => call('workflow:saveReport', { workflowId }),
+    getLogs: (request) => call('workflow:getLogs', request),
   },
   question: {
     list: (projectId, unansweredOnly) => call('question:list', { projectId, unansweredOnly }),
@@ -100,6 +102,18 @@ const api: ForgeApi = {
     list: () => call('template:list', {}),
     get: (templateId) => call('template:get', { templateId }),
   },
+  terminal: {
+    spawn: (request) => call('terminal:spawn', request),
+    write: (terminalId, data) => call('terminal:write', { terminalId, data }),
+    resize: (terminalId, cols, rows) => call('terminal:resize', { terminalId, cols, rows }),
+    kill: (terminalId) => call('terminal:kill', { terminalId }),
+    buffer: (terminalId) => call('terminal:buffer', { terminalId }),
+  },
+  provider: {
+    scanModels: (providerId, endpointUrl) =>
+      call('provider:scanModels', { providerId, endpointUrl }),
+    chat: (request) => call('provider:chat', request),
+  },
   onWorkflowEvent: (listener) => {
     const handler = (_event: unknown, payload: unknown) => {
       listener(payload as Parameters<typeof listener>[0])
@@ -116,6 +130,24 @@ const api: ForgeApi = {
     ipcRenderer.on('workflow:log', handler)
     return () => {
       ipcRenderer.removeListener('workflow:log', handler)
+    }
+  },
+  onTerminalData: (listener) => {
+    const handler = (_event: unknown, payload: unknown) => {
+      listener(payload as Parameters<typeof listener>[0])
+    }
+    ipcRenderer.on('terminal:data', handler)
+    return () => {
+      ipcRenderer.removeListener('terminal:data', handler)
+    }
+  },
+  onTerminalExit: (listener) => {
+    const handler = (_event: unknown, payload: unknown) => {
+      listener(payload as Parameters<typeof listener>[0])
+    }
+    ipcRenderer.on('terminal:exit', handler)
+    return () => {
+      ipcRenderer.removeListener('terminal:exit', handler)
     }
   },
 }

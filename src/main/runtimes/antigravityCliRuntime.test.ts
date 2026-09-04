@@ -192,15 +192,28 @@ describe('the agy command line', () => {
 
   it('does not give a read-only role unrestricted tool use', async () => {
     // Scoped deliberately: a planner has no reason to run commands, and the blunt flag
-    // would weaken the boundary the reconciler enforces.
+    // would weaken the boundary the reconciler enforces. `plan` is what the
+    // orchestrator now derives for a role that may not write (#173), and agy's plan
+    // mode cannot edit by construction rather than merely declining to.
     const args = await argsFor({
       repositoryPath: 'd:/repo',
       role: 'planner',
-      permissionMode: 'auto',
+      permissionMode: 'plan',
     })
 
     expect(args).not.toContain('--dangerously-skip-permissions')
-    expect(args).toContain('--mode=accept-edits')
+    expect(args).toContain('--mode=plan')
+  })
+
+  it('lets a writing role run unattended, whichever writing mode it was given', async () => {
+    // Tested by exclusion, not equality. The previous check was `=== 'acceptEdits'`,
+    // so the moment the orchestrator started sending `bypassPermissions` an
+    // implementer silently lost write permission — a step that ran and changed
+    // nothing, which looks like a bad agent rather than a bad flag.
+    for (const permissionMode of ['acceptEdits', 'bypassPermissions', 'auto'] as const) {
+      const args = await argsFor({ repositoryPath: 'd:/repo', role: 'implementer', permissionMode })
+      expect(args).toContain('--dangerously-skip-permissions')
+    }
   })
 
   it('never uses claude flag names, which agy rejects outright', async () => {

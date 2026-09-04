@@ -46,3 +46,55 @@ export { QuestionCard, type QuestionCardProps } from './primitives/QuestionCard'
 export { DecisionCard, type DecisionCardProps } from './primitives/DecisionCard'
 export { FileTree, type FileTreeProps } from './primitives/FileTree'
 export { DiffViewer, type DiffViewerProps } from './primitives/DiffViewer'
+export { CodeViewer, type CodeViewerProps } from './primitives/CodeViewer'
+export { FileIcon, FolderChevron, type FileIconProps } from './primitives/FileIcons'
+export { buildFileTree, filterFileTree, type TreeNode } from './primitives/fileTreeModel'
+export {
+  highlightCode,
+  highlightLine,
+  detectLanguage,
+  parseDiffLines,
+  buildSplitDiff,
+  type ParsedDiffLine,
+  type SplitDiffRow,
+  type DiffLineType,
+} from './primitives/syntaxHighlighter'
+export { ProviderCard, type ProviderCardProps } from './primitives/ProviderCard'
+export {
+  AddProviderDialog,
+  type AddProviderDialogProps,
+  type CustomProviderConfig,
+} from './primitives/AddProviderDialog'
+export {
+  StartWorkflowDialog,
+  type StartWorkflowDialogProps,
+} from './primitives/StartWorkflowDialog'
+export {
+  CreateTemplateDialog,
+  type CreateTemplateDialogProps,
+} from './primitives/CreateTemplateDialog'
+export {
+  CreateAgentDialog,
+  type CreateAgentDialogProps,
+  type CustomAgentConfig,
+} from './primitives/CreateAgentDialog'
+export { AgentCard, type AgentCardProps } from './primitives/AgentCard'
+export { MarkdownRenderer, type MarkdownRendererProps } from './primitives/MarkdownRenderer'
+export {
+  AgentTerminal,
+  type AgentTerminalProps,
+  type TerminalLogEntry,
+} from './primitives/AgentTerminal'
+export { AnsiRenderer, type AnsiRendererProps, parseAnsi } from './primitives/AnsiRenderer'
+export { WorkflowLaunchpad, type WorkflowLaunchpadProps } from './primitives/WorkflowLaunchpad'
+export { RealTerminal, type RealTerminalProps } from './primitives/RealTerminal'
+export {
+  AddMcpServerDialog,
+  type AddMcpServerDialogProps,
+  type McpServerConfig,
+} from './primitives/AddMcpServerDialog'
+export {
+  AddCliAgentDialog,
+  type AddCliAgentDialogProps,
+  type CliAgentConfig,
+} from './primitives/AddCliAgentDialog'

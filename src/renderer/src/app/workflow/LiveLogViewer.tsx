@@ -33,12 +33,7 @@ export function LiveLogViewer({ logs, onClear }: LiveLogViewerProps): React.JSX.
 
   const handleCopy = () => {
     const content = filteredLogs.map((l) => `[${l.timestamp}] ${l.text}`).join('\n')
-    // Through main: `navigator.clipboard` needs a secure context, and a packaged
-    // renderer loads from `file://`, so the previous direct call rejected — silently,
-    // because the promise was discarded with `void` (#104).
     window.forge.clipboard.writeText(content).catch((cause: unknown) => {
-      // Reported rather than swallowed. A copy button that does nothing and says
-      // nothing is the failure this issue was filed about.
       console.error('Could not copy the log to the clipboard', cause)
     })
   }
@@ -54,24 +49,24 @@ export function LiveLogViewer({ logs, onClear }: LiveLogViewerProps): React.JSX.
   }
 
   return (
-    <div className="flex h-full flex-col rounded-lg border border-neutral-800 bg-neutral-950 font-mono text-xs">
+    <div className="flex h-full flex-col rounded-xl border border-(--color-border) bg-(--color-surface-inset) font-mono text-[12px] shadow-xs">
       {/* Header controls */}
-      <div className="flex items-center justify-between border-b border-neutral-800 bg-neutral-900/60 px-3 py-2">
+      <div className="flex items-center justify-between border-b border-(--color-border) bg-(--color-surface-raised)/80 px-3 py-1.5 backdrop-blur-xs">
         <div className="flex items-center gap-2">
-          <span className="font-semibold text-neutral-300">LIVE LOG</span>
-          <span className="text-[10px] text-neutral-500">
+          <span className="font-semibold text-(--color-text)">LIVE LOG</span>
+          <span className="text-[10px] text-(--color-text-muted)">
             ({String(filteredLogs.length)} lines)
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <Input
             value={search}
             onChange={(e) => {
               setSearch(e.target.value)
             }}
             placeholder="Search log..."
-            className="h-7 w-40 text-xs"
+            className="h-6 w-36 rounded-md text-[11px]"
           />
 
           <Button
@@ -80,7 +75,7 @@ export function LiveLogViewer({ logs, onClear }: LiveLogViewerProps): React.JSX.
             onClick={() => {
               setAutoscroll(!autoscroll)
             }}
-            className="h-7 text-xs"
+            className="h-6 rounded-md px-2 text-[11px]"
           >
             {autoscroll ? 'Auto-scroll ON' : 'Auto-scroll OFF'}
           </Button>
@@ -89,7 +84,7 @@ export function LiveLogViewer({ logs, onClear }: LiveLogViewerProps): React.JSX.
             size="sm"
             variant={isPaused ? 'danger' : 'secondary'}
             onClick={handleTogglePause}
-            className="h-7 text-xs"
+            className="h-6 rounded-md px-2 text-[11px]"
           >
             {isPaused ? 'Resume' : 'Pause'}
           </Button>
@@ -100,7 +95,7 @@ export function LiveLogViewer({ logs, onClear }: LiveLogViewerProps): React.JSX.
             onClick={() => {
               handleCopy()
             }}
-            className="h-7 text-xs"
+            className="h-6 rounded-md px-2 text-[11px]"
           >
             Copy
           </Button>
@@ -112,7 +107,7 @@ export function LiveLogViewer({ logs, onClear }: LiveLogViewerProps): React.JSX.
               onClick={() => {
                 onClear()
               }}
-              className="h-7 text-xs text-neutral-400"
+              className="h-6 rounded-md px-2 text-[11px] text-(--color-text-muted)"
             >
               Clear
             </Button>
@@ -123,16 +118,19 @@ export function LiveLogViewer({ logs, onClear }: LiveLogViewerProps): React.JSX.
       {/* Log content */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto p-3 leading-relaxed text-neutral-300 select-text"
+        className="flex-1 overflow-y-auto p-3 leading-relaxed text-(--color-text) select-text"
       >
         {filteredLogs.length === 0 ? (
-          <div className="flex h-full items-center justify-center text-neutral-600">
+          <div className="flex h-full items-center justify-center text-(--color-text-subtle)">
             No log output available.
           </div>
         ) : (
           filteredLogs.map((log) => (
-            <div key={log.id} className="flex gap-2 py-0.5 hover:bg-neutral-900/40">
-              <span className="text-neutral-600 select-none">[{log.timestamp}]</span>
+            <div
+              key={log.id}
+              className="flex gap-2 py-0.5 hover:bg-(--color-surface-raised)/40 rounded-sm"
+            >
+              <span className="text-(--color-text-subtle) select-none">[{log.timestamp}]</span>
               <span className="break-all whitespace-pre-wrap">{log.text}</span>
             </div>
           ))

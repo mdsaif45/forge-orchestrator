@@ -15,7 +15,11 @@ import { WorkflowService } from './workflows/workflowService'
 import { MockAgentRuntime } from './runtimes/mockRuntime'
 import { RuntimeRegistry, runtimeExecutable } from './runtimes/registry'
 import { ClaudeCliRuntime } from './runtimes/claudeCliRuntime'
+import { HostedClaudeRuntime } from './runtimes/hostedClaudeRuntime'
+import { AntigravityCliRuntime } from './runtimes/antigravityCliRuntime'
 import { createPipeProcessRunner } from './runtimes/pipeProcessRunner'
+import { AgentSessionRegistry } from './terminal/sessionRegistry'
+import { TerminalService } from './terminal/terminalService'
 import { BindingService } from './bindings/bindingService'
 import { AccountHomes } from './accounts/accountHomes'
 import { EnrollmentService } from './accounts/enrollmentService'
@@ -76,14 +80,15 @@ function startDatabase(): ForgeDatabase | null {
 }
 
 function createWindow(): BrowserWindow {
-  const window = new BrowserWindow({
+  const options: Electron.BrowserWindowConstructorOptions = {
     width: 1440,
     height: 900,
     minWidth: 1024,
     minHeight: 680,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: '#0b0d10',
+    backgroundColor: '#131315',
+    titleBarStyle: 'hidden',
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/index.cjs'),
       // The renderer is untrusted: no Node, no shared context, sandboxed.
@@ -97,14 +102,35 @@ function createWindow(): BrowserWindow {
       allowRunningInsecureContent: false,
       experimentalFeatures: false,
     },
-  })
+  }
+
+  if (process.platform === 'win32') {
+    options.titleBarOverlay = {
+      color: '#00000000',
+      symbolColor: '#8b929c',
+      height: 38,
+    }
+  } else if (process.platform === 'darwin') {
+    options.trafficLightPosition = { x: 14, y: 12 }
+  }
+
+  const window = new BrowserWindow(options)
 
   window.on('ready-to-show', () => {
     window.show()
   })
+
+  // Pipe all renderer errors and console messages to terminal so issues are visible
+  window.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    const levels = ['LOG', 'INFO', 'WARN', 'ERROR']
+    const label = levels[level] ?? 'LOG'
+    console.warn(`[Renderer ${label}] ${message} (${sourceId}:${String(line)})`)
+  })
+
   lockWindowNavigation(window, devServerUrl)
 
   if (devServerUrl !== undefined) {
+    window.webContents.openDevTools({ mode: 'detach' })
     void window.loadURL(devServerUrl)
   } else {
     void window.loadFile(join(import.meta.dirname, '../renderer/index.html'))
@@ -157,6 +183,8 @@ if (!claimSingleInstance()) {
     const accountHomes = new AccountHomes(join(app.getPath('userData'), 'accounts'))
 
     const registry = new RuntimeRegistry()
+    const agentSessions = new AgentSessionRegistry()
+
     registry.register(new MockAgentRuntime({ scenario: SCENARIOS.fullRun, id: 'mock:default' }))
 
     // The real CLI, driven through the pty. `homeForAccount` resolves a bound account
@@ -168,6 +196,24 @@ if (!claimSingleInstance()) {
         // because the child sees a TTY and takes the interactive path (#131).
         runner: createPipeProcessRunner({ orphans }),
         homeForAccount: (accountId) => accountHomes.resolveExisting(accountId),
+      }),
+    )
+
+    registry.register(
+      new AntigravityCliRuntime({
+        runner: createPipeProcessRunner({ orphans }),
+      }),
+    )
+
+    // The same CLI hosted as a live interactive session, registered ALONGSIDE the
+    // headless adapter rather than replacing it (#167/#170). The headless path
+    // works today; this one is proven for a single turn and not yet for a
+    // five-stage workflow with retries. Two ids let a binding choose, so both can
+    // be run against the same repository and compared before anything is deleted.
+    registry.register(
+      new HostedClaudeRuntime({
+        processes,
+        hookReceiverDir: join(app.getPath('userData'), 'hooks'),
       }),
     )
 
@@ -184,6 +230,12 @@ if (!claimSingleInstance()) {
       db,
       projects: projectService,
       packetDir: join(app.getPath('userData'), 'packets'),
+      // Where a running step's process is published, so the workflow pane can
+      // attach to the real run rather than spawning a second session (#170).
+      sessions: agentSessions,
+      // Under userData rather than beside the repository, so Forge never creates
+      // directories inside a project the user did not ask it to write to.
+      worktreeRoot: join(app.getPath('userData'), 'worktrees'),
       registry,
       emitEvent: (payload) => {
         for (const win of BrowserWindow.getAllWindows()) {
@@ -222,6 +274,26 @@ if (!claimSingleInstance()) {
     const eventStore = new EventStore(db)
     const accountStore = new AccountStore(db, eventStore)
     const accountService = new AccountService(accountStore)
+    const terminalService = new TerminalService({
+      processes,
+      projects: projectService,
+      runtimeExecutable,
+      sessions: agentSessions,
+      emitData: (payload) => {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) {
+            win.webContents.send('terminal:data', payload)
+          }
+        }
+      },
+      emitExit: (payload) => {
+        for (const win of BrowserWindow.getAllWindows()) {
+          if (!win.isDestroyed()) {
+            win.webContents.send('terminal:exit', payload)
+          }
+        }
+      },
+    })
 
     registerIpcHandlers(
       createIpcHandlers({
@@ -234,6 +306,7 @@ if (!claimSingleInstance()) {
         registry,
         bindings: new BindingService(new BindingStore(db, eventStore), registry),
         enrollment: new EnrollmentService(accountHomes, registry, runtimeExecutable),
+        terminal: terminalService,
       }),
     )
 

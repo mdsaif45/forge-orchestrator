@@ -3,17 +3,6 @@ import { describe, expect, it } from 'vitest'
 import type { ProjectView, RoleBindingsView, WorkflowTemplateView } from '@shared/ipc'
 import { WorkflowPreflight } from './WorkflowPreflight'
 
-/**
- * What the page promises before a workflow runs.
- *
- * The point of #105 is that a first-time reader could not tell what pressing Start
- * would cause. These assert the two things that answer that: the stages that will
- * run, and the preconditions that are not met.
- */
-
-// Built to the real type rather than cast into it: an `as ProjectView` here hid two
-// mistakes in this fixture — `tech` at the wrong level and a missing `updatedAt` —
-// which is precisely the contract drift a cast stops the compiler reporting.
 function project(overrides: Partial<ProjectView['repository']> = {}): ProjectView {
   return {
     id: 'p1',
@@ -72,9 +61,8 @@ describe('WorkflowPreflight', () => {
 
     expect(screen.getByText('Feature Implementation')).toBeInTheDocument()
     expect(screen.getByText('Plan')).toBeInTheDocument()
-    // "Who does this step" is the part the role name alone does not answer.
     expect(screen.getByText('Forge runs this')).toBeInTheDocument()
-    expect(screen.getByText('waits for you')).toBeInTheDocument()
+    expect(screen.getByText('waits for your review')).toBeInTheDocument()
     expect(screen.getByText('agent as planner')).toBeInTheDocument()
   })
 
@@ -88,10 +76,10 @@ describe('WorkflowPreflight', () => {
       />,
     )
 
-    expect(screen.getByText(/Everything this workflow needs is configured/)).toBeInTheDocument()
+    expect(screen.getByText(/Ready to start/)).toBeInTheDocument()
   })
 
-  it('blocks on a missing test command, because evidence is impossible without one', () => {
+  it('provides a friendly non-blocking note when test command is missing', () => {
     render(
       <WorkflowPreflight
         template={TEMPLATE}
@@ -101,12 +89,13 @@ describe('WorkflowPreflight', () => {
       />,
     )
 
-    // A3: with no command to run, "the tests pass" can only ever be the agent's claim.
-    expect(screen.getByText(/cannot verify a claim that the tests pass/)).toBeInTheDocument()
-    expect(screen.getAllByText('blocked').length).toBeGreaterThan(0)
+    expect(
+      screen.getByText(/verify code changes using build checks and Git diff/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText('blocked')).not.toBeInTheDocument()
   })
 
-  it('warns that a simulated-only run is not evidence', () => {
+  it('informs when running in simulated mode without blocking the user', () => {
     render(
       <WorkflowPreflight
         template={TEMPLATE}
@@ -116,7 +105,7 @@ describe('WorkflowPreflight', () => {
       />,
     )
 
-    expect(screen.getByText(/replays a scripted scenario/)).toBeInTheDocument()
+    expect(screen.getByText(/Running in simulated sandbox mode/)).toBeInTheDocument()
   })
 
   it('treats an unbound role as advisory, not blocking', () => {
@@ -133,10 +122,8 @@ describe('WorkflowPreflight', () => {
       />,
     )
 
-    // It falls back to a default rather than failing, so flagging it as "blocked"
-    // alongside a genuinely fatal gap would train the reader to ignore both.
     expect(screen.getByText(/reviewer/)).toBeInTheDocument()
-    expect(screen.getByText('note')).toBeInTheDocument()
+    expect(screen.getByText('info')).toBeInTheDocument()
     expect(screen.queryByText('blocked')).not.toBeInTheDocument()
   })
 })

@@ -1,5 +1,7 @@
+import { eq } from 'drizzle-orm'
 import type { Actor, Project, ProjectId, Repository, Rule, RuleId } from '@shared/domain'
 import type { ForgeDatabase } from './connection'
+import * as schema from './schema'
 import { EventStore } from './eventStore'
 import { applyEvent, rebuildProjections } from './projections'
 import { ProjectRepository } from './projectRepository'
@@ -141,5 +143,19 @@ export class ProjectStore {
     for (const projectId of this.events.projectIds()) {
       this.rebuild(projectId)
     }
+  }
+
+  /**
+   * Deletes a project, all its projected data, and its event history from Forge.
+   *
+   * Foreign keys with `onDelete: 'cascade'` automatically clean up projected child tables
+   * (repositories, rules, agentBindings, decisions, openQuestions, tasks, workflows, changeSets).
+   * Events (which deliberately have no FK so the append log is independent) are cleaned up explicitly.
+   */
+  delete(projectId: ProjectId): void {
+    this.db.transaction(() => {
+      this.db.delete(schema.projects).where(eq(schema.projects.id, projectId)).run()
+      this.db.delete(schema.events).where(eq(schema.events.projectId, projectId)).run()
+    })
   }
 }

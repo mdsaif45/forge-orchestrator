@@ -521,6 +521,10 @@ export const IPC_CONTRACT = {
     }),
     response: projectDetailSchema.nullable(),
   },
+  'project:delete': {
+    request: z.strictObject({ projectId: z.string() }),
+    response: z.strictObject({ success: z.boolean() }),
+  },
   'rule:set': {
     request: z.strictObject({
       projectId: z.string(),
@@ -591,6 +595,15 @@ export const IPC_CONTRACT = {
     request: z.strictObject({ workflowId: z.string() }),
     response: z.strictObject({
       savedPath: z.string().nullable(),
+    }),
+  },
+  'workflow:getLogs': {
+    request: z.strictObject({
+      workflowId: z.string(),
+      stepIndex: z.number().optional(),
+    }),
+    response: z.strictObject({
+      logs: z.array(workflowLogPayloadSchema).readonly(),
     }),
   },
   /**
@@ -779,6 +792,84 @@ export const IPC_CONTRACT = {
   'template:get': {
     request: z.strictObject({ templateId: z.string() }),
     response: workflowTemplateViewSchema.nullable(),
+  },
+  'terminal:spawn': {
+    request: z.strictObject({
+      projectId: z.string(),
+      runtimeId: z.string().nullable().optional(),
+      command: z.string().optional(),
+      args: z.array(z.string()).readonly().optional(),
+      cwd: z.string().optional(),
+      env: z.record(z.string(), z.string()).optional(),
+      cols: z.number().optional(),
+      rows: z.number().optional(),
+    }),
+    response: z.strictObject({
+      terminalId: z.string(),
+      pid: z.number().optional(),
+    }),
+  },
+  'terminal:write': {
+    request: z.strictObject({
+      terminalId: z.string(),
+      data: z.string(),
+    }),
+    response: empty,
+  },
+  'terminal:resize': {
+    request: z.strictObject({
+      terminalId: z.string(),
+      cols: z.number(),
+      rows: z.number(),
+    }),
+    response: empty,
+  },
+  'terminal:kill': {
+    request: z.strictObject({
+      terminalId: z.string(),
+    }),
+    response: empty,
+  },
+  'terminal:buffer': {
+    request: z.strictObject({
+      terminalId: z.string(),
+    }),
+    response: z.strictObject({
+      buffer: z.string(),
+    }),
+  },
+  'provider:scanModels': {
+    request: z.strictObject({
+      providerId: z.string(),
+      endpointUrl: z.string(),
+    }),
+    response: z.strictObject({
+      ok: z.boolean(),
+      models: z.array(z.string()).readonly(),
+      error: z.string().nullable(),
+    }),
+  },
+  'provider:chat': {
+    request: z.strictObject({
+      providerId: z.string(),
+      model: z.string(),
+      endpointUrl: z.string().optional(),
+      apiKey: z.string().optional(),
+      systemPrompt: z.string().optional(),
+      messages: z
+        .array(
+          z.strictObject({
+            role: z.enum(['user', 'assistant', 'system']),
+            content: z.string(),
+          }),
+        )
+        .readonly(),
+    }),
+    response: z.strictObject({
+      ok: z.boolean(),
+      content: z.string(),
+      error: z.string().nullable(),
+    }),
   },
 } as const satisfies IpcContractShape
 

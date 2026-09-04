@@ -16,20 +16,6 @@ import {
 import { DefaultBranchField } from './DefaultBranchField'
 import { useProjectStore } from './projectStore'
 
-/**
- * Create a project and bind it to a repository.
- *
- * Built entirely from `@renderer/ui` primitives — no one-off controls — so the form
- * inherits the design system's focus, invalid, and disabled states rather than
- * restating them.
- *
- * The probe drives everything the user is told. A blocker disables Create with the
- * specific reason attached to the path field; a warning (dirty worktree, no commits,
- * detached HEAD) is shown but does not block, because binding a repository with work
- * in progress is normal and the refusal that matters happens when a workflow
- * captures its base SHA.
- */
-
 /** Reasons a folder cannot be bound at all, as opposed to reasons worth knowing. */
 const BLOCKING_CODES = new Set([
   'empty-path',
@@ -46,11 +32,8 @@ export interface CreateProjectDialogProps {
 }
 
 /**
- * Remounts the form each time the dialog opens.
- *
- * Resetting eight fields by hand in an effect would fire a cascade of setState
- * calls on close; a changing `key` discards the state instead, which is React's own
- * mechanism for "this is a fresh instance".
+ * Clean and streamlined project creation dialog.
+ * Remounts form state per open lifecycle.
  */
 export function CreateProjectDialog({
   open,
@@ -77,9 +60,6 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
   const [name, setName] = useState('')
   const [path, setPath] = useState('')
   const [branch, setBranch] = useState('')
-  const [buildCommand, setBuildCommand] = useState('')
-  const [testCommand, setTestCommand] = useState('')
-  const [tech, setTech] = useState('')
   const [rules, setRules] = useState('')
 
   const [probe, setProbe] = useState<RepositoryProbe | null>(null)
@@ -87,10 +67,6 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
 
-  /**
-   * Tracks the most recent probe, so a slow reply for an earlier path cannot
-   * overwrite the result for what the user has since typed.
-   */
   const probeToken = useRef(0)
 
   const runProbe = useCallback(async (candidate: string) => {
@@ -111,13 +87,18 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
 
       setProbe(result)
 
-      // The repository's *default* branch, not whatever is checked out right now.
-      // Those differ whenever the user is mid-feature, and taking the checkout was
-      // the #100 defect: the value ends up as the diff base for every later scope
-      // verdict. Left empty when git cannot determine one, so the user chooses
-      // rather than inheriting a guess (A2).
       if (result.isRepository && result.defaultBranch !== null) {
-        setBranch((current) => (current === '' ? (result.defaultBranch ?? '') : current))
+        setBranch((curr) => (curr === '' ? (result.defaultBranch ?? '') : curr))
+      }
+
+      // Auto-suggest project name from repository folder basename if name is empty
+      if (result.isRepository) {
+        setName((curr) => {
+          if (curr.trim() !== '') return curr
+          const cleanPath = candidate.replace(/[/\\]+$/, '')
+          const parts = cleanPath.split(/[/\\]/)
+          return parts[parts.length - 1] ?? ''
+        })
       }
     } catch (cause) {
       if (probeToken.current !== token) return
@@ -128,7 +109,7 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
     }
   }, [])
 
-  // Debounced so typing a path does not spawn a git process per keystroke.
+  // Debounced directory probing
   useEffect(() => {
     if (!open) return
 
@@ -145,9 +126,8 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
   const warnings = probe?.problems.filter((problem) => !BLOCKING_CODES.has(problem.code)) ?? []
 
   const nameValid = name.trim() !== ''
-  const branchValid = branch.trim() !== ''
   const repositoryValid = probe?.isRepository === true && blocker === null
-  const canSubmit = nameValid && branchValid && repositoryValid && !probing && !submitting
+  const canSubmit = nameValid && repositoryValid && !probing && !submitting
 
   async function handleSubmit(): Promise<void> {
     if (!canSubmit) return
@@ -159,10 +139,10 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
       const created = await createProject({
         name: name.trim(),
         repositoryPath: path.trim(),
-        defaultBranch: branch.trim(),
-        buildCommand: buildCommand.trim() === '' ? null : buildCommand.trim(),
-        testCommand: testCommand.trim() === '' ? null : testCommand.trim(),
-        tech: splitList(tech),
+        defaultBranch: branch.trim() !== '' ? branch.trim() : (probe.defaultBranch ?? 'main'),
+        buildCommand: null,
+        testCommand: null,
+        tech: [],
         rules: splitLines(rules),
       })
 
@@ -180,8 +160,8 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
       open={open}
       onClose={onClose}
       title="New project"
-      description="Forge keeps the project state. Agents only do the work."
-      size="lg"
+      description="Connect a repository workspace. Agents will run tasks in isolated worktrees."
+      size="md"
       footer={
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -192,6 +172,7 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
               Cancel
             </Button>
             <Button
+              variant="primary"
               onClick={() => {
                 void handleSubmit()
               }}
@@ -204,6 +185,7 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
       }
     >
       <div className="grid gap-4">
+        {/* Project Name */}
         <Field
           label="Name"
           required
@@ -221,6 +203,7 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
           )}
         </Field>
 
+        {/* Repository Path */}
         <Field
           label="Repository"
           required
@@ -255,62 +238,19 @@ function CreateProjectForm({ open, onClose }: CreateProjectDialogProps): React.J
 
         <RepositoryStatus probing={probing} probe={probe} warnings={warnings} />
 
-        <div className="grid grid-cols-2 gap-4">
-          <DefaultBranchField probe={probe} value={branch} onChange={setBranch} />
+        <DefaultBranchField probe={probe} value={branch} onChange={setBranch} />
 
-          <Field label="Technology" hint="Comma separated">
-            {(bind) => (
-              <Input
-                {...bind}
-                value={tech}
-                placeholder=".NET 9, React"
-                onChange={(event) => {
-                  setTech(event.target.value)
-                }}
-              />
-            )}
-          </Field>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Build command" hint="Forge runs this to produce evidence">
-            {(bind) => (
-              <Input
-                {...bind}
-                mono
-                value={buildCommand}
-                placeholder="dotnet build"
-                onChange={(event) => {
-                  setBuildCommand(event.target.value)
-                }}
-              />
-            )}
-          </Field>
-
-          <Field label="Test command" hint="Not guessed — an agent's claim is checked against it">
-            {(bind) => (
-              <Input
-                {...bind}
-                mono
-                value={testCommand}
-                placeholder="dotnet test"
-                onChange={(event) => {
-                  setTestCommand(event.target.value)
-                }}
-              />
-            )}
-          </Field>
-        </div>
-
-        <Field label="Rules" hint="One per line. Applied to every workflow in this project.">
+        {/* Project Rules */}
+        <Field
+          label="Rules"
+          hint="Project-specific guidelines injected into agent workflows (e.g. 'strictly type all code changes')."
+        >
           {(bind) => (
             <Textarea
               {...bind}
-              rows={4}
+              rows={3}
               value={rules}
-              placeholder={
-                'never modify migrations without approval\nfollow the existing architecture'
-              }
+              placeholder="never modify migrations without approval&#10;strictly type all code changes"
               onChange={(event) => {
                 setRules(event.target.value)
               }}
@@ -336,30 +276,30 @@ function RepositoryStatus({
   if (probe?.isRepository !== true) return null
 
   return (
-    <div className="grid gap-2 rounded-(--radius-md) bg-(--color-surface-inset) p-3">
+    <div className="grid gap-2 rounded-xl border border-(--color-border) bg-(--color-surface-inset) p-3">
       <div className="flex flex-wrap items-center gap-3">
         <StatusDot status="passed" label="Git repository" />
         {probe.branch !== null && (
-          <span className="text-(length:--text-xs) text-(--color-text-muted)">
-            {/* Named "checked out" rather than "branch": the field below asks for the
-                default branch, and one label reading "branch" next to another meaning
-                a different branch is how #100 stayed invisible. */}
-            checked out <Code>{probe.branch}</Code>
+          <span className="text-[12px] text-(--color-text-muted)">
+            branch <Code>{probe.branch}</Code>
+          </span>
+        )}
+        {probe.defaultBranch !== null && (
+          <span className="text-[12px] text-(--color-text-muted)">
+            default <Code>{probe.defaultBranch}</Code>
           </span>
         )}
         {probe.headSha !== null && (
-          <span className="text-(length:--text-xs) text-(--color-text-muted)">
+          <span className="text-[12px] text-(--color-text-muted)">
             head <Code>{probe.headSha.slice(0, 7)}</Code>
           </span>
         )}
       </div>
 
       {probe.dirty && (
-        <p className="m-0 text-(length:--text-xs) text-(--color-text-muted)">
-          {probe.dirtyCount} uncommitted change{probe.dirtyCount === 1 ? '' : 's'}:{' '}
-          {probe.dirtyPaths.slice(0, 3).join(', ')}
-          {probe.dirtyCount > 3 ? '…' : ''}. This does not block creation — a workflow will capture
-          its own base commit before an agent runs.
+        <p className="m-0 text-[11px] text-(--color-text-muted)">
+          {probe.dirtyCount} uncommitted change{probe.dirtyCount === 1 ? '' : 's'}. This does not
+          block creation — a workflow will capture its own base commit.
         </p>
       )}
 
@@ -370,13 +310,6 @@ function RepositoryStatus({
       ))}
     </div>
   )
-}
-
-function splitList(value: string): readonly string[] {
-  return value
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry !== '')
 }
 
 function splitLines(value: string): readonly string[] {

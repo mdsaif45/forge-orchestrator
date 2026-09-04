@@ -13,6 +13,8 @@ import {
   type SessionOptions,
 } from '@shared/domain'
 import type { ProcessRunner } from './claudeCliRuntime'
+import { observeAntigravityLine } from './antigravityStream'
+import { takeCompleteLines } from './claudeStream'
 
 export interface AntigravityCliRuntimeOptions {
   readonly executablePath?: string
@@ -138,6 +140,13 @@ export class AntigravityCliRuntime implements IAgentRuntime {
     if (!this.runner) return
 
     let accumulatedOutput = ''
+    // Held across `onStdout` calls: a read boundary falls mid-line, so the tail of one
+    // chunk is the head of the next.
+    let streamBuffer = ''
+    // A holder rather than a `let`, for the same reason as the Claude adapter: control
+    // flow cannot see the `onStdout` closure assigning it, so a plain boolean reads as
+    // always-falsy at the check below.
+    const stream = { refusedBeforeStarting: false }
 
     try {
       // Every element here was found by a failing attempt, not by reading `--help`.
@@ -155,15 +164,41 @@ export class AntigravityCliRuntime implements IAgentRuntime {
       //                 so a role that must run commands needs the blunt flag.
       const result = await this.runner(this.executable, this.argsFor(session, promptText), {
         cwd: session.options.repositoryPath,
+        // Forwarded so the caller can attach to the running process (#170).
+        ...(session.options.onProcess === undefined
+          ? {}
+          : { onProcess: session.options.onProcess }),
         signal: session.abortController.signal,
         onStdout: (chunk) => {
-          // Accumulated, deliberately not emitted. `--output-format=json` wraps the
-          // reply, so the report block arrives JSON-escaped inside `response`. Emitting
-          // the envelope alongside the unwrapped text would put two copies of the block
-          // in the reply, and `parseAgentReport` takes the first it finds — the escaped
-          // one — and fails on the backslashes. Same defect as #130 on the Claude side.
+          // Accumulated, deliberately not emitted. The envelope wraps the reply, so the
+          // report block arrives JSON-escaped inside `response`. Emitting the envelope
+          // alongside the unwrapped text would put two copies of the block in the reply,
+          // and `parseAgentReport` takes the first it finds — the escaped one — and
+          // fails on the backslashes. Same defect as #130 on the Claude side.
           accumulatedOutput += chunk
           session.lastActivityAt = this.now()
+
+          // Observed for the live view only (#151): tool invocations are emitted as the
+          // agent makes them. The reply text still reaches `exchange()` exactly once,
+          // from the terminal result below.
+          streamBuffer += chunk
+          const { lines, rest } = takeCompleteLines(streamBuffer)
+          streamBuffer = rest
+
+          for (const line of lines) {
+            const observed = observeAntigravityLine(line)
+
+            for (const tool of observed.tools) {
+              this.pushEvent(session, {
+                type: 'tool',
+                at: this.now(),
+                name: tool.name,
+                detail: tool.detail,
+              })
+            }
+
+            if (observed.result?.refusedBeforeStarting === true) stream.refusedBeforeStarting = true
+          }
         },
         onStderr: (chunk) => {
           session.lastActivityAt = this.now()
@@ -174,6 +209,29 @@ export class AntigravityCliRuntime implements IAgentRuntime {
           })
         },
       })
+
+      // Checked before the empty-output case: the refusal is reported *in* the output, so
+      // `accumulatedOutput` is never empty when one occurs and the branch below could
+      // never see it.
+      //
+      // Measured on this machine and intermittent — roughly half of consecutive attempts
+      // failed with "Eligibility check failed: failed to get profile picture", zero turns
+      // run, then succeeded on retry. Reported as retryable and explicitly not as the
+      // agent's failure: the CLI never reached the model, so blaming the step would
+      // consume an iteration and mislabel whose failure it was.
+      if (stream.refusedBeforeStarting) {
+        session.state = 'failed'
+        session.failure =
+          'The Antigravity CLI refused before starting the turn (pre-flight eligibility check failed); no work was attempted'
+        this.pushEvent(session, {
+          type: 'error',
+          at: this.now(),
+          message: session.failure,
+          retryable: true,
+          providerLimit: false,
+        })
+        return
+      }
 
       if (result.exitCode !== 0 && accumulatedOutput.trim() === '') {
         session.state = 'failed'
@@ -200,6 +258,17 @@ export class AntigravityCliRuntime implements IAgentRuntime {
           at: this.now(),
           text: replyText,
         })
+      }
+
+      // Reported, never estimated (A3). This adapter recorded no usage at all before
+      // #151, so a run on Antigravity showed nothing about what it consumed while the
+      // Claude adapter did — the same run looked free on one provider and costed on the
+      // other. Read from the terminal result, whose figures are the turn's total;
+      // per-step counts are partial. `agy` reports no cost, so `costUsd` stays null
+      // rather than being derived from token counts.
+      const usage = observeAntigravityLine(lastResultLine(accumulatedOutput) ?? '').usage
+      if (usage !== null) {
+        this.pushEvent(session, { type: 'usage', at: this.now(), ...usage })
       }
 
       // See ClaudeCliRuntime.executeWithRunner: parsing and the single re-prompt on a
@@ -240,15 +309,22 @@ export class AntigravityCliRuntime implements IAgentRuntime {
    */
   private argsFor(session: ActiveSession, promptText: string): readonly string[] {
     // `writeFiles` is not on the session, but the permission mode the orchestrator
-    // derived from it is: a role that may write gets `acceptEdits`, a read-only role
-    // gets something else (#130).
-    const mayWrite = (session.options.permissionMode ?? DEFAULT_PERMISSION_MODE) === 'acceptEdits'
+    // derived from it is (#130). Tested by exclusion rather than equality: the modes
+    // that mean "may write" are open-ended, while `plan` means read-only by
+    // definition. An equality check against `acceptEdits` silently withheld write
+    // permission the moment the orchestrator started sending `bypassPermissions`
+    // (#173), which would look like an implementer that ran and changed nothing.
+    const mode = session.options.permissionMode ?? DEFAULT_PERMISSION_MODE
+    const mayWrite = mode !== 'plan'
 
     return [
       // Attached, not separated. `-p <prompt>` makes agy take the following flag as its
       // prompt and silently drop the real one.
       `-p=${promptText}`,
-      '--output-format=json',
+      // `stream-json` rather than `json`, so tool invocations arrive while the turn runs
+      // instead of only at the end (#151). Unlike the Claude CLI this needs no companion
+      // verbosity flag — the step stream is the format.
+      '--output-format=stream-json',
       // Declares the workspace. Its absence is the worst failure found in either
       // adapter: agy reports `status: SUCCESS` with a plausible report and edits a
       // directory it invented, leaving the repository untouched.
@@ -257,7 +333,9 @@ export class AntigravityCliRuntime implements IAgentRuntime {
       // `--settings` flag to carry a narrower allow-rule, so a role that must run
       // commands needs the blunt one. Scoped to roles that already hold write
       // permission; Forge's reconciler and scope enforcement remain the real boundary.
-      ...(mayWrite ? ['--dangerously-skip-permissions'] : ['--mode=accept-edits']),
+      // A read-only role gets agy's plan mode, which cannot edit by construction —
+      // it does not merely decline, so a mis-set flag cannot let it through.
+      ...(mayWrite ? ['--dangerously-skip-permissions'] : ['--mode=plan']),
     ]
   }
 
@@ -351,16 +429,55 @@ export class AntigravityCliRuntime implements IAgentRuntime {
  * reconciler decide that.
  */
 function extractResponseText(output: string): string | null {
-  const trimmed = output.trim()
-  if (!trimmed.startsWith('{')) return null
+  // The transport is NDJSON since #151, so the envelope is one line among many rather
+  // than the whole of stdout. Parsing the buffer as a single object returns null against
+  // a stream and falls back to raw stdout, which would feed every intermediate step line
+  // into the text `parseAgentReport` reads.
+  //
+  // Scanned from the end: the reply is the last thing the CLI writes. Both the
+  // `{"event":"result","result":{...}}` stream shape and the bare `{ response, ... }`
+  // envelope are accepted, so a build configured for `--output-format=json` still works.
+  const lines = output.split('\n')
 
-  try {
-    const parsed: unknown = JSON.parse(trimmed)
-    if (typeof parsed !== 'object' || parsed === null) return null
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index]?.trim() ?? ''
+    if (!line.startsWith('{')) continue
 
-    const response = (parsed as { readonly response?: unknown }).response
-    return typeof response === 'string' ? response : null
-  } catch {
-    return null
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (typeof parsed !== 'object' || parsed === null) continue
+
+    const record = parsed as { readonly response?: unknown; readonly result?: unknown }
+
+    if (typeof record.response === 'string') return record.response
+
+    const inner = record.result
+    if (typeof inner === 'object' && inner !== null) {
+      const response = (inner as { readonly response?: unknown }).response
+      if (typeof response === 'string') return response
+    }
   }
+
+  return null
+}
+
+/**
+ * The last line of the buffer that carries a terminal result, or null.
+ *
+ * Scanned from the end because the reply is the last thing the CLI writes, and a turn
+ * whose content mentions a result line must not be mistaken for the line itself.
+ */
+function lastResultLine(output: string): string | null {
+  const lines = output.split('\n')
+
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index]?.trim() ?? ''
+    if (line.startsWith('{') && line.includes('"result"')) return line
+  }
+
+  return null
 }

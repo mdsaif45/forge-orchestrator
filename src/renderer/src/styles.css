@@ -13,6 +13,7 @@
   body,
   #root {
     height: 100%;
+    overflow: hidden;
   }
 
   body {
@@ -22,6 +23,8 @@
     font-family: var(--font-sans);
     font-size: var(--text-base);
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
 
     /* A desktop app should not feel like a web page: no stray text selection,
        re-enabled deliberately below on content meant to be read and copied. */
@@ -47,4 +50,46 @@
       transition-duration: 0.01ms !important;
     }
   }
+
+  /* Custom sleek scrollbars (Claude Code / Zed editor styling) */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    background-clip: padding-box;
+    transition: background-color 0.15s ease;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-border-strong);
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
+/* Frameless Window Titlebar drag utilities */
+.app-drag-region {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
 }

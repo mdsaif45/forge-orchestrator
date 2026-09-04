@@ -7,19 +7,16 @@ export type WorkflowNodeState =
 
 export interface WorkflowNodeProps extends React.HTMLAttributes<HTMLButtonElement> {
   readonly role: string
-  readonly label: string
+  readonly label?: string | undefined
+  readonly personaName?: string | undefined
+  readonly personaIcon?: string | undefined
+  readonly stageLabel?: string | undefined
   readonly state: WorkflowNodeState
-  readonly runtimeId?: string | null
-  readonly verdict?: string | null
-  /**
-   * Whether this step's runtime replays scripted output instead of doing real work.
-   *
-   * Null means no runtime is bound, or its identity is unknown — deliberately not
-   * treated as "real", because absence of evidence is not evidence of verification.
-   */
-  readonly simulated?: boolean | null
-  readonly selected?: boolean
-  readonly active?: boolean
+  readonly runtimeId?: string | null | undefined
+  readonly verdict?: string | null | undefined
+  readonly simulated?: boolean | null | undefined
+  readonly selected?: boolean | undefined
+  readonly active?: boolean | undefined
 }
 
 export const WorkflowNode = React.forwardRef<HTMLButtonElement, WorkflowNodeProps>(
@@ -27,6 +24,9 @@ export const WorkflowNode = React.forwardRef<HTMLButtonElement, WorkflowNodeProp
     {
       role,
       label,
+      personaName,
+      personaIcon,
+      stageLabel,
       state,
       runtimeId,
       verdict,
@@ -42,15 +42,40 @@ export const WorkflowNode = React.forwardRef<HTMLButtonElement, WorkflowNodeProp
     const status: 'idle' | 'running' | 'waiting' | 'passed' | 'failed' | 'halted' =
       state === 'running'
         ? 'running'
-        : state === 'completed'
+        : verdict === 'pass' || state === 'completed'
           ? 'passed'
-          : state === 'failed'
+          : verdict === 'fail' || state === 'failed'
             ? 'failed'
             : state === 'halted'
               ? 'halted'
               : state === 'awaiting_user'
                 ? 'waiting'
                 : 'idle'
+
+    // Determine friendly human persona display
+    const resolvedIcon =
+      personaIcon ??
+      (role === 'planner'
+        ? '🧠'
+        : role === 'user'
+          ? '👤'
+          : role === 'implementer'
+            ? '💻'
+            : role === 'reviewer'
+              ? '🔍'
+              : '⚙️')
+
+    const resolvedPersona =
+      personaName ??
+      (role === 'planner'
+        ? 'Alex (Planner)'
+        : role === 'user'
+          ? 'You (Approval Gate)'
+          : role === 'implementer'
+            ? 'Sam (Implementer)'
+            : role === 'reviewer'
+              ? 'Morgan (Reviewer)'
+              : 'Forge Engine')
 
     return (
       <button
@@ -60,69 +85,70 @@ export const WorkflowNode = React.forwardRef<HTMLButtonElement, WorkflowNodeProp
         aria-pressed={selected}
         aria-current={active ? 'step' : undefined}
         className={cn(
-          'group relative flex flex-col items-start gap-1.5 rounded-lg border p-3 text-left transition-all',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2',
-          'min-w-[140px] max-w-[200px]',
+          'group relative flex flex-col items-start gap-1.5 rounded-xl border p-3 text-left transition-all duration-(--duration-fast) cursor-pointer select-none',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--color-border-focus)',
+          'min-w-[170px] max-w-[220px]',
           selected
-            ? 'border-blue-500 bg-blue-950/20 shadow-md ring-1 ring-blue-500'
-            : 'border-neutral-800 bg-neutral-900/80 hover:border-neutral-700 hover:bg-neutral-800/60',
-          active ? 'ring-2 ring-blue-500/50' : undefined,
+            ? 'border-(--color-accent) bg-(--color-accent)/10 shadow-sm ring-1 ring-(--color-accent)'
+            : 'border-(--color-border) bg-(--color-surface-raised) hover:border-(--color-border-strong) hover:bg-(--color-surface)',
+          active ? 'ring-2 ring-(--color-accent)/60 animate-pulse' : undefined,
           className,
         )}
         {...rest}
       >
-        <div className="flex w-full items-center justify-between gap-2">
-          <span className="text-xs font-semibold uppercase tracking-wider text-neutral-400">
-            {role}
+        {/* Top: Stage Tag & Live Status Dot */}
+        <div className="flex w-full items-center justify-between gap-2 border-b border-(--color-border)/40 pb-1.5">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-(--color-text-subtle) truncate">
+            {stageLabel ?? role}
           </span>
           <StatusDot status={status} pulse={state === 'running' || active} />
         </div>
 
-        <div className="flex items-center gap-1.5">
-          <span className="text-sm font-medium text-neutral-100 group-hover:text-white">
-            {label}
-          </span>
+        {/* Middle: Friendly Persona Name & Icon */}
+        <div className="flex items-center gap-2 py-0.5 w-full">
+          <span className="text-[16px] shrink-0">{resolvedIcon}</span>
+          <div className="truncate">
+            <span className="text-[13px] font-bold text-(--color-text) truncate block">
+              {label ?? resolvedPersona}
+            </span>
+            {label && label !== resolvedPersona && (
+              <span className="text-[10px] text-(--color-text-muted) truncate block">
+                {resolvedPersona}
+              </span>
+            )}
+          </div>
         </div>
 
-        <div className="mt-1 flex w-full items-center justify-between gap-1.5 text-[11px] text-neutral-400">
-          <span className="truncate">{runtimeId ?? state}</span>
+        {/* Bottom: Engine & Verdict */}
+        <div className="mt-1 flex w-full items-center justify-between gap-1.5 text-[11px] text-(--color-text-muted) border-t border-(--color-border)/30 pt-1.5">
+          <div
+            className="flex items-center gap-1 font-mono text-[10px] truncate max-w-[95px]"
+            title={runtimeId ?? state}
+          >
+            <span className="truncate">
+              {runtimeId ?? (role === 'user' ? 'human-gate' : state)}
+            </span>
+            {simulated === true && (
+              <span className="shrink-0 text-[9px] text-(--color-text-muted)">simulated</span>
+            )}
+          </div>
           {verdict !== undefined && verdict !== null && (
             <span
-              // A simulated verdict never borrows the success or failure colour. The
-              // whole defect in #101 was that a mock's scripted "pass" was rendered
-              // identically to evidence Forge had actually gathered — the same
-              // substitution of a claim for a verified fact that A3 exists to prevent.
-              // Neutral styling and a "sim" prefix keep the outcome legible without
-              // letting it read as proof.
               className={cn(
-                'shrink-0 rounded px-1 py-0.5 font-mono text-[10px] uppercase',
+                'shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] font-bold uppercase',
                 simulated === true
                   ? 'bg-(--color-surface-inset) text-(--color-text-muted) ring-1 ring-(--color-border)'
                   : verdict === 'pass'
-                    ? 'bg-(--color-success-muted) text-(--color-success)'
+                    ? 'bg-(--color-success)/15 text-(--color-success)'
                     : verdict === 'fail'
-                      ? 'bg-(--color-danger-muted) text-(--color-danger)'
+                      ? 'bg-(--color-danger)/15 text-(--color-danger)'
                       : 'bg-(--color-surface-inset) text-(--color-text-muted)',
               )}
-              title={
-                simulated === true
-                  ? 'Simulated: replayed from a scripted scenario, not real work'
-                  : undefined
-              }
             >
               {simulated === true ? `sim ${verdict}` : verdict}
             </span>
           )}
         </div>
-
-        {simulated === true && (
-          // Stated on the node itself, not left to the small runtime id underneath.
-          // That id ("mock:default") carried the entire weight of "none of this is
-          // real" and lost, which is how a scripted run read as a completed one.
-          <div className="mt-1 w-full rounded bg-(--color-warning-muted) px-1.5 py-0.5 text-center text-[10px] font-medium uppercase tracking-wide text-(--color-warning)">
-            simulated
-          </div>
-        )}
       </button>
     )
   },

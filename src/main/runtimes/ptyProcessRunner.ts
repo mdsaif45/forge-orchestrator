@@ -43,6 +43,23 @@ export function createPtyProcessRunner(options: PtyProcessRunnerOptions): Proces
       ...(hardTimeoutMs === undefined ? {} : { hardTimeoutMs }),
     })
 
+    // Published before any output is consumed, so a pane attaching immediately
+    // does not miss the first frames of the run (#170). A pty carries input as
+    // well as output, so both `write` and `resize` are real here — unlike the
+    // pipe runner, which closes stdin after the prompt.
+    runOptions.onProcess?.({
+      write: (input) => {
+        handle.write(input)
+      },
+      resize: (cols, rows) => {
+        handle.resize?.(cols, rows)
+      },
+      onData: (listener: (chunk: string) => void) => {
+        const sub = handle.onRawData?.bind(handle) ?? handle.onData.bind(handle)
+        return sub(listener)
+      },
+    })
+
     const unsubscribe = handle.onData((text) => {
       runOptions.onStdout?.(text)
     })

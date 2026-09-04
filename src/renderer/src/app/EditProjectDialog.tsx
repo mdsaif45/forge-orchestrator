@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import type { ProjectView, RepositoryProbe } from '@shared/ipc'
 import { Button, Code, Dialog, Field, Input, Select, useToast } from '@renderer/ui'
 import { unwrap } from '@renderer/ipc'
+import { DeleteProjectDialog } from './DeleteProjectDialog'
 
 export interface EditProjectDialogProps {
   readonly open: boolean
@@ -42,6 +43,7 @@ export function EditProjectDialog({
   const [testCommand, setTestCommand] = useState(project.repository.testCommand ?? '')
   const [tech, setTech] = useState(project.repository.tech.join(', '))
   const [saving, setSaving] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
   const handleSave = async (): Promise<void> => {
     setSaving(true)
@@ -183,21 +185,44 @@ export function EditProjectDialog({
           is a new project rather than an edit.
         </p>
 
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose} disabled={saving}>
-            Cancel
-          </Button>
+        <div className="flex items-center justify-between gap-2 border-t border-(--color-border) pt-3">
           <Button
-            variant="primary"
-            disabled={saving || name.trim() === '' || defaultBranch.trim() === ''}
+            variant="ghost"
+            className="text-(--color-danger) hover:bg-(--color-danger)/10 hover:text-(--color-danger)"
             onClick={() => {
-              void handleSave()
+              setDeleteOpen(true)
             }}
           >
-            {saving ? 'Saving…' : 'Save changes'}
+            Remove Project…
           </Button>
+
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose} disabled={saving}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              disabled={saving || name.trim() === '' || defaultBranch.trim() === ''}
+              onClick={() => {
+                void handleSave()
+              }}
+            >
+              {saving ? 'Saving…' : 'Save changes'}
+            </Button>
+          </div>
         </div>
       </div>
+
+      {deleteOpen && (
+        <DeleteProjectDialog
+          open
+          project={project}
+          onClose={() => {
+            setDeleteOpen(false)
+            onClose()
+          }}
+        />
+      )}
     </Dialog>
   )
 }

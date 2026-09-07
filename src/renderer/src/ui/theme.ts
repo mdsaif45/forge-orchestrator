@@ -42,6 +42,24 @@ export function useTheme(): {
     return undefined
   }, [theme])
 
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent): void => {
+      if (
+        e.key === STORAGE_KEY &&
+        (e.newValue === 'light' ||
+          e.newValue === 'dark' ||
+          e.newValue === 'azure' ||
+          e.newValue === 'system')
+      ) {
+        setThemeState(e.newValue)
+      }
+    }
+    window.addEventListener('storage', handleStorage)
+    return () => {
+      window.removeEventListener('storage', handleStorage)
+    }
+  }, [])
+
   const setTheme = useCallback((next: Theme) => {
     setThemeState(next)
   }, [])
@@ -55,7 +73,13 @@ export function useTheme(): {
 
 function readStoredTheme(): Theme {
   const stored = localStorage.getItem(STORAGE_KEY)
-  return stored === 'light' || stored === 'dark' || stored === 'azure' || stored === 'system'
-    ? stored
-    : 'dark'
+  if (stored === 'light' || stored === 'dark' || stored === 'azure' || stored === 'system') {
+    return stored
+  }
+  const datasetTheme =
+    typeof document !== 'undefined' ? document.documentElement.dataset.theme : undefined
+  if (datasetTheme === 'light' || datasetTheme === 'dark' || datasetTheme === 'azure') {
+    return datasetTheme
+  }
+  return 'dark'
 }

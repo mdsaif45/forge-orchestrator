@@ -47,6 +47,7 @@ app
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
+        backgroundThrottling: false,
       },
     })
 
@@ -180,11 +181,19 @@ app
     const themed = await evaluate(
       window,
       `(async () => {
-       const read = () => getComputedStyle(document.body).backgroundColor
+       const read = () => {
+         void document.body.offsetHeight
+         return getComputedStyle(document.body).backgroundColor
+       }
+
+       const wait = () =>
+         new Promise((resolve) => {
+           requestAnimationFrame(() => setTimeout(resolve, 16))
+         })
 
        const readUntil = async (expected) => {
-         for (let i = 0; i < 120 && read() !== expected; i += 1) {
-           await new Promise((r) => requestAnimationFrame(r))
+         for (let i = 0; i < 60 && read() !== expected; i += 1) {
+           await wait()
          }
          return read()
        }
@@ -194,8 +203,10 @@ app
 
        const before = await readUntil(dark)
        document.documentElement.dataset.theme = 'light'
+       localStorage.setItem('forge.theme', 'light')
        const after = await readUntil(light)
        document.documentElement.dataset.theme = 'dark'
+       localStorage.setItem('forge.theme', 'dark')
        const restored = await readUntil(dark)
 
        return JSON.stringify({ before, after, restored })

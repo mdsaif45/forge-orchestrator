@@ -42,24 +42,6 @@ export function useTheme(): {
     return undefined
   }, [theme])
 
-  useEffect(() => {
-    const handleStorage = (e: StorageEvent): void => {
-      if (
-        e.key === STORAGE_KEY &&
-        (e.newValue === 'light' ||
-          e.newValue === 'dark' ||
-          e.newValue === 'azure' ||
-          e.newValue === 'system')
-      ) {
-        setThemeState(e.newValue)
-      }
-    }
-    window.addEventListener('storage', handleStorage)
-    return () => {
-      window.removeEventListener('storage', handleStorage)
-    }
-  }, [])
-
   const setTheme = useCallback((next: Theme) => {
     setThemeState(next)
   }, [])
@@ -76,10 +58,9 @@ function readStoredTheme(): Theme {
   if (stored === 'light' || stored === 'dark' || stored === 'azure' || stored === 'system') {
     return stored
   }
-  const datasetTheme =
-    typeof document !== 'undefined' ? document.documentElement.dataset.theme : undefined
-  if (datasetTheme === 'light' || datasetTheme === 'dark' || datasetTheme === 'azure') {
-    return datasetTheme
-  }
+  // `data-theme` is deliberately not consulted as a fallback: this hook is the
+  // only writer of that attribute, and nothing sets it in the document before
+  // React mounts, so reading it back could only ever return this hook's own
+  // earlier value or nothing at all.
   return 'dark'
 }

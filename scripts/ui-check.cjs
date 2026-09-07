@@ -172,54 +172,37 @@ app
       shell,
     )
 
-    // Switching the theme must repaint from tokens alone.
+    // The dark palette must be what the document actually paints, before any
+    // theme switching happens. Read here rather than inside the switch below so
+    // that a broken baseline is reported as a baseline failure, not blamed on
+    // the toggle.
     //
-    // The recalc that follows a `data-theme` change is asynchronous, and
-    // `getBoundingClientRect` does not force it — that flushes layout, not the
-    // style invalidation from an attribute change. So each read polls until the
-    // value settles, bounded so a real regression fails rather than hanging.
-    const themed = await evaluate(
+    // Only the painted colour is asserted, not `data-theme`. That attribute is
+    // written by `useTheme`, which no component on this route mounts — measured:
+    // it is absent here, and the dark values come from the `:root` token block.
+    // Requiring it would fail on a page that is rendering correctly.
+    const baseline = await evaluate(
       window,
-      `(async () => {
-       const read = () => {
-         void document.body.offsetHeight
-         return getComputedStyle(document.body).backgroundColor
-       }
-
-       const wait = () =>
-         new Promise((resolve) => {
-           requestAnimationFrame(() => setTimeout(resolve, 16))
-         })
-
-       const readUntil = async (expected) => {
-         for (let i = 0; i < 60 && read() !== expected; i += 1) {
-           await wait()
-         }
-         return read()
-       }
-
-       const dark = 'rgb(19, 19, 21)'
-       const light = 'rgb(251, 251, 250)'
-
-       const before = await readUntil(dark)
-       document.documentElement.dataset.theme = 'light'
-       localStorage.setItem('forge.theme', 'light')
-       const after = await readUntil(light)
-       document.documentElement.dataset.theme = 'dark'
-       localStorage.setItem('forge.theme', 'dark')
-       const restored = await readUntil(dark)
-
-       return JSON.stringify({ before, after, restored })
+      `(() => {
+       void document.body.offsetHeight
+       return JSON.stringify({
+         background: getComputedStyle(document.body).backgroundColor,
+       })
      })()`,
     )
-    const th = JSON.parse(themed)
+    const bl = JSON.parse(baseline)
     check(
-      'light theme repaints from tokens and dark restores',
-      th.before === 'rgb(19, 19, 21)' &&
-        th.after === 'rgb(251, 251, 250)' &&
-        th.restored === 'rgb(19, 19, 21)',
-      themed,
+      'the dark palette paints the document by default',
+      bl.background === 'rgb(19, 19, 21)',
+      baseline,
     )
+
+    // The switch itself is asserted through the app's own control, further down
+    // with the kitchen sink — see the comment there. Writing `data-theme` from
+    // here instead was tried and is not sound: `useTheme` owns that attribute
+    // and rewrites it from React state on any subsequent render, so the check
+    // measured a race and passed or failed by timing. It passed locally on every
+    // run and failed on Windows CI with `after` still reading the dark value.
 
     // The kitchen sink must render every primitive, in both themes — it is the
     // regression surface for the whole system.
@@ -271,22 +254,40 @@ app
          await new Promise((r) => requestAnimationFrame(r))
        }
 
+       void document.body.offsetHeight
        const out = {
          theme: document.documentElement.dataset.theme,
          tabColour: getComputedStyle(tab).color,
          borderColour: getComputedStyle(card).borderBottomColor,
+         // The whole document repaints from the token set, not just the
+         // primitives on screen — this is the assertion a CSS grep cannot make.
+         background: getComputedStyle(document.body).backgroundColor,
        }
 
        const back = [...document.querySelectorAll('button')]
          .find((b) => b.textContent.includes('Switch to dark'))
        back?.click()
+
+       // Restoring has to be observed too: a one-way switch would leave every
+       // check after this one reading a light palette and blame it on them.
+       for (let i = 0; i < 60; i += 1) {
+         void document.body.offsetHeight
+         if (getComputedStyle(document.body).backgroundColor === 'rgb(19, 19, 21)') break
+         await new Promise((r) => requestAnimationFrame(r))
+       }
+       void document.body.offsetHeight
+       out.restored = getComputedStyle(document.body).backgroundColor
        return JSON.stringify(out)
      })()`,
     )
     const sl = sinkLight === 'no-toggle' ? null : JSON.parse(sinkLight)
     check(
       'kitchen sink recolours through the theme control',
-      sl !== null && sl.theme === 'light' && sl.tabColour === 'rgb(31, 31, 30)',
+      sl !== null &&
+        sl.theme === 'light' &&
+        sl.tabColour === 'rgb(31, 31, 30)' &&
+        sl.background === 'rgb(251, 251, 250)' &&
+        sl.restored === 'rgb(19, 19, 21)',
       sinkLight,
     )
 

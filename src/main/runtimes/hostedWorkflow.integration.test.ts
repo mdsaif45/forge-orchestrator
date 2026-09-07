@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { execFileSync } from 'node:child_process'
-import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -84,10 +83,6 @@ let projectId: ProjectId
 let taskId: TaskId
 let workflowId: WorkflowId
 
-function git(...args: string[]): string {
-  return execFileSync('git', args, { cwd: repoPath, encoding: 'utf8' })
-}
-
 const OBJECTIVE = 'Correct the constant in src/math.ts'
 
 function task() {
@@ -104,15 +99,12 @@ function task() {
 }
 
 beforeEach(() => {
+  // A plain directory, not a git repository. `orchestrator.test.ts` initialises
+  // one because it diffs the worktree; `measureChange` here returns null, so
+  // nothing reads git — verified by removing the init and watching all six
+  // still pass. Keeping it would add an external `git` dependency to a suite
+  // that never uses it.
   repoPath = mkdtempSync(join(tmpdir(), 'forge-hosted-wf-repo-'))
-  git('init', '--quiet', '--initial-branch=main', '.')
-  git('config', 'user.email', 'test@forge.local')
-  git('config', 'user.name', 'Forge Test')
-  git('config', 'commit.gpgsign', 'false')
-  mkdirSync(join(repoPath, 'src'))
-  writeFileSync(join(repoPath, 'src', 'math.ts'), 'export const answer = 40\n')
-  git('add', '-A')
-  git('commit', '--quiet', '-m', 'base')
 
   packetDir = mkdtempSync(join(tmpdir(), 'forge-hosted-wf-packets-'))
   receiverDir = mkdtempSync(join(tmpdir(), 'forge-hosted-wf-recv-'))

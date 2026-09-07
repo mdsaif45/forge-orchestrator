@@ -1,16 +1,30 @@
 {
   "extends": "./tsconfig.base.json",
+  // The sources under test are included, not just the test files.
+  //
+  // `include` used to cover `*.test.ts` alone, so every module a test imported
+  // was pulled into the program without being listed in it — 142 of the 211
+  // errors were TS6307 saying exactly that, and the project could not compile
+  // at all. ESLint resolves test files through this project (`projectService:
+  // true`), so a program that does not compile makes every type-aware lint
+  // result in a test file untrustworthy, which is the opposite of their purpose
+  // (#142).
+  //
+  // `src/renderer/src/**/*` also brings in `forge.d.ts`, which is what declares
+  // `window.forge` for the e2e specs that read it.
   "include": [
-    "src/**/*.test.ts",
-    "src/**/*.test.tsx",
-    "src/test/**/*",
+    "src/**/*",
     "e2e/**/*",
     "vitest.config.ts",
-    "playwright.config.ts"
+    "playwright.config.ts",
+    "electron.vite.config.ts"
   ],
   "compilerOptions": {
+    // Both halves of the app are in one program here, so the union of their libs
+    // and types is required: main needs Node, the renderer needs DOM, and the
+    // e2e specs drive a browser page.
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "types": ["node"],
+    "types": ["node", "vite/client"],
     "jsx": "react-jsx",
     "outDir": "node_modules/.tmp/tsc-test",
     "baseUrl": ".",

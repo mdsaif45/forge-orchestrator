@@ -31,7 +31,7 @@ describe('DecisionStore', () => {
 
     events = new EventStore(db)
     decisions = new DecisionStore(db, events)
-    projects = new ProjectStore(db, events)
+    projects = new ProjectStore(db)
 
     projectId = projectIdSchema.parse(randomUUID())
     projects.create(
@@ -47,9 +47,9 @@ describe('DecisionStore', () => {
           tech: [],
         },
         createdAt: '2026-08-23T12:00:00.000Z',
+        updatedAt: '2026-08-23T12:00:00.000Z',
       },
       'user',
-      '2026-08-23T12:00:00.000Z',
     )
   })
 

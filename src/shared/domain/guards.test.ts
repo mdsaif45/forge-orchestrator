@@ -11,6 +11,7 @@ import {
   type BudgetState,
   type StepOutcomeSignals,
 } from './guards'
+import type { z } from 'zod'
 import { workflowLimitsSchema, type WorkflowLimits } from './workflow'
 
 /**
@@ -21,7 +22,11 @@ import { workflowLimitsSchema, type WorkflowLimits } from './workflow'
  * interesting cases are the ones where the naive answer is yes.
  */
 
-function limits(overrides: Partial<WorkflowLimits> = {}): WorkflowLimits {
+// The schema's INPUT type, not `Partial<WorkflowLimits>`. `Partial` is shallow,
+// so it still demanded every member of nested objects like `stopOn` even though
+// `parse` fills those defaults itself — which is what the call sites below rely
+// on. `z.input` is the type that actually describes "what parse accepts".
+function limits(overrides: z.input<typeof workflowLimitsSchema> = {}): WorkflowLimits {
   return workflowLimitsSchema.parse(overrides)
 }
 

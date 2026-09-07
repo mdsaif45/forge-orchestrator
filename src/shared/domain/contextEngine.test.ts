@@ -464,7 +464,13 @@ describe("the repository's own instructions (#133)", () => {
     expect(
       compileContext(input({ repositoryInstructions: null })).packet.repositoryInstructions,
     ).toBeNull()
-    expect(compileContext(input('   \n  ')).packet.repositoryInstructions).toBeNull()
+    // Was `input('   \n  ')`, which spread a STRING into the overrides object and
+    // so set indexed characters rather than the field — the whitespace-only case
+    // this line exists for was never actually exercised, and the assertion passed
+    // against the default. Found once the test project typechecked (#142).
+    expect(
+      compileContext(input({ repositoryInstructions: '   \n  ' })).packet.repositoryInstructions,
+    ).toBeNull()
   })
 
   it('redacts it, because this is repository content Forge did not write', () => {

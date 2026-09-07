@@ -261,8 +261,14 @@ describe('MVP Acceptance: Multi-Agent Closed Loop with Zero Copy-Paste (#43)', (
       now,
     )
 
-    // Load domain workflow and calculate recovery plan
-    const domainWf = workflows.getWorkflowStore().require(wId)
+    // Through the public `find`, not the private `require` this used to reach
+    // (only possible because nothing typechecked this file, #142). Widening
+    // `require` to satisfy a test would expose an internal invariant helper on
+    // the store's public surface; asserting non-null here says the same thing
+    // and fails just as loudly.
+    const domainWf = workflows.getWorkflowStore().find(wId)
+    expect(domainWf).not.toBeNull()
+    if (domainWf === null) throw new Error('unreachable: asserted non-null above')
     const plan = planResume(domainWf)
 
     expect(plan).not.toBeNull()

@@ -217,6 +217,10 @@ class RecordingRuntime implements IAgentRuntime {
   readonly capabilities: readonly Capability[] = ['repo-read', 'plan', 'file-write', 'review']
   readonly simulated = true
   readonly supportsAccountIsolation = false
+  // Added to `IAgentRuntime` by #145 and never reflected here, because nothing
+  // typechecked this file (#142). Empty is right for a double that reads no
+  // repository instructions.
+  readonly instructionFilenames: readonly string[] = []
 
   readonly received: PromptPacket[] = []
   private readonly queue: RuntimeEvent[] = []
@@ -255,12 +259,15 @@ class RecordingRuntime implements IAgentRuntime {
   }
 
   status(_session: SessionHandle): Promise<RuntimeStatus> {
-    return {
+    // Wrapped, not returned bare: the signature promises a Promise, and returning
+    // the object directly made the class fail to implement `IAgentRuntime` at all
+    // — invisible until the test project typechecked (#142).
+    return Promise.resolve({
       sessionId: sessionIdSchema.parse('rec-1'),
       state: 'idle',
       failure: null,
       lastActivityAt: '2026-01-01T00:00:00.000Z',
-    }
+    })
   }
 
   cancel(_session: SessionHandle, _reason: string): Promise<void> {

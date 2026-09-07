@@ -202,6 +202,18 @@ export class ClaudeHookBridge {
     const existing = await this.readNewLines()
     if (existing !== null) return existing
 
+    // Close whatever is already watching before replacing the field.
+    //
+    // Only the winning path below closes the watcher. A turn that ends by
+    // timeout or on a dialog resolves through a different arm of the caller's
+    // race, so its watcher is still open — and `exchange` sends a second packet
+    // on the SAME session when a report comes back malformed, which lands here
+    // again and would assign over the field, orphaning the first watcher with
+    // no reference left to close it. It then outlives the worktree it watched
+    // and throws `EPERM: watch` from its own callback, where nothing can catch
+    // it (observed as an unhandled exception in the hook-path tests).
+    this.watcher?.close()
+
     return new Promise((resolve, reject) => {
       this.watcher = watch(this.logPath, { persistent: false }, (eventType) => {
         if (eventType !== 'change') return

@@ -327,6 +327,14 @@ export class HostedClaudeRuntime implements IAgentRuntime {
     const winner = await Promise.race([stopWatch, dialogWatch, deadline])
     session.dialogWatchCancelled = true
 
+    // Both losing arms leave something running: `watchForDialog` reads the flag
+    // above and stops on its next tick, but the hook watcher only closes itself
+    // on the path where it won. Closing it here matters because a failed turn is
+    // not the end of the session — `exchange` retries a malformed report on the
+    // same session, so the next `hooks.next()` would otherwise replace a watcher
+    // that is still open and leave it with no reference to close.
+    if (winner === 'timeout' || winner.kind === 'dialog') hooks.close()
+
     if (winner === 'timeout') {
       this.fail(session, 'The turn did not finish within its budget', true)
       return

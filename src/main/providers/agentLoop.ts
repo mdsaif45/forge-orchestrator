@@ -53,6 +53,15 @@ export interface AgentLoopOptions {
     // none, which is how a model without tool support degrades to plain chat.
     tools: readonly (typeof TOOL_DEFINITIONS)[number][],
   ) => Promise<CompletionResult>
+  /**
+   * Which tool definitions the model is offered, when not all of them.
+   *
+   * The loop used to hand `complete` the module's whole `TOOL_DEFINITIONS`
+   * list on every round, which worked only because the one caller filtered
+   * them itself afterwards. A caller passing a narrower set would have been
+   * silently ignored — so the choice lives here, where the loop can honour it.
+   */
+  readonly toolDefinitions?: readonly (typeof TOOL_DEFINITIONS)[number][] | undefined
   /** Reports progress: a tool about to run, and what it returned. */
   readonly onEvent?: ((event: AgentLoopEvent) => void) | undefined
   /**
@@ -119,6 +128,7 @@ function summarise(content: string): string {
 
 export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoopResult> {
   const maxRounds = options.maxRounds ?? DEFAULT_MAX_ROUNDS
+  const offeredTools = options.toolDefinitions ?? TOOL_DEFINITIONS
   const conversation: LoopMessage[] = [...options.messages]
   const toolsUsed: { name: string; ok: boolean }[] = []
 
@@ -127,7 +137,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
   let nudged = false
 
   for (let round = 0; round < maxRounds; round += 1) {
-    const completion = await options.complete(conversation, TOOL_DEFINITIONS)
+    const completion = await options.complete(conversation, offeredTools)
 
     if (completion.reasoning !== '') {
       reasoning += completion.reasoning

@@ -217,6 +217,22 @@ export class NativeAgentRuntime implements IAgentRuntime {
         ...(packet.allowedPaths.length === 0 ? {} : { allowedPaths: packet.allowedPaths }),
         ...(packet.forbiddenPaths.length === 0 ? {} : { forbiddenPaths: packet.forbiddenPaths }),
         systemPrompt,
+        /*
+         * A correction is offered no tools at all, and one round.
+         *
+         * The work is already done by this point — the only thing missing is
+         * the shape of the reply — so there is nothing for a tool to do, and
+         * measurement showed a tool is actively harmful here. Given the full
+         * budget a model re-ran `edit_file` against text it had already
+         * replaced, then wrote the file three more times trying to recover.
+         * Capped at two rounds it stopped destroying the file but spent both
+         * rounds on tools and still never answered; one run even lost the
+         * file's trailing newline.
+         *
+         * With no tools it cannot do either: the only move available is to
+         * reply, which is exactly what was asked for.
+         */
+        ...(correcting ? { maxRounds: 1, useTools: false } : {}),
         messages: turnMessages,
       },
       (event) => {

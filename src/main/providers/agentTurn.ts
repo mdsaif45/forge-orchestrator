@@ -3,7 +3,7 @@ import { assessCommandPolicy, type Permissions } from '@shared/domain'
 import { runAgentLoop, type AgentLoopResult } from './agentLoop'
 import { cachedCapabilities, type ModelCapabilities } from './capabilities'
 import { completeWithTools } from './toolCompletion'
-import type { ToolContext } from './tools'
+import { TOOL_DEFINITIONS, type ToolContext } from './tools'
 
 /**
  * Runs one tool-using turn against a project's repository.
@@ -34,6 +34,27 @@ export interface AgentTurnRequest {
    */
   readonly allowedPaths?: readonly string[] | undefined
   readonly forbiddenPaths?: readonly string[] | undefined
+  /**
+   * Tool rounds this turn may use, when the caller knows better than the
+   * default.
+   *
+   * A turn that is only being asked to reformat an answer it already gave
+   * does not need a working budget, and giving it one is actively harmful:
+   * measured, a model re-ran `edit_file` on a file it had already changed,
+   * failed because the old text was gone, and then wrote the file three more
+   * times trying to recover. Undefined keeps the loop's own default.
+   */
+  readonly maxRounds?: number | undefined
+  /**
+   * Set false when this turn must not use tools, whatever the model supports.
+   *
+   * A turn asked only to reformat an answer it already gave has nothing to do
+   * with a tool, and measurement showed offering one is harmful: the model
+   * re-ran an edit against text it had already replaced and then rewrote the
+   * file trying to recover. Undefined leaves the decision to the model's
+   * reported capability, which is the normal case.
+   */
+  readonly useTools?: boolean | undefined
 }
 
 export interface AgentTurnEvent {
@@ -173,6 +194,9 @@ export async function runAgentTurn(
     apiKey: request.apiKey,
   })
 
+  // Tools require both a model that can call them and a caller that wants them.
+  const toolsEnabled = capabilities.tools && request.useTools !== false
+
   const tools: ToolContext = {
     workspacePath: request.repositoryPath,
     // Writes are on when the model can call tools at all. Safety is the scope
@@ -187,11 +211,11 @@ export async function runAgentTurn(
     // Forbidden always wins, so the caller's list ADDS to these rather than
     // replacing them: no packet should be able to make `.git` writable.
     forbiddenPaths: [...NEVER_WRITABLE, ...(request.forbiddenPaths ?? [])],
-    canWrite: capabilities.tools,
+    canWrite: toolsEnabled,
     runCommand: makeCommandRunner(),
   }
 
-  const plan: AgentTurnPlan = { capabilities, usedTools: capabilities.tools }
+  const plan: AgentTurnPlan = { capabilities, usedTools: toolsEnabled }
 
   const result = await runAgentLoop({
     messages: [
@@ -209,7 +233,11 @@ export async function runAgentTurn(
     // project" were both nudged to edit files nobody had asked about, and the
     // model spent a round explaining that no edit was needed.
     requireOneOf:
-      capabilities.tools && asksForChange(request.messages) ? ['edit_file', 'write_file'] : [],
+      toolsEnabled && asksForChange(request.messages) ? ['edit_file', 'write_file'] : [],
+    ...(request.maxRounds === undefined ? {} : { maxRounds: request.maxRounds }),
+    // A model that cannot call tools is offered none, decided once here rather
+    // than re-filtered on every round inside `complete`.
+    toolDefinitions: toolsEnabled ? TOOL_DEFINITIONS : [],
     complete: (messages, toolDefinitions) =>
       completeWithTools(
         {
@@ -219,9 +247,9 @@ export async function runAgentTurn(
           apiKey: request.apiKey,
         },
         messages,
-        // A model that cannot call tools is sent none. Sending them anyway is
-        // how a turn breaks instead of degrading.
-        capabilities.tools ? toolDefinitions : [],
+        // Already narrowed by `toolDefinitions` above; passed straight through
+        // so the loop stays the single place that decides what is offered.
+        toolDefinitions,
       ),
     onEvent: (event) => {
       if (event.kind === 'nudge') {

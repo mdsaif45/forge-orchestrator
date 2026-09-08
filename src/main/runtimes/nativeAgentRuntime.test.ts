@@ -175,6 +175,75 @@ describe('NativeAgentRuntime', () => {
     expect(messages).toEqual(['No model is selected. Choose one in Settings, then run again.'])
   })
 
+  it('sends the packet scope, not a standing one, so a step writes where its task says', async () => {
+    // The turn used to apply Ask mode's CHAT_WRITE_SCOPE to every caller, so a
+    // workflow step wrote under that instead of the scope its own task
+    // declared. `allowedPaths` on the packet IS the restriction (A7).
+    const requests: { allowedPaths?: readonly string[]; forbiddenPaths?: readonly string[] }[] = []
+    const runtime = runtimeWith((request) => {
+      requests.push({
+        ...(request.allowedPaths === undefined ? {} : { allowedPaths: request.allowedPaths }),
+        ...(request.forbiddenPaths === undefined ? {} : { forbiddenPaths: request.forbiddenPaths }),
+      })
+      return Promise.resolve(turnResult({ content: 'done' }))
+    })
+
+    const scoped = promptPacketSchema.parse({
+      ...packet,
+      allowedPaths: ['src/only/**'],
+      forbiddenPaths: ['src/only/secret.ts'],
+    })
+
+    const handle = await runtime.start({ repositoryPath: '.', role: 'implementer' })
+    await runtime.send(handle, scoped)
+
+    expect(requests[0]?.allowedPaths).toEqual(['src/only/**'])
+    expect(requests[0]?.forbiddenPaths).toEqual(['src/only/secret.ts'])
+  })
+
+  it('gives a correction no tools and one round, and does not restate the objective', async () => {
+    // Measured in three stages. Re-sending the objective made the model redo
+    // finished work: `edit_file` failed on text it had already replaced, then
+    // it wrote the file three more times. Capping at two rounds stopped the
+    // damage but it spent both on tools and never answered, and one run lost
+    // the file's trailing newline. With no tools the only move is to reply,
+    // which is what was asked for.
+    const sends: {
+      system: string
+      messageCount: number
+      maxRounds: number | undefined
+      useTools: boolean | undefined
+    }[] = []
+    const runtime = runtimeWith((request) => {
+      sends.push({
+        system: request.systemPrompt ?? '',
+        messageCount: request.messages.length,
+        maxRounds: request.maxRounds,
+        useTools: request.useTools,
+      })
+      return Promise.resolve(turnResult({ content: 'the answer' }))
+    })
+
+    const handle = await runtime.start({ repositoryPath: '.', role: 'implementer' })
+    await runtime.send(handle, packet)
+    await runtime.send(
+      handle,
+      promptPacketSchema.parse({ ...packet, correction: 'YOUR PREVIOUS REPLY WAS REJECTED' }),
+    )
+
+    // First send: the whole packet, the loop's own budget, tools as normal.
+    expect(sends[0]?.system).toContain('OBJECTIVE')
+    expect(sends[0]?.maxRounds).toBeUndefined()
+    expect(sends[0]?.useTools).toBeUndefined()
+
+    // Second: no objective, the prior turn carried forward, and no tools —
+    // the work is done, so the only move left is to reply.
+    expect(sends[1]?.system).not.toContain('OBJECTIVE')
+    expect(sends[1]?.maxRounds).toBe(1)
+    expect(sends[1]?.useTools).toBe(false)
+    expect(sends[1]?.messageCount).toBe(3)
+  })
+
   it('never claims to be simulated, because it does real work', () => {
     const runtime = runtimeWith(() => Promise.resolve(turnResult({ content: 'x' })))
     expect(runtime.simulated).toBe(false)

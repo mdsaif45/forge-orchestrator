@@ -311,6 +311,33 @@ describe('requireOneOf', () => {
     expect(result.content).toBe('')
   })
 
+  it('offers the configured tool list rather than every definition it knows', async () => {
+    // The loop used to pass the module's whole TOOL_DEFINITIONS on every round
+    // and ignore what it was configured with. That worked only because the one
+    // caller filtered them again afterwards; a narrower list would have been
+    // silently discarded.
+    const root = makeWorkspace()
+    const offered: number[] = []
+    const model = {
+      complete: (
+        _messages: readonly LoopMessage[],
+        tools: readonly { readonly function: { readonly name: string } }[],
+      ) => {
+        offered.push(tools.length)
+        return Promise.resolve(answer('done'))
+      },
+    }
+
+    await runAgentLoop({
+      messages: [{ role: 'user', content: 'hello' }],
+      tools: tools(root),
+      toolDefinitions: [],
+      complete: model.complete,
+    })
+
+    expect(offered).toEqual([0])
+  })
+
   it('accepts the answer when the required tool was already used', async () => {
     const root = makeWorkspace()
     const model = scriptedModel([

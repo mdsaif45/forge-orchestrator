@@ -805,14 +805,20 @@ export class WorkflowService {
    *
    * The fallback is not a silent default: a role with no stored binding still has to
    * come from somewhere for a workflow to run at all, and the Agents page shows which
-   * roles are unbound. Preferring `mock:default` keeps a fresh install runnable.
+   * roles are unbound.
+   *
+   * It prefers `forge-native-agent` because that runtime needs no external CLI
+   * installed and no account enrolled, so a fresh install is runnable. It used
+   * to prefer `mock:default`, which made a fresh install *appear* runnable while
+   * every stage reported scripted success — the substitution of a claim for work
+   * that A3 exists to prevent. The mock is no longer registered in the app.
    */
   private resolveBindings(projectId: ProjectId): BindingSet {
     const stored = this.bindings.list(projectId)
 
-    const fallbackRuntimeId = this.registry.has('mock:default')
-      ? 'mock:default'
-      : (this.registry.list().at(0)?.id ?? 'mock:default')
+    const fallbackRuntimeId = this.registry.has('forge-native-agent')
+      ? 'forge-native-agent'
+      : (this.registry.list().at(0)?.id ?? 'forge-native-agent')
 
     const forRole = (role: 'planner' | 'implementer' | 'reviewer'): AgentBinding => {
       const configured = stored.find((binding) => binding.role === role)

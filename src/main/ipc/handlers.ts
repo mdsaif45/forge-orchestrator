@@ -15,6 +15,7 @@ import type { AccountService } from '../accounts/accountService'
 import { runtimeDescription, runtimeExecutable, type RuntimeRegistry } from '../runtimes/registry'
 import { isCommandAvailable } from '../process/processManager'
 import { streamChat } from '../providers/chatStream'
+import { runAgentTurn } from '../providers/agentTurn'
 import type { BindingService } from '../bindings/bindingService'
 import type { EnrollmentService } from '../accounts/enrollmentService'
 import { openTerminal } from '../accounts/terminalLauncher'
@@ -40,6 +41,18 @@ export interface IpcDependencies {
    * does for terminal and workflow events.
    */
   readonly emitProviderChunk?: (payload: ProviderChunkPayload) => void
+  /**
+   * Records which model the native agent runtime should use.
+   *
+   * Injected because the store is a file main owns, and a handler should not
+   * decide where it lives. Optional so a test can build the map without one.
+   */
+  readonly setActiveModel?: (model: {
+    readonly providerId: string
+    readonly model: string
+    readonly endpointUrl?: string | undefined
+    readonly apiKey?: string | undefined
+  }) => void
 }
 
 export function createIpcHandlers({
@@ -54,6 +67,7 @@ export function createIpcHandlers({
   enrollment,
   terminal,
   emitProviderChunk,
+  setActiveModel,
 }: IpcDependencies): IpcHandlerMap {
   /**
    * Gathers everything a report needs and renders it.
@@ -392,6 +406,75 @@ export function createIpcHandlers({
           models: [],
           error: `Could not connect to ${endpointUrl}. Service is offline or unreachable (${msg}).`,
         }
+      }
+    },
+
+    /**
+     * A turn in which the model uses tools against the project itself.
+     *
+     * The workspace is resolved here from the bound repository rather than
+     * taken from the request: the renderer names a project, never a directory,
+     * so it cannot point an agent at somewhere else on disk (A7).
+     */
+    /**
+     * Records the renderer's model choice so a workflow in main can use it.
+     *
+     * Ask mode sends the model with each turn and never needs this; a workflow
+     * runs in main, where the renderer's stored provider list is unreachable.
+     */
+    'provider:setActiveModel': ({ providerId, model, endpointUrl, apiKey }) => {
+      setActiveModel?.({ providerId, model, endpointUrl, apiKey })
+      return { ok: true as const }
+    },
+
+    'provider:agentTurn': async ({
+      streamId,
+      projectId,
+      providerId,
+      model,
+      endpointUrl,
+      apiKey,
+      systemPrompt,
+      messages,
+    }) => {
+      const detail = await projects.get(projectId)
+      if (detail === null) {
+        return {
+          ok: false,
+          content: '',
+          reasoning: '',
+          toolsUsed: [],
+          rounds: 0,
+          stoppedAtLimit: false,
+          error: `Unknown project "${projectId}".`,
+          capabilities: { tools: false, vision: false, thinking: false, source: 'unreachable' },
+        }
+      }
+
+      const result = await runAgentTurn(
+        {
+          providerId,
+          model,
+          endpointUrl,
+          apiKey,
+          systemPrompt,
+          repositoryPath: detail.project.repository.absolutePath,
+          messages,
+        },
+        (event) => {
+          emitProviderChunk?.({ streamId, kind: event.kind, text: event.text })
+        },
+      )
+
+      return {
+        ok: result.ok,
+        content: result.content,
+        reasoning: result.reasoning,
+        toolsUsed: result.toolsUsed.map((tool) => ({ name: tool.name, ok: tool.ok })),
+        rounds: result.rounds,
+        stoppedAtLimit: result.stoppedAtLimit,
+        error: result.error,
+        capabilities: result.plan.capabilities,
       }
     },
 

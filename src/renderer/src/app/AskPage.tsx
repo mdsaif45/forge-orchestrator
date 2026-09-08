@@ -111,6 +111,25 @@ const BUILTIN_PERSONAS: readonly PersonaOption[] = [
   },
 ]
 
+/**
+ * The tool trail to append to an agent turn's reply, or null for a chat turn.
+ *
+ * A separate typed helper because the two send paths return different shapes,
+ * and narrowing a union with `'toolsUsed' in value` types the array as unknown —
+ * which the strict lint rules then reject rather than silently accept.
+ */
+function toolSummary(value: object): string | null {
+  const { toolsUsed, rounds } = value as {
+    readonly toolsUsed?: readonly { readonly name: string; readonly ok: boolean }[]
+    readonly rounds?: number
+  }
+  const used = toolsUsed ?? []
+  if (used.length === 0) return null
+
+  const listed = used.map((tool) => `${tool.ok ? '✓' : '✗'} \`${tool.name}\``).join(' · ')
+  return `*Tools used (${String(rounds ?? 0)} rounds): ${listed}*`
+}
+
 /** One row of the per-thread action menu. */
 function ThreadMenuItem({
   label,
@@ -313,6 +332,28 @@ export function AskPage(): React.JSX.Element {
       ? currentProvider.activeModel
       : (currentProvider?.models?.[0] ?? '')
 
+  /**
+   * Publishes the chosen model to main, where a workflow can read it.
+   *
+   * Ask mode sends the model with every turn, so this changes nothing here. A
+   * workflow runs entirely in main and cannot see this component's
+   * `localStorage`, so without this it has no model to call.
+   *
+   * Keyed on the derived values rather than fired from the select handler:
+   * the model also settles on first load and again when detection replaces a
+   * stale name, and a handler would miss both.
+   */
+  useEffect(() => {
+    if (currentProvider === undefined || currentModel === '') return
+
+    void window.forge.provider.setActiveModel({
+      providerId: currentProvider.id,
+      model: currentModel,
+      ...(currentProvider.localUrl === undefined ? {} : { endpointUrl: currentProvider.localUrl }),
+      ...(currentProvider.apiKey === undefined ? {} : { apiKey: currentProvider.apiKey }),
+    })
+  }, [currentProvider, currentModel])
+
   const handleSelectModel = (model: string): void => {
     if (!currentProvider) return
     const updated = providers.map((p) =>
@@ -427,6 +468,21 @@ export function AskPage(): React.JSX.Element {
    * interrupted stream leaves the transcript unchanged rather than storing half
    * a message that reads as complete.
    */
+  /**
+   * What the selected model was found to support, once a turn has asked.
+   *
+   * Null until the first turn. Never a toggle: capability belongs to the model,
+   * and asking the user to declare it meant they could enable tools on a model
+   * that has none and get a broken turn instead of a refusal.
+   */
+  /** Seconds the running turn has taken, so a slow turn visibly progresses. */
+  const [elapsed, setElapsed] = useState(0)
+  const [capabilities, setCapabilities] = useState<{
+    readonly tools: boolean
+    readonly vision: boolean
+    readonly thinking: boolean
+    readonly source: string
+  } | null>(null)
   const [menuThreadId, setMenuThreadId] = useState<string | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
@@ -435,6 +491,14 @@ export function AskPage(): React.JSX.Element {
     readonly streamId: string
     readonly content: string
     readonly reasoning: string
+    /**
+     * Reasoning and tool calls in the order they happened.
+     *
+     * One timeline rather than two boxes: the reasoning explains the tool calls
+     * that follow it, and showing them separately put the thinking after the
+     * work it described.
+     */
+    readonly timeline: readonly { readonly kind: 'reasoning' | 'tool'; readonly text: string }[]
   } | null>(null)
 
   const activeThread = threads.find((t) => t.id === activeThreadId) ?? threads[0]
@@ -496,6 +560,25 @@ export function AskPage(): React.JSX.Element {
     }
   }
 
+  // A visible clock while a turn runs. An agent turn reads files and can take
+  // 30s or more, and the previous static "analyzing" line made that look like a
+  // hang — which is exactly how it was reported.
+  useEffect(() => {
+    if (!thinking) return undefined
+
+    const started = Date.now()
+    // State is set only from the interval callback, never synchronously in the
+    // effect body — the latter triggers the cascading render the
+    // `react-hooks/set-state-in-effect` rule exists to prevent. The counter is
+    // reset when the next turn starts rather than when this one ends.
+    const timer = setInterval(() => {
+      setElapsed(Math.round((Date.now() - started) / 1000))
+    }, 1000)
+    return () => {
+      clearInterval(timer)
+    }
+  }, [thinking])
+
   // Dismissed on any outside click, so the menu cannot be left open over a row
   // it no longer belongs to. Registered only while a menu is open.
   useEffect(() => {
@@ -543,6 +626,10 @@ export function AskPage(): React.JSX.Element {
   const handleSend = async (queryText?: string): Promise<void> => {
     const textToSend = queryText ?? input
     if (textToSend.trim() === '' || thinking || activeThread === undefined) return
+    // Captured before the awaits below: agent mode needs a project id to resolve
+    // the workspace in main, and the page renders a placeholder without one.
+    const projectId = project?.id
+    if (projectId === undefined) return
 
     const now = new Date()
     const userMsg: ChatMessage = {
@@ -568,6 +655,7 @@ export function AskPage(): React.JSX.Element {
     saveThreads(updatedThreads)
     setInput('')
     setThinking(true)
+    setElapsed(0)
 
     const startTime = Date.now()
     const isForgeNative = selectedEngineId === 'forge-native-agent'
@@ -601,39 +689,89 @@ Instructions:
 
     let answer = ''
     let thinkingText = ''
+    /** The tool trail, appended to whatever answer (or non-answer) results. */
+    let toolTrail = ''
 
     // Streamed, so the reply appears as it is produced. Filtered by streamId
     // because chunks are broadcast to every window and two replies can overlap.
     const streamId = `s-${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`
-    setLiveReply({ streamId, content: '', reasoning: '' })
+    setLiveReply({ streamId, content: '', reasoning: '', timeline: [] })
 
     const unsubscribe = window.forge.onProviderChunk((chunk) => {
       if (chunk.streamId !== streamId) return
       setLiveReply((current) => {
         if (current?.streamId !== streamId) return current
-        return chunk.kind === 'reasoning'
-          ? { ...current, reasoning: current.reasoning + chunk.text }
-          : { ...current, content: current.content + chunk.text }
+        if (chunk.kind === 'reasoning') {
+          const last = current.timeline.at(-1)
+          // Appended to the open reasoning entry rather than starting a new one,
+          // so a round's thinking reads as one paragraph instead of fragments.
+          const timeline =
+            last?.kind === 'reasoning'
+              ? [
+                  ...current.timeline.slice(0, -1),
+                  { kind: 'reasoning' as const, text: last.text + chunk.text },
+                ]
+              : [...current.timeline, { kind: 'reasoning' as const, text: chunk.text }]
+          return { ...current, reasoning: current.reasoning + chunk.text, timeline }
+        }
+        if (chunk.kind === 'tool') {
+          return {
+            ...current,
+            timeline: [...current.timeline, { kind: 'tool' as const, text: chunk.text }],
+          }
+        }
+        return { ...current, content: current.content + chunk.text }
       })
     })
 
     try {
-      const res = await window.forge.provider.chatStream({
+      // Always the agent path. Whether tools are actually sent is decided in
+      // main from the model's own reported capabilities, so a model without
+      // tool support degrades to a plain completion rather than failing — and
+      // nobody has to know in advance which of their models is which.
+      const res = await window.forge.provider.agentTurn({
         streamId,
+        projectId,
         providerId: currentProvider?.id ?? 'ollama',
         model: currentModel,
         endpointUrl: currentProvider?.localUrl,
         apiKey: currentProvider?.apiKey,
-        systemPrompt,
+        systemPrompt: `${systemPrompt}
+
+You are operating on a real repository through tools, not describing work to
+someone else who will do it.
+
+RULE: a request to change, update, add, fix or remove something in a file is a
+request to EDIT IT NOW. Read what you need, then call edit_file. Replying with a
+plan, a proposal, or a description of what you would add is a failed turn — the
+file must actually change. Your final message reports what you changed.
+
+- edit_file replaces one exact snippet and is the tool to reach for; you supply
+  only the part that changes, so it works on large files.
+- write_file replaces a whole file, so use it only for a new one.
+- Never guess a file's contents. Read it, or list and search first.
+- If a write is refused as out of scope, say so plainly rather than working
+  around it.`,
         messages: historyPayload,
       })
+
+      if (res.ok) setCapabilities(res.value.capabilities)
 
       if (res.ok) thinkingText = res.value.reasoning
 
       if (res.ok && res.value.ok && res.value.content.trim() !== '') {
         answer = res.value.content
-      } else if (res.ok && res.value.error) {
-        answer = `⚠️ **Error from ${activeModelLabel}**:\n\n${res.value.error}\n\n*Make sure your local provider is running (e.g. \`ollama serve\` on ${currentProvider?.localUrl ?? 'http://localhost:11434'}) and model \`${currentModel}\` is installed.*`
+      } else if (res.ok && res.value.error !== null) {
+        answer = `⚠️ **${activeModelLabel} could not finish:**\n\n${res.value.error}`
+      }
+
+      // Appended whatever the outcome. The trail is how the answer can be
+      // trusted (A3), and on a turn that produced no answer it is the only
+      // record of what was attempted — which is exactly the case where it was
+      // previously dropped, leaving a bare and untrue connection error.
+      if (res.ok) {
+        const summary = toolSummary(res.value)
+        if (summary !== null) toolTrail = summary
       }
     } catch (err) {
       console.error('Chat error:', err)
@@ -645,10 +783,20 @@ Instructions:
       setLiveReply(null)
     }
 
-    // Fallback if empty
+    // An empty reply is not evidence of a connection problem, and claiming one
+    // was actively misleading: a turn that read six files and was then refused
+    // a write reported "Unable to connect" while the model was plainly
+    // reachable and had just answered. The tool trail is appended either way,
+    // so what actually happened is visible rather than guessed at.
     if (!answer) {
-      answer = `⚠️ **Unable to connect to ${activeModelLabel}**.\n\nPlease verify that your local endpoint (${currentProvider?.localUrl ?? 'http://localhost:11434'}) is active and model \`${currentModel}\` is available.`
+      answer = `⚠️ **${activeModelLabel} finished without an answer.**\n\nIt used its tools but produced no final reply — usually a small model losing track after several rounds, or every path it tried being refused. The tool trail below shows what it attempted; asking again more specifically often works.`
     }
+
+    if (toolTrail !== '')
+      answer = `${answer}
+
+---
+${toolTrail}`
 
     const elapsedSeconds = Math.max(1, Math.round((Date.now() - startTime) / 1000))
     const responseTime = new Date()
@@ -920,6 +1068,42 @@ Instructions:
                 ? `Forge Agent · ${currentProvider?.name ?? 'Ollama'} (${currentModel})`
                 : selectedEngineId}
             </Badge>
+            {/* What the model reported it can do, once a turn has asked. Shown
+                rather than offered as a choice: capability belongs to the model,
+                and a toggle let tools be enabled on one that has none. */}
+            {capabilities !== null && (
+              <div className="hidden items-center gap-1 lg:flex">
+                {capabilities.tools ? (
+                  <Badge tone="success" size="sm" className="text-[10px]">
+                    tools
+                  </Badge>
+                ) : (
+                  <Badge tone="warning" size="sm" className="text-[10px]">
+                    no tools — chat only
+                  </Badge>
+                )}
+                {capabilities.thinking && (
+                  <Badge tone="neutral" size="sm" className="text-[10px]">
+                    thinking
+                  </Badge>
+                )}
+                {capabilities.vision && (
+                  <Badge tone="neutral" size="sm" className="text-[10px]">
+                    vision
+                  </Badge>
+                )}
+                {capabilities.source !== 'reported' && (
+                  <Badge
+                    tone="neutral"
+                    size="sm"
+                    className="text-[10px]"
+                    title="Assumed, not reported by the provider"
+                  >
+                    {capabilities.source}
+                  </Badge>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -1010,8 +1194,40 @@ Instructions:
             {liveReply !== null && (
               <div className="flex gap-3 px-10">
                 <div className="min-w-0 flex-1 space-y-1.5">
-                  {liveReply.reasoning !== '' && (
-                    <ThinkingBlock text={liveReply.reasoning} streaming />
+                  {/* Reasoning and tool calls in the order they happened, so
+                      the thinking reads as the explanation for the calls that
+                      follow it. Live only: this is evidence about the turn, not
+                      part of the answer that gets saved. */}
+                  {liveReply.timeline.length > 0 && (
+                    <div
+                      className="space-y-1.5 rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-3 py-2"
+                      data-selectable
+                    >
+                      {liveReply.timeline.map((entry, index) =>
+                        entry.kind === 'reasoning' ? (
+                          <div
+                            key={`r-${String(index)}`}
+                            className="text-[11px] leading-relaxed whitespace-pre-wrap text-(--color-text-muted)"
+                          >
+                            <span className="mr-1">💭</span>
+                            {entry.text}
+                          </div>
+                        ) : (
+                          <div
+                            key={`t-${String(index)}`}
+                            className="font-mono text-[10px] leading-relaxed text-(--color-text-subtle)"
+                          >
+                            {entry.text}
+                          </div>
+                        ),
+                      )}
+                      {thinking && (
+                        <div className="font-mono text-[10px] text-(--color-text-subtle)">
+                          <span className="animate-pulse">working…</span>
+                          {elapsed > 0 ? ` ${String(elapsed)}s` : ''}
+                        </div>
+                      )}
+                    </div>
                   )}
                   {liveReply.content !== '' && (
                     <div className="text-[13px] leading-relaxed text-(--color-text)">
@@ -1022,19 +1238,22 @@ Instructions:
               </div>
             )}
 
-            {thinking && liveReply?.content === '' && liveReply.reasoning === '' && (
-              <div className="flex items-center gap-2 px-10 text-[12px] italic text-(--color-text-muted)">
-                <span className="inline-flex gap-1">
-                  <span className="animate-bounce [animation-delay:0ms]">·</span>
-                  <span className="animate-bounce [animation-delay:150ms]">·</span>
-                  <span className="animate-bounce [animation-delay:300ms]">·</span>
-                </span>
-                <span>
-                  {activePersona?.label} is analyzing with Forge Agent (
-                  {currentProvider?.name ?? 'Ollama'} / {currentModel})...
-                </span>
-              </div>
-            )}
+            {thinking &&
+              liveReply?.content === '' &&
+              liveReply.reasoning === '' &&
+              liveReply.timeline.length === 0 && (
+                <div className="flex items-center gap-2 px-10 text-[12px] italic text-(--color-text-muted)">
+                  <span className="inline-flex gap-1">
+                    <span className="animate-bounce [animation-delay:0ms]">·</span>
+                    <span className="animate-bounce [animation-delay:150ms]">·</span>
+                    <span className="animate-bounce [animation-delay:300ms]">·</span>
+                  </span>
+                  <span>
+                    {activePersona?.label} is working ({currentModel})
+                    {elapsed > 0 ? ` · ${String(elapsed)}s` : ''}
+                  </span>
+                </div>
+              )}
 
             <div ref={messagesEndRef} />
           </div>

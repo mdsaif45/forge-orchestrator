@@ -12,19 +12,16 @@ import { DecisionService } from './decisions/decisionService'
 import { ProjectService } from './projects/projectService'
 import { QuestionService } from './questions/questionService'
 import { WorkflowService } from './workflows/workflowService'
-import { MockAgentRuntime } from './runtimes/mockRuntime'
 import { RuntimeRegistry, runtimeExecutable } from './runtimes/registry'
-import { ClaudeCliRuntime } from './runtimes/claudeCliRuntime'
 import { HostedClaudeRuntime } from './runtimes/hostedClaudeRuntime'
-import { AntigravityCliRuntime } from './runtimes/antigravityCliRuntime'
-import { createPipeProcessRunner } from './runtimes/pipeProcessRunner'
+import { NativeAgentRuntime } from './runtimes/nativeAgentRuntime'
+import { ActiveModelStore } from './providers/activeModel'
 import { AgentSessionRegistry } from './terminal/sessionRegistry'
 import { TerminalService } from './terminal/terminalService'
 import { BindingService } from './bindings/bindingService'
 import { AccountHomes } from './accounts/accountHomes'
 import { EnrollmentService } from './accounts/enrollmentService'
 import { BindingStore } from './db/bindingStore'
-import { SCENARIOS } from './runtimes/scenario'
 import {
   applyContentSecurityPolicy,
   claimSingleInstance,
@@ -182,34 +179,56 @@ if (!claimSingleInstance()) {
 
     const accountHomes = new AccountHomes(join(app.getPath('userData'), 'accounts'))
 
+    // Where the renderer publishes which model the native agent should use, so
+    // a workflow running entirely in main can read it (see activeModel.ts).
+    const activeModel = new ActiveModelStore(join(app.getPath('userData'), 'active-model.json'))
+
     const registry = new RuntimeRegistry()
     const agentSessions = new AgentSessionRegistry()
 
-    registry.register(new MockAgentRuntime({ scenario: SCENARIOS.fullRun, id: 'mock:default' }))
+    /*
+     * Only runtimes that do real work against a real repository are registered.
+     *
+     * Three were removed rather than left selectable, because each was a
+     * substitute for the thing it claimed to be:
+     *
+     *   mock:default     scripted output. Useful for tests, which construct it
+     *                    directly; registered in the app it was a runtime a
+     *                    role could be bound to that would report success
+     *                    without doing anything (A3). `MockAgentRuntime` still
+     *                    exists and every test still uses it.
+     *   claude-cli       `claude -p --output-format stream-json --safe-mode`,
+     *                    with its stdout hand-parsed. `--safe-mode` strips the
+     *                    CLI's own hooks and configuration, so this was not the
+     *                    Claude Code CLI a user runs — it was a reimplementation
+     *                    of one, against an undocumented wire format.
+     *                    ADR-003 supersedes it; `claude-cli-hosted` runs the
+     *                    real thing.
+     *   antigravity-cli  the same shape for `agy` (`-p`,
+     *                    `--output-format=stream-json`). `agy --help` confirms
+     *                    `-i/--prompt-interactive` exists, so a hosted
+     *                    equivalent is possible and is what #168 should build.
+     *
+     * The adapters are still in the tree with their measured CLI facts intact
+     * (#172 gates deleting them). What changed is that nothing binds a role to
+     * a parsed-stdout substitute any more.
+     */
 
-    // The real CLI, driven through the pty. `homeForAccount` resolves a bound account
-    // to its enrolled home and returns null when there is none, which the adapter turns
-    // into a spawn-time failure rather than a run as the machine's default identity.
+    // Forge's own agent: the model plus Forge's tool loop, no CLI in between.
+    // The one runtime that works with any model from any provider — Ollama and
+    // LM Studio locally, or any OpenAI-compatible endpoint with a key.
     registry.register(
-      new ClaudeCliRuntime({
-        // Pipes, not a pty: the prompt travels over stdin, and a pty cannot carry it
-        // because the child sees a TTY and takes the interactive path (#131).
-        runner: createPipeProcessRunner({ orphans }),
-        homeForAccount: (accountId) => accountHomes.resolveExisting(accountId),
+      new NativeAgentRuntime({
+        // Read at send time, not at construction: the user can change provider
+        // or model between turns, and a captured value would go stale.
+        resolveModel: () => activeModel.read(),
       }),
     )
 
-    registry.register(
-      new AntigravityCliRuntime({
-        runner: createPipeProcessRunner({ orphans }),
-      }),
-    )
-
-    // The same CLI hosted as a live interactive session, registered ALONGSIDE the
-    // headless adapter rather than replacing it (#167/#170). The headless path
-    // works today; this one is proven for a single turn and not yet for a
-    // five-stage workflow with retries. Two ids let a binding choose, so both can
-    // be run against the same repository and compared before anything is deleted.
+    // The original Claude Code CLI, hosted as a live interactive session. No
+    // `-p`, no `--output-format`, no `--safe-mode`: the CLI a user runs, with
+    // its own hooks intact, and turn completion reported by those hooks rather
+    // than inferred from the screen (ADR-003).
     registry.register(
       new HostedClaudeRuntime({
         processes,
@@ -315,6 +334,11 @@ if (!claimSingleInstance()) {
               win.webContents.send('provider:chunk', payload)
             }
           }
+        },
+        // Persisted so a workflow, which runs entirely in main, can reach the
+        // model the user picked in the renderer (see activeModel.ts).
+        setActiveModel: (model) => {
+          activeModel.write(model)
         },
       }),
     )

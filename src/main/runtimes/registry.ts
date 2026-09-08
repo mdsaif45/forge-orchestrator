@@ -138,6 +138,7 @@ export function runtimeExecutable(runtimeId: string): string {
     'claude-cli': 'claude',
     'claude-cli-hosted': 'claude',
     'antigravity-cli': 'agy',
+    'antigravity-hosted': 'agy',
   }
 
   return KNOWN[runtimeId] ?? runtimeId
@@ -177,6 +178,11 @@ export function runtimeDescription(runtimeId: string): RuntimeDescription | null
       name: 'Secondary CLI (headless)',
       summary:
         'A second provider CLI, driven headless over pipes. Its workspace is established explicitly, and a pre-flight refusal is retryable rather than the agent failing.',
+    },
+    'forge-native-agent': {
+      name: 'Forge Native Agent',
+      summary:
+        'Forge’s own agent: any model from any provider, driven through Forge’s tool loop. Needs no external CLI and no enrolled account.',
     },
     'mock:default': {
       name: 'Mock runtime',

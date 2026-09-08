@@ -92,24 +92,58 @@ export function parseAgentReport(output: string): ProtocolResult {
     }
   }
 
-  const body = output.slice(begin + REPORT_BEGIN.length, end).trim()
-
-  // A fenced code block inside the sentinels is stripped: models add one reflexively even
-  // when told not to, and rejecting for it would burn a retry on formatting rather than
-  // substance.
-  const unfenced = body
-    .replace(/^```(?:json)?\s*/i, '')
-    .replace(/```$/, '')
-    .trim()
+  /*
+   * Two openings are tried, widest first, because two real failures pull in
+   * opposite directions.
+   *
+   * The widest span (first BEGIN to last END) is required when a report quotes
+   * the sentinel inside its own summary — an agent echoing the instructions
+   * back, which happens — since a narrower read would cut that JSON in half.
+   *
+   * But a model that emits the whole block TWICE needs the opposite: the wide
+   * span then covers both copies, so the body reads `{…} END BEGIN {…}` and
+   * fails with "non-whitespace after JSON" on a reply whose halves were each a
+   * valid report. Measured against a real model on three consecutive runs.
+   *
+   * Neither rule wins outright, so the parse decides: if the wide body is not
+   * JSON, the last opening before the close is tried before giving up. The
+   * later copy is the intended one — a model that restates its report is
+   * correcting itself.
+   */
+  const candidates = [begin]
+  const lastBegin = output.lastIndexOf(REPORT_BEGIN, end)
+  if (lastBegin !== -1 && lastBegin !== begin) candidates.push(lastBegin)
 
   let parsed: unknown
-  try {
-    parsed = JSON.parse(unfenced)
-  } catch (error) {
+  let failure: string | null = null
+
+  for (const start of candidates) {
+    // A fenced code block inside the sentinels is stripped: models add one reflexively
+    // even when told not to, and rejecting for it would burn a retry on formatting
+    // rather than substance.
+    const unfenced = output
+      .slice(start + REPORT_BEGIN.length, end)
+      .trim()
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/```$/, '')
+      .trim()
+
+    try {
+      parsed = JSON.parse(unfenced)
+      failure = null
+      break
+    } catch (error) {
+      // Reported from the FIRST attempt, which is the widest and so the most
+      // likely to describe what the agent actually got wrong.
+      failure ??= error instanceof Error ? error.message : 'parse failed'
+    }
+  }
+
+  if (failure !== null) {
     return {
       ok: false,
       code: 'invalid-json',
-      message: `The report block is not valid JSON: ${error instanceof Error ? error.message : 'parse failed'}`,
+      message: `The report block is not valid JSON: ${failure}`,
     }
   }
 

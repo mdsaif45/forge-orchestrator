@@ -106,6 +106,26 @@ describe('a report printed as prose', () => {
   })
 })
 
+describe('an agent that never reports', () => {
+  it('is blocked, not recorded as completed', async () => {
+    // The regression: this path used to synthesise `status: 'completed'` from
+    // any reply over 30 characters. A stage then went green having changed
+    // nothing — measured with a real model whose reply was itself an
+    // unexecuted JSON tool call. `blocked` keeps the run alive without
+    // claiming work Forge never observed (A3).
+    const outcome = await run(SCENARIOS.noReportTwice)
+
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) return
+    expect(outcome.report.status).toBe('blocked')
+    expect(outcome.assessment.verdict).toBe('halt-blocked')
+    // The agent's own words are kept, so a human can see what it actually said.
+    expect(outcome.report.summary).toContain('write_file')
+    expect(outcome.report.filesChanged).toEqual([])
+    expect(outcome.retried).toBe(true)
+  })
+})
+
 describe('the single re-prompt', () => {
   it('recovers when the agent forgets the report block', async () => {
     const outcome = await run(SCENARIOS.noReport)

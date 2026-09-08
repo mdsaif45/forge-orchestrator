@@ -13,6 +13,19 @@ import { isWriteAllowed, resolveInWorkspace, runTool, type ToolContext } from '.
  * it is one that writes outside the worktree or outside the task's scope.
  */
 
+/**
+ * Absolute paths for the platform the test is running on.
+ *
+ * These were written as `D:/repo` and `C:/Windows/...`, which are absolute
+ * only on Windows. On Linux CI they are RELATIVE, so `resolveInWorkspace`
+ * joined them under the working directory and the "refuses an absolute path
+ * pointing elsewhere" case asserted nothing — it passed on Windows and failed
+ * on CI, which is worse than either, because the platform that ran it green
+ * was the one that did not need the check.
+ */
+const WORKSPACE = process.platform === 'win32' ? 'D:/repo' : '/repo'
+const ELSEWHERE = process.platform === 'win32' ? 'C:/Windows/System32/config' : '/etc/shadow'
+
 const dirs: string[] = []
 
 const makeWorkspace = (): string => {
@@ -38,30 +51,30 @@ afterEach(async () => {
 
 describe('resolveInWorkspace', () => {
   it('resolves a relative path inside the workspace', () => {
-    expect(resolveInWorkspace('D:/repo', 'src/a.ts')).not.toBeNull()
+    expect(resolveInWorkspace(WORKSPACE, 'src/a.ts')).not.toBeNull()
   })
 
   it('refuses a traversal out of the workspace', () => {
-    expect(resolveInWorkspace('D:/repo', '../secrets.txt')).toBeNull()
-    expect(resolveInWorkspace('D:/repo', 'src/../../etc/passwd')).toBeNull()
+    expect(resolveInWorkspace(WORKSPACE, '../secrets.txt')).toBeNull()
+    expect(resolveInWorkspace(WORKSPACE, 'src/../../etc/passwd')).toBeNull()
   })
 
   it('refuses an absolute path pointing elsewhere', () => {
     // Checked on the resolved path rather than by looking for ".." in the input,
     // which an absolute path contains none of.
-    expect(resolveInWorkspace('D:/repo', 'C:/Windows/System32/config')).toBeNull()
+    expect(resolveInWorkspace(WORKSPACE, ELSEWHERE)).toBeNull()
   })
 
   it('allows an absolute path that is genuinely inside', () => {
-    expect(resolveInWorkspace('D:/repo', 'D:/repo/src/a.ts')).not.toBeNull()
+    expect(resolveInWorkspace(WORKSPACE, `${WORKSPACE}/src/a.ts`)).not.toBeNull()
   })
 
   it('treats the workspace root itself as resolvable', () => {
-    expect(resolveInWorkspace('D:/repo', '.')).not.toBeNull()
+    expect(resolveInWorkspace(WORKSPACE, '.')).not.toBeNull()
   })
 
   it('refuses an empty path', () => {
-    expect(resolveInWorkspace('D:/repo', '   ')).toBeNull()
+    expect(resolveInWorkspace(WORKSPACE, '   ')).toBeNull()
   })
 })
 

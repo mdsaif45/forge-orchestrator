@@ -185,6 +185,9 @@ export async function runAgentTurn(
       })),
     ],
     tools,
+    // A change request must actually change something. Without this the loop
+    // accepts a plan as an answer, which is the reported failure.
+    requireOneOf: capabilities.tools ? ['edit_file', 'write_file'] : [],
     complete: (messages, toolDefinitions) =>
       completeWithTools(
         {
@@ -199,6 +202,10 @@ export async function runAgentTurn(
         capabilities.tools ? toolDefinitions : [],
       ),
     onEvent: (event) => {
+      if (event.kind === 'nudge') {
+        onEvent({ kind: 'tool', text: '↻ no change made yet — asking again' })
+        return
+      }
       if (event.kind === 'reasoning') {
         onEvent({ kind: 'reasoning', text: event.text })
         return

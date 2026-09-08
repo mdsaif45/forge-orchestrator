@@ -107,6 +107,27 @@ export const TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
+      name: 'edit_file',
+      description:
+        'Replace an exact snippet in a file, leaving the rest untouched. Prefer this over write_file for any change to an existing file: you only supply the part that changes. To append, pass the current last line as old_text and that line plus your addition as new_text.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Path relative to the workspace root.' },
+          old_text: {
+            type: 'string',
+            description:
+              'The exact existing text to replace, copied verbatim from the file including indentation. Must appear exactly once.',
+          },
+          new_text: { type: 'string', description: 'The text to put in its place.' },
+        },
+        required: ['path', 'old_text', 'new_text'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'run_command',
       description:
         'Run a shell command in the workspace and return its output. Use it for builds, tests and git reads.',
@@ -200,6 +221,8 @@ export async function runTool(
         return await searchFilesTool(args, context)
       case 'write_file':
         return await writeFileTool(args, context)
+      case 'edit_file':
+        return await editFileTool(args, context)
       case 'run_command':
         return await runCommandTool(args, context)
       default:
@@ -336,6 +359,84 @@ async function writeFileTool(
   await mkdir(join(target, '..'), { recursive: true })
   await writeFile(target, content, 'utf8')
   return { ok: true, content: `Wrote ${rel} (${String(content.length)} characters).` }
+}
+
+/**
+ * Replaces one exact snippet in a file.
+ *
+ * The tool that makes editing possible for a small model. `write_file` demands
+ * the complete new file, and measured against a real 7KB README a 4B model
+ * would not attempt it — it read the file three times and then described the
+ * change in prose instead of calling the tool, on every attempt. Supplying only
+ * the changed span is a request it can actually satisfy.
+ *
+ * The match must be unique. A snippet occurring twice is refused rather than
+ * guessed at, because replacing the wrong one is a silent corruption the model
+ * has no way to notice.
+ */
+async function editFileTool(
+  args: Readonly<Record<string, unknown>>,
+  context: ToolContext,
+): Promise<ToolResult> {
+  const path = stringArg(args, 'path')
+  const oldText = stringArg(args, 'old_text')
+  const newText = stringArg(args, 'new_text')
+
+  if (path === null || oldText === null || newText === null) {
+    return { ok: false, content: 'edit_file needs string "path", "old_text" and "new_text".' }
+  }
+  if (oldText === '') {
+    return {
+      ok: false,
+      content: 'edit_file needs a non-empty "old_text". Use write_file for a new file.',
+    }
+  }
+
+  if (!context.canWrite) {
+    return { ok: false, content: 'Refused: this role has no file-write permission.' }
+  }
+
+  const target = resolveInWorkspace(context.workspacePath, path)
+  if (target === null) {
+    return { ok: false, content: `Refused: "${path}" is outside the workspace.` }
+  }
+
+  const rel = toPosix(relative(resolve(context.workspacePath), target))
+  if (!isWriteAllowed(rel, context.allowedPaths, context.forbiddenPaths)) {
+    return { ok: false, content: `Refused: "${rel}" is outside the task scope.` }
+  }
+
+  const existing = await readFile(target, 'utf8').catch(() => null)
+  if (existing === null) {
+    return { ok: false, content: `No such file: ${path}. Use write_file to create it.` }
+  }
+
+  const first = existing.indexOf(oldText)
+  if (first === -1) {
+    // The likeliest cause is whitespace, so it is named: a model that is told
+    // only "not found" tends to retry the same near-miss.
+    return {
+      ok: false,
+      content: `Not found in ${rel}. "old_text" must match the file exactly, including indentation and line breaks. Read the file again and copy the snippet verbatim.`,
+    }
+  }
+
+  // Only whether a second occurrence exists matters, not where it is.
+  if (existing.slice(first + oldText.length).includes(oldText)) {
+    return {
+      ok: false,
+      content: `"old_text" appears more than once in ${rel}. Include enough surrounding context to make it unique.`,
+    }
+  }
+
+  const updated = existing.slice(0, first) + newText + existing.slice(first + oldText.length)
+  await writeFile(target, updated, 'utf8')
+
+  const delta = updated.length - existing.length
+  return {
+    ok: true,
+    content: `Edited ${rel} (${delta >= 0 ? '+' : ''}${String(delta)} characters).`,
+  }
 }
 
 async function runCommandTool(

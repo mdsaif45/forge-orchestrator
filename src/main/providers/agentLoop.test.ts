@@ -236,3 +236,87 @@ describe('runAgentLoop', () => {
     expect(events).toContain('tool-end')
   })
 })
+
+describe('requireOneOf', () => {
+  it('asks once more when the turn answered without changing anything', async () => {
+    // The reported failure: asked to update a file, the model read it and
+    // replied with a plan. Measured on a local 4B model, that happened on every
+    // attempt of three; a stronger prompt raised it to two in three, which is
+    // why the loop checks rather than trusting the instruction to land.
+    const root = makeWorkspace()
+    const model = scriptedModel([
+      callTool('read_file', { path: 'src/math.ts' }),
+      answer('Here is what I would change: ...'),
+      callTool('write_file', { path: 'src/math.ts', content: 'export const answer = 42\n' }),
+      answer('Changed it to 42.'),
+    ])
+
+    const result = await runAgentLoop({
+      messages: [{ role: 'user', content: 'change the constant' }],
+      tools: tools(root),
+      complete: model.complete,
+      requireOneOf: ['write_file'],
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.toolsUsed.some((tool) => tool.name === 'write_file')).toBe(true)
+    expect(readFileSync(join(root, 'src', 'math.ts'), 'utf8')).toContain('42')
+
+    // The nudge is a real message the model can act on, not a silent retry.
+    const afterNudge = model.sent[2] ?? []
+    expect(afterNudge.at(-1)?.content).toMatch(/have not changed anything yet/i)
+  })
+
+  it('accepts the answer when the required tool was already used', async () => {
+    const root = makeWorkspace()
+    const model = scriptedModel([
+      callTool('write_file', { path: 'src/math.ts', content: 'x\n' }),
+      answer('Done.'),
+    ])
+
+    const result = await runAgentLoop({
+      messages: [{ role: 'user', content: 'change it' }],
+      tools: tools(root),
+      complete: model.complete,
+      requireOneOf: ['write_file'],
+    })
+
+    expect(result.content).toBe('Done.')
+    // Two completions, not three: nothing was owed, so nothing was asked again.
+    expect(model.sent).toHaveLength(2)
+  })
+
+  it('asks only once, so a model that declines twice does not loop', async () => {
+    // Arguing with it would spend the whole round budget for nothing.
+    const root = makeWorkspace()
+    const model = scriptedModel([answer('I would change it like this...'), answer('Still a plan.')])
+
+    const result = await runAgentLoop({
+      messages: [{ role: 'user', content: 'change it' }],
+      tools: tools(root),
+      complete: model.complete,
+      requireOneOf: ['write_file'],
+      maxRounds: 6,
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toBe('Still a plan.')
+    expect(model.sent).toHaveLength(2)
+  })
+
+  it('does not require a change when the request needed none', async () => {
+    const root = makeWorkspace()
+    const model = scriptedModel([answer('The constant is 40.')])
+
+    const result = await runAgentLoop({
+      messages: [{ role: 'user', content: 'what is it?' }],
+      tools: tools(root),
+      complete: model.complete,
+      // Empty means nothing is owed, which is how a read-only turn behaves.
+      requireOneOf: [],
+    })
+
+    expect(result.content).toBe('The constant is 40.')
+    expect(model.sent).toHaveLength(1)
+  })
+})

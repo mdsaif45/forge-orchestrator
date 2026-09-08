@@ -716,10 +716,20 @@ Instructions:
         apiKey: currentProvider?.apiKey,
         systemPrompt: `${systemPrompt}
 
-If tools are available to you, use them before answering anything about this
-repository: read the file rather than guessing its contents, and list or search
-before assuming a path exists. If a write is refused as out of scope, say so
-rather than working around it.`,
+You are operating on a real repository through tools, not describing work to
+someone else who will do it.
+
+RULE: a request to change, update, add, fix or remove something in a file is a
+request to EDIT IT NOW. Read what you need, then call edit_file. Replying with a
+plan, a proposal, or a description of what you would add is a failed turn — the
+file must actually change. Your final message reports what you changed.
+
+- edit_file replaces one exact snippet and is the tool to reach for; you supply
+  only the part that changes, so it works on large files.
+- write_file replaces a whole file, so use it only for a new one.
+- Never guess a file's contents. Read it, or list and search first.
+- If a write is refused as out of scope, say so plainly rather than working
+  around it.`,
         messages: historyPayload,
       })
 

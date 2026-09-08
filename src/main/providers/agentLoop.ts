@@ -63,6 +63,17 @@ export interface AgentLoopOptions {
    * is cut off rather than running until a timeout.
    */
   readonly maxRounds?: number | undefined
+  /**
+   * Tool names that count as changing the repository.
+   *
+   * When set, a turn that answers without having called one of these is asked
+   * once more before being accepted. Measured against a local 4B model: asked
+   * to update a README it read the file and replied with a plan instead of
+   * editing, on every attempt of three. A stronger prompt raised that to two in
+   * three, which is an improvement and not a fix — so the loop checks rather
+   * than trusting the model to have understood.
+   */
+  readonly requireOneOf?: readonly string[] | undefined
 }
 
 export type AgentLoopEvent =
@@ -83,6 +94,8 @@ export type AgentLoopEvent =
       readonly summary: string
     }
   | { readonly kind: 'text'; readonly text: string }
+  /** The turn answered without acting, and was asked once to carry it out. */
+  | { readonly kind: 'nudge' }
 
 export interface AgentLoopResult {
   readonly ok: boolean
@@ -110,6 +123,8 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
   const toolsUsed: { name: string; ok: boolean }[] = []
 
   let reasoning = ''
+  /** Whether the "you have not changed anything" prompt has already been sent. */
+  let nudged = false
 
   for (let round = 0; round < maxRounds; round += 1) {
     const completion = await options.complete(conversation, TOOL_DEFINITIONS)
@@ -133,6 +148,24 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
 
     // No tool calls means the model has answered.
     if (completion.toolCalls.length === 0) {
+      const owed =
+        options.requireOneOf !== undefined &&
+        options.requireOneOf.length > 0 &&
+        !toolsUsed.some((tool) => tool.ok && options.requireOneOf?.includes(tool.name) === true)
+
+      // Asked once, not repeatedly: a model that declines twice is not going to
+      // be argued into it, and looping here would spend the whole budget.
+      if (owed && !nudged) {
+        nudged = true
+        conversation.push({ role: 'assistant', content: completion.content })
+        conversation.push({
+          role: 'user',
+          content: `You have not changed anything yet — describing the change is not making it. Call ${options.requireOneOf.join(' or ')} now to apply it, then report what you changed.`,
+        })
+        options.onEvent?.({ kind: 'nudge' })
+        continue
+      }
+
       if (completion.content !== '') options.onEvent?.({ kind: 'text', text: completion.content })
       return {
         ok: true,

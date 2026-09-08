@@ -348,3 +348,104 @@ describe('the chat-turn write scope', () => {
     expect(allowed('node_modules/pkg/README.md')).toBe(false)
   })
 })
+
+describe('edit_file', () => {
+  const withReadme = (): string => {
+    const root = makeWorkspace()
+    writeFileSync(join(root, 'src', 'doc.md'), '# Title\n\nBody line\n')
+    return root
+  }
+
+  it('replaces an exact snippet and leaves the rest alone', async () => {
+    // The tool that makes editing possible for a small model: measured against
+    // a real 7KB README, a 4B model would not attempt `write_file` at all — it
+    // read the file and described the change instead of calling anything.
+    const root = withReadme()
+    const result = await runTool(
+      'edit_file',
+      { path: 'src/doc.md', old_text: 'Body line', new_text: 'Body line\n\n## Testing\n\nRun it.' },
+      context(root),
+    )
+
+    expect(result.ok).toBe(true)
+    const after = readFileSync(join(root, 'src', 'doc.md'), 'utf8')
+    expect(after).toContain('# Title')
+    expect(after).toContain('## Testing')
+  })
+
+  it('reports the size change, so the model can sanity-check its own edit', async () => {
+    const root = withReadme()
+    const result = await runTool(
+      'edit_file',
+      { path: 'src/doc.md', old_text: 'Body line', new_text: 'Body' },
+      context(root),
+    )
+
+    expect(result.content).toMatch(/-5 characters/)
+  })
+
+  it('refuses a snippet that is not present, naming the likely cause', async () => {
+    // A model told only "not found" retries the same near-miss; whitespace is
+    // the usual culprit, so the refusal says so.
+    const root = withReadme()
+    const result = await runTool(
+      'edit_file',
+      { path: 'src/doc.md', old_text: 'not in the file', new_text: 'x' },
+      context(root),
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toMatch(/must match the file exactly/i)
+  })
+
+  it('refuses an ambiguous snippet rather than guessing which one', async () => {
+    // Replacing the wrong occurrence is a silent corruption the model has no
+    // way to notice, so an ambiguous match is never resolved by position.
+    const root = withReadme()
+    const result = await runTool(
+      'edit_file',
+      { path: 'src/doc.md', old_text: 'i', new_text: 'x' },
+      context(root),
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toMatch(/more than once/i)
+    expect(readFileSync(join(root, 'src', 'doc.md'), 'utf8')).toContain('Body line')
+  })
+
+  it('refuses a file outside the scope', async () => {
+    const root = withReadme()
+    const result = await runTool(
+      'edit_file',
+      { path: 'README.md', old_text: '# demo', new_text: '# other' },
+      context(root),
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toMatch(/outside the task scope/i)
+  })
+
+  it('refuses a role with no write permission', async () => {
+    const root = withReadme()
+    const result = await runTool(
+      'edit_file',
+      { path: 'src/doc.md', old_text: 'Body line', new_text: 'x' },
+      context(root, { canWrite: false }),
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toMatch(/no file-write permission/i)
+  })
+
+  it('points at write_file when the file does not exist', async () => {
+    const root = withReadme()
+    const result = await runTool(
+      'edit_file',
+      { path: 'src/missing.md', old_text: 'a', new_text: 'b' },
+      context(root),
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toMatch(/write_file to create it/i)
+  })
+})

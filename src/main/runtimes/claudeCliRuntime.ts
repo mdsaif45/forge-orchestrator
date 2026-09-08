@@ -265,6 +265,20 @@ export class ClaudeCliRuntime implements IAgentRuntime {
           // it survives a Forge restart (#167). Measured: the CLI honours a supplied
           // id exactly and `--resume` against it recalls the earlier turn, which is
           // what a warm session across steps will be built on.
+          // KNOWN DEFECT, and why this adapter is no longer registered.
+          //
+          // `send` spawns a fresh process per call, and `exchange` sends twice on
+          // one session when a report comes back malformed. Both spawns pass the
+          // same deterministic id, and the real CLI refuses the second:
+          //
+          //   Error: Session ID 2b0c1990-… is already in use
+          //
+          // Observed halting a real five-stage workflow at stage 1. `--session-id`
+          // creates a session; reusing one requires `--resume`. Fixing it means
+          // either resuming on the second send or deriving a per-attempt id — but
+          // this whole headless path is superseded by `claude-cli-hosted`, which
+          // spawns once and types the retry into the live session, so it has no
+          // equivalent collision. Recorded rather than patched (#172).
           ...(session.options.resumeKey === undefined
             ? []
             : ['--session-id', claudeSessionId(session.options.resumeKey)]),

@@ -11,6 +11,7 @@ import type {
   OpenQuestionView,
   ProjectDetail,
   ProjectView,
+  ProviderChunkPayload,
   PromptPacketView,
   RepositoryProbe,
   WorkflowDetailView,
@@ -296,7 +297,34 @@ export interface ForgeApi {
         readonly error: string | null
       }>
     >
+    /** The same call, streamed: chunks arrive on `onProviderChunk`. */
+    readonly chatStream: (request: {
+      readonly streamId: string
+      readonly providerId: string
+      readonly model: string
+      readonly endpointUrl?: string | undefined
+      readonly apiKey?: string | undefined
+      readonly systemPrompt?: string | undefined
+      readonly messages: readonly {
+        readonly role: 'user' | 'assistant' | 'system'
+        readonly content: string
+      }[]
+    }) => Promise<
+      IpcResult<{
+        readonly ok: boolean
+        readonly content: string
+        readonly reasoning: string
+        readonly error: string | null
+      }>
+    >
   }
+  /**
+   * Streamed text, pushed as the model produces it.
+   *
+   * Filter by the `streamId` the caller passed to `chatStream`: two replies can
+   * be in flight, and a listener that took every chunk would interleave them.
+   */
+  readonly onProviderChunk: (listener: (payload: ProviderChunkPayload) => void) => () => void
   readonly onWorkflowEvent: (listener: (event: WorkflowEventPayload) => void) => () => void
   readonly onWorkflowLog: (listener: (log: WorkflowLogPayload) => void) => () => void
   readonly onTerminalData: (

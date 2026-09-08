@@ -307,6 +307,15 @@ if (!claimSingleInstance()) {
         bindings: new BindingService(new BindingStore(db, eventStore), registry),
         enrollment: new EnrollmentService(accountHomes, registry, runtimeExecutable),
         terminal: terminalService,
+        // Broadcast, like the terminal and workflow channels above: a chunk goes
+        // to every live window, and the renderer filters on its own streamId.
+        emitProviderChunk: (payload) => {
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed()) {
+              win.webContents.send('provider:chunk', payload)
+            }
+          }
+        },
       }),
     )
 

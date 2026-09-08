@@ -1,6 +1,7 @@
 import { writeFile } from 'node:fs/promises'
 import { app, clipboard, dialog, BrowserWindow } from 'electron'
 import { APP_NAME } from '@shared/app'
+import type { ProviderChunkPayload } from '@shared/ipc'
 import { TEMPLATES } from '@shared/domain'
 import { generateWorkflowReportMarkdown } from '../audit/workflowReportGenerator'
 import type { ProjectService } from '../projects/projectService'
@@ -13,6 +14,7 @@ import type { ChangeSetService } from '../changesets/changeSetService'
 import type { AccountService } from '../accounts/accountService'
 import { runtimeDescription, runtimeExecutable, type RuntimeRegistry } from '../runtimes/registry'
 import { isCommandAvailable } from '../process/processManager'
+import { streamChat } from '../providers/chatStream'
 import type { BindingService } from '../bindings/bindingService'
 import type { EnrollmentService } from '../accounts/enrollmentService'
 import { openTerminal } from '../accounts/terminalLauncher'
@@ -30,6 +32,14 @@ export interface IpcDependencies {
   readonly bindings: BindingService
   readonly enrollment: EnrollmentService
   readonly terminal: TerminalService
+  /**
+   * Broadcasts one chunk of a streamed model reply.
+   *
+   * Injected rather than reached for, because a handler has no window to send
+   * to — `index.ts` owns which windows exist and fans out to them, exactly as it
+   * does for terminal and workflow events.
+   */
+  readonly emitProviderChunk?: (payload: ProviderChunkPayload) => void
 }
 
 export function createIpcHandlers({
@@ -43,6 +53,7 @@ export function createIpcHandlers({
   bindings,
   enrollment,
   terminal,
+  emitProviderChunk,
 }: IpcDependencies): IpcHandlerMap {
   /**
    * Gathers everything a report needs and renders it.
@@ -381,6 +392,45 @@ export function createIpcHandlers({
           models: [],
           error: `Could not connect to ${endpointUrl}. Service is offline or unreachable (${msg}).`,
         }
+      }
+    },
+
+    /**
+     * The streaming counterpart, which pushes text as it arrives.
+     *
+     * The awaited result still carries the assembled reply, so a caller that
+     * missed a chunk (a window opened mid-stream, say) is not left with a
+     * partial message — the pushed chunks are for liveness, the return value is
+     * the record.
+     */
+    'provider:chatStream': async ({
+      streamId,
+      providerId,
+      model,
+      endpointUrl,
+      apiKey,
+      systemPrompt,
+      messages,
+    }) => {
+      const result = await streamChat(
+        {
+          providerId,
+          model,
+          endpointUrl,
+          apiKey,
+          systemPrompt,
+          messages,
+        },
+        (chunk) => {
+          emitProviderChunk?.({ streamId, kind: chunk.kind, text: chunk.text })
+        },
+      )
+
+      return {
+        ok: result.ok,
+        content: result.content,
+        reasoning: result.reasoning,
+        error: result.error,
       }
     },
 

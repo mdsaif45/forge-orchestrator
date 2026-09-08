@@ -297,6 +297,54 @@ export interface ForgeApi {
         readonly error: string | null
       }>
     >
+    /**
+     * Records which model the native agent runtime should use.
+     *
+     * Needed because a workflow runs in main, where the renderer's stored
+     * provider list is unreachable. Ask mode passes the model per turn and
+     * does not depend on it.
+     */
+    readonly setActiveModel: (request: {
+      readonly providerId: string
+      readonly model: string
+      readonly endpointUrl?: string | undefined
+      readonly apiKey?: string | undefined
+    }) => Promise<IpcResult<{ readonly ok: true }>>
+    /**
+     * A tool-using turn: the model reads and edits the project itself.
+     *
+     * Progress arrives on `onProviderChunk` as `tool` chunks; the answer is in
+     * the resolved value.
+     */
+    readonly agentTurn: (request: {
+      readonly streamId: string
+      readonly projectId: string
+      readonly providerId: string
+      readonly model: string
+      readonly endpointUrl?: string | undefined
+      readonly apiKey?: string | undefined
+      readonly systemPrompt?: string | undefined
+      readonly messages: readonly {
+        readonly role: 'user' | 'assistant' | 'system'
+        readonly content: string
+      }[]
+    }) => Promise<
+      IpcResult<{
+        readonly ok: boolean
+        readonly content: string
+        readonly reasoning: string
+        readonly toolsUsed: readonly { readonly name: string; readonly ok: boolean }[]
+        readonly rounds: number
+        readonly stoppedAtLimit: boolean
+        readonly error: string | null
+        readonly capabilities: {
+          readonly tools: boolean
+          readonly vision: boolean
+          readonly thinking: boolean
+          readonly source: 'reported' | 'assumed' | 'unreachable'
+        }
+      }>
+    >
     /** The same call, streamed: chunks arrive on `onProviderChunk`. */
     readonly chatStream: (request: {
       readonly streamId: string

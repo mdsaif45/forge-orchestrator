@@ -99,6 +99,22 @@ describe('parseAgentReport', () => {
     expect(result.ok).toBe(true)
   })
 
+  it('takes the last block when a model emits the whole report twice', () => {
+    // Measured against a real model on three consecutive runs: each copy was a
+    // valid report, and the first-open/last-close span covered both, so the
+    // body read `{…} END BEGIN {…}` and failed as "non-whitespace after JSON".
+    const output = [
+      fenced(JSON.stringify(report({ summary: 'the first copy' }))),
+      fenced(JSON.stringify(report({ summary: 'the second copy' }))),
+    ].join('\n')
+
+    const result = parseAgentReport(output)
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    // The later copy: a model that restates its report is correcting itself.
+    expect(result.report.summary).toBe('the second copy')
+  })
+
   it('reports a missing block by name', () => {
     const result = parseAgentReport('I finished the work. Everything looks good!')
 

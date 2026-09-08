@@ -259,6 +259,38 @@ export function SettingsContent(): React.JSX.Element {
     return localStorage.getItem('forge.active_provider_id') ?? 'openai'
   })
 
+  /**
+   * Publishes the active provider and model to main, where a workflow reads it.
+   *
+   * Also done in AskPage, and both are needed rather than one being redundant:
+   * a workflow runs entirely in main and cannot see this `localStorage`, and a
+   * user who configures a provider here and starts a workflow without ever
+   * opening Ask would otherwise leave main with nothing to call.
+   *
+   * Keyed on the derived values rather than fired from each handler — the
+   * choice also settles on first load and again when model detection replaces
+   * a stale name, and four handlers would each have to remember.
+   */
+  useEffect(() => {
+    const provider = providers.find((p) => p.id === activeProviderId)
+    if (provider === undefined) return
+
+    const model =
+      provider.activeModel !== undefined && provider.activeModel !== ''
+        ? provider.activeModel
+        : (provider.models?.[0] ?? '')
+    if (model === '') return
+
+    void window.forge.provider.setActiveModel({
+      providerId: provider.id,
+      model,
+      ...(provider.localUrl === undefined ? {} : { endpointUrl: provider.localUrl }),
+      ...(provider.apiKey === undefined || provider.apiKey === ''
+        ? {}
+        : { apiKey: provider.apiKey }),
+    })
+  }, [providers, activeProviderId])
+
   const [addProviderOpen, setAddProviderOpen] = useState(false)
   const [addProviderType, setAddProviderType] = useState<'openai' | 'messages'>('openai')
 

@@ -81,6 +81,23 @@ describe('observeAntigravityLine', () => {
     expect(result?.refusedBeforeStarting).toBe(true)
   })
 
+  it('classifies the bytes a real agy binary emitted, verbatim', () => {
+    // Captured 2026-09-09 from the installed binary over
+    // --input-format=stream-json --output-format=stream-json. Kept byte for
+    // byte rather than tidied: the point is that the parser handles what the
+    // CLI really sends, and a reformatted fixture would only prove it handles
+    // what this test expects.
+    const real =
+      '{"event":"result","result":{"conversation_id":"f264793a-bd64-47df-9d0d-5ab540178c55","status":"ERROR","response":"","error":"timeout waiting for response","duration_seconds":0,"num_turns":0,"usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0}}}'
+
+    const observed = observeAntigravityLine(real)
+    expect(observed.result?.conversationId).toBe('f264793a-bd64-47df-9d0d-5ab540178c55')
+    expect(observed.result?.isError).toBe(true)
+    // No turn ran, so this is the CLI's own failure and a retry is the right
+    // response — not an iteration spent on the agent.
+    expect(observed.result?.refusedBeforeStarting).toBe(true)
+  })
+
   it('does not mark a genuine mid-turn failure as a pre-flight refusal', () => {
     const failed = RESULT_INELIGIBLE.replace('"num_turns":0', '"num_turns":3')
     expect(observeAntigravityLine(failed).result?.refusedBeforeStarting).toBe(false)

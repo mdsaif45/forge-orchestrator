@@ -447,14 +447,20 @@ export function AskPage(): React.JSX.Element {
    * a message that reads as complete.
    */
   /**
-   * Whether the model gets tools against this project.
+   * What the selected model was found to support, once a turn has asked.
    *
-   * Off by default: a tool-using turn is several round trips, and a plain
-   * question does not need one.
+   * Null until the first turn. Never a toggle: capability belongs to the model,
+   * and asking the user to declare it meant they could enable tools on a model
+   * that has none and get a broken turn instead of a refusal.
    */
-  const [agentMode, setAgentMode] = useState(false)
-  /** Writes are opt-in even in agent mode, so reading is the safe default. */
-  const [allowWrites, setAllowWrites] = useState(false)
+  /** Seconds the running turn has taken, so a slow turn visibly progresses. */
+  const [elapsed, setElapsed] = useState(0)
+  const [capabilities, setCapabilities] = useState<{
+    readonly tools: boolean
+    readonly vision: boolean
+    readonly thinking: boolean
+    readonly source: string
+  } | null>(null)
   const [menuThreadId, setMenuThreadId] = useState<string | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
@@ -525,6 +531,25 @@ export function AskPage(): React.JSX.Element {
       setActiveThreadId(updated[0].id)
     }
   }
+
+  // A visible clock while a turn runs. An agent turn reads files and can take
+  // 30s or more, and the previous static "analyzing" line made that look like a
+  // hang — which is exactly how it was reported.
+  useEffect(() => {
+    if (!thinking) return undefined
+
+    const started = Date.now()
+    // State is set only from the interval callback, never synchronously in the
+    // effect body — the latter triggers the cascading render the
+    // `react-hooks/set-state-in-effect` rule exists to prevent. The counter is
+    // reset when the next turn starts rather than when this one ends.
+    const timer = setInterval(() => {
+      setElapsed(Math.round((Date.now() - started) / 1000))
+    }, 1000)
+    return () => {
+      clearInterval(timer)
+    }
+  }, [thinking])
 
   // Dismissed on any outside click, so the menu cannot be left open over a row
   // it no longer belongs to. Registered only while a menu is open.
@@ -602,6 +627,7 @@ export function AskPage(): React.JSX.Element {
     saveThreads(updatedThreads)
     setInput('')
     setThinking(true)
+    setElapsed(0)
 
     const startTime = Date.now()
     const isForgeNative = selectedEngineId === 'forge-native-agent'
@@ -656,35 +682,27 @@ Instructions:
     })
 
     try {
-      // Agent mode gives the model real tools against this project. Plain chat
-      // stays the default: a tool-using turn costs several round trips, and most
-      // questions do not need one.
-      const res = agentMode
-        ? await window.forge.provider.agentTurn({
-            streamId,
-            projectId,
-            providerId: currentProvider?.id ?? 'ollama',
-            model: currentModel,
-            endpointUrl: currentProvider?.localUrl,
-            apiKey: currentProvider?.apiKey,
-            systemPrompt: `${systemPrompt}
+      // Always the agent path. Whether tools are actually sent is decided in
+      // main from the model's own reported capabilities, so a model without
+      // tool support degrades to a plain completion rather than failing — and
+      // nobody has to know in advance which of their models is which.
+      const res = await window.forge.provider.agentTurn({
+        streamId,
+        projectId,
+        providerId: currentProvider?.id ?? 'ollama',
+        model: currentModel,
+        endpointUrl: currentProvider?.localUrl,
+        apiKey: currentProvider?.apiKey,
+        systemPrompt: `${systemPrompt}
 
-You have tools for reading and changing this repository. Use them before
-answering anything about the code — read the file rather than guessing its
-contents. If a write is refused as out of scope, say so instead of working
-around it.`,
-            allowWrite: allowWrites,
-            messages: historyPayload,
-          })
-        : await window.forge.provider.chatStream({
-            streamId,
-            providerId: currentProvider?.id ?? 'ollama',
-            model: currentModel,
-            endpointUrl: currentProvider?.localUrl,
-            apiKey: currentProvider?.apiKey,
-            systemPrompt,
-            messages: historyPayload,
-          })
+If tools are available to you, use them before answering anything about this
+repository: read the file rather than guessing its contents, and list or search
+before assuming a path exists. If a write is refused as out of scope, say so
+rather than working around it.`,
+        messages: historyPayload,
+      })
+
+      if (res.ok) setCapabilities(res.value.capabilities)
 
       if (res.ok) thinkingText = res.value.reasoning
 
@@ -982,6 +1000,42 @@ around it.`,
                 ? `Forge Agent · ${currentProvider?.name ?? 'Ollama'} (${currentModel})`
                 : selectedEngineId}
             </Badge>
+            {/* What the model reported it can do, once a turn has asked. Shown
+                rather than offered as a choice: capability belongs to the model,
+                and a toggle let tools be enabled on one that has none. */}
+            {capabilities !== null && (
+              <div className="hidden items-center gap-1 lg:flex">
+                {capabilities.tools ? (
+                  <Badge tone="success" size="sm" className="text-[10px]">
+                    tools
+                  </Badge>
+                ) : (
+                  <Badge tone="warning" size="sm" className="text-[10px]">
+                    no tools — chat only
+                  </Badge>
+                )}
+                {capabilities.thinking && (
+                  <Badge tone="neutral" size="sm" className="text-[10px]">
+                    thinking
+                  </Badge>
+                )}
+                {capabilities.vision && (
+                  <Badge tone="neutral" size="sm" className="text-[10px]">
+                    vision
+                  </Badge>
+                )}
+                {capabilities.source !== 'reported' && (
+                  <Badge
+                    tone="neutral"
+                    size="sm"
+                    className="text-[10px]"
+                    title="Assumed, not reported by the provider"
+                  >
+                    {capabilities.source}
+                  </Badge>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -1086,6 +1140,12 @@ around it.`,
                       {liveReply.tools.map((line, index) => (
                         <div key={`${String(index)}-${line.slice(0, 24)}`}>{line}</div>
                       ))}
+                      {thinking && (
+                        <div className="mt-1 text-(--color-text-subtle)">
+                          <span className="animate-pulse">working…</span>
+                          {elapsed > 0 ? ` ${String(elapsed)}s` : ''}
+                        </div>
+                      )}
                     </div>
                   )}
                   {liveReply.content !== '' && (
@@ -1097,19 +1157,22 @@ around it.`,
               </div>
             )}
 
-            {thinking && liveReply?.content === '' && liveReply.reasoning === '' && (
-              <div className="flex items-center gap-2 px-10 text-[12px] italic text-(--color-text-muted)">
-                <span className="inline-flex gap-1">
-                  <span className="animate-bounce [animation-delay:0ms]">·</span>
-                  <span className="animate-bounce [animation-delay:150ms]">·</span>
-                  <span className="animate-bounce [animation-delay:300ms]">·</span>
-                </span>
-                <span>
-                  {activePersona?.label} is analyzing with Forge Agent (
-                  {currentProvider?.name ?? 'Ollama'} / {currentModel})...
-                </span>
-              </div>
-            )}
+            {thinking &&
+              liveReply?.content === '' &&
+              liveReply.reasoning === '' &&
+              liveReply.tools.length === 0 && (
+                <div className="flex items-center gap-2 px-10 text-[12px] italic text-(--color-text-muted)">
+                  <span className="inline-flex gap-1">
+                    <span className="animate-bounce [animation-delay:0ms]">·</span>
+                    <span className="animate-bounce [animation-delay:150ms]">·</span>
+                    <span className="animate-bounce [animation-delay:300ms]">·</span>
+                  </span>
+                  <span>
+                    {activePersona?.label} is working ({currentModel})
+                    {elapsed > 0 ? ` · ${String(elapsed)}s` : ''}
+                  </span>
+                </div>
+              )}
 
             <div ref={messagesEndRef} />
           </div>
@@ -1139,49 +1202,6 @@ around it.`,
                 className="h-10 text-[13px] pr-10 rounded-xl bg-(--color-surface) border-(--color-border)"
                 autoFocus
               />
-            </div>
-
-            {/* Agent mode: the model gets tools against this project.
-                Off by default — a tool-using turn is several round trips, and a
-                plain question does not need one. */}
-            <div className="flex shrink-0 items-center gap-2">
-              <button
-                type="button"
-                aria-pressed={agentMode}
-                onClick={() => {
-                  setAgentMode((current) => !current)
-                  // Writes never survive leaving agent mode: re-enabling tools
-                  // should not silently restore write access too.
-                  if (agentMode) setAllowWrites(false)
-                }}
-                title="Let the model read and search this repository with tools"
-                className={cn(
-                  'cursor-pointer rounded-lg border px-2 py-1 text-[11px] font-semibold',
-                  agentMode
-                    ? 'border-(--color-accent) bg-(--color-accent)/10 text-(--color-accent)'
-                    : 'border-(--color-border) text-(--color-text-muted) hover:text-(--color-text)',
-                )}
-              >
-                🛠 Tools
-              </button>
-              {agentMode && (
-                <button
-                  type="button"
-                  aria-pressed={allowWrites}
-                  onClick={() => {
-                    setAllowWrites((current) => !current)
-                  }}
-                  title="Allow the model to edit files in src/, docs/ and *.md"
-                  className={cn(
-                    'cursor-pointer rounded-lg border px-2 py-1 text-[11px] font-semibold',
-                    allowWrites
-                      ? 'border-(--color-warning) bg-(--color-warning)/10 text-(--color-warning)'
-                      : 'border-(--color-border) text-(--color-text-muted) hover:text-(--color-text)',
-                  )}
-                >
-                  {allowWrites ? '✎ Writes on' : '✎ Read-only'}
-                </button>
-              )}
             </div>
 
             {/* Engine selector (compact) */}

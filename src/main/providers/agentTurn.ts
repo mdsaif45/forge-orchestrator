@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { assessCommandPolicy, type Permissions } from '@shared/domain'
 import { runAgentLoop, type AgentLoopResult } from './agentLoop'
+import { cachedCapabilities, type ModelCapabilities } from './capabilities'
 import { completeWithTools } from './toolCompletion'
 import type { ToolContext } from './tools'
 
@@ -18,7 +19,6 @@ export interface AgentTurnRequest {
   readonly endpointUrl?: string | undefined
   readonly apiKey?: string | undefined
   readonly systemPrompt?: string | undefined
-  readonly allowWrite: boolean
   readonly repositoryPath: string
   readonly messages: readonly { readonly role: string; readonly content: string }[]
 }
@@ -26,6 +26,13 @@ export interface AgentTurnRequest {
 export interface AgentTurnEvent {
   readonly kind: 'reasoning' | 'content' | 'tool'
   readonly text: string
+}
+
+/** What the turn decided before it began, so a caller can report it. */
+export interface AgentTurnPlan {
+  readonly capabilities: ModelCapabilities
+  /** False when the model cannot call tools; the turn is plain chat instead. */
+  readonly usedTools: boolean
 }
 
 /** Long enough for a test suite, short enough that a hung command ends the turn. */
@@ -93,24 +100,58 @@ function makeCommandRunner(): NonNullable<ToolContext['runCommand']> {
     })
 }
 
+/**
+ * Where writes may land in a chat-driven turn.
+ *
+ * Source and documentation, not the whole tree. A chat turn carries no task
+ * declaring scope, so this is the standing scope for one, and it is
+ * deliberately not `**`.
+ */
+const CHAT_WRITE_SCOPE = ['src/**', 'docs/**', '*.md', '*.txt', '*.json'] as const
+
+/**
+ * Never writable, whatever the scope says.
+ *
+ * `.git` and `.env*` are not source; a lockfile is generated and hand-editing
+ * one produces an install that cannot be reproduced.
+ */
+const NEVER_WRITABLE = [
+  '**/.git/**',
+  '**/.env*',
+  '**/package-lock.json',
+  '**/*.lock',
+  '**/node_modules/**',
+] as const
+
 export async function runAgentTurn(
   request: AgentTurnRequest,
   onEvent: (event: AgentTurnEvent) => void,
-): Promise<AgentLoopResult> {
+): Promise<AgentLoopResult & { readonly plan: AgentTurnPlan }> {
+  // Asked of the provider, not of the user. A model without tool support gets a
+  // plain completion instead of definitions it cannot use, and nobody has to
+  // know in advance which of their models is which.
+  const capabilities = await cachedCapabilities({
+    providerId: request.providerId,
+    model: request.model,
+    endpointUrl: request.endpointUrl,
+    apiKey: request.apiKey,
+  })
+
   const tools: ToolContext = {
     workspacePath: request.repositoryPath,
-    // The whole repository is readable, and writes are confined to source.
-    // A chat turn has no task declaring scope, so this is the standing scope
-    // for one, and it is deliberately not `**`.
-    allowedPaths: request.allowWrite ? ['src/**', 'docs/**', '*.md'] : [],
-    // Never rewritten by an agent turn: lockfiles are generated, and .git and
-    // .env are not source at all.
-    forbiddenPaths: ['**/.git/**', '**/.env*', '**/package-lock.json', '**/node_modules/**'],
-    canWrite: request.allowWrite,
+    // Writes are on when the model can call tools at all. Safety is the scope
+    // and the forbidden list, not a button the user has to remember: a toggle
+    // put the question to the person least able to answer it, and a model
+    // without `tools` could be handed definitions it would fail on.
+    allowedPaths: [...CHAT_WRITE_SCOPE],
+    forbiddenPaths: [...NEVER_WRITABLE],
+    canWrite: capabilities.tools,
     runCommand: makeCommandRunner(),
   }
 
-  return runAgentLoop({
+  const plan: AgentTurnPlan = { capabilities, usedTools: capabilities.tools }
+
+  const result = await runAgentLoop({
     messages: [
       ...(request.systemPrompt === undefined || request.systemPrompt === ''
         ? []
@@ -130,11 +171,13 @@ export async function runAgentTurn(
           apiKey: request.apiKey,
         },
         messages,
-        toolDefinitions,
+        // A model that cannot call tools is sent none. Sending them anyway is
+        // how a turn breaks instead of degrading.
+        capabilities.tools ? toolDefinitions : [],
       ),
     onEvent: (event) => {
       if (event.kind === 'tool-start') {
-        onEvent({ kind: 'tool', text: `→ ${event.name} ${event.args}` })
+        onEvent({ kind: 'tool', text: `→ ${event.name} ${describeArgs(event.args)}` })
         return
       }
       if (event.kind === 'tool-end') {
@@ -147,4 +190,30 @@ export async function runAgentTurn(
       onEvent({ kind: 'content', text: event.text })
     },
   })
+
+  return { ...result, plan }
+}
+
+/**
+ * The interesting part of a tool's arguments, for the progress line.
+ *
+ * Raw JSON is unreadable at a glance, and `write_file` carries a whole file in
+ * `content` — printing that would bury the progress log in the very text the
+ * agent is writing.
+ */
+function describeArgs(args: string): string {
+  try {
+    const parsed: unknown = JSON.parse(args)
+    if (typeof parsed !== 'object' || parsed === null) return ''
+    const record = parsed as Record<string, unknown>
+
+    const primary = record.path ?? record.query ?? record.command
+    if (typeof primary !== 'string') return ''
+
+    const size =
+      typeof record.content === 'string' ? ` (${String(record.content.length)} chars)` : ''
+    return `${primary}${size}`
+  } catch {
+    return ''
+  }
 }

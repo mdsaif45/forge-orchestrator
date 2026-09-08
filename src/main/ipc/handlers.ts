@@ -411,7 +411,6 @@ export function createIpcHandlers({
       endpointUrl,
       apiKey,
       systemPrompt,
-      allowWrite,
       messages,
     }) => {
       const detail = await projects.get(projectId)
@@ -424,6 +423,7 @@ export function createIpcHandlers({
           rounds: 0,
           stoppedAtLimit: false,
           error: `Unknown project "${projectId}".`,
+          capabilities: { tools: false, vision: false, thinking: false, source: 'unreachable' },
         }
       }
 
@@ -434,7 +434,6 @@ export function createIpcHandlers({
           endpointUrl,
           apiKey,
           systemPrompt,
-          allowWrite,
           repositoryPath: detail.project.repository.absolutePath,
           messages,
         },
@@ -451,6 +450,7 @@ export function createIpcHandlers({
         rounds: result.rounds,
         stoppedAtLimit: result.stoppedAtLimit,
         error: result.error,
+        capabilities: result.plan.capabilities,
       }
     },
 

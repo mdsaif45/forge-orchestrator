@@ -113,7 +113,7 @@ function readToolCalls(raw: unknown): readonly ToolCall[] {
 export async function completeWithTools(
   request: ToolCompletionRequest,
   messages: readonly LoopMessage[],
-  tools: typeof TOOL_DEFINITIONS,
+  tools: readonly (typeof TOOL_DEFINITIONS)[number][],
   fetchImpl: typeof fetch = fetch,
 ): Promise<CompletionResult> {
   const ollama = isOllama(request)

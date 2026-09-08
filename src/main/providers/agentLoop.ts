@@ -49,7 +49,9 @@ export interface AgentLoopOptions {
   /** Asks the model for one completion, given the conversation so far. */
   readonly complete: (
     messages: readonly LoopMessage[],
-    tools: typeof TOOL_DEFINITIONS,
+    // A readonly list rather than the literal tuple type: a caller may send
+    // none, which is how a model without tool support degrades to plain chat.
+    tools: readonly (typeof TOOL_DEFINITIONS)[number][],
   ) => Promise<CompletionResult>
   /** Reports progress: a tool about to run, and what it returned. */
   readonly onEvent?: ((event: AgentLoopEvent) => void) | undefined

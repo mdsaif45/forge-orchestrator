@@ -927,8 +927,6 @@ export const IPC_CONTRACT = {
       endpointUrl: z.string().optional(),
       apiKey: z.string().optional(),
       systemPrompt: z.string().optional(),
-      /** False for a read-only turn, which refuses write_file outright. */
-      allowWrite: z.boolean(),
       messages: z
         .array(
           z.strictObject({
@@ -947,6 +945,19 @@ export const IPC_CONTRACT = {
       rounds: z.number().int().nonnegative(),
       stoppedAtLimit: z.boolean(),
       error: z.string().nullable(),
+      /**
+       * What the model was found to support, and how that was established.
+       *
+       * Reported so the UI can say "this model has no tools" instead of
+       * offering a toggle that would break the turn, and can distinguish a
+       * provider's answer from Forge's default.
+       */
+      capabilities: z.strictObject({
+        tools: z.boolean(),
+        vision: z.boolean(),
+        thinking: z.boolean(),
+        source: z.enum(['reported', 'assumed', 'unreachable']),
+      }),
     }),
   },
   'provider:chatStream': {

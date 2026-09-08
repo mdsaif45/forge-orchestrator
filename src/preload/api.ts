@@ -311,7 +311,6 @@ export interface ForgeApi {
       readonly endpointUrl?: string | undefined
       readonly apiKey?: string | undefined
       readonly systemPrompt?: string | undefined
-      readonly allowWrite: boolean
       readonly messages: readonly {
         readonly role: 'user' | 'assistant' | 'system'
         readonly content: string
@@ -325,6 +324,12 @@ export interface ForgeApi {
         readonly rounds: number
         readonly stoppedAtLimit: boolean
         readonly error: string | null
+        readonly capabilities: {
+          readonly tools: boolean
+          readonly vision: boolean
+          readonly thinking: boolean
+          readonly source: 'reported' | 'assumed' | 'unreachable'
+        }
       }>
     >
     /** The same call, streamed: chunks arrive on `onProviderChunk`. */

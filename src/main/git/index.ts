@@ -17,3 +17,8 @@ export {
   type StatusEntry,
   type StatusResult,
 } from './parse'
+export {
+  WorktreeService,
+  type PreparedWorktree,
+  type WorktreeServiceOptions,
+} from './worktreeService'

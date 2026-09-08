@@ -285,6 +285,43 @@ describe('permission mode', () => {
 
     expect(args[args.indexOf('--permission-mode') + 1]).toBe('plan')
   })
+
+  it('maps bypassPermissions to the flag this CLI actually has', async () => {
+    // `--permission-mode bypassPermissions` is not a value the CLI accepts; the
+    // equivalent is a differently named flag. Passing Forge's own vocabulary
+    // straight through would be a spawn-time failure rather than a graceful
+    // default — and this is the mode an unattended implementer now runs under
+    // (#173), so getting it wrong would break every writing step.
+    const args = await argsFor({
+      repositoryPath: 'd:/repo',
+      role: 'implementer',
+      permissionMode: 'bypassPermissions',
+    })
+
+    expect(args).toContain('--dangerously-skip-permissions')
+    expect(args).not.toContain('--permission-mode')
+  })
+
+  it('names the session when the caller supplies a resume key', async () => {
+    // Measured against the real CLI: a supplied --session-id is honoured exactly
+    // and --resume against it recalls the earlier turn. That is what a warm
+    // session across steps is built on (#167).
+    const args = await argsFor({
+      repositoryPath: 'd:/repo',
+      role: 'implementer',
+      resumeKey: { workflowId: 'wf-1', stepIndex: 0, iteration: 1 },
+    })
+
+    const id = args[args.indexOf('--session-id') + 1] ?? ''
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+  })
+
+  it('omits the session flag when no resume key is given', async () => {
+    // A caller with no identity to offer must not get an invented one: two runs
+    // would then share a conversation they were never meant to share.
+    const args = await argsFor({ repositoryPath: 'd:/repo', role: 'implementer' })
+    expect(args).not.toContain('--session-id')
+  })
 })
 
 describe('the result envelope', () => {

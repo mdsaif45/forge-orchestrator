@@ -3,6 +3,7 @@ import { z } from 'zod'
 import {
   evidenceArtifactSchema,
   testCountsSchema,
+  isTerminalWorkflowState,
   summariseEvidence,
   transition,
   workflowCheckpointSchema,
@@ -163,7 +164,7 @@ export class WorkflowStore {
         applyEvent(this.db, halted)
       }
 
-      if (result.to === 'DONE' || result.to === 'CANCELLED') {
+      if (isTerminalWorkflowState(result.to)) {
         const finished = this.events.append(
           {
             type: 'workflow.finished',

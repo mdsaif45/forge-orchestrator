@@ -405,6 +405,12 @@ describe('the liar scenario', () => {
       previousAttempt: null,
       completionCriteria: [],
       answeredQuestions: [],
+      // Both added to the packet after this test was written — `repositoryInstructions`
+      // by #145, `correction` by #135 — and neither reflected here, because nothing
+      // typechecked this file (#142). Null is right: this test reconciles a diff and
+      // exercises neither.
+      repositoryInstructions: null,
+      correction: null,
     })
 
     // Drain to the report.

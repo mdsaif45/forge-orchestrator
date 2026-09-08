@@ -15,6 +15,7 @@ import {
   Field,
   IconButton,
   Input,
+  MarkdownRenderer,
   ScrollArea,
   Select,
   Separator,
@@ -264,6 +265,15 @@ export function KitchenSink(): React.JSX.Element {
               </CodeBlock>
             </div>
           </Section>
+
+          <Section title="Markdown">
+            {/* The sample deliberately contains what a real local-model reply
+                contained when the old hand-rolled renderer dropped it: a GFM
+                table, two fenced blocks with different languages, a link, a
+                blockquote and a nested list. `check:ui` asserts against this,
+                so a regression fails a check rather than only looking wrong. */}
+            <MarkdownRenderer content={MARKDOWN_SAMPLE} />
+          </Section>
         </TabPanel>
 
         <TabPanel active={tab === 'overlays'}>
@@ -360,6 +370,38 @@ export function KitchenSink(): React.JSX.Element {
     </ScrollArea>
   )
 }
+
+/**
+ * Markdown that exercises every construct the previous renderer silently lost.
+ *
+ * Kept as a constant so `check:ui` can assert the rendered DOM against known
+ * input: a table that is a real table, fences whose language survives, and a
+ * link, blockquote and nested list that appear at all.
+ */
+const MARKDOWN_SAMPLE = [
+  '## Basic Information',
+  '',
+  '| Field | Value |',
+  '|-------|-------|',
+  '| Project Name | foldervault |',
+  '| Branch | main |',
+  '',
+  'Run this:',
+  '',
+  '```bash',
+  'git log --oneline | head -20',
+  '```',
+  '',
+  '```json',
+  '{ "scripts": { "start": "node src/entrypoint.js" } }',
+  '```',
+  '',
+  '- a bullet with `inline code`',
+  '  - a nested bullet',
+  '- [a link](https://example.com)',
+  '',
+  '> a blockquote',
+].join('\n')
 
 function Section({
   title,

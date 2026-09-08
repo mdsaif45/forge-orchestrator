@@ -24,3 +24,6 @@ node_modules/.tmp/
 scripts/build/
 playwright-report/
 test-results/
+audit-out/
+HANDOFF*.md
+run_graphify.py

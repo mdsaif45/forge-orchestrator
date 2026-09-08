@@ -136,8 +136,54 @@ export class RuntimeRegistry {
 export function runtimeExecutable(runtimeId: string): string {
   const KNOWN: Record<string, string> = {
     'claude-cli': 'claude',
+    'claude-cli-hosted': 'claude',
     'antigravity-cli': 'agy',
   }
 
   return KNOWN[runtimeId] ?? runtimeId
+}
+
+/**
+ * How a runtime is described in the UI.
+ *
+ * Here rather than in the renderer for two reasons that point the same way.
+ * A6 confines provider names to this directory and the lint rule enforces it, so
+ * a label keyed on `claude-cli` cannot live in a component. And the ids
+ * themselves name vendors, which this project does not put in the artifacts it
+ * produces — so a settings view needs something else to render, and inventing
+ * one there is how a pane ends up describing runtimes that do not exist.
+ *
+ * An unknown runtime returns null, and the caller shows the raw id: honest about
+ * being unrecognised rather than labelled by a guess.
+ */
+export interface RuntimeDescription {
+  readonly name: string
+  readonly summary: string
+}
+
+export function runtimeDescription(runtimeId: string): RuntimeDescription | null {
+  const KNOWN: Record<string, RuntimeDescription> = {
+    'claude-cli': {
+      name: 'Primary CLI (headless)',
+      summary:
+        'Spawned once per turn over stdin pipes, with its report parsed from stdout. The path most workflow runs still take.',
+    },
+    'claude-cli-hosted': {
+      name: 'Primary CLI (hosted)',
+      summary:
+        'The same CLI hosted as a live interactive session. Turn completion comes from the hook the CLI reports itself, not from reading the screen.',
+    },
+    'antigravity-cli': {
+      name: 'Secondary CLI (headless)',
+      summary:
+        'A second provider CLI, driven headless over pipes. Its workspace is established explicitly, and a pre-flight refusal is retryable rather than the agent failing.',
+    },
+    'mock:default': {
+      name: 'Mock runtime',
+      summary:
+        'Scripted output for tests and a first run. Produces no real work, and every step it touches is recorded as simulated.',
+    },
+  }
+
+  return KNOWN[runtimeId] ?? null
 }

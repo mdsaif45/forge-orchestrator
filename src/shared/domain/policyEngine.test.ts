@@ -1,10 +1,14 @@
+import type { z } from 'zod'
 import { describe, expect, it } from 'vitest'
 import { assessCommandPolicy, assessStepPolicy, formatPolicyHaltReason } from './policyEngine'
 import { agentBindingSchema, type AgentBinding } from './project'
 import { agentBindingIdSchema, repoPathSchema } from './ids'
 import type { AgentReport } from './runtime'
 
-function makeBinding(overrides: Partial<AgentBinding> = {}): AgentBinding {
+// `z.input`, not `Partial<AgentBinding>`: the overrides below set a partial
+// `permissions` object and rely on `parse` to fill the rest, which a shallow
+// `Partial` cannot express.
+function makeBinding(overrides: Partial<z.input<typeof agentBindingSchema>> = {}): AgentBinding {
   return agentBindingSchema.parse({
     id: agentBindingIdSchema.parse('a0000000-0000-4000-a000-000000000001'),
     role: 'implementer',

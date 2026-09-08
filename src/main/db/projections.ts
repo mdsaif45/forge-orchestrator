@@ -218,7 +218,12 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
 
   if (isType(event, 'workflow.halted')) {
     db.update(workflows)
-      .set({ state: event.payload.state, haltReason: event.payload.haltReason })
+      .set({
+        state: event.payload.state,
+        haltReason: event.payload.haltReason,
+        finishedAt: event.occurredAt,
+        checkpoint: null,
+      })
       .where(eq(workflows.id, event.payload.workflowId))
       .run()
     return

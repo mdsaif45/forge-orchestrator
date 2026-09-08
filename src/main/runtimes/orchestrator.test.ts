@@ -15,6 +15,7 @@ import {
   workflowIdSchema,
   workflowLimitsSchema,
   type ProjectId,
+  type ReviewOutcome,
   type TaskId,
   type WorkflowId,
 } from '@shared/domain'
@@ -186,7 +187,11 @@ function registryFor(scenario = SCENARIOS.fullRun): {
 }
 
 function runOptions(
-  registry: RuntimeRegistry,
+  // Unused: `run` resolves runtimes through the bindings, not the registry. Kept
+  // in the signature because 19 call sites read as `runOptions(registry,
+  // bindings)` alongside `orchestrator(registry)`, and dropping it would churn
+  // every one of them to remove an argument that documents the pairing.
+  _registry: RuntimeRegistry,
   bindings: BindingSet,
   overrides: Partial<Parameters<Orchestrator['run']>[0]> = {},
 ) {
@@ -549,7 +554,11 @@ describe('what stops a run', () => {
 
 describe('the review step decides nothing on its own (#36)', () => {
   /** A reviewer outcome the test controls, standing in for a parsed review report. */
-  function outcomeOf(verdict, overridden, corrections) {
+  function outcomeOf(
+    verdict: ReviewOutcome['verdict'],
+    overridden: boolean,
+    corrections: readonly string[],
+  ): ReviewOutcome {
     return {
       verdict,
       overridden,
@@ -745,6 +754,7 @@ describe('a provider limit is a named halt, not a step failure (#137)', () => {
     // verdict would read as the agent failing and spend a retry on something no retry can
     // clear — the account is spent, not the work.
     const limitScenario = {
+      name: 'providerLimitPlanner',
       description: 'A planner whose account has run out',
       capabilities: ['repo-read', 'plan'] as const,
       steps: [

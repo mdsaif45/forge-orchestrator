@@ -196,6 +196,7 @@ export { FORGE_DEFAULT_RULES, FORGE_DEFAULT_RULE_KEYS, type DefaultRule } from '
 
 export {
   agentReportSchema,
+  agentSessionKey,
   canHoldRole,
   hasDisqualifyingAssumptions,
   missingCapabilities,
@@ -301,6 +302,7 @@ export {
   SECURITY_AUDIT,
   templateStepSchema,
   TEMPLATES,
+  isTemplateId,
   TEST_COVERAGE,
   validateTemplate,
   workflowTemplateSchema,
@@ -343,3 +345,4 @@ export {
   permissionModeSchema,
   type PermissionMode,
 } from './permissionMode'
+export { permissionForRole, type RolePermission } from './rolePermission'

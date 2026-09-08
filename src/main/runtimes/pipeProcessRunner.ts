@@ -13,8 +13,8 @@ export interface PipeProcessRunnerOptions {
   readonly orphans?: OrphanTracker
 }
 
-const DEFAULT_IDLE_TIMEOUT_MS = 180_000
-const DEFAULT_HARD_TIMEOUT_MS = 900_000
+const DEFAULT_IDLE_TIMEOUT_MS = 600_000
+const DEFAULT_HARD_TIMEOUT_MS = 1_800_000
 
 /**
  * A `ProcessRunner` over pipes rather than a pty, for a turn that carries a prompt.
@@ -71,6 +71,13 @@ export function createPipeProcessRunner(options: PipeProcessRunnerOptions = {}):
       command: `${executable} ${args.join(' ')}`.trim(),
       startedAt: new Date().toISOString(),
     })
+
+    // Published so a pane can attach to the real run (#170). Neither `write` nor
+    // `resize` is offered: this runner sends the prompt on stdin and closes it, and
+    // a pipe has no window size. Declaring the absence lets a caller show "this
+    // session cannot take input" instead of accepting text that goes nowhere —
+    // which is the defect the dead input box in the workflow pane already was.
+    runOptions.onProcess?.({})
 
     let stdout = ''
     let stderr = ''

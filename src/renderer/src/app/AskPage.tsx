@@ -24,6 +24,14 @@ export interface ChatMessage {
   readonly modelName?: string | undefined
   /** Elapsed time label for the response (e.g. "Taken 60s ago") */
   readonly elapsed?: string | undefined
+  /**
+   * The model's visible reasoning, kept apart from the answer.
+   *
+   * Stored separately rather than left inline: a model that emits `<think>`
+   * blocks would otherwise bake them into the saved message, where the answer
+   * and the working-out can no longer be told apart.
+   */
+  readonly reasoning?: string | undefined
 }
 
 export interface ChatThread {
@@ -31,6 +39,10 @@ export interface ChatThread {
   readonly title: string
   readonly createdAt: string
   readonly messages: readonly ChatMessage[]
+  /** Pinned threads sort above everything else, whatever the sort order. */
+  readonly pinned?: boolean | undefined
+  /** Archived threads are hidden from the list without being destroyed. */
+  readonly archived?: boolean | undefined
   readonly personaId: string
 }
 
@@ -98,6 +110,75 @@ const BUILTIN_PERSONAS: readonly PersonaOption[] = [
     defaultRole: 'debugger',
   },
 ]
+
+/** One row of the per-thread action menu. */
+function ThreadMenuItem({
+  label,
+  onSelect,
+  danger = false,
+}: {
+  readonly label: string
+  readonly onSelect: (event: React.MouseEvent) => void
+  readonly danger?: boolean
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        'block w-full cursor-pointer px-3 py-1.5 text-left text-[11px] hover:bg-(--color-surface-inset)',
+        danger ? 'text-(--color-danger)' : 'text-(--color-text)',
+      )}
+    >
+      {label}
+    </button>
+  )
+}
+
+/**
+ * A model's visible reasoning, collapsed by default once the reply has landed.
+ *
+ * Open while streaming so the working-out can be watched live, then closed so
+ * the transcript stays readable — the reasoning is usually far longer than the
+ * answer, and leaving it expanded buries the part that was asked for.
+ */
+function ThinkingBlock({
+  text,
+  streaming = false,
+}: {
+  readonly text: string
+  readonly streaming?: boolean
+}): React.JSX.Element {
+  const [open, setOpen] = useState(streaming)
+
+  return (
+    <div className="rounded-lg border border-(--color-border) bg-(--color-surface-inset)">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((current) => !current)
+        }}
+        aria-expanded={open}
+        className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-[11px] text-(--color-text-muted) hover:text-(--color-text)"
+      >
+        <span className={streaming ? 'animate-pulse' : ''}>💭</span>
+        <span className="font-semibold">Thinking</span>
+        {streaming && <span className="italic">…</span>}
+        <span className="ml-auto font-mono text-[10px] text-(--color-text-subtle)">
+          {open ? 'hide' : `${String(text.length)} chars`}
+        </span>
+      </button>
+      {open && (
+        <div
+          className="max-h-64 overflow-y-auto border-t border-(--color-border) px-3 py-2 text-[11px] leading-relaxed whitespace-pre-wrap text-(--color-text-muted)"
+          data-selectable
+        >
+          {text}
+        </div>
+      )}
+    </div>
+  )
+}
 
 /**
  * Copies one message's markdown source.
@@ -339,6 +420,22 @@ export function AskPage(): React.JSX.Element {
   const [activeThreadId, setActiveThreadId] = useState<string>(threads[0]?.id ?? 'thread-1')
   const [input, setInput] = useState('')
   const [thinking, setThinking] = useState(false)
+  /**
+   * The reply currently arriving, before it becomes a saved message.
+   *
+   * Held outside the thread so a partial answer is never persisted: an
+   * interrupted stream leaves the transcript unchanged rather than storing half
+   * a message that reads as complete.
+   */
+  const [menuThreadId, setMenuThreadId] = useState<string | null>(null)
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
+  const [liveReply, setLiveReply] = useState<{
+    readonly streamId: string
+    readonly content: string
+    readonly reasoning: string
+  } | null>(null)
 
   const activeThread = threads.find((t) => t.id === activeThreadId) ?? threads[0]
   const messages = activeThread?.messages ?? []
@@ -397,6 +494,50 @@ export function AskPage(): React.JSX.Element {
     if (activeThreadId === threadId && updated[0]) {
       setActiveThreadId(updated[0].id)
     }
+  }
+
+  // Dismissed on any outside click, so the menu cannot be left open over a row
+  // it no longer belongs to. Registered only while a menu is open.
+  useEffect(() => {
+    if (menuThreadId === null) return undefined
+    const close = (): void => {
+      setMenuThreadId(null)
+    }
+    // Capture phase, so a click on another row's trigger still toggles that one
+    // rather than being swallowed by this listener.
+    window.addEventListener('click', close, { capture: true })
+    return () => {
+      window.removeEventListener('click', close, { capture: true })
+    }
+  }, [menuThreadId])
+
+  /** Applies one change to one thread and persists the result. */
+  const updateThread = (threadId: string, change: Partial<ChatThread>): void => {
+    saveThreads(threads.map((t) => (t.id === threadId ? { ...t, ...change } : t)))
+  }
+
+  const handleTogglePin = (thread: ChatThread): void => {
+    updateThread(thread.id, { pinned: thread.pinned !== true })
+  }
+
+  const handleToggleArchive = (thread: ChatThread): void => {
+    const archived = thread.archived !== true
+    updateThread(thread.id, { archived, ...(archived ? { pinned: false } : {}) })
+
+    // Archiving the open thread would leave the transcript showing something the
+    // list no longer offers, so move to the first thread still visible.
+    if (archived && activeThreadId === thread.id) {
+      const next = threads.find((t) => t.id !== thread.id && t.archived !== true)
+      if (next !== undefined) setActiveThreadId(next.id)
+    }
+  }
+
+  const handleRenameThread = (thread: ChatThread): void => {
+    const title = renameDraft.trim()
+    // An empty title would leave an unidentifiable row; keeping the old one is
+    // the honest outcome of a cancelled rename.
+    if (title !== '') updateThread(thread.id, { title })
+    setRenamingId(null)
   }
 
   const handleSend = async (queryText?: string): Promise<void> => {
@@ -459,9 +600,26 @@ Instructions:
       }))
 
     let answer = ''
+    let thinkingText = ''
+
+    // Streamed, so the reply appears as it is produced. Filtered by streamId
+    // because chunks are broadcast to every window and two replies can overlap.
+    const streamId = `s-${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`
+    setLiveReply({ streamId, content: '', reasoning: '' })
+
+    const unsubscribe = window.forge.onProviderChunk((chunk) => {
+      if (chunk.streamId !== streamId) return
+      setLiveReply((current) => {
+        if (current?.streamId !== streamId) return current
+        return chunk.kind === 'reasoning'
+          ? { ...current, reasoning: current.reasoning + chunk.text }
+          : { ...current, content: current.content + chunk.text }
+      })
+    })
 
     try {
-      const res = await window.forge.provider.chat({
+      const res = await window.forge.provider.chatStream({
+        streamId,
         providerId: currentProvider?.id ?? 'ollama',
         model: currentModel,
         endpointUrl: currentProvider?.localUrl,
@@ -469,6 +627,8 @@ Instructions:
         systemPrompt,
         messages: historyPayload,
       })
+
+      if (res.ok) thinkingText = res.value.reasoning
 
       if (res.ok && res.value.ok && res.value.content.trim() !== '') {
         answer = res.value.content
@@ -478,6 +638,11 @@ Instructions:
     } catch (err) {
       console.error('Chat error:', err)
       answer = `⚠️ **Connection Error**:\n\nCould not reach ${activeModelLabel}. Please verify that the provider service is running.`
+    } finally {
+      // Unsubscribed in `finally` so a thrown request cannot leave a listener
+      // attached, accumulating a second copy of the next reply.
+      unsubscribe()
+      setLiveReply(null)
     }
 
     // Fallback if empty
@@ -498,6 +663,7 @@ Instructions:
       text: answer,
       timestamp: responseTime.toLocaleTimeString(),
       elapsed: `Taken ${String(elapsedSeconds)}s`,
+      ...(thinkingText.trim() === '' ? {} : { reasoning: thinkingText }),
     }
 
     const finalMessages = [...updatedMessages, assistantMsg]
@@ -514,14 +680,22 @@ Instructions:
   // Filtered and sorted threads
   const filteredThreads = threads
     .filter((t) => {
+      // Archived threads stay out of the list unless the archive is being shown,
+      // and a search still reaches them there rather than hiding them twice.
+      if (t.archived === true && !showArchived) return false
       if (searchQuery.trim() === '') return true
       return t.title.toLowerCase().includes(searchQuery.toLowerCase())
     })
     .slice()
     .sort((a, b) => {
+      // Pinned first, regardless of the chosen order — that is what pinning is
+      // for, and applying the sort to it would make the pin do nothing.
+      if ((a.pinned === true) !== (b.pinned === true)) return a.pinned === true ? -1 : 1
       if (sortOrder === 'newest') return b.id.localeCompare(a.id)
       return a.id.localeCompare(b.id)
     })
+
+  const archivedCount = threads.filter((t) => t.archived === true).length
 
   if (project === null) {
     return (
@@ -586,56 +760,130 @@ Instructions:
           <div className="space-y-0.5">
             {filteredThreads.map((thread) => {
               const isCurrent = thread.id === activeThreadId
+              const isRenaming = renamingId === thread.id
+
               return (
-                <button
+                // A div, not a button: the row carries its own action buttons,
+                // and a button nested inside a button is invalid markup that
+                // browsers resolve unpredictably.
+                <div
                   key={thread.id}
-                  type="button"
-                  onClick={() => {
-                    setActiveThreadId(thread.id)
-                  }}
                   className={cn(
-                    'group flex w-full items-start justify-between rounded-lg px-2.5 py-2 text-left cursor-pointer transition-colors',
+                    'group relative flex w-full items-start justify-between rounded-lg px-2.5 py-2 transition-colors',
                     isCurrent
                       ? 'bg-(--color-accent)/10 text-(--color-accent)'
-                      : 'hover:bg-(--color-surface-raised) text-(--color-text-muted) hover:text-(--color-text)',
+                      : 'text-(--color-text-muted) hover:bg-(--color-surface-raised) hover:text-(--color-text)',
                   )}
                 >
-                  <div className="truncate pr-1.5">
-                    <div
-                      className={cn(
-                        'truncate text-[12px]',
-                        isCurrent ? 'font-semibold' : 'font-medium',
-                      )}
-                    >
-                      {thread.title}
-                    </div>
-                    <div className="text-[10px] font-mono text-(--color-text-subtle) mt-0.5">
-                      {thread.messages.length > 1
-                        ? `${String(thread.messages.length)} msgs`
-                        : '1 msg'}{' '}
-                      · {thread.createdAt}
-                    </div>
-                  </div>
-                  {threads.length > 1 && (
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      onClick={(e) => {
-                        handleDeleteThread(thread.id, e)
+                  {isRenaming ? (
+                    <Input
+                      autoFocus
+                      value={renameDraft}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                        setRenameDraft(e.target.value)
                       }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleDeleteThread(thread.id, e as never)
+                      onBlur={() => {
+                        handleRenameThread(thread)
                       }}
-                      className="opacity-0 group-hover:opacity-100 text-(--color-danger) hover:text-(--color-danger) p-0.5 text-[11px] mt-0.5 cursor-pointer shrink-0"
-                      title="Delete thread"
-                    >
-                      ✕
-                    </span>
+                      onKeyDown={(e: React.KeyboardEvent) => {
+                        if (e.key === 'Enter') handleRenameThread(thread)
+                        // Escape abandons the edit, leaving the old title.
+                        if (e.key === 'Escape') setRenamingId(null)
+                      }}
+                      className="h-7 text-[12px]"
+                    />
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveThreadId(thread.id)
+                        }}
+                        className="min-w-0 flex-1 cursor-pointer truncate pr-1.5 text-left"
+                      >
+                        <div
+                          className={cn(
+                            'truncate text-[12px]',
+                            isCurrent ? 'font-semibold' : 'font-medium',
+                          )}
+                        >
+                          {thread.pinned === true && <span className="mr-1">📌</span>}
+                          {thread.archived === true && <span className="mr-1">🗄️</span>}
+                          {thread.title}
+                        </div>
+                        <div className="mt-0.5 font-mono text-[10px] text-(--color-text-subtle)">
+                          {thread.messages.length > 1
+                            ? `${String(thread.messages.length)} msgs`
+                            : '1 msg'}{' '}
+                          · {thread.createdAt}
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        aria-label="Thread actions"
+                        onClick={() => {
+                          setMenuThreadId((current) => (current === thread.id ? null : thread.id))
+                        }}
+                        className="shrink-0 cursor-pointer px-1 text-[13px] opacity-0 group-hover:opacity-100 hover:text-(--color-text)"
+                      >
+                        ⋯
+                      </button>
+                    </>
                   )}
-                </button>
+
+                  {menuThreadId === thread.id && (
+                    <div className="absolute top-8 right-1 z-20 w-36 overflow-hidden rounded-lg border border-(--color-border) bg-(--color-surface-raised) shadow-lg">
+                      <ThreadMenuItem
+                        label={thread.pinned === true ? 'Unpin' : 'Pin'}
+                        onSelect={() => {
+                          handleTogglePin(thread)
+                          setMenuThreadId(null)
+                        }}
+                      />
+                      <ThreadMenuItem
+                        label="Rename"
+                        onSelect={() => {
+                          setRenameDraft(thread.title)
+                          setRenamingId(thread.id)
+                          setMenuThreadId(null)
+                        }}
+                      />
+                      <ThreadMenuItem
+                        label={thread.archived === true ? 'Unarchive' : 'Archive'}
+                        onSelect={() => {
+                          handleToggleArchive(thread)
+                          setMenuThreadId(null)
+                        }}
+                      />
+                      {threads.length > 1 && (
+                        <ThreadMenuItem
+                          label="Delete"
+                          danger
+                          onSelect={(e) => {
+                            handleDeleteThread(thread.id, e)
+                            setMenuThreadId(null)
+                          }}
+                        />
+                      )}
+                    </div>
+                  )}
+                </div>
               )
             })}
           </div>
+
+          {archivedCount > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setShowArchived((current) => !current)
+              }}
+              className="mt-2 w-full cursor-pointer px-2.5 py-1 text-left text-[10px] text-(--color-text-subtle) hover:text-(--color-text)"
+            >
+              {showArchived ? 'Hide' : 'Show'} archived ({archivedCount})
+            </button>
+          )}
         </ScrollArea>
 
         {/* Bottom controls: Persona selector */}
@@ -732,6 +980,9 @@ Instructions:
                             makes it reusable somewhere else. */}
                         <CopyTextButton text={msg.text} />
                       </div>
+                      {msg.reasoning !== undefined && msg.reasoning !== '' && (
+                        <ThinkingBlock text={msg.reasoning} />
+                      )}
                       <div className="prose-container text-[13px] leading-relaxed text-(--color-text)">
                         <MarkdownRenderer content={msg.text} />
                       </div>
@@ -753,8 +1004,26 @@ Instructions:
               </div>
             ))}
 
-            {thinking && (
-              <div className="flex items-center gap-2 text-[12px] text-(--color-text-muted) italic px-10">
+            {/* The reply as it arrives. The dots alone said only "something is
+                happening"; the text says what, and whether the model is making
+                progress or stuck. */}
+            {liveReply !== null && (
+              <div className="flex gap-3 px-10">
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  {liveReply.reasoning !== '' && (
+                    <ThinkingBlock text={liveReply.reasoning} streaming />
+                  )}
+                  {liveReply.content !== '' && (
+                    <div className="text-[13px] leading-relaxed text-(--color-text)">
+                      <MarkdownRenderer content={liveReply.content} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {thinking && liveReply?.content === '' && liveReply.reasoning === '' && (
+              <div className="flex items-center gap-2 px-10 text-[12px] italic text-(--color-text-muted)">
                 <span className="inline-flex gap-1">
                   <span className="animate-bounce [animation-delay:0ms]">·</span>
                   <span className="animate-bounce [animation-delay:150ms]">·</span>

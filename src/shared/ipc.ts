@@ -624,6 +624,29 @@ export const IPC_CONTRACT = {
             /** False when concurrent sessions of this runtime share one account (#111). */
             supportsAccountIsolation: z.boolean(),
             capabilities: z.array(z.string()).readonly(),
+            /**
+             * The CLI this runtime drives, or null for one that spawns nothing.
+             *
+             * Reported so a settings view can name what it would run instead of
+             * inventing a plausible command.
+             */
+            executable: z.string().nullable(),
+            /**
+             * Whether that executable actually resolves on PATH right now.
+             *
+             * Measured per call rather than cached: the answer changes when a user
+             * installs a CLI, and a stale "available" is the kind of claim this
+             * project exists to refuse (A3). Null when there is nothing to resolve.
+             */
+            available: z.boolean().nullable(),
+            /**
+             * A display name and one-line summary, resolved in main.
+             *
+             * Sent rather than derived in the renderer because the ids name
+             * providers, and A6 confines those names to `src/main/runtimes`. Null
+             * for a runtime with no mapping, which the caller renders as its raw id.
+             */
+            label: z.strictObject({ name: z.string(), summary: z.string() }).nullable(),
           }),
         )
         .readonly(),

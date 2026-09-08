@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ProcessManager } from './processManager'
+import { isCommandAvailable, ProcessManager } from './processManager'
 import { buildChildEnv, isSecretEnvName, redactOutput, stripAnsi, withheldEnvNames } from './redact'
 
 const ESC = '\u001B'
@@ -627,5 +627,26 @@ describe('terminal control sequences', () => {
     const outcome = await handle.completed
 
     expect(outcome.output).toMatch(/git version/i)
+  })
+})
+
+describe('isCommandAvailable', () => {
+  it('finds a command that really is on PATH', () => {
+    // `node` is running this test, so it is present by construction — a fixture
+    // that cannot be wrong about the environment it asserts against.
+    expect(isCommandAvailable('node')).toBe(true)
+  })
+
+  it('reports a missing command as missing rather than resolving it', () => {
+    // The distinction `resolveCommand` cannot make: it returns the bare name as a
+    // fallback so a spawn fails visibly at the OS layer, which means a caller
+    // that wants to *report* availability cannot read its return value. A settings
+    // pane once claimed `primary-engine` was "verified and reachable" without ever
+    // checking; this is the check that makes the claim real (A3).
+    expect(isCommandAvailable('forge-definitely-not-a-real-command')).toBe(false)
+  })
+
+  it('accepts an explicit path without searching PATH', () => {
+    expect(isCommandAvailable(process.execPath)).toBe(true)
   })
 })

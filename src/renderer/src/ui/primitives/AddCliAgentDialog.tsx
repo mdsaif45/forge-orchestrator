@@ -6,6 +6,19 @@ import { Field } from './Field'
 import { Input, Textarea } from './Input'
 import { Select } from './Select'
 
+/**
+ * What this dialog collects for a user-supplied coding CLI.
+ *
+ * Currently has no consumer: the Settings list it used to feed was a hardcoded
+ * array in browser storage, and that list now reads the real runtime registry.
+ * Nothing behind this can turn a user-supplied command into a runtime yet —
+ * every registered adapter is constructed in `src/main/index.ts`.
+ *
+ * Kept rather than deleted because the capability is wanted, and tracked as
+ * #174, which adds the data-configured runtime this writes to. `status` in
+ * particular does not survive that change: availability is measured by
+ * `runtime:list`, not declared by whoever filled in the form.
+ */
 export interface CliAgentConfig {
   readonly id: string
   readonly name: string

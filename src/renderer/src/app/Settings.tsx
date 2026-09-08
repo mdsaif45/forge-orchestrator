@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { EffectiveRuleView, ProjectDetail } from '@shared/ipc'
 import {
-  AddCliAgentDialog,
   AddMcpServerDialog,
   AddProviderDialog,
   Badge,
@@ -10,7 +9,6 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  type CliAgentConfig,
   type CustomProviderConfig,
   Dialog,
   EmptyState,
@@ -28,6 +26,7 @@ import {
   useTheme,
   useToast,
 } from '../ui'
+import { unwrap } from '@renderer/ipc'
 import { DeleteProjectDialog } from './DeleteProjectDialog'
 import { EditProjectDialog } from './EditProjectDialog'
 import { CloseIcon } from './icons'
@@ -556,16 +555,7 @@ export function SettingsContent(): React.JSX.Element {
                   />
                 )}
 
-                {selection.globalTab === 'cli-agents' && (
-                  <CliAgentsGlobalSettings
-                    activeLlmProviderName={
-                      providers.find((p) => p.id === activeProviderId)?.name ?? 'OpenAI'
-                    }
-                    activeLlmModelName={
-                      providers.find((p) => p.id === activeProviderId)?.activeModel ?? 'default'
-                    }
-                  />
-                )}
+                {selection.globalTab === 'cli-agents' && <CliAgentsGlobalSettings />}
 
                 {selection.globalTab === 'providers' && (
                   <AIProvidersSettings
@@ -1178,304 +1168,234 @@ function GeneralGlobalSettings({
     </div>
   )
 }
-
 /* =========================================================================
    CLI AGENTS & AUTONOMOUS RUNTIMES
    ========================================================================= */
 
-const DEFAULT_CLI_AGENTS: readonly CliAgentConfig[] = [
-  {
-    id: 'forge-native-agent',
-    name: 'Forge Native Agent',
-    command: 'internal (built-in)',
-    description:
-      'Forge built-in autonomous orchestrator equipped with sandbox tools (AST file editor, terminal runner, planning extractors, and closed-loop verification). Powered internally by your active LLM provider.',
-    capabilities: ['repo-read', 'file-write', 'terminal', 'plan', 'review', 'verify'],
-    permissionMode: 'developer',
-    isBuiltin: true,
-    status: 'ready',
-  },
-  {
-    id: 'primary-cli-engine',
-    name: 'Primary CLI Engine',
-    command: 'primary-engine',
-    description:
-      'Autonomous terminal coding agent adapter driven through isolated subprocess pipes with permission-mode sandboxing and account isolation.',
-    capabilities: ['repo-read', 'file-write', 'terminal', 'plan', 'review'],
-    permissionMode: 'developer',
-    argsTemplate: '-p --output-format json --permission-mode developer',
-    isBuiltin: true,
-    status: 'detected',
-  },
-  {
-    id: 'secondary-cli-engine',
-    name: 'Secondary CLI Engine',
-    command: 'secondary-engine',
-    description:
-      'Multi-agent reasoning and architectural design engine executing in worktree sandboxes.',
-    capabilities: ['repo-read', 'file-write', 'terminal', 'plan', 'review'],
-    permissionMode: 'developer',
-    argsTemplate: '--output-format json',
-    isBuiltin: true,
-    status: 'detected',
-  },
-  {
-    id: 'opencode-cli',
-    name: 'OpenCode CLI',
-    command: 'opencode',
-    description:
-      'Open-source terminal-based AI coding assistant supporting multi-step repository refactoring.',
-    capabilities: ['repo-read', 'file-write', 'terminal'],
-    permissionMode: 'developer',
-    argsTemplate: '--format json --auto-approve',
-    isBuiltin: false,
-    status: 'configured',
-  },
-]
+interface RuntimeRow {
+  readonly id: string
+  readonly simulated: boolean
+  readonly supportsAccountIsolation: boolean
+  readonly capabilities: readonly string[]
+  readonly executable: string | null
+  readonly available: boolean | null
+  /**
+   * Resolved in main, not here: the ids name providers, and A6 keeps those names
+   * out of the renderer (the lint rule rejects them outright). Null means main
+   * had no mapping, and the raw id is shown instead of a guess.
+   */
+  readonly label: { readonly name: string; readonly summary: string } | null
+}
 
-function CliAgentsGlobalSettings({
-  activeLlmProviderName,
-  activeLlmModelName,
-}: {
-  readonly activeLlmProviderName: string
-  readonly activeLlmModelName: string
-}): React.JSX.Element {
+/**
+ * The runtimes the running app has actually registered.
+ *
+ * This used to render a hardcoded array kept in `localStorage`, with fabricated
+ * "Connected" badges and a Verify button that reported success after a 600ms
+ * timer without spawning anything. None of its ids existed in the registry, and
+ * two of its commands (`primary-engine`, `secondary-engine`) are not programs.
+ * A pane claiming a CLI is reachable without having checked is the same
+ * unverified claim Forge exists to catch in agents (A3), so the list, the status
+ * and the executable now all come from `runtime:list`.
+ */
+function CliAgentsGlobalSettings(): React.JSX.Element {
   const { show } = useToast()
-  const [agents, setAgents] = useState<readonly CliAgentConfig[]>(() => {
-    const saved = localStorage.getItem('forge.cli_agents')
-    if (saved) {
-      try {
-        return JSON.parse(saved) as CliAgentConfig[]
-      } catch {
-        // fallback
-      }
-    }
-    return DEFAULT_CLI_AGENTS
-  })
+  const [runtimes, setRuntimes] = useState<readonly RuntimeRow[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
 
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
-  const [checkingAgentId, setCheckingAgentId] = useState<string | null>(null)
+  /**
+   * State is set from the promise's callbacks, never synchronously in the body.
+   *
+   * Matches the pattern the other pages use, and it is what the
+   * `react-hooks/set-state-in-effect` rule requires: a `setRefreshing(true)`
+   * before the await runs during the mount effect and triggers the cascading
+   * render the rule exists to prevent.
+   */
+  const load = useCallback(
+    (announce: boolean): void => {
+      window.forge.runtime
+        .list()
+        .then((res) => {
+          const result = unwrap(res)
+          setRuntimes(result.runtimes)
+          setError(null)
+          setRefreshing(false)
+          if (announce) {
+            const reachable = result.runtimes.filter((entry) => entry.available === true).length
+            show({
+              tone: 'success',
+              title: 'Re-checked the registered runtimes',
+              description: `${String(reachable)} of ${String(result.runtimes.length)} have an executable on PATH.`,
+            })
+          }
+        })
+        .catch((err: unknown) => {
+          setError(err instanceof Error ? err.message : String(err))
+          setRefreshing(false)
+        })
+    },
+    [show],
+  )
 
-  const saveAgents = (updated: readonly CliAgentConfig[]): void => {
-    setAgents(updated)
-    localStorage.setItem('forge.cli_agents', JSON.stringify(updated))
-  }
-
-  const handleAddAgent = (newAgent: CliAgentConfig): void => {
-    const updated = [...agents, newAgent]
-    saveAgents(updated)
-    show({
-      tone: 'success',
-      title: `Added CLI Agent "${newAgent.name}"`,
-      description: `Command: ${newAgent.command}`,
-    })
-  }
-
-  const handleDeleteAgent = (agentId: string): void => {
-    const target = agents.find((a) => a.id === agentId)
-    if (!target) return
-    const updated = agents.filter((a) => a.id !== agentId)
-    saveAgents(updated)
-    show({
-      tone: 'neutral',
-      title: `Removed CLI Agent "${target.name}"`,
-    })
-  }
-
-  const handleCheckBinary = (agent: CliAgentConfig): void => {
-    setCheckingAgentId(agent.id)
-    setTimeout(() => {
-      setCheckingAgentId(null)
-      show({
-        tone: 'success',
-        title: `CLI Runtime Ready: ${agent.name}`,
-        description:
-          agent.isBuiltin && agent.id === 'forge-native-agent'
-            ? `Internal tools ready. Utilizing ${activeLlmProviderName} (${activeLlmModelName}).`
-            : `Executable "${agent.command}" is verified and reachable.`,
-      })
-    }, 600)
-  }
-
-  const handleResetDefaults = (): void => {
-    saveAgents(DEFAULT_CLI_AGENTS)
-    show({
-      tone: 'neutral',
-      title: 'Reset to default CLI agent runtimes',
-    })
-  }
+  useEffect(() => {
+    load(false)
+  }, [load])
 
   return (
     <div className="grid gap-6">
-      {/* Header */}
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-[18px] font-bold text-(--color-text)">
-              CLI Agents & Autonomous Runtimes
+              CLI Agents &amp; Autonomous Runtimes
             </h1>
             <Badge tone="accent" size="sm" className="rounded-full">
-              {agents.length} Runtimes
+              {runtimes === null ? '—' : `${String(runtimes.length)} Registered`}
             </Badge>
           </div>
           <p className="mt-1 text-[12px] text-(--color-text-muted)">
-            Autonomous terminal engines and internal harnesses capable of planning, file
-            modifications, and test execution.
+            Every runtime the running app has registered, read from the registry itself. A role is
+            bound to one of these on the Agents page.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={handleResetDefaults}
-            className="text-[12px] text-(--color-text-muted)"
-          >
-            Reset Defaults
-          </Button>
-          <Button
-            size="sm"
-            variant="primary"
-            onClick={() => {
-              setIsAddDialogOpen(true)
-            }}
-            className="rounded-lg text-[12px]"
-          >
-            + Add CLI Agent
-          </Button>
-        </div>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={refreshing}
+          onClick={() => {
+            setRefreshing(true)
+            load(true)
+          }}
+          className="rounded-lg text-[12px]"
+        >
+          {refreshing ? (
+            <span className="flex items-center gap-1">
+              <Spinner size="sm" />
+              Checking...
+            </span>
+          ) : (
+            'Re-check PATH'
+          )}
+        </Button>
       </div>
 
-      {/* Forge Native Agent Architecture Info Banner */}
-      <Card tone="raised" className="border-(--color-accent)/50 bg-(--color-surface-raised) p-4">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="text-[13px] font-bold text-(--color-text)">
-                🛠️ Forge Native Agent Architecture
-              </span>
-              <Badge tone="accent" size="sm">
-                Built-in
-              </Badge>
-            </div>
-            <p className="m-0 text-[12px] text-(--color-text-muted)">
-              Forge Native Agent equips your configured <strong>LLM Provider</strong> (currently{' '}
-              <span className="font-mono font-semibold text-(--color-accent)">
-                {activeLlmProviderName} / {activeLlmModelName}
-              </span>
-              ) with built-in tool execution: AST file editing, terminal commands, and closed-loop
-              verification.
-            </p>
-          </div>
-        </div>
-      </Card>
+      {error !== null && (
+        <Card tone="raised" className="border-(--color-danger)/50 p-4">
+          <p className="m-0 text-[12px] text-(--color-danger)">
+            Could not read the runtime registry: {error}
+          </p>
+        </Card>
+      )}
 
-      {/* Agents List */}
+      {runtimes !== null && runtimes.some((runtime) => runtime.simulated) && (
+        <Card tone="raised" className="border-(--color-warning)/50 p-4">
+          <p className="m-0 text-[12px] text-(--color-text-muted)">
+            A <strong>simulated</strong> runtime produces scripted output, not real work. It stays
+            registered so a fresh install can run at all, and any step it handles is recorded as
+            simulated so its output is never mistaken for a verified result.
+          </p>
+        </Card>
+      )}
+
       <section className="grid gap-3">
-        <h2 className="text-[13px] font-semibold text-(--color-text)">Configured CLI Runtimes</h2>
+        <h2 className="text-[13px] font-semibold text-(--color-text)">Registered runtimes</h2>
+
+        {runtimes === null && error === null && (
+          <div className="flex items-center gap-2 text-[12px] text-(--color-text-muted)">
+            <Spinner size="sm" />
+            Reading the registry...
+          </div>
+        )}
+
+        {runtimes !== null && runtimes.length === 0 && (
+          <EmptyState
+            title="No runtimes registered"
+            description="The running app registered no agent runtimes, so no role can be bound. That is a wiring fault rather than a setting."
+          />
+        )}
+
         <div className="grid gap-3">
-          {agents.map((agent) => {
-            const isChecking = checkingAgentId === agent.id
-            const isForgeNative = agent.id === 'forge-native-agent'
+          {(runtimes ?? []).map((runtime) => {
+            const label = runtime.label
+            const reachable = runtime.available
 
             return (
-              <Card key={agent.id} tone="raised" className="p-4 border-(--color-border)">
+              <Card key={runtime.id} tone="raised" className="border-(--color-border) p-4">
                 <div className="flex flex-col gap-3">
-                  {/* Top Row */}
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[14px] font-bold text-(--color-text)">
-                          {agent.name}
-                        </span>
-                        <Badge
-                          tone={
-                            agent.isBuiltin ? (isForgeNative ? 'accent' : 'neutral') : 'warning'
-                          }
-                          size="sm"
-                          className="font-mono text-[10px]"
-                        >
-                          {agent.isBuiltin
-                            ? isForgeNative
-                              ? 'Built-in Harness'
-                              : 'CLI Adapter'
-                            : 'Custom CLI'}
-                        </Badge>
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[14px] font-bold text-(--color-text)">
+                        {label?.name ?? runtime.id}
+                      </span>
+                      {/* The id badge is redundant when the heading already IS the
+                          id, which is what an unmapped runtime falls back to. */}
+                      {label !== null && (
                         <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
-                          Mode: {agent.permissionMode}
+                          {runtime.id}
                         </Badge>
-                        <div className="flex items-center gap-1.5 ml-1">
-                          <StatusDot status="passed" label="Ready" />
-                          <span className="text-[11px] font-medium text-(--color-success)">
-                            {isForgeNative ? 'Active (Ready)' : 'Connected'}
-                          </span>
-                        </div>
-                      </div>
-                      <p className="m-0 text-[12px] text-(--color-text-muted)">
-                        {agent.description}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={isChecking}
-                        onClick={() => {
-                          handleCheckBinary(agent)
-                        }}
-                        className="h-7 text-[11px]"
-                      >
-                        {isChecking ? (
-                          <span className="flex items-center gap-1">
-                            <Spinner size="sm" />
-                            Checking...
-                          </span>
-                        ) : (
-                          'Verify Status'
-                        )}
-                      </Button>
-
-                      {!agent.isBuiltin && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => {
-                            handleDeleteAgent(agent.id)
-                          }}
-                          className="h-7 text-[11px] text-(--color-danger) hover:text-(--color-danger)"
-                        >
-                          ✕
-                        </Button>
                       )}
+                      {runtime.simulated && (
+                        <Badge tone="warning" size="sm" className="text-[10px]">
+                          Simulated
+                        </Badge>
+                      )}
+                      {!runtime.supportsAccountIsolation && !runtime.simulated && (
+                        <Badge tone="neutral" size="sm" className="text-[10px]">
+                          Shares one account
+                        </Badge>
+                      )}
+                      <div className="ml-1 flex items-center gap-1.5">
+                        {/* Driven by the probe, not a constant: a runtime whose CLI is
+                            missing says so here instead of reading "Connected". */}
+                        <StatusDot
+                          status={reachable === null ? 'idle' : reachable ? 'passed' : 'failed'}
+                          label={
+                            reachable === null
+                              ? 'Nothing to spawn'
+                              : reachable
+                                ? 'Executable found'
+                                : 'Executable not found'
+                          }
+                        />
+                        <span
+                          className={
+                            reachable === null
+                              ? 'text-[11px] font-medium text-(--color-text-muted)'
+                              : reachable
+                                ? 'text-[11px] font-medium text-(--color-success)'
+                                : 'text-[11px] font-medium text-(--color-danger)'
+                          }
+                        >
+                          {reachable === null
+                            ? 'Spawns nothing'
+                            : reachable
+                              ? 'On PATH'
+                              : 'Not on PATH'}
+                        </span>
+                      </div>
                     </div>
+                    {label !== null && (
+                      <p className="m-0 text-[12px] text-(--color-text-muted)">{label.summary}</p>
+                    )}
                   </div>
 
-                  {/* Metadata Row */}
-                  <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-(--color-border) text-[11px]">
+                  <div className="flex flex-wrap items-center gap-3 border-t border-(--color-border) pt-2 text-[11px]">
                     <div className="flex items-center gap-1.5">
-                      <span className="font-semibold text-(--color-text-muted)">Command:</span>
-                      <code className="font-mono text-(--color-text) bg-(--color-surface-inset) px-2 py-0.5 rounded-md border border-(--color-border)">
-                        {isForgeNative ? `internal (${activeLlmProviderName})` : agent.command}
+                      <span className="font-semibold text-(--color-text-muted)">Executable:</span>
+                      <code className="rounded-md border border-(--color-border) bg-(--color-surface-inset) px-2 py-0.5 font-mono text-(--color-text)">
+                        {runtime.executable ?? 'none'}
                       </code>
                     </div>
 
-                    {agent.argsTemplate && (
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-semibold text-(--color-text-muted)">Flags:</span>
-                        <code className="font-mono text-(--color-text-subtle) bg-(--color-surface-inset) px-2 py-0.5 rounded-md border border-(--color-border)">
-                          {agent.argsTemplate}
-                        </code>
-                      </div>
-                    )}
-
-                    <div className="flex items-center gap-1.5 ml-auto">
+                    <div className="ml-auto flex items-center gap-1.5">
                       <span className="font-semibold text-(--color-text-muted)">Capabilities:</span>
                       <div className="flex flex-wrap items-center gap-1">
-                        {agent.capabilities.map((cap) => (
+                        {runtime.capabilities.map((cap) => (
                           <span
                             key={cap}
-                            className="rounded-md bg-(--color-surface-inset) px-1.5 py-0.5 font-mono text-[10px] text-(--color-text-subtle) border border-(--color-border)"
+                            className="rounded-md border border-(--color-border) bg-(--color-surface-inset) px-1.5 py-0.5 font-mono text-[10px] text-(--color-text-subtle)"
                           >
                             {cap}
                           </span>
@@ -1489,17 +1409,6 @@ function CliAgentsGlobalSettings({
           })}
         </div>
       </section>
-
-      {/* Add CLI Agent Dialog */}
-      {isAddDialogOpen && (
-        <AddCliAgentDialog
-          open
-          onClose={() => {
-            setIsAddDialogOpen(false)
-          }}
-          onSave={handleAddAgent}
-        />
-      )}
     </div>
   )
 }

@@ -194,6 +194,31 @@ export function resolveCommand(command: string, env: Readonly<Record<string, str
 
   return command
 }
+
+/**
+ * Whether a bare command actually resolves to an executable on PATH.
+ *
+ * Separate from `resolveCommand` because that returns the bare name as a
+ * fallback so a spawn fails visibly at the OS layer — which means its return
+ * value cannot distinguish "found" from "not found". A caller that wants to
+ * *report* availability needs the distinction, and guessing it from the string
+ * would be exactly the unverified claim this project refuses (A3).
+ */
+export function isCommandAvailable(
+  command: string,
+  env: Readonly<Record<string, string>> = {},
+): boolean {
+  const resolved = resolveCommand(command, env)
+  // An absolute or relative path resolves to itself, so check it directly.
+  if (resolved !== command) return true
+
+  try {
+    accessSync(resolved, constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
 /* eslint-enable @typescript-eslint/dot-notation */
 
 const DEFAULT_MAX_CONCURRENT = 2

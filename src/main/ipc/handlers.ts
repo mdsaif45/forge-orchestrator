@@ -11,7 +11,8 @@ import type { QuestionService } from '../questions/questionService'
 import type { DecisionService } from '../decisions/decisionService'
 import type { ChangeSetService } from '../changesets/changeSetService'
 import type { AccountService } from '../accounts/accountService'
-import type { RuntimeRegistry } from '../runtimes/registry'
+import { runtimeDescription, runtimeExecutable, type RuntimeRegistry } from '../runtimes/registry'
+import { isCommandAvailable } from '../process/processManager'
 import type { BindingService } from '../bindings/bindingService'
 import type { EnrollmentService } from '../accounts/enrollmentService'
 import { openTerminal } from '../accounts/terminalLauncher'
@@ -120,12 +121,22 @@ export function createIpcHandlers({
     },
 
     'runtime:list': () => ({
-      runtimes: registry.list().map((runtime) => ({
-        id: runtime.id,
-        simulated: runtime.simulated,
-        supportsAccountIsolation: runtime.supportsAccountIsolation,
-        capabilities: [...runtime.capabilities],
-      })),
+      runtimes: registry.list().map((runtime) => {
+        // A simulated runtime spawns nothing, so it has no executable to name and
+        // nothing to probe. Reporting a plausible command for it would be the
+        // fabrication this channel exists to avoid.
+        const executable = runtime.simulated ? null : runtimeExecutable(runtime.id)
+
+        return {
+          id: runtime.id,
+          simulated: runtime.simulated,
+          supportsAccountIsolation: runtime.supportsAccountIsolation,
+          capabilities: [...runtime.capabilities],
+          executable,
+          available: executable === null ? null : isCommandAvailable(executable),
+          label: runtimeDescription(runtime.id),
+        }
+      }),
     }),
 
     'binding:list': ({ projectId }) => bindings.list(projectId),

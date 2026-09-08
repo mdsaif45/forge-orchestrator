@@ -57,7 +57,12 @@ export interface ForgeApi {
     writeText: (text: string) => Promise<IpcResult<Record<string, never>>>
   }
   readonly runtime: {
-    /** Registered runtimes and whether each produces scripted output. */
+    /**
+     * Registered runtimes, whether each produces scripted output, and whether
+     * the CLI it drives resolves on PATH right now.
+     *
+     * `executable`/`available` are null for a runtime that spawns nothing.
+     */
     list: () => Promise<
       IpcResult<{
         readonly runtimes: readonly {
@@ -65,6 +70,9 @@ export interface ForgeApi {
           readonly simulated: boolean
           readonly supportsAccountIsolation: boolean
           readonly capabilities: readonly string[]
+          readonly executable: string | null
+          readonly available: boolean | null
+          readonly label: { readonly name: string; readonly summary: string } | null
         }[]
       }>
     >

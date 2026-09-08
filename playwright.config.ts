@@ -21,6 +21,18 @@ export default defineConfig({
   forbidOnly: Boolean(process.env['CI']),
   retries: 0,
   reporter: process.env['CI'] === undefined ? 'list' : [['list'], ['github']],
-  timeout: 30_000,
-  expect: { timeout: 8_000 },
+  // Generous on purpose, and only on CI. A GitHub Windows runner was measured
+  // taking 5m09s for a job that normally finishes in 2m19s — about 2.2x slower
+  // — which turns an 8s expect budget into roughly 3.6s of normal-speed work.
+  // Two tests then failed with "element(s) not found" on text the previous step
+  // had just submitted, in a PR that changed one unit test file.
+  //
+  // The assertions themselves already wait on conditions rather than sleeping;
+  // it is this outer budget that fails first under load. Widening it cannot
+  // mask a real regression — a genuinely missing element still never appears —
+  // it only stops a slow machine being reported as a broken feature.
+  //
+  // Left at the shorter local values so a developer gets fast feedback.
+  timeout: process.env['CI'] === undefined ? 30_000 : 90_000,
+  expect: { timeout: process.env['CI'] === undefined ? 8_000 : 30_000 },
 })

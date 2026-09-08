@@ -133,16 +133,37 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps):
 }
 
 /**
- * A fenced block with its own copy button.
+ * The fence's language, read off the child `code` element.
  *
- * The button predates the selection fix and is kept: copying a whole snippet in
- * one click is faster than selecting it, and it is what the rest of the app does.
- * The text comes from the rendered DOM rather than the source string because the
- * component receives an already-parsed React tree here.
+ * `react-markdown` puts it in a `language-<name>` class rather than passing it
+ * to `pre`, so it has to be recovered from the child. Returns null for a fence
+ * with no language, which is shown as a generic label rather than a guess.
+ */
+function fenceLanguage(children: React.ReactNode): string | null {
+  const child = React.Children.toArray(children).find(
+    (node): node is React.ReactElement<{ className?: string }> => React.isValidElement(node),
+  )
+  const className = child?.props.className ?? ''
+  const match = /language-([\w+-]+)/.exec(className)
+  return match?.[1] ?? null
+}
+
+/**
+ * A fenced block, labelled with its language and copyable in one click.
+ *
+ * The label is not decoration: the whole complaint about the previous renderer
+ * was that a reply full of shell commands and JSON looked like undifferentiated
+ * grey text. Colour alone does not say which language a block is, and the label
+ * is also the only signal when a fence names a language lowlight cannot
+ * highlight.
+ *
+ * The copied text comes from the rendered DOM rather than a source string,
+ * because this component receives an already-parsed React tree.
  */
 function CodeBlock({ children }: { readonly children: React.ReactNode }): React.JSX.Element {
   const ref = React.useRef<HTMLPreElement>(null)
   const [copied, setCopied] = React.useState(false)
+  const language = fenceLanguage(children)
 
   const copy = (): void => {
     const text = ref.current?.innerText ?? ''
@@ -164,7 +185,10 @@ function CodeBlock({ children }: { readonly children: React.ReactNode }): React.
 
   return (
     <div className="my-2 overflow-hidden rounded-lg border border-(--color-border) bg-(--color-surface-inset)">
-      <div className="flex items-center justify-end border-b border-(--color-border) bg-(--color-surface-raised) px-3 py-1">
+      <div className="flex items-center justify-between border-b border-(--color-border) bg-(--color-surface-raised) px-3 py-1">
+        <span className="font-mono text-[10px] text-(--color-text-subtle)">
+          {language ?? 'code'}
+        </span>
         <button
           type="button"
           onClick={copy}

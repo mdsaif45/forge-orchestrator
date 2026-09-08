@@ -259,6 +259,12 @@ app
          // The language class is what rehype-highlight keys on, and what the old
          // renderer discarded.
          languages: [...document.querySelectorAll('.forge-markdown pre code')].map((el) => el.className),
+         // The label a reader actually sees. Highlighting colours a block but
+         // never says which language it is, and the first rewrite dropped this
+         // header entirely — code that looked generic was the original report.
+         labels: [...document.querySelectorAll('.forge-markdown pre')].map(
+           (pre) => pre.parentElement?.querySelector('span')?.textContent ?? '',
+         ),
          highlighted: document.querySelectorAll('.forge-markdown pre code span[class^="hljs-"]').length,
          links: [...document.querySelectorAll('.forge-markdown a')].map((el) => el.getAttribute('href')),
          quotes: document.querySelectorAll('.forge-markdown blockquote').length,
@@ -284,6 +290,11 @@ app
       md.languages.some((c) => c.includes('bash')) &&
         md.languages.some((c) => c.includes('json')) &&
         md.highlighted > 0,
+      markdown,
+    )
+    check(
+      'each code block is labelled with its language, so bash is not just grey text',
+      md.labels.includes('bash') && md.labels.includes('json'),
       markdown,
     )
     check(

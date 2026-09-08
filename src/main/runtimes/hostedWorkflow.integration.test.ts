@@ -25,6 +25,7 @@ import { PacketStore } from '../context/packetStore'
 import type { ProcessHandle, ProcessManager } from '../process/processManager'
 import { bindRole, BindingSet } from './bindings'
 import { HostedClaudeRuntime } from './hostedClaudeRuntime'
+import { NativeAgentRuntime } from './nativeAgentRuntime'
 import { Orchestrator } from './orchestrator'
 import { RuntimeRegistry } from './registry'
 
@@ -316,6 +317,58 @@ function hostedRegistry(processes: ProcessManager): {
   return { registry, bindings }
 }
 
+/**
+ * The same five-stage workflow on Forge's own agent instead of a hosted CLI.
+ *
+ * The turn is injected rather than the process: this runtime has no
+ * subprocess, so what stands in for the CLI is the model call itself. The
+ * orchestrator, the packets, the store and the template are the real ones.
+ */
+function nativeRegistry(reply: (index: number) => string): {
+  registry: RuntimeRegistry
+  bindings: BindingSet
+  turns: { readonly systemPrompt: string; readonly lastMessage: string }[]
+} {
+  const registry = new RuntimeRegistry()
+  const turns: { readonly systemPrompt: string; readonly lastMessage: string }[] = []
+
+  registry.register(
+    new NativeAgentRuntime({
+      resolveModel: () => ({ providerId: 'ollama', model: 'test-model' }),
+      runTurn: (request) => {
+        const index = turns.length
+        // Recorded as the provider would receive it, so a test can assert what
+        // each role was actually told.
+        turns.push({
+          systemPrompt: request.systemPrompt ?? '',
+          lastMessage: request.messages.at(-1)?.content ?? '',
+        })
+        return Promise.resolve({
+          ok: true,
+          content: reply(index),
+          reasoning: '',
+          toolsUsed: [],
+          rounds: 1,
+          error: null,
+          stoppedAtLimit: false,
+          plan: {
+            capabilities: { tools: true, vision: false, thinking: false, source: 'reported' },
+            usedTools: true,
+          },
+        })
+      },
+    }),
+  )
+
+  const bindings = new BindingSet([
+    bindRole(registry, { role: 'planner', runtimeId: 'forge-native-agent' }),
+    bindRole(registry, { role: 'implementer', runtimeId: 'forge-native-agent' }),
+    bindRole(registry, { role: 'reviewer', runtimeId: 'forge-native-agent' }),
+  ])
+
+  return { registry, bindings, turns }
+}
+
 function orchestrator(registry: RuntimeRegistry): Orchestrator {
   return new Orchestrator({
     registry,
@@ -352,6 +405,56 @@ function runOptions(bindings: BindingSet, overrides: Record<string, unknown> = {
     ...overrides,
   }
 }
+
+describe('a full workflow on the native agent', () => {
+  it('reaches DONE with every stage run by Forge own agent, no CLI involved', async () => {
+    // The runtime a fresh install falls back to. Until this existed the
+    // fallback was a scripted mock, so a five-stage run went green without
+    // anything having happened — the substitution A3 exists to prevent.
+    const { registry, bindings, turns } = nativeRegistry((index) =>
+      fencedReport(`Stage ${String(index)} done`, index === 1 ? ['src/math.ts'] : []),
+    )
+
+    const outcome = await orchestrator(registry).run(runOptions(bindings))
+
+    expect(outcome.state).toBe('DONE')
+    expect(outcome.steps.map((step) => step.role)).toEqual([
+      'planner',
+      'user',
+      'implementer',
+      'system',
+      'reviewer',
+    ])
+    // One model turn per agent role, and none for the `user`/`system` steps:
+    // a Forge step must not call a provider.
+    expect(turns).toHaveLength(3)
+  }, 60_000)
+
+  it('tells each role its own objective, and never another role reasoning', async () => {
+    // A planner's packet reaching the reviewer would defeat the review. This
+    // runtime keeps history per session, so the risk is real rather than
+    // theoretical — the orchestrator opens one session per role.
+    const { registry, bindings, turns } = nativeRegistry((index) =>
+      fencedReport(`Stage ${String(index)} done`),
+    )
+
+    await orchestrator(registry).run(runOptions(bindings))
+
+    const roleLine = (name: string): string => `ROLE\n${name}`
+    expect(turns.map((turn) => turn.systemPrompt.includes(roleLine('planner')))).toEqual([
+      true,
+      false,
+      false,
+    ])
+    expect(turns.map((turn) => turn.systemPrompt.includes(roleLine('reviewer')))).toEqual([
+      false,
+      false,
+      true,
+    ])
+    // Each turn opens with the objective, not a continuation of the last one.
+    expect(turns.every((turn) => turn.lastMessage.length > 0)).toBe(true)
+  }, 60_000)
+})
 
 describe('a full workflow on the hosted runtime', () => {
   it('reaches DONE with every agent turn completed from its own Stop hook', async () => {

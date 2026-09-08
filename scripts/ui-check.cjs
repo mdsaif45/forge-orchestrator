@@ -231,6 +231,72 @@ app
       sink,
     )
 
+    // Markdown, on the Feedback panel. The previous renderer was hand-rolled
+    // line-at-a-time regex, and its failure mode was silent: an unrecognised
+    // construct fell through to a paragraph, so a table rendered as pipes and a
+    // fenced block lost its language. Asserted against the DOM rather than the
+    // source, because "the library is installed" is not the same claim as
+    // "a table renders".
+    const markdown = await evaluate(
+      window,
+      `(async () => {
+       const feedback = [...document.querySelectorAll('[role="tab"]')]
+         .find((t) => t.textContent.includes('Feedback'))
+       feedback?.click()
+       for (let i = 0; i < 60 && !document.querySelector('.forge-markdown table'); i += 1) {
+         await new Promise((r) => requestAnimationFrame(r))
+       }
+       const scope = document.querySelector('.forge-markdown')
+       // Guarded rather than assumed: with a renderer that emits no wrapper at
+       // all, an unguarded getComputedStyle threw and took down the whole run,
+       // reporting an exception instead of a failed check. No backticks in this
+       // comment — it lives inside a template literal, and one closes it early.
+       const paragraph = scope === null ? null : scope.querySelector('p')
+       return JSON.stringify({
+         tables: document.querySelectorAll('.forge-markdown table').length,
+         headers: [...document.querySelectorAll('.forge-markdown th')].map((el) => el.textContent),
+         cells: [...document.querySelectorAll('.forge-markdown td')].map((el) => el.textContent),
+         // The language class is what rehype-highlight keys on, and what the old
+         // renderer discarded.
+         languages: [...document.querySelectorAll('.forge-markdown pre code')].map((el) => el.className),
+         highlighted: document.querySelectorAll('.forge-markdown pre code span[class^="hljs-"]').length,
+         links: [...document.querySelectorAll('.forge-markdown a')].map((el) => el.getAttribute('href')),
+         quotes: document.querySelectorAll('.forge-markdown blockquote').length,
+         nested: document.querySelectorAll('.forge-markdown li ul li').length,
+         // The body sets user-select: none; a reply the user cannot copy was the
+         // other half of this defect.
+         selectable: paragraph === null ? 'no-paragraph' : getComputedStyle(paragraph).userSelect,
+         rawPipes: (scope?.textContent ?? '').includes('|-------|'),
+       })
+     })()`,
+    )
+    const md = JSON.parse(markdown)
+    check(
+      'markdown renders a real table, not pipes in prose',
+      md.tables === 1 &&
+        md.rawPipes === false &&
+        md.headers.join(',') === 'Field,Value' &&
+        md.cells.includes('foldervault'),
+      markdown,
+    )
+    check(
+      'a fenced block keeps its language and is highlighted',
+      md.languages.some((c) => c.includes('bash')) &&
+        md.languages.some((c) => c.includes('json')) &&
+        md.highlighted > 0,
+      markdown,
+    )
+    check(
+      'links, blockquotes and nested lists render at all',
+      md.links.includes('https://example.com') && md.quotes === 1 && md.nested === 1,
+      markdown,
+    )
+    check(
+      'rendered markdown is selectable, so a reply can be copied',
+      md.selectable === 'text',
+      markdown,
+    )
+
     // Switch themes through the app's own control rather than by setting the
     // attribute directly: `useTheme` owns `data-theme`, so a manual write is
     // overwritten on the next render and would test nothing.

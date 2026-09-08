@@ -99,6 +99,41 @@ const BUILTIN_PERSONAS: readonly PersonaOption[] = [
   },
 ]
 
+/**
+ * Copies one message's markdown source.
+ *
+ * Alongside making the text selectable rather than instead of it: a drag-select
+ * across a long reply is awkward, and the source is what pastes usefully into an
+ * editor or an issue — the rendered table becomes pipes again.
+ */
+function CopyTextButton({ text }: { readonly text: string }): React.JSX.Element {
+  const [copied, setCopied] = useState(false)
+
+  return (
+    <button
+      type="button"
+      aria-label="Copy message"
+      onClick={() => {
+        navigator.clipboard
+          .writeText(text)
+          .then(() => {
+            setCopied(true)
+            setTimeout(() => {
+              setCopied(false)
+            }, 1200)
+          })
+          .catch(() => {
+            // A denied clipboard is a user setting, not a failure to report. The
+            // message is selectable, so copying is still possible by hand.
+          })
+      }}
+      className="cursor-pointer text-[10px] text-(--color-text-subtle) hover:text-(--color-text)"
+    >
+      {copied ? 'Copied' : 'Copy'}
+    </button>
+  )
+}
+
 export function AskPage(): React.JSX.Element {
   const detail = useProjectStore((state) => state.detail)
   const project = detail?.project ?? null
@@ -692,6 +727,10 @@ Instructions:
                             {msg.elapsed}
                           </span>
                         )}
+                        {/* The whole reply, as its markdown source rather than the
+                            rendered text — pasting a table back as pipes is what
+                            makes it reusable somewhere else. */}
+                        <CopyTextButton text={msg.text} />
                       </div>
                       <div className="prose-container text-[13px] leading-relaxed text-(--color-text)">
                         <MarkdownRenderer content={msg.text} />
@@ -702,7 +741,12 @@ Instructions:
                   /* User message — right-aligned bubble */
                   <div className="flex justify-end">
                     <div className="max-w-lg rounded-2xl bg-(--color-accent) text-white px-4 py-2.5 text-[13px] font-medium leading-relaxed shadow-sm">
-                      <div className="whitespace-pre-wrap">{msg.text}</div>
+                      {/* Selectable for the same reason the reply is: the body sets
+                          `user-select: none`, so without this a user could not copy
+                          back what they themselves had typed. */}
+                      <div className="whitespace-pre-wrap" data-selectable>
+                        {msg.text}
+                      </div>
                     </div>
                   </div>
                 )}

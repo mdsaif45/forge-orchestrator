@@ -185,9 +185,12 @@ export async function runAgentTurn(
       })),
     ],
     tools,
-    // A change request must actually change something. Without this the loop
-    // accepts a plan as an answer, which is the reported failure.
-    requireOneOf: capabilities.tools ? ['edit_file', 'write_file'] : [],
+    // Only a request that actually asks for a change is held to making one.
+    // Applying it to every turn was a regression: "hi" and "tell me about
+    // project" were both nudged to edit files nobody had asked about, and the
+    // model spent a round explaining that no edit was needed.
+    requireOneOf:
+      capabilities.tools && asksForChange(request.messages) ? ['edit_file', 'write_file'] : [],
     complete: (messages, toolDefinitions) =>
       completeWithTools(
         {
@@ -226,6 +229,44 @@ export async function runAgentTurn(
   })
 
   return { ...result, plan }
+}
+
+/**
+ * Verbs that name an action on the repository rather than a question about it.
+ *
+ * A module constant so the pattern is written once, in source, where its word
+ * boundaries survive. An earlier version was edited in by a script that turned
+ * the boundary escapes into literal backspace bytes: the pattern then required
+ * an unprintable character before "update" and matched nothing, so every change
+ * request silently skipped the enforcement round while appearing to have it.
+ *
+ * Bare "make" and "do" are deliberately absent — "make sense of this" and "what
+ * does it do" are questions, not change requests.
+ */
+const CHANGE_VERBS =
+  /\b(update|updating|change|changing|edit|editing|modify|modifying|fix|fixing|add|adding|append|appending|remove|removing|delete|deleting|rename|renaming|refactor|refactoring|implement|implementing|write|writing|create|creating|replace|replacing|rewrite|rewriting|insert|inserting|bump|migrate)\b/i
+
+/**
+ * Whether the latest user message asks for the repository to change.
+ *
+ * Read off the last user turn rather than the whole conversation: an earlier
+ * edit request is finished business, and treating it as still owed would nudge
+ * every later question in the thread.
+ *
+ * Deliberately conservative. A false negative costs the enforcement round on a
+ * request phrased unusually, which is the behaviour before it existed. A false
+ * positive is what went wrong — a plain question gets told to edit a file, and
+ * the turn is spent on the model explaining that nothing needed editing.
+ */
+export function asksForChange(
+  messages: readonly { readonly role: string; readonly content: string }[],
+): boolean {
+  const latest = [...messages].reverse().find((message) => message.role === 'user')
+  if (latest === undefined) return false
+
+  // Verbs that name an action on the repository. Bare "make" and "do" are left
+  // out: "make sense of this" and "what does it do" are questions.
+  return CHANGE_VERBS.test(latest.content)
 }
 
 /**

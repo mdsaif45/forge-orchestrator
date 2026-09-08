@@ -45,7 +45,7 @@ export interface ChatStreamResult {
 }
 
 /** Where a provider id points when no endpoint was configured. */
-const DEFAULT_ENDPOINTS: Readonly<Record<string, string>> = {
+export const DEFAULT_ENDPOINTS: Readonly<Record<string, string>> = {
   openai: 'https://api.openai.com/v1',
   deepseek: 'https://api.deepseek.com/v1',
   openrouter: 'https://openrouter.ai/api/v1',
@@ -54,11 +54,14 @@ const DEFAULT_ENDPOINTS: Readonly<Record<string, string>> = {
 }
 
 /** Ollama speaks its own protocol on its own port; everything else is /v1-shaped. */
-function isOllama(request: ChatStreamRequest): boolean {
+export function isOllama(request: {
+  readonly providerId: string
+  readonly endpointUrl?: string | undefined
+}): boolean {
   return request.providerId === 'ollama' || (request.endpointUrl?.includes('11434') ?? false)
 }
 
-function chatCompletionsUrl(endpoint: string): string {
+export function chatCompletionsUrl(endpoint: string): string {
   const base = endpoint.replace(/\/$/, '')
   if (base.endsWith('/chat/completions')) return base
   return base.endsWith('/v1') ? `${base}/chat/completions` : `${base}/v1/chat/completions`

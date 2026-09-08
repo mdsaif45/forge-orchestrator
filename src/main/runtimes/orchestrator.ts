@@ -9,6 +9,7 @@ import {
   haltStateFor,
   questionIdSchema,
   stepIdSchema,
+  permissionForRole,
   validateTemplate,
   type Actor,
   type AgentReport,
@@ -19,6 +20,7 @@ import {
   type PromptPacket,
   type QuestionId,
   type ReviewOutcome,
+  type RuntimeEvent,
   type Role,
   type WorkflowId,
   type WorkflowLimits,
@@ -128,7 +130,19 @@ export interface RunOptions {
    * The evidence layer (#33–#35) will supply this. Until then a caller provides it, which is
    * what lets the loop be exercised end to end before the runners exist.
    */
-  readonly verify: (step: WorkflowStep) => Promise<{
+  readonly verify: (
+    step: WorkflowStep,
+    /**
+     * The most recent agent report, or null before any agent has produced one.
+     *
+     * Passed explicitly because `WorkflowStep` records only `reportStatus`, not the
+     * report itself, and a criterion such as `no-assumptions` can only be evaluated
+     * against the report's own fields. Without it every such criterion resolved to
+     * `unknown`, which the verifier correctly treats as a failure — so a workflow
+     * whose repository has no build or test command could never pass verification.
+     */
+    report: AgentReport | null,
+  ) => Promise<{
     readonly passed: boolean
     readonly detail: string
     /**
@@ -153,6 +167,31 @@ export interface RunOptions {
     criteria: readonly CriterionResult[],
   ) => Promise<ReviewOutcome | null>
   readonly onQuestion?: (question: OpenQuestion) => Promise<void> | void
+  readonly onLog?: ((stepIndex: number, text: string) => void) | undefined
+  /**
+   * Every runtime event of every agent step, as it happens (#152).
+   *
+   * Separate from `onLog`, which carries formatted prose at stage boundaries. This is the
+   * raw typed stream — tool calls, usage, state — that a live view renders. Kept as its
+   * own channel so the log stays readable text and the view is not left parsing it.
+   */
+  readonly onRuntimeEvent?: ((stepIndex: number, event: RuntimeEvent) => void) | undefined
+  /**
+   * A step's process, once it starts, so the UI can attach to the real run (#170).
+   *
+   * Separate from `onRuntimeEvent`, which carries parsed events. This is the
+   * process itself — what a terminal pane needs in order to be the session rather
+   * than a transcript of it.
+   */
+  readonly onStepProcess?:
+    | ((
+        stepIndex: number,
+        process: {
+          readonly write?: (input: string) => void
+          readonly resize?: (cols: number, rows: number) => void
+        },
+      ) => void)
+    | undefined
   readonly signal?: AbortSignal
 }
 
@@ -230,6 +269,9 @@ export class Orchestrator {
     // Set by the verify step, read by the review step (#35 -> #36).
     let criteria: readonly CriterionResult[] = []
     let previousAttempt: StepContext['previousAttempt'] = null
+    // Set by the most recent agent step, read by the verify step, which needs the
+    // report's own fields to evaluate report-derived criteria (#35).
+    let lastReport: AgentReport | null = null
     let stepCounter = 0
 
     let workflow = this.deps.workflows.apply(
@@ -328,9 +370,19 @@ export class Orchestrator {
         this.timestamp(),
       )
 
+      options.onLog?.(
+        step.index,
+        `[STAGE START] Stage ${String(step.index + 1)}: ${templateStep.label} (${templateStep.role})`,
+      )
+
       if (templateStep.role === 'user') {
         this.deps.workflows.startStep(options.workflowId, step, 'user', this.timestamp())
+        options.onLog?.(
+          step.index,
+          '[HUMAN GATE] Waiting for user approval on proposed architectural plan...',
+        )
         const approved = await options.approve(step)
+        options.onLog?.(step.index, `[HUMAN GATE] User ${approved ? 'APPROVED' : 'REJECTED'} plan.`)
 
         this.deps.workflows.finishStep(
           options.workflowId,
@@ -364,7 +416,12 @@ export class Orchestrator {
 
       if (templateStep.role === 'system') {
         this.deps.workflows.startStep(options.workflowId, step, 'system', this.timestamp())
-        const result = await options.verify(step)
+        options.onLog?.(step.index, '[VERIFICATION] Running build and test verification suite...')
+        const result = await options.verify(step, lastReport)
+        options.onLog?.(
+          step.index,
+          `[VERIFICATION] Result: ${result.passed ? 'PASSED' : 'FAILED'} — ${result.detail}`,
+        )
 
         // Kept for the review step, which is checked against the same criteria rather
         // than re-deriving them — asking twice would risk two answers.
@@ -412,6 +469,17 @@ export class Orchestrator {
         previousAttempt,
       })
 
+      options.onLog?.(
+        step.index,
+        `[PROMPT SENT TO AGENT]\nObjective: ${packet.objective}\nScope Allowed Paths: ${
+          packet.allowedPaths.length > 0
+            ? packet.allowedPaths.join(', ')
+            : '(all paths in worktree)'
+        }\nActive Rules: ${String(packet.rules.length)}\nLocked Decisions: ${String(
+          packet.lockedDecisions.length,
+        )}`,
+      )
+
       // Snapshotted before the step runs, so a resumed step replays this exact packet (#28).
       const contextRef = await this.deps.packets.save(packet)
       this.deps.workflows.startStep(
@@ -428,33 +496,55 @@ export class Orchestrator {
         ? null
         : new Set(((await this.deps.measureChange())?.files ?? []).map((file) => file.path))
 
+      const rolePermission = permissionForRole(templateStep.role, permits(binding, 'writeFiles'))
+      options.onLog?.(step.index, `[PERMISSION] ${rolePermission.mode} — ${rolePermission.reason}`)
+
       const session = await runtime.start({
         repositoryPath: options.repositoryPath,
         role: templateStep.role,
         ...(binding.accountId === null ? {} : { accountId: binding.accountId }),
-        // Derived from the role's own permissions, never a global default. A planner is
-        // read-only by design, so granting it edit rights at the CLI level let it change
-        // a file and then be halted for reporting the change — the work done, the
-        // workflow refused. Telling the agent what it may do beats punishing it after.
-        //
-        // `auto` for a read-only role, after measuring the alternatives: `plan` ends by
-        // presenting a plan for interactive approval rather than replying, and `manual`
-        // waits for an approval that a `-p` run can never give. Both produce no report
-        // block at all, so the step fails for a reason unrelated to the work. `auto`
-        // lets the agent answer while the CLI decides permissions.
-        //
-        // Forge's own guards remain the real boundary either way: the reconciler halts
-        // a read-only role that reports a modified file, whatever the CLI allowed.
-        permissionMode: permits(binding, 'writeFiles') ? 'acceptEdits' : 'auto',
+        // Derived per role, with the reason recorded (#173). `acceptEdits` was
+        // wrong for both halves: a read-only role does not need it, and an
+        // implementer stops on a permission dialog it still prompts for — measured
+        // waiting forever with nothing present to answer.
+        permissionMode: rolePermission.mode,
+        // A stable identity for this conversation, so an adapter that can resume
+        // knows which to resume. The iteration is part of it: a correction retry
+        // must not continue the transcript that produced the rejected report.
+        resumeKey: {
+          workflowId: options.workflowId,
+          stepIndex: step.index,
+          iteration: workflow.iteration,
+        },
         timeoutMs: options.limits.stepTimeoutMs,
+        // Published so the UI can attach to this step's real process rather than
+        // spawning a second session and rendering that (#170). Passed through
+        // rather than handled here: the orchestrator does not know what a pane is.
+        ...(options.onStepProcess === undefined
+          ? {}
+          : {
+              onProcess: (process: {
+                readonly write?: (input: string) => void
+                readonly resize?: (cols: number, rows: number) => void
+              }) => {
+                options.onStepProcess?.(step.index, process)
+              },
+            }),
       })
 
       let report: AgentReport | null = null
       let failure: string | null = null
       let providerLimit = false
 
+      options.onLog?.(
+        step.index,
+        `[AGENT EXECUTION] Spawning ${binding.runtimeId} process in repository...`,
+      )
+
       try {
-        const result = await exchange(runtime, session, packet)
+        const result = await exchange(runtime, session, packet, (event) => {
+          options.onRuntimeEvent?.(step.index, event)
+        })
 
         if (result.ok) {
           report = result.report
@@ -467,12 +557,7 @@ export class Orchestrator {
       }
 
       if (report === null) {
-        // A spent provider limit is not a failed step. The agent did nothing wrong, the
-        // code is fine, and an immediate retry fails identically — recording a `fail`
-        // verdict would read as "the agent failed" and spend a retry on a certainty.
-        //
-        // Left un-finished rather than marked failed, so resuming after switching account
-        // or waiting out the window continues from this step (#137).
+        options.onLog?.(step.index, `[AGENT ERROR] ${failure ?? 'No usable report produced'}`)
         if (providerLimit) {
           workflow = this.halt(options.workflowId, 'provider-limit', providerLimitReason(failure))
           break
@@ -486,9 +571,6 @@ export class Orchestrator {
           this.timestamp(),
         )
 
-        // A protocol or runtime failure is a policy halt rather than a limit: the run did not
-        // run out of room, something went wrong. Retry policy belongs to the caller, which
-        // knows whether the failure was transient (#29).
         workflow = this.halt(
           options.workflowId,
           'permission-violation',
@@ -496,6 +578,19 @@ export class Orchestrator {
         )
         break
       }
+
+      // Held for the verify step, which runs after this one and cannot recover the
+      // report from the persisted `WorkflowStep` (it stores only `reportStatus`).
+      lastReport = report
+
+      options.onLog?.(
+        step.index,
+        `[AGENT REPORT RECEIVED]\nStatus: ${report.status}\nSummary: ${report.summary}\nFiles Changed: ${
+          report.filesChanged.length > 0 ? report.filesChanged.join(', ') : '(none)'
+        }\nCommands Run: ${
+          report.commandsRun.length > 0 ? report.commandsRun.join(', ') : '(none)'
+        }`,
+      )
 
       const assessment = assessReport(report)
 

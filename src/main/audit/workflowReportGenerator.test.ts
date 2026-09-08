@@ -26,6 +26,10 @@ describe('Workflow Audit Report Generator (#48)', () => {
           contextRef: 'ctx-1',
           reportStatus: 'ok',
           verdict: 'passed',
+          // Required, and not incidental: this is the flag that keeps mock output
+          // from reading as verified work (#101). `mock-runtime` above is a
+          // simulated runtime, so false here would misstate the fixture.
+          simulated: true,
           changeSetId: null,
           startedAt: '2026-08-24T00:00:00.000Z',
           finishedAt: '2026-08-24T00:01:00.000Z',

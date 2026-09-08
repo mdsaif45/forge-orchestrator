@@ -15,6 +15,7 @@ export interface SelectProps extends Omit<
   /** Rendered as a disabled first option, so it cannot be submitted as a value. */
   readonly placeholder?: string
   readonly invalid?: boolean
+  readonly direction?: 'down' | 'up'
 }
 
 /**
@@ -25,7 +26,8 @@ export interface SelectProps extends Omit<
  * to reimplement. A custom one is only worth it when options need rich content.
  */
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
-  { className, options, placeholder, invalid = false, ...props },
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  { className, options, placeholder, invalid = false, direction, ...props },
   ref,
 ) {
   return (

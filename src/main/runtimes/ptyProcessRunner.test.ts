@@ -154,7 +154,10 @@ describe('a killed run never reads as success', () => {
     ['idle-timeout', 0, 'a hang detected by silence'],
     ['cancelled', 0, 'a user cancellation'],
     ['spawn-failed', 0, 'the process never started'],
-  ])('%s with exitCode %s is a failure (%s)', async (reason, exitCode) => {
+    // The third column is the case's rationale, interpolated into the title by
+    // `%s` rather than read in the body — but the callback still has to accept it,
+    // or its parameter list does not match the table's tuple.
+  ])('%s with exitCode %s is a failure (%s)', async (reason, exitCode, _why) => {
     const runner = createPtyProcessRunner({
       processes: managerReporting(outcomeWith(reason, exitCode)),
     })

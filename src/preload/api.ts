@@ -11,6 +11,7 @@ import type {
   OpenQuestionView,
   ProjectDetail,
   ProjectView,
+  ProviderChunkPayload,
   PromptPacketView,
   RepositoryProbe,
   WorkflowDetailView,
@@ -57,7 +58,12 @@ export interface ForgeApi {
     writeText: (text: string) => Promise<IpcResult<Record<string, never>>>
   }
   readonly runtime: {
-    /** Registered runtimes and whether each produces scripted output. */
+    /**
+     * Registered runtimes, whether each produces scripted output, and whether
+     * the CLI it drives resolves on PATH right now.
+     *
+     * `executable`/`available` are null for a runtime that spawns nothing.
+     */
     list: () => Promise<
       IpcResult<{
         readonly runtimes: readonly {
@@ -65,6 +71,9 @@ export interface ForgeApi {
           readonly simulated: boolean
           readonly supportsAccountIsolation: boolean
           readonly capabilities: readonly string[]
+          readonly executable: string | null
+          readonly available: boolean | null
+          readonly label: { readonly name: string; readonly summary: string } | null
         }[]
       }>
     >
@@ -98,6 +107,8 @@ export interface ForgeApi {
       readonly testCommand?: string | null
       readonly tech?: readonly string[]
     }) => Promise<IpcResult<ProjectDetail | null>>
+    /** Permanently removes a project from Forge sessions and local SQLite database. */
+    delete: (projectId: string) => Promise<IpcResult<{ readonly success: boolean }>>
   }
   readonly rule: {
     /**
@@ -139,6 +150,10 @@ export interface ForgeApi {
     >
     /** `savedPath` is null when the user cancels the save dialog. */
     saveReport: (workflowId: string) => Promise<IpcResult<{ readonly savedPath: string | null }>>
+    getLogs: (request: {
+      readonly workflowId: string
+      readonly stepIndex?: number | undefined
+    }) => Promise<IpcResult<{ readonly logs: readonly WorkflowLogPayload[] }>>
   }
   readonly question: {
     list: (
@@ -234,6 +249,88 @@ export interface ForgeApi {
     list: () => Promise<IpcResult<{ readonly templates: readonly WorkflowTemplateView[] }>>
     get: (templateId: string) => Promise<IpcResult<WorkflowTemplateView | null>>
   }
+  readonly terminal: {
+    spawn: (request: {
+      readonly projectId: string
+      readonly runtimeId?: string | null | undefined
+      readonly command?: string | undefined
+      readonly args?: readonly string[] | undefined
+      readonly cwd?: string | undefined
+      readonly env?: Readonly<Record<string, string>> | undefined
+      readonly cols?: number | undefined
+      readonly rows?: number | undefined
+    }) => Promise<IpcResult<{ readonly terminalId: string; readonly pid?: number | undefined }>>
+    write: (terminalId: string, data: string) => Promise<IpcResult<Record<string, never>>>
+    resize: (
+      terminalId: string,
+      cols: number,
+      rows: number,
+    ) => Promise<IpcResult<Record<string, never>>>
+    kill: (terminalId: string) => Promise<IpcResult<Record<string, never>>>
+    buffer: (terminalId: string) => Promise<IpcResult<{ readonly buffer: string }>>
+  }
+  readonly provider: {
+    scanModels: (
+      providerId: string,
+      endpointUrl: string,
+    ) => Promise<
+      IpcResult<{
+        readonly ok: boolean
+        readonly models: readonly string[]
+        readonly error: string | null
+      }>
+    >
+    chat: (request: {
+      readonly providerId: string
+      readonly model: string
+      readonly endpointUrl?: string | undefined
+      readonly apiKey?: string | undefined
+      readonly systemPrompt?: string | undefined
+      readonly messages: readonly {
+        readonly role: 'user' | 'assistant' | 'system'
+        readonly content: string
+      }[]
+    }) => Promise<
+      IpcResult<{
+        readonly ok: boolean
+        readonly content: string
+        readonly error: string | null
+      }>
+    >
+    /** The same call, streamed: chunks arrive on `onProviderChunk`. */
+    readonly chatStream: (request: {
+      readonly streamId: string
+      readonly providerId: string
+      readonly model: string
+      readonly endpointUrl?: string | undefined
+      readonly apiKey?: string | undefined
+      readonly systemPrompt?: string | undefined
+      readonly messages: readonly {
+        readonly role: 'user' | 'assistant' | 'system'
+        readonly content: string
+      }[]
+    }) => Promise<
+      IpcResult<{
+        readonly ok: boolean
+        readonly content: string
+        readonly reasoning: string
+        readonly error: string | null
+      }>
+    >
+  }
+  /**
+   * Streamed text, pushed as the model produces it.
+   *
+   * Filter by the `streamId` the caller passed to `chatStream`: two replies can
+   * be in flight, and a listener that took every chunk would interleave them.
+   */
+  readonly onProviderChunk: (listener: (payload: ProviderChunkPayload) => void) => () => void
   readonly onWorkflowEvent: (listener: (event: WorkflowEventPayload) => void) => () => void
   readonly onWorkflowLog: (listener: (log: WorkflowLogPayload) => void) => () => void
+  readonly onTerminalData: (
+    listener: (payload: { readonly terminalId: string; readonly chunk: string }) => void,
+  ) => () => void
+  readonly onTerminalExit: (
+    listener: (payload: { readonly terminalId: string; readonly exitCode: number | null }) => void,
+  ) => () => void
 }

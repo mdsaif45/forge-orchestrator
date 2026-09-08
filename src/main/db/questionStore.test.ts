@@ -34,7 +34,7 @@ describe('QuestionStore', () => {
 
     events = new EventStore(db)
     questions = new QuestionStore(db, events)
-    projects = new ProjectStore(db, events)
+    projects = new ProjectStore(db)
 
     projectId = projectIdSchema.parse(randomUUID())
     projects.create(

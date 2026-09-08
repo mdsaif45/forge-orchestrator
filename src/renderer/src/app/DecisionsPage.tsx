@@ -72,12 +72,13 @@ export function DecisionsPage(): React.JSX.Element {
   const handleApprove = async (decisionId: string): Promise<void> => {
     setIsSubmitting(true)
     try {
-      await window.forge.decision.approve(decisionId).then(unwrap)
+      const updated = await window.forge.decision.approve(decisionId).then(unwrap)
       show({
         tone: 'success',
         title: 'Decision Approved',
         description: 'The decision is approved and ready to be locked.',
       })
+      setDecisions((prev) => prev.map((d) => (d.id === decisionId ? updated : d)))
       setReloadTrigger((prev) => prev + 1)
     } catch (err) {
       show({
@@ -93,13 +94,14 @@ export function DecisionsPage(): React.JSX.Element {
   const handleLock = async (decisionId: string): Promise<void> => {
     setIsSubmitting(true)
     try {
-      await window.forge.decision.lock(decisionId).then(unwrap)
+      const updated = await window.forge.decision.lock(decisionId).then(unwrap)
       show({
         tone: 'success',
         title: 'Decision Locked (Axiom A4)',
         description:
           'This decision is now binding and will be injected into all future agent prompts.',
       })
+      setDecisions((prev) => prev.map((d) => (d.id === decisionId ? updated : d)))
       setReloadTrigger((prev) => prev + 1)
     } catch (err) {
       show({
@@ -119,7 +121,7 @@ export function DecisionsPage(): React.JSX.Element {
   ): Promise<void> => {
     setIsSubmitting(true)
     try {
-      await window.forge.decision
+      const { superseded, replacement } = await window.forge.decision
         .supersede({
           decisionId,
           replacementStatement,
@@ -131,6 +133,10 @@ export function DecisionsPage(): React.JSX.Element {
         title: 'Architecture Change Request Approved',
         description: 'Prior decision superseded. Replacement decision is now locked.',
       })
+      setDecisions((prev) => [
+        replacement,
+        ...prev.map((d) => (d.id === superseded.id ? superseded : d)),
+      ])
       setReloadTrigger((prev) => prev + 1)
     } catch (err) {
       show({
@@ -158,7 +164,7 @@ export function DecisionsPage(): React.JSX.Element {
 
     setIsSubmitting(true)
     try {
-      await window.forge.decision
+      const created = await window.forge.decision
         .propose({
           projectId: targetProjectId,
           statement: newStatement.trim(),
@@ -173,6 +179,7 @@ export function DecisionsPage(): React.JSX.Element {
       setIsProposeOpen(false)
       setNewStatement('')
       setNewRationale('')
+      setDecisions((prev) => [created, ...prev.filter((d) => d.id !== created.id)])
       setReloadTrigger((prev) => prev + 1)
     } catch (err) {
       show({

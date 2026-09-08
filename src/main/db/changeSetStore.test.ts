@@ -34,7 +34,7 @@ describe('ChangeSetStore', () => {
 
     events = new EventStore(db)
     changeSets = new ChangeSetStore(db, events)
-    projects = new ProjectStore(db, events)
+    projects = new ProjectStore(db)
 
     projectId = projectIdSchema.parse(randomUUID())
     projects.create(
@@ -50,9 +50,9 @@ describe('ChangeSetStore', () => {
           tech: [],
         },
         createdAt: '2026-08-23T12:00:00.000Z',
+        updatedAt: '2026-08-23T12:00:00.000Z',
       },
       'user',
-      '2026-08-23T12:00:00.000Z',
     )
   })
 

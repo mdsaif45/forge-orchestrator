@@ -24,17 +24,25 @@ export function contentSecurityPolicy(devServerUrl: string | undefined): string 
     `default-src 'self'${devOrigin}`,
     // Dev needs 'unsafe-inline' for HMR-injected styles; production does not.
     `style-src 'self'${devOrigin}${isDev ? " 'unsafe-inline'" : ''}`,
-    `script-src 'self'${devOrigin}`,
+    // And for scripts, for the same reason: `@vitejs/plugin-react` injects an inline
+    // module preamble that installs the Fast Refresh hooks. Blocking it does not degrade
+    // HMR — it stops the app booting at all, with `can't detect preamble` thrown from
+    // whichever component happens to load first and an empty `#root` behind it.
+    //
+    // Production is unaffected and stays strict: a built bundle has no inline script, so
+    // this is invisible to `npm run check` and to CI, which is exactly how a dev-only
+    // blank window survived both.
+    `script-src 'self'${devOrigin}${isDev ? " 'unsafe-inline' 'unsafe-eval'" : ''}`,
     `img-src 'self' data:`,
     `font-src 'self' data:`,
-    `connect-src 'self'${devOrigin}${devSocket}`,
+    `connect-src 'self'${devOrigin}${devSocket}${isDev ? ' ws://127.0.0.1:* ws://localhost:* http://127.0.0.1:*' : ''}`,
     // No plugins, no embedding, no base-tag hijacking, no form posts anywhere.
     `object-src 'none'`,
     `frame-src 'none'`,
     `frame-ancestors 'none'`,
     `base-uri 'none'`,
     `form-action 'none'`,
-    `worker-src 'self'`,
+    `worker-src 'self'${isDev ? ' blob:' : ''}`,
   ].join('; ')
 }
 

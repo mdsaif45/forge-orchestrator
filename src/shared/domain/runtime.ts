@@ -304,6 +304,58 @@ export interface SessionOptions {
   readonly permissionMode?: PermissionMode | undefined
   /** Hard ceiling for the step, enforced by the runtime. */
   readonly timeoutMs?: number | undefined
+  /**
+   * A stable name for this step's conversation, so a runtime that can resume one
+   * knows which to resume.
+   *
+   * Opaque and provider-neutral: core supplies an identity, and each adapter
+   * decides what its CLI does with it — one derives a UUID for `--session-id`,
+   * another may have no equivalent and ignore it entirely (A6).
+   *
+   * Derived from the workflow, step, and iteration rather than stored, so it
+   * survives a Forge restart. Storing whatever the provider reported would work
+   * right up until the process holding it died mid-run, which is exactly when
+   * resuming matters.
+   */
+  readonly resumeKey?:
+    | {
+        readonly workflowId: string
+        readonly stepIndex: number
+        /** A retry is a new conversation, not a continuation of the rejected one. */
+        readonly iteration: number
+      }
+    | undefined
+  /**
+   * Hands the caller a way to reach this session's process once it starts (#170).
+   *
+   * The workflow pane used to spawn its own CLI session and render that, while the
+   * agent doing the work ran unobserved. Attaching to the real one needs a
+   * reference to it, and only the runtime has that.
+   *
+   * `write`, `resize`, and `onData` are optional because not every transport carries them: a
+   * pipe closes stdin after the prompt and has no window size, a pty has all three.
+   * Declaring the absence lets the UI say "this session cannot take input" rather
+   * than accepting text that goes nowhere — a dead input control is worse than a
+   * missing one, and this app has already shipped that mistake once.
+   *
+   * No provider is named here: core learns that a process exists and how to speak
+   * to it, never what it is (A6).
+   */
+  readonly onProcess?:
+    | ((process: {
+        readonly write?: (input: string) => void
+        readonly resize?: (cols: number, rows: number) => void
+        readonly onData?: (listener: (chunk: string) => void) => () => void
+      }) => void)
+    | undefined
+}
+
+/**
+ * The canonical session key a step's process is published under for UI attachment (#170).
+ * Composed as `${workflowId}#${stepIndex}`.
+ */
+export function agentSessionKey(workflowId: string, stepIndex: number): string {
+  return `${workflowId}#${String(stepIndex)}`
 }
 
 /** A live session. Opaque to the engine beyond its identifiers. */

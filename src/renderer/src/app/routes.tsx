@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import {
   AgentsIcon,
+  AskIcon,
   ChangesIcon,
   DecisionsIcon,
   OverviewIcon,
@@ -25,6 +26,15 @@ export const ROUTES = [
       title: 'No project open',
       description:
         'Create a project and bind it to a repository to begin. Forge keeps the project state; agents only do the work.',
+    },
+  },
+  {
+    path: '/ask',
+    label: 'Ask',
+    icon: <AskIcon />,
+    empty: {
+      title: 'No project open',
+      description: 'Ask questions to explore repository architecture, workflows, and conventions.',
     },
   },
   {

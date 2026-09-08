@@ -31,6 +31,7 @@ interface ProjectState {
   readonly createProject: (request: CreateProjectRequest) => Promise<ProjectView>
   readonly applyRule: (scope: string, key: string, statement: string) => Promise<void>
   readonly removeRule: (ruleId: string) => Promise<void>
+  readonly deleteProject: (projectId: string) => Promise<void>
 }
 
 function message(cause: unknown): string {
@@ -126,6 +127,26 @@ export const useProjectStore = create<ProjectState>()(
 
         const detail = await window.forge.rule.remove(projectId, ruleId).then(unwrap)
         set({ detail })
+      },
+
+      deleteProject: async (projectId) => {
+        set({ loading: true })
+        try {
+          await window.forge.project.delete(projectId).then(unwrap)
+          const remainingProjects = get().projects.filter((p) => p.id !== projectId)
+          const nextSelected = remainingProjects.at(0)?.id ?? null
+          set({
+            projects: remainingProjects,
+            selectedProjectId: nextSelected,
+            detail: null,
+            loading: false,
+            error: null,
+          })
+          await get().refresh()
+        } catch (cause) {
+          set({ loading: false })
+          throw cause
+        }
       },
     }),
     {

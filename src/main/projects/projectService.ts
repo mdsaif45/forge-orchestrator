@@ -276,6 +276,30 @@ export class ProjectService {
       probe: probe.isRepository ? probe : null,
     }
   }
+
+  /**
+   * Permanently deletes a project from Forge.
+   *
+   * Refused while a workflow is running: deleting a project mid-run would orphan child
+   * processes and leave executing state in an undefined state.
+   */
+  delete(rawProjectId: string): boolean {
+    const parsedProject = projectIdSchema.safeParse(rawProjectId)
+    if (!parsedProject.success) return false
+
+    const projectId = parsedProject.data
+    const existing = this.store.findById(projectId)
+    if (existing === null) return false
+
+    if (this.hasRunningWorkflow(projectId)) {
+      throw new Error(
+        'This project has a running workflow. Cancel or finish it before removing the project from Forge.',
+      )
+    }
+
+    this.store.delete(projectId)
+    return true
+  }
 }
 
 /** Treats a blank command as absent, since the form submits empty strings. */

@@ -11,13 +11,20 @@ import { persist } from 'zustand/middleware'
  * divergent copy that survives across restarts and quietly disagrees with the
  * database.
  *
- * What belongs here: layout, navigation affordances, panel sizes, and other
- * preferences that are meaningless outside this window.
+ * What belongs here: layout, navigation affordances, panel sizes, dialog open states,
+ * and other preferences that are meaningless outside this window.
  */
 interface UiState {
   readonly sidebarCollapsed: boolean
   readonly toggleSidebar: () => void
   readonly setSidebarCollapsed: (collapsed: boolean) => void
+  readonly settingsOpen: boolean
+  readonly openSettings: () => void
+  readonly closeSettings: () => void
+  readonly toggleSettings: () => void
+  readonly createProjectOpen: boolean
+  readonly openCreateProject: () => void
+  readonly closeCreateProject: () => void
 }
 
 export const useUiStore = create<UiState>()(
@@ -26,11 +33,16 @@ export const useUiStore = create<UiState>()(
       sidebarCollapsed: false,
       toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+      settingsOpen: false,
+      openSettings: () => set({ settingsOpen: true }),
+      closeSettings: () => set({ settingsOpen: false }),
+      toggleSettings: () => set((state) => ({ settingsOpen: !state.settingsOpen })),
+      createProjectOpen: false,
+      openCreateProject: () => set({ createProjectOpen: true }),
+      closeCreateProject: () => set({ createProjectOpen: false }),
     }),
     {
       name: 'forge.ui',
-      // Persist layout only. Listing keys explicitly means a future field is
-      // opt-in rather than silently written to disk.
       partialize: (state) => ({ sidebarCollapsed: state.sidebarCollapsed }),
     },
   ),

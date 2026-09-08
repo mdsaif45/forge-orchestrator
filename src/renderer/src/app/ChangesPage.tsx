@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ChangedFileView, ChangeSetView, DiscrepancyView } from '@shared/ipc'
 import { unwrap } from '../ipc'
-import { Badge, Button, DiffViewer, EmptyState, FileTree, useToast } from '../ui'
+import { Badge, Button, CodeViewer, EmptyState, FileTree, useToast } from '../ui'
 import { ChangesIcon } from './icons'
 import { useProjectStore } from './projectStore'
 
@@ -87,9 +87,16 @@ export function ChangesPage(): React.JSX.Element {
     : (selectedChangeSet?.discrepancies ?? [])
 
   // Auto-select first file if none selected or selected file not in list
-  const effectiveSelectedPath =
-    selectedFilePath !== null && currentFiles.some((f) => f.path === selectedFilePath)
-      ? selectedFilePath
+  const isSelectedValid =
+    selectedFilePath !== null &&
+    (view === 'explorer'
+      ? allFiles.includes(selectedFilePath)
+      : currentFiles.some((f) => f.path === selectedFilePath))
+
+  const effectiveSelectedPath = isSelectedValid
+    ? selectedFilePath
+    : view === 'explorer'
+      ? (allFiles[0] ?? currentFiles[0]?.path ?? null)
       : (currentFiles[0]?.path ?? null)
 
   // 2. Fetch File Content when effectiveSelectedPath changes
@@ -256,60 +263,43 @@ export function ChangesPage(): React.JSX.Element {
               )}
             </div>
 
-            {/* Changed Files Tree */}
+            {/* Files Tree */}
             <div className="flex-1 overflow-y-auto p-2">
               {view === 'changes' ? (
                 <FileTree
                   files={currentFiles}
                   selectedPath={effectiveSelectedPath}
                   discrepancies={currentDiscrepancies}
+                  mode="flat"
                   onSelectFile={(path) => {
                     setSelectedFilePath(path)
                   }}
                 />
               ) : (
-                <ul className="grid gap-0.5">
-                  {allFiles.map((path) => {
-                    const changed = currentFiles.some((file) => file.path === path)
-                    return (
-                      <li key={path}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedFilePath(path)
-                          }}
-                          className={
-                            effectiveSelectedPath === path
-                              ? 'flex w-full items-center gap-2 rounded-(--radius-sm) bg-(--color-surface-inset) px-2 py-1 text-left text-(length:--text-xs) text-(--color-text)'
-                              : 'flex w-full items-center gap-2 rounded-(--radius-sm) px-2 py-1 text-left text-(length:--text-xs) text-(--color-text-muted) hover:bg-(--color-surface-inset) hover:text-(--color-text)'
-                          }
-                        >
-                          <span className="truncate">{path}</span>
-                          {changed && (
-                            // Marked so a reviewer can tell, while browsing for context,
-                            // which files the current changeset actually touched.
-                            <Badge tone="accent" size="sm">
-                              changed
-                            </Badge>
-                          )}
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
+                <FileTree
+                  allFiles={allFiles}
+                  files={currentFiles}
+                  selectedPath={effectiveSelectedPath}
+                  discrepancies={currentDiscrepancies}
+                  mode="tree"
+                  onSelectFile={(path) => {
+                    setSelectedFilePath(path)
+                  }}
+                />
               )}
             </div>
           </div>
 
-          {/* Right Pane: Diff & Editor */}
+          {/* Right Pane: Code Viewer, Diff & Editor */}
           <div className="flex-1 overflow-hidden">
             {effectiveSelectedPath !== null ? (
-              <DiffViewer
+              <CodeViewer
                 filePath={effectiveSelectedPath}
+                content={fileContent}
                 patch={filePatch}
-                fileContent={fileContent}
                 discrepancies={currentDiscrepancies}
                 isSaving={isSaving}
+                defaultMode={view === 'changes' ? 'diff' : 'code'}
                 // Omitted in the Explorer view, which makes the viewer read-only.
                 // Browsing the tree for context must not become a general-purpose
                 // editor: A2 says the agent owns the worktree during a run, and the
@@ -318,7 +308,7 @@ export function ChangesPage(): React.JSX.Element {
               />
             ) : (
               <div className="flex h-full items-center justify-center p-6 text-(--color-text-muted)">
-                Select a file from the list to view its diff
+                Select a file from the list to view its code
               </div>
             )}
           </div>

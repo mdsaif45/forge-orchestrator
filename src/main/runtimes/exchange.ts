@@ -236,10 +236,25 @@ export async function exchange(
     transcript.push(turn.text)
     let parsed = parseAgentReport(turn.text)
 
-    // Resilient fallback: If standard sentinels are completely absent, check if output contains a valid JSON block
+    /*
+     * A report that arrived without the sentinels around it.
+     *
+     * Worth recovering: a model that produced the right object and forgot the
+     * markers has done the work, and failing the step on punctuation would be
+     * pedantry. But this must only recover a *report*, and `status` is what
+     * makes an object one.
+     *
+     * It previously matched any fenced JSON at all and, when the object had no
+     * `status`, defaulted to `'completed'`. Both halves were wrong in the same
+     * direction. Measured against a real model: a reply that was itself a
+     * `write_file` tool call the loop had failed to execute — so nothing on
+     * disk changed — matched the fence, had no `status`, and came back as a
+     * completed step. Requiring `status` is what separates "the agent
+     * reported" from "the agent emitted some JSON" (A3).
+     */
     if (!parsed.ok && parsed.code === 'no-report') {
       const jsonMatch =
-        /```(?:json)?\s*(\{[\s\S]*?\})\s*```/.exec(turn.text) ??
+        /```(?:json)?\s*(\{[\s\S]*?"status"[\s\S]*?\})\s*```/.exec(turn.text) ??
         /(\{[\s\S]*?"status"[\s\S]*?\})/.exec(turn.text)
 
       if (jsonMatch?.[1] !== undefined) {
@@ -248,12 +263,22 @@ export async function exchange(
           if (raw !== null && typeof raw === 'object') {
             const obj = raw as Record<string, unknown>
             const rawStatus = typeof obj.status === 'string' ? obj.status.toLowerCase() : ''
+            /*
+             * `completed` only when the agent actually said so.
+             *
+             * This defaulted to `completed` for anything unrecognised, which
+             * made the most consequential verdict in the protocol the one
+             * reached by falling through. `blocked` is the safe default: it
+             * stops the stage with the reply attached rather than accepting
+             * work nobody claimed. `failed` maps to blocked because models
+             * emit it despite it not being in the enum.
+             */
             const status: 'completed' | 'blocked' | 'question' =
-              rawStatus === 'question'
-                ? 'question'
-                : rawStatus === 'blocked' || rawStatus === 'failed'
-                  ? 'blocked'
-                  : 'completed'
+              rawStatus === 'completed' || rawStatus === 'complete' || rawStatus === 'done'
+                ? 'completed'
+                : rawStatus === 'question'
+                  ? 'question'
+                  : 'blocked'
 
             const candidate: AgentReport = {
               status,
@@ -293,12 +318,30 @@ export async function exchange(
       }
     }
 
-    // Already the retry: if agent provided substantive text with NO report block, synthesize report rather than halting
+    /*
+     * The agent replied with prose but no report, twice.
+     *
+     * This used to synthesise `status: 'completed'` from any reply over 30
+     * characters, on the reasoning that a formatting miss should not kill a
+     * run. The goal was right and the mechanism was not: it turned "the agent
+     * never reported" into "the agent reported success", with `filesChanged`
+     * empty because nothing was known to have changed. Measured against a real
+     * model: a reply that was itself a JSON tool call the loop had failed to
+     * execute — so the file on disk was untouched — came back from `exchange`
+     * as ok with a completed report, and a stage went green having done
+     * nothing. That is the exact failure Forge exists to catch in other
+     * agents (A3).
+     *
+     * `blocked` keeps the original intent without the lie. The run does not
+     * die on a malformed reply; the stage stops with the reply as its reason,
+     * `assessReport` returns `halt-blocked`, and a human sees what the agent
+     * actually said. Nothing claims work that was never observed.
+     */
     if (correction !== null) {
       if (parsed.code === 'no-report' && turn.text.trim().length > 30) {
-        const syntheticReport: AgentReport = {
-          status: 'completed',
-          summary: turn.text.trim().slice(0, 3000),
+        const unreportedReport: AgentReport = {
+          status: 'blocked',
+          summary: `The agent produced no report. Its reply was: ${turn.text.trim().slice(0, 3000)}`,
           filesChanged: [],
           commandsRun: [],
           testsRun: false,
@@ -307,8 +350,8 @@ export async function exchange(
         }
         return {
           ok: true,
-          report: syntheticReport,
-          assessment: assessReport(syntheticReport),
+          report: unreportedReport,
+          assessment: assessReport(unreportedReport),
           retried: true,
           transcript,
         }

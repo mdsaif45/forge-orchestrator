@@ -115,6 +115,7 @@ const api: ForgeApi = {
     chat: (request) => call('provider:chat', request),
     chatStream: (request) => call('provider:chatStream', request),
     agentTurn: (request) => call('provider:agentTurn', request),
+    setActiveModel: (request) => call('provider:setActiveModel', request),
   },
   onProviderChunk: (listener) => {
     const handler = (_event: unknown, payload: unknown) => {

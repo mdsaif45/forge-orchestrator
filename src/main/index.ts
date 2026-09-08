@@ -335,6 +335,11 @@ if (!claimSingleInstance()) {
             }
           }
         },
+        // Persisted so a workflow, which runs entirely in main, can reach the
+        // model the user picked in the renderer (see activeModel.ts).
+        setActiveModel: (model) => {
+          activeModel.write(model)
+        },
       }),
     )
 

@@ -344,6 +344,31 @@ export const NO_REPORT: Scenario = scenarioSchema.parse({
   ],
 })
 
+/**
+ * Replies with prose and no report, twice. Exhausts the single retry.
+ *
+ * Distinct from `noReport`, which complies after the correction. This one never
+ * does, which is what a small local model actually does when it emits a tool
+ * call as text instead of calling the tool: the same non-report arrives twice.
+ * Measured against a real model, and it is what exposed `exchange` reporting a
+ * completed step for a run that changed nothing.
+ */
+const UNEXECUTED_TOOL_CALL = [
+  '```json',
+  '{ "name": "write_file", "arguments": { "path": "a.md", "content": "x" } }',
+  '```',
+].join('\n')
+
+export const NO_REPORT_TWICE: Scenario = scenarioSchema.parse({
+  name: 'noReportTwice',
+  description: 'Answers in prose without a report block, and does so again after correction',
+  capabilities: ALL,
+  steps: [
+    step({ ending: 'text', replyText: UNEXECUTED_TOOL_CALL }),
+    step({ ending: 'text', replyText: UNEXECUTED_TOOL_CALL }),
+  ],
+})
+
 /** Replies with a report missing a required field, twice. Exhausts the single retry. */
 export const MALFORMED_TWICE: Scenario = scenarioSchema.parse({
   name: 'malformedTwice',
@@ -432,6 +457,7 @@ export const SCENARIOS = {
   readOnly: READ_ONLY,
   textReply: TEXT_REPLY,
   noReport: NO_REPORT,
+  noReportTwice: NO_REPORT_TWICE,
   malformedTwice: MALFORMED_TWICE,
   noProgress: NO_PROGRESS,
   fullRun: FULL_RUN,

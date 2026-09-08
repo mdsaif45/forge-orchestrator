@@ -153,6 +153,28 @@ describe('NativeAgentRuntime', () => {
     }
   })
 
+  it('says no model is selected rather than failing against a guessed one', async () => {
+    // The regression: a hardcoded default model failed as "model not found"
+    // against a model the user never chose, which points at the provider
+    // instead of at the empty setting.
+    let called = false
+    const runtime = runtimeWith(
+      () => {
+        called = true
+        return Promise.resolve(turnResult({}))
+      },
+      () => null,
+    )
+
+    const handle = await runtime.start({ repositoryPath: '.', role: 'implementer' })
+    await runtime.send(handle, packet)
+
+    expect(called).toBe(false)
+    const events = await drain(runtime, handle)
+    const messages = events.flatMap((e) => (e.type === 'error' ? [e.message] : []))
+    expect(messages).toEqual(['No model is selected. Choose one in Settings, then run again.'])
+  })
+
   it('never claims to be simulated, because it does real work', () => {
     const runtime = runtimeWith(() => Promise.resolve(turnResult({ content: 'x' })))
     expect(runtime.simulated).toBe(false)

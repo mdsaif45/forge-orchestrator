@@ -45,7 +45,7 @@ export interface NativeAgentRuntimeOptions {
     readonly model: string
     readonly endpointUrl?: string | undefined
     readonly apiKey?: string | undefined
-  }
+  } | null
   readonly now?: (() => string) | undefined
   /**
    * The turn itself, injectable so a test can drive this runtime's event
@@ -142,6 +142,13 @@ export class NativeAgentRuntime implements IAgentRuntime {
     this.push(session, { type: 'state', at: session.lastActivityAt, state: 'working' })
 
     const model = this.resolveModel()
+    if (model === null) {
+      // Named as configuration, because that is what it is. A default model
+      // here would fail as "model not found" instead, pointing whoever reads
+      // the error at the provider rather than at the empty setting.
+      this.failTurn(session, 'No model is selected. Choose one in Settings, then run again.', true)
+      return
+    }
 
     const result = await this.runTurn(
       {
@@ -172,17 +179,9 @@ export class NativeAgentRuntime implements IAgentRuntime {
     if (session.cancelled) return
 
     if (!result.ok) {
-      session.state = 'failed'
-      session.failure = result.error
-      this.push(session, {
-        type: 'error',
-        at: this.now(),
-        message: result.error ?? 'The turn produced no answer.',
-        // A round-cap stop or a refused path is worth another attempt with a
-        // different prompt; a provider that cannot be reached is not.
-        retryable: result.stoppedAtLimit,
-        providerLimit: false,
-      })
+      // A round-cap stop or a refused path is worth another attempt with a
+      // different prompt; a provider that cannot be reached is not.
+      this.failTurn(session, result.error ?? 'The turn produced no answer.', result.stoppedAtLimit)
       return
     }
 
@@ -245,6 +244,20 @@ export class NativeAgentRuntime implements IAgentRuntime {
     if (session === undefined) return
     this.close(session)
     this.sessions.delete(sessionHandle.sessionId)
+  }
+
+  private failTurn(session: ActiveSession, message: string, retryable: boolean): void {
+    session.state = 'failed'
+    session.failure = message
+    this.push(session, {
+      type: 'error',
+      at: this.now(),
+      message,
+      retryable,
+      // Only a provider's own limit signal justifies this, and the loop does
+      // not surface one yet; claiming it from a message would be a guess.
+      providerLimit: false,
+    })
   }
 
   private close(session: ActiveSession): void {

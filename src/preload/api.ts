@@ -298,6 +298,19 @@ export interface ForgeApi {
       }>
     >
     /**
+     * Records which model the native agent runtime should use.
+     *
+     * Needed because a workflow runs in main, where the renderer's stored
+     * provider list is unreachable. Ask mode passes the model per turn and
+     * does not depend on it.
+     */
+    readonly setActiveModel: (request: {
+      readonly providerId: string
+      readonly model: string
+      readonly endpointUrl?: string | undefined
+      readonly apiKey?: string | undefined
+    }) => Promise<IpcResult<{ readonly ok: true }>>
+    /**
      * A tool-using turn: the model reads and edits the project itself.
      *
      * Progress arrives on `onProviderChunk` as `tool` chunks; the answer is in

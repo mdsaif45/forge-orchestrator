@@ -918,6 +918,28 @@ export const IPC_CONTRACT = {
    * bound repository, so the renderer never names a directory for an agent to
    * write to.
    */
+  /**
+   * Publishes which model the native agent should use, for callers in main.
+   *
+   * Ask mode passes the model with every turn, so it never needed this. A
+   * workflow does: it runs entirely in main, while the provider list lives in
+   * the renderer's own storage, which main cannot read. Without this channel a
+   * workflow bound to the native agent has no model to call and the run fails
+   * on configuration the user has already supplied.
+   *
+   * Write-only, and deliberately not a generic settings passthrough (A7): the
+   * one thing main needs is which model to talk to.
+   */
+  'provider:setActiveModel': {
+    request: z.strictObject({
+      providerId: z.string().min(1),
+      model: z.string().min(1),
+      endpointUrl: z.string().optional(),
+      apiKey: z.string().optional(),
+    }),
+    response: z.strictObject({ ok: z.literal(true) }),
+  },
+
   'provider:agentTurn': {
     request: z.strictObject({
       streamId: z.string().min(1),

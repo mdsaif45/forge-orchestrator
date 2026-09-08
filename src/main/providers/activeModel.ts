@@ -22,45 +22,45 @@ export interface ActiveModel {
   readonly apiKey?: string | undefined
 }
 
-/**
- * Where the choice lands when nothing has been configured.
- *
- * A local Ollama on its documented port, because that is the setup with no key
- * to enter and nothing to sign up for. If it is not running, the turn fails
- * naming the endpoint it tried — which is a better first experience than a
- * silent fallback to a provider the user never chose.
- */
-const FALLBACK: ActiveModel = {
-  providerId: 'ollama',
-  model: 'llama3.2',
-  endpointUrl: 'http://localhost:11434',
-}
-
 export class ActiveModelStore {
   constructor(private readonly file: string) {}
 
-  read(): ActiveModel {
+  /**
+   * The configured choice, or null when there is none.
+   *
+   * Null rather than a default model name. The first version named
+   * `llama3.2` on a local Ollama, on the reasoning that it is the setup with
+   * nothing to sign up for — and then the machine it was written on turned out
+   * not to have that model pulled at all. A guessed default does not fail as
+   * "nothing is configured"; it fails as "model not found" against a model the
+   * user never chose, which sends whoever reads that error looking in the
+   * wrong place.
+   *
+   * The endpoint has a real default because a provider id fixes it, but which
+   * model to run is a choice only the user can make.
+   */
+  read(): ActiveModel | null {
+    let raw: unknown
     try {
-      const raw: unknown = JSON.parse(readFileSync(this.file, 'utf8'))
-      if (typeof raw !== 'object' || raw === null) return FALLBACK
-
-      const candidate = raw as Partial<ActiveModel>
-      // A stored value missing either half is unusable, and falling back is
-      // more honest than sending an empty model name to a provider.
-      if (typeof candidate.providerId !== 'string' || candidate.providerId === '') return FALLBACK
-      if (typeof candidate.model !== 'string' || candidate.model === '') return FALLBACK
-
-      return {
-        providerId: candidate.providerId,
-        model: candidate.model,
-        ...(typeof candidate.endpointUrl === 'string'
-          ? { endpointUrl: candidate.endpointUrl }
-          : {}),
-        ...(typeof candidate.apiKey === 'string' ? { apiKey: candidate.apiKey } : {}),
-      }
+      raw = JSON.parse(readFileSync(this.file, 'utf8'))
     } catch {
-      // Absent or unreadable: the fallback, not a thrown startup failure.
-      return FALLBACK
+      // Absent or unreadable: nothing configured, not a startup failure.
+      return null
+    }
+
+    if (typeof raw !== 'object' || raw === null) return null
+
+    const candidate = raw as Partial<ActiveModel>
+    // Missing either half is unusable; saying so beats sending an empty model
+    // name to a provider and reporting whatever it says back.
+    if (typeof candidate.providerId !== 'string' || candidate.providerId === '') return null
+    if (typeof candidate.model !== 'string' || candidate.model === '') return null
+
+    return {
+      providerId: candidate.providerId,
+      model: candidate.model,
+      ...(typeof candidate.endpointUrl === 'string' ? { endpointUrl: candidate.endpointUrl } : {}),
+      ...(typeof candidate.apiKey === 'string' ? { apiKey: candidate.apiKey } : {}),
     }
   }
 

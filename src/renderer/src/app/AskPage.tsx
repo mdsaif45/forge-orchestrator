@@ -332,6 +332,28 @@ export function AskPage(): React.JSX.Element {
       ? currentProvider.activeModel
       : (currentProvider?.models?.[0] ?? '')
 
+  /**
+   * Publishes the chosen model to main, where a workflow can read it.
+   *
+   * Ask mode sends the model with every turn, so this changes nothing here. A
+   * workflow runs entirely in main and cannot see this component's
+   * `localStorage`, so without this it has no model to call.
+   *
+   * Keyed on the derived values rather than fired from the select handler:
+   * the model also settles on first load and again when detection replaces a
+   * stale name, and a handler would miss both.
+   */
+  useEffect(() => {
+    if (currentProvider === undefined || currentModel === '') return
+
+    void window.forge.provider.setActiveModel({
+      providerId: currentProvider.id,
+      model: currentModel,
+      ...(currentProvider.localUrl === undefined ? {} : { endpointUrl: currentProvider.localUrl }),
+      ...(currentProvider.apiKey === undefined ? {} : { apiKey: currentProvider.apiKey }),
+    })
+  }, [currentProvider, currentModel])
+
   const handleSelectModel = (model: string): void => {
     if (!currentProvider) return
     const updated = providers.map((p) =>

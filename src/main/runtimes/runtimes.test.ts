@@ -412,6 +412,7 @@ describe('every scenario', () => {
       // waiting for the next instruction, which is how a real multi-step CLI behaves.
       textReply: 'idle',
       noReport: 'idle',
+      noReportTwice: 'idle',
       malformedTwice: 'idle',
       noProgress: 'completed',
       fullRun: 'completed',

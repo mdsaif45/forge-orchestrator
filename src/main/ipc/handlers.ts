@@ -41,6 +41,18 @@ export interface IpcDependencies {
    * does for terminal and workflow events.
    */
   readonly emitProviderChunk?: (payload: ProviderChunkPayload) => void
+  /**
+   * Records which model the native agent runtime should use.
+   *
+   * Injected because the store is a file main owns, and a handler should not
+   * decide where it lives. Optional so a test can build the map without one.
+   */
+  readonly setActiveModel?: (model: {
+    readonly providerId: string
+    readonly model: string
+    readonly endpointUrl?: string | undefined
+    readonly apiKey?: string | undefined
+  }) => void
 }
 
 export function createIpcHandlers({
@@ -55,6 +67,7 @@ export function createIpcHandlers({
   enrollment,
   terminal,
   emitProviderChunk,
+  setActiveModel,
 }: IpcDependencies): IpcHandlerMap {
   /**
    * Gathers everything a report needs and renders it.
@@ -403,6 +416,17 @@ export function createIpcHandlers({
      * taken from the request: the renderer names a project, never a directory,
      * so it cannot point an agent at somewhere else on disk (A7).
      */
+    /**
+     * Records the renderer's model choice so a workflow in main can use it.
+     *
+     * Ask mode sends the model with each turn and never needs this; a workflow
+     * runs in main, where the renderer's stored provider list is unreachable.
+     */
+    'provider:setActiveModel': ({ providerId, model, endpointUrl, apiKey }) => {
+      setActiveModel?.({ providerId, model, endpointUrl, apiKey })
+      return { ok: true as const }
+    },
+
     'provider:agentTurn': async ({
       streamId,
       projectId,

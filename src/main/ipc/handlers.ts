@@ -15,6 +15,7 @@ import type { AccountService } from '../accounts/accountService'
 import { runtimeDescription, runtimeExecutable, type RuntimeRegistry } from '../runtimes/registry'
 import { isCommandAvailable } from '../process/processManager'
 import { streamChat } from '../providers/chatStream'
+import { runAgentTurn } from '../providers/agentTurn'
 import type { BindingService } from '../bindings/bindingService'
 import type { EnrollmentService } from '../accounts/enrollmentService'
 import { openTerminal } from '../accounts/terminalLauncher'
@@ -392,6 +393,64 @@ export function createIpcHandlers({
           models: [],
           error: `Could not connect to ${endpointUrl}. Service is offline or unreachable (${msg}).`,
         }
+      }
+    },
+
+    /**
+     * A turn in which the model uses tools against the project itself.
+     *
+     * The workspace is resolved here from the bound repository rather than
+     * taken from the request: the renderer names a project, never a directory,
+     * so it cannot point an agent at somewhere else on disk (A7).
+     */
+    'provider:agentTurn': async ({
+      streamId,
+      projectId,
+      providerId,
+      model,
+      endpointUrl,
+      apiKey,
+      systemPrompt,
+      allowWrite,
+      messages,
+    }) => {
+      const detail = await projects.get(projectId)
+      if (detail === null) {
+        return {
+          ok: false,
+          content: '',
+          reasoning: '',
+          toolsUsed: [],
+          rounds: 0,
+          stoppedAtLimit: false,
+          error: `Unknown project "${projectId}".`,
+        }
+      }
+
+      const result = await runAgentTurn(
+        {
+          providerId,
+          model,
+          endpointUrl,
+          apiKey,
+          systemPrompt,
+          allowWrite,
+          repositoryPath: detail.project.repository.absolutePath,
+          messages,
+        },
+        (event) => {
+          emitProviderChunk?.({ streamId, kind: event.kind, text: event.text })
+        },
+      )
+
+      return {
+        ok: result.ok,
+        content: result.content,
+        reasoning: result.reasoning,
+        toolsUsed: result.toolsUsed.map((tool) => ({ name: tool.name, ok: tool.ok })),
+        rounds: result.rounds,
+        stoppedAtLimit: result.stoppedAtLimit,
+        error: result.error,
       }
     },
 

@@ -111,6 +111,25 @@ const BUILTIN_PERSONAS: readonly PersonaOption[] = [
   },
 ]
 
+/**
+ * The tool trail to append to an agent turn's reply, or null for a chat turn.
+ *
+ * A separate typed helper because the two send paths return different shapes,
+ * and narrowing a union with `'toolsUsed' in value` types the array as unknown —
+ * which the strict lint rules then reject rather than silently accept.
+ */
+function toolSummary(value: object): string | null {
+  const { toolsUsed, rounds } = value as {
+    readonly toolsUsed?: readonly { readonly name: string; readonly ok: boolean }[]
+    readonly rounds?: number
+  }
+  const used = toolsUsed ?? []
+  if (used.length === 0) return null
+
+  const listed = used.map((tool) => `${tool.ok ? '✓' : '✗'} \`${tool.name}\``).join(' · ')
+  return `*Tools used (${String(rounds ?? 0)} rounds): ${listed}*`
+}
+
 /** One row of the per-thread action menu. */
 function ThreadMenuItem({
   label,
@@ -427,6 +446,15 @@ export function AskPage(): React.JSX.Element {
    * interrupted stream leaves the transcript unchanged rather than storing half
    * a message that reads as complete.
    */
+  /**
+   * Whether the model gets tools against this project.
+   *
+   * Off by default: a tool-using turn is several round trips, and a plain
+   * question does not need one.
+   */
+  const [agentMode, setAgentMode] = useState(false)
+  /** Writes are opt-in even in agent mode, so reading is the safe default. */
+  const [allowWrites, setAllowWrites] = useState(false)
   const [menuThreadId, setMenuThreadId] = useState<string | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
@@ -435,6 +463,8 @@ export function AskPage(): React.JSX.Element {
     readonly streamId: string
     readonly content: string
     readonly reasoning: string
+    /** Tool progress for this turn, newest last. Not part of the saved answer. */
+    readonly tools: readonly string[]
   } | null>(null)
 
   const activeThread = threads.find((t) => t.id === activeThreadId) ?? threads[0]
@@ -543,6 +573,10 @@ export function AskPage(): React.JSX.Element {
   const handleSend = async (queryText?: string): Promise<void> => {
     const textToSend = queryText ?? input
     if (textToSend.trim() === '' || thinking || activeThread === undefined) return
+    // Captured before the awaits below: agent mode needs a project id to resolve
+    // the workspace in main, and the page renders a placeholder without one.
+    const projectId = project?.id
+    if (projectId === undefined) return
 
     const now = new Date()
     const userMsg: ChatMessage = {
@@ -605,33 +639,61 @@ Instructions:
     // Streamed, so the reply appears as it is produced. Filtered by streamId
     // because chunks are broadcast to every window and two replies can overlap.
     const streamId = `s-${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`
-    setLiveReply({ streamId, content: '', reasoning: '' })
+    setLiveReply({ streamId, content: '', reasoning: '', tools: [] })
 
     const unsubscribe = window.forge.onProviderChunk((chunk) => {
       if (chunk.streamId !== streamId) return
       setLiveReply((current) => {
         if (current?.streamId !== streamId) return current
-        return chunk.kind === 'reasoning'
-          ? { ...current, reasoning: current.reasoning + chunk.text }
-          : { ...current, content: current.content + chunk.text }
+        if (chunk.kind === 'reasoning') {
+          return { ...current, reasoning: current.reasoning + chunk.text }
+        }
+        if (chunk.kind === 'tool') {
+          return { ...current, tools: [...current.tools, chunk.text] }
+        }
+        return { ...current, content: current.content + chunk.text }
       })
     })
 
     try {
-      const res = await window.forge.provider.chatStream({
-        streamId,
-        providerId: currentProvider?.id ?? 'ollama',
-        model: currentModel,
-        endpointUrl: currentProvider?.localUrl,
-        apiKey: currentProvider?.apiKey,
-        systemPrompt,
-        messages: historyPayload,
-      })
+      // Agent mode gives the model real tools against this project. Plain chat
+      // stays the default: a tool-using turn costs several round trips, and most
+      // questions do not need one.
+      const res = agentMode
+        ? await window.forge.provider.agentTurn({
+            streamId,
+            projectId,
+            providerId: currentProvider?.id ?? 'ollama',
+            model: currentModel,
+            endpointUrl: currentProvider?.localUrl,
+            apiKey: currentProvider?.apiKey,
+            systemPrompt: `${systemPrompt}
+
+You have tools for reading and changing this repository. Use them before
+answering anything about the code — read the file rather than guessing its
+contents. If a write is refused as out of scope, say so instead of working
+around it.`,
+            allowWrite: allowWrites,
+            messages: historyPayload,
+          })
+        : await window.forge.provider.chatStream({
+            streamId,
+            providerId: currentProvider?.id ?? 'ollama',
+            model: currentModel,
+            endpointUrl: currentProvider?.localUrl,
+            apiKey: currentProvider?.apiKey,
+            systemPrompt,
+            messages: historyPayload,
+          })
 
       if (res.ok) thinkingText = res.value.reasoning
 
       if (res.ok && res.value.ok && res.value.content.trim() !== '') {
         answer = res.value.content
+        // Recorded with the reply rather than left only in the transient log:
+        // which tools ran is how the answer can be trusted later (A3).
+        const summary = toolSummary(res.value)
+        if (summary !== null) answer = `${answer}\n\n---\n${summary}`
       } else if (res.ok && res.value.error) {
         answer = `⚠️ **Error from ${activeModelLabel}**:\n\n${res.value.error}\n\n*Make sure your local provider is running (e.g. \`ollama serve\` on ${currentProvider?.localUrl ?? 'http://localhost:11434'}) and model \`${currentModel}\` is installed.*`
       }
@@ -1013,6 +1075,19 @@ Instructions:
                   {liveReply.reasoning !== '' && (
                     <ThinkingBlock text={liveReply.reasoning} streaming />
                   )}
+                  {/* What the agent is doing to the repository, as it happens.
+                      Shown live and not saved into the message: it is evidence
+                      about the turn, not part of the answer. */}
+                  {liveReply.tools.length > 0 && (
+                    <div
+                      className="rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-3 py-2 font-mono text-[10px] leading-relaxed text-(--color-text-muted)"
+                      data-selectable
+                    >
+                      {liveReply.tools.map((line, index) => (
+                        <div key={`${String(index)}-${line.slice(0, 24)}`}>{line}</div>
+                      ))}
+                    </div>
+                  )}
                   {liveReply.content !== '' && (
                     <div className="text-[13px] leading-relaxed text-(--color-text)">
                       <MarkdownRenderer content={liveReply.content} />
@@ -1064,6 +1139,49 @@ Instructions:
                 className="h-10 text-[13px] pr-10 rounded-xl bg-(--color-surface) border-(--color-border)"
                 autoFocus
               />
+            </div>
+
+            {/* Agent mode: the model gets tools against this project.
+                Off by default — a tool-using turn is several round trips, and a
+                plain question does not need one. */}
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                aria-pressed={agentMode}
+                onClick={() => {
+                  setAgentMode((current) => !current)
+                  // Writes never survive leaving agent mode: re-enabling tools
+                  // should not silently restore write access too.
+                  if (agentMode) setAllowWrites(false)
+                }}
+                title="Let the model read and search this repository with tools"
+                className={cn(
+                  'cursor-pointer rounded-lg border px-2 py-1 text-[11px] font-semibold',
+                  agentMode
+                    ? 'border-(--color-accent) bg-(--color-accent)/10 text-(--color-accent)'
+                    : 'border-(--color-border) text-(--color-text-muted) hover:text-(--color-text)',
+                )}
+              >
+                🛠 Tools
+              </button>
+              {agentMode && (
+                <button
+                  type="button"
+                  aria-pressed={allowWrites}
+                  onClick={() => {
+                    setAllowWrites((current) => !current)
+                  }}
+                  title="Allow the model to edit files in src/, docs/ and *.md"
+                  className={cn(
+                    'cursor-pointer rounded-lg border px-2 py-1 text-[11px] font-semibold',
+                    allowWrites
+                      ? 'border-(--color-warning) bg-(--color-warning)/10 text-(--color-warning)'
+                      : 'border-(--color-border) text-(--color-text-muted) hover:text-(--color-text)',
+                  )}
+                >
+                  {allowWrites ? '✎ Writes on' : '✎ Read-only'}
+                </button>
+              )}
             </div>
 
             {/* Engine selector (compact) */}

@@ -297,6 +297,36 @@ export interface ForgeApi {
         readonly error: string | null
       }>
     >
+    /**
+     * A tool-using turn: the model reads and edits the project itself.
+     *
+     * Progress arrives on `onProviderChunk` as `tool` chunks; the answer is in
+     * the resolved value.
+     */
+    readonly agentTurn: (request: {
+      readonly streamId: string
+      readonly projectId: string
+      readonly providerId: string
+      readonly model: string
+      readonly endpointUrl?: string | undefined
+      readonly apiKey?: string | undefined
+      readonly systemPrompt?: string | undefined
+      readonly allowWrite: boolean
+      readonly messages: readonly {
+        readonly role: 'user' | 'assistant' | 'system'
+        readonly content: string
+      }[]
+    }) => Promise<
+      IpcResult<{
+        readonly ok: boolean
+        readonly content: string
+        readonly reasoning: string
+        readonly toolsUsed: readonly { readonly name: string; readonly ok: boolean }[]
+        readonly rounds: number
+        readonly stoppedAtLimit: boolean
+        readonly error: string | null
+      }>
+    >
     /** The same call, streamed: chunks arrive on `onProviderChunk`. */
     readonly chatStream: (request: {
       readonly streamId: string

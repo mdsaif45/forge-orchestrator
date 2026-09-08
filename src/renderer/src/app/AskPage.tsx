@@ -469,8 +469,14 @@ export function AskPage(): React.JSX.Element {
     readonly streamId: string
     readonly content: string
     readonly reasoning: string
-    /** Tool progress for this turn, newest last. Not part of the saved answer. */
-    readonly tools: readonly string[]
+    /**
+     * Reasoning and tool calls in the order they happened.
+     *
+     * One timeline rather than two boxes: the reasoning explains the tool calls
+     * that follow it, and showing them separately put the thinking after the
+     * work it described.
+     */
+    readonly timeline: readonly { readonly kind: 'reasoning' | 'tool'; readonly text: string }[]
   } | null>(null)
 
   const activeThread = threads.find((t) => t.id === activeThreadId) ?? threads[0]
@@ -661,21 +667,36 @@ Instructions:
 
     let answer = ''
     let thinkingText = ''
+    /** The tool trail, appended to whatever answer (or non-answer) results. */
+    let toolTrail = ''
 
     // Streamed, so the reply appears as it is produced. Filtered by streamId
     // because chunks are broadcast to every window and two replies can overlap.
     const streamId = `s-${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`
-    setLiveReply({ streamId, content: '', reasoning: '', tools: [] })
+    setLiveReply({ streamId, content: '', reasoning: '', timeline: [] })
 
     const unsubscribe = window.forge.onProviderChunk((chunk) => {
       if (chunk.streamId !== streamId) return
       setLiveReply((current) => {
         if (current?.streamId !== streamId) return current
         if (chunk.kind === 'reasoning') {
-          return { ...current, reasoning: current.reasoning + chunk.text }
+          const last = current.timeline.at(-1)
+          // Appended to the open reasoning entry rather than starting a new one,
+          // so a round's thinking reads as one paragraph instead of fragments.
+          const timeline =
+            last?.kind === 'reasoning'
+              ? [
+                  ...current.timeline.slice(0, -1),
+                  { kind: 'reasoning' as const, text: last.text + chunk.text },
+                ]
+              : [...current.timeline, { kind: 'reasoning' as const, text: chunk.text }]
+          return { ...current, reasoning: current.reasoning + chunk.text, timeline }
         }
         if (chunk.kind === 'tool') {
-          return { ...current, tools: [...current.tools, chunk.text] }
+          return {
+            ...current,
+            timeline: [...current.timeline, { kind: 'tool' as const, text: chunk.text }],
+          }
         }
         return { ...current, content: current.content + chunk.text }
       })
@@ -708,12 +729,17 @@ rather than working around it.`,
 
       if (res.ok && res.value.ok && res.value.content.trim() !== '') {
         answer = res.value.content
-        // Recorded with the reply rather than left only in the transient log:
-        // which tools ran is how the answer can be trusted later (A3).
+      } else if (res.ok && res.value.error !== null) {
+        answer = `⚠️ **${activeModelLabel} could not finish:**\n\n${res.value.error}`
+      }
+
+      // Appended whatever the outcome. The trail is how the answer can be
+      // trusted (A3), and on a turn that produced no answer it is the only
+      // record of what was attempted — which is exactly the case where it was
+      // previously dropped, leaving a bare and untrue connection error.
+      if (res.ok) {
         const summary = toolSummary(res.value)
-        if (summary !== null) answer = `${answer}\n\n---\n${summary}`
-      } else if (res.ok && res.value.error) {
-        answer = `⚠️ **Error from ${activeModelLabel}**:\n\n${res.value.error}\n\n*Make sure your local provider is running (e.g. \`ollama serve\` on ${currentProvider?.localUrl ?? 'http://localhost:11434'}) and model \`${currentModel}\` is installed.*`
+        if (summary !== null) toolTrail = summary
       }
     } catch (err) {
       console.error('Chat error:', err)
@@ -725,10 +751,20 @@ rather than working around it.`,
       setLiveReply(null)
     }
 
-    // Fallback if empty
+    // An empty reply is not evidence of a connection problem, and claiming one
+    // was actively misleading: a turn that read six files and was then refused
+    // a write reported "Unable to connect" while the model was plainly
+    // reachable and had just answered. The tool trail is appended either way,
+    // so what actually happened is visible rather than guessed at.
     if (!answer) {
-      answer = `⚠️ **Unable to connect to ${activeModelLabel}**.\n\nPlease verify that your local endpoint (${currentProvider?.localUrl ?? 'http://localhost:11434'}) is active and model \`${currentModel}\` is available.`
+      answer = `⚠️ **${activeModelLabel} finished without an answer.**\n\nIt used its tools but produced no final reply — usually a small model losing track after several rounds, or every path it tried being refused. The tool trail below shows what it attempted; asking again more specifically often works.`
     }
+
+    if (toolTrail !== '')
+      answer = `${answer}
+
+---
+${toolTrail}`
 
     const elapsedSeconds = Math.max(1, Math.round((Date.now() - startTime) / 1000))
     const responseTime = new Date()
@@ -1126,22 +1162,35 @@ rather than working around it.`,
             {liveReply !== null && (
               <div className="flex gap-3 px-10">
                 <div className="min-w-0 flex-1 space-y-1.5">
-                  {liveReply.reasoning !== '' && (
-                    <ThinkingBlock text={liveReply.reasoning} streaming />
-                  )}
-                  {/* What the agent is doing to the repository, as it happens.
-                      Shown live and not saved into the message: it is evidence
-                      about the turn, not part of the answer. */}
-                  {liveReply.tools.length > 0 && (
+                  {/* Reasoning and tool calls in the order they happened, so
+                      the thinking reads as the explanation for the calls that
+                      follow it. Live only: this is evidence about the turn, not
+                      part of the answer that gets saved. */}
+                  {liveReply.timeline.length > 0 && (
                     <div
-                      className="rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-3 py-2 font-mono text-[10px] leading-relaxed text-(--color-text-muted)"
+                      className="space-y-1.5 rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-3 py-2"
                       data-selectable
                     >
-                      {liveReply.tools.map((line, index) => (
-                        <div key={`${String(index)}-${line.slice(0, 24)}`}>{line}</div>
-                      ))}
+                      {liveReply.timeline.map((entry, index) =>
+                        entry.kind === 'reasoning' ? (
+                          <div
+                            key={`r-${String(index)}`}
+                            className="text-[11px] leading-relaxed whitespace-pre-wrap text-(--color-text-muted)"
+                          >
+                            <span className="mr-1">💭</span>
+                            {entry.text}
+                          </div>
+                        ) : (
+                          <div
+                            key={`t-${String(index)}`}
+                            className="font-mono text-[10px] leading-relaxed text-(--color-text-subtle)"
+                          >
+                            {entry.text}
+                          </div>
+                        ),
+                      )}
                       {thinking && (
-                        <div className="mt-1 text-(--color-text-subtle)">
+                        <div className="font-mono text-[10px] text-(--color-text-subtle)">
                           <span className="animate-pulse">working…</span>
                           {elapsed > 0 ? ` ${String(elapsed)}s` : ''}
                         </div>
@@ -1160,7 +1209,7 @@ rather than working around it.`,
             {thinking &&
               liveReply?.content === '' &&
               liveReply.reasoning === '' &&
-              liveReply.tools.length === 0 && (
+              liveReply.timeline.length === 0 && (
                 <div className="flex items-center gap-2 px-10 text-[12px] italic text-(--color-text-muted)">
                   <span className="inline-flex gap-1">
                     <span className="animate-bounce [animation-delay:0ms]">·</span>

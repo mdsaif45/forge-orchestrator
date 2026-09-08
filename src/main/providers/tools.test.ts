@@ -282,3 +282,69 @@ describe('argument and name validation', () => {
     expect(result.content).toMatch(/needs a string/i)
   })
 })
+
+describe('the chat-turn write scope', () => {
+  // The scope the agent turn actually uses. Kept here rather than imported so a
+  // change to it has to be made deliberately in two places, and so this test
+  // documents the boundary rather than restating whatever the constant says.
+  const scope = [
+    'src/**',
+    'docs/**',
+    'test/**',
+    'tests/**',
+    'scripts/**',
+    'examples/**',
+    'assets/**',
+    'installer/**',
+    '*.md',
+    '**/*.md',
+    '*.txt',
+    '**/*.txt',
+    '*.json',
+    '*.toml',
+    '*.yml',
+    '*.yaml',
+    'LICENSE',
+    'CHANGELOG',
+  ]
+  const forbidden = [
+    '**/.git/**',
+    '**/.env*',
+    '**/package-lock.json',
+    '**/*.lock',
+    '**/node_modules/**',
+  ]
+  const allowed = (path: string): boolean => isWriteAllowed(path, scope, forbidden)
+
+  it('permits documentation at the root and nested', () => {
+    // Measured failure: `*.md` alone matched README.md but not
+    // assets/README.md, so a turn asked to update the README found two, was
+    // refused on the nested one, and abandoned the task with no answer.
+    expect(allowed('README.md')).toBe(true)
+    expect(allowed('assets/README.md')).toBe(true)
+    expect(allowed('docs/PLAN.md')).toBe(true)
+  })
+
+  it('permits extensionless licence and changelog files', () => {
+    // The other half of the same failure: LICENSE has no extension, so no
+    // pattern of the form `*.ext` could ever match it.
+    expect(allowed('LICENSE')).toBe(true)
+    expect(allowed('CHANGELOG')).toBe(true)
+  })
+
+  it('permits project manifests but never a lockfile', () => {
+    // A manifest is edited by hand; a lockfile is generated, and hand-editing
+    // one produces an install that cannot be reproduced.
+    expect(allowed('Cargo.toml')).toBe(true)
+    expect(allowed('package.json')).toBe(true)
+    expect(allowed('package-lock.json')).toBe(false)
+    expect(allowed('Cargo.lock')).toBe(false)
+  })
+
+  it('never permits secrets, git internals or dependencies', () => {
+    expect(allowed('.env')).toBe(false)
+    expect(allowed('.env.local')).toBe(false)
+    expect(allowed('.git/config')).toBe(false)
+    expect(allowed('node_modules/pkg/README.md')).toBe(false)
+  })
+})

@@ -107,7 +107,30 @@ function makeCommandRunner(): NonNullable<ToolContext['runCommand']> {
  * declaring scope, so this is the standing scope for one, and it is
  * deliberately not `**`.
  */
-const CHAT_WRITE_SCOPE = ['src/**', 'docs/**', '*.md', '*.txt', '*.json'] as const
+const CHAT_WRITE_SCOPE = [
+  'src/**',
+  'docs/**',
+  'test/**',
+  'tests/**',
+  'scripts/**',
+  'examples/**',
+  'assets/**',
+  'installer/**',
+  // Root-level documentation and config, and the same names anywhere below.
+  // `*.md` alone matched `README.md` but not `assets/README.md` — measured
+  // against a real repository, where the model found two READMEs, was refused
+  // on the nested one and on `LICENSE`, and abandoned the turn.
+  '*.md',
+  '**/*.md',
+  '*.txt',
+  '**/*.txt',
+  '*.json',
+  '*.toml',
+  '*.yml',
+  '*.yaml',
+  'LICENSE',
+  'CHANGELOG',
+] as const
 
 /**
  * Never writable, whatever the scope says.
@@ -176,6 +199,10 @@ export async function runAgentTurn(
         capabilities.tools ? toolDefinitions : [],
       ),
     onEvent: (event) => {
+      if (event.kind === 'reasoning') {
+        onEvent({ kind: 'reasoning', text: event.text })
+        return
+      }
       if (event.kind === 'tool-start') {
         onEvent({ kind: 'tool', text: `→ ${event.name} ${describeArgs(event.args)}` })
         return

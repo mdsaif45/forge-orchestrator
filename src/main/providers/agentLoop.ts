@@ -66,6 +66,15 @@ export interface AgentLoopOptions {
 }
 
 export type AgentLoopEvent =
+  /**
+   * One round's reasoning, emitted as the round completes.
+   *
+   * Reported per round rather than only summed at the end: the reasoning
+   * explains the tool calls that follow it, and delivering it all at once made
+   * the transcript show tools streaming while the thinking appeared afterwards
+   * in a single block, out of sequence with the work it described.
+   */
+  | { readonly kind: 'reasoning'; readonly text: string }
   | { readonly kind: 'tool-start'; readonly name: string; readonly args: string }
   | {
       readonly kind: 'tool-end'
@@ -105,7 +114,10 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
   for (let round = 0; round < maxRounds; round += 1) {
     const completion = await options.complete(conversation, TOOL_DEFINITIONS)
 
-    if (completion.reasoning !== '') reasoning += completion.reasoning
+    if (completion.reasoning !== '') {
+      reasoning += completion.reasoning
+      options.onEvent?.({ kind: 'reasoning', text: completion.reasoning })
+    }
 
     if (!completion.ok) {
       return {

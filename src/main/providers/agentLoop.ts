@@ -166,10 +166,35 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
         continue
       }
 
-      if (completion.content !== '') options.onEvent?.({ kind: 'text', text: completion.content })
+      /*
+       * Tools ran, then the model stopped without saying anything.
+       *
+       * Measured against a real model given the report instructions: it
+       * searched, read and edited the file correctly, and returned an empty
+       * final message. The work was done, `content` was `''`, and the caller
+       * had nothing to parse — so a finished step failed for want of a
+       * sentence. That is the mirror image of claiming success falsely, and
+       * just as wrong.
+       *
+       * The answer is taken from the round's own reasoning, which in that run
+       * read "I have successfully replaced 'nothing yet' with 'first entry' in
+       * NOTES.md" — the model did say what it did, in the channel the loop was
+       * throwing away.
+       *
+       * Prompting for the answer instead was tried and made things worse: told
+       * "reply now, do not call any more tools", the same model called
+       * `write_file` five more times and truncated the file it had already
+       * edited correctly. Reading what it produced beats asking it again.
+       */
+      const answer =
+        completion.content === '' && toolsUsed.length > 0
+          ? completion.reasoning.trim()
+          : completion.content
+
+      if (answer !== '') options.onEvent?.({ kind: 'text', text: answer })
       return {
         ok: true,
-        content: completion.content,
+        content: answer,
         reasoning,
         toolsUsed,
         rounds: round + 1,

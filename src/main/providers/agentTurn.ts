@@ -21,6 +21,19 @@ export interface AgentTurnRequest {
   readonly systemPrompt?: string | undefined
   readonly repositoryPath: string
   readonly messages: readonly { readonly role: string; readonly content: string }[]
+  /**
+   * What this turn may write, when the caller knows.
+   *
+   * A chat turn carries no task and so has no declared scope; it gets
+   * `CHAT_WRITE_SCOPE` below. A workflow step does carry one — `allowedPaths`
+   * on the packet IS the restriction (A7) — and ignoring it would let a step
+   * write outside the scope its own task declared, which is the opposite of
+   * what the packet is for. Empty is not the same as absent: a packet may
+   * legitimately allow nothing, so this is undefined when unknown rather than
+   * an empty array meaning "everything".
+   */
+  readonly allowedPaths?: readonly string[] | undefined
+  readonly forbiddenPaths?: readonly string[] | undefined
 }
 
 export interface AgentTurnEvent {
@@ -166,8 +179,14 @@ export async function runAgentTurn(
     // and the forbidden list, not a button the user has to remember: a toggle
     // put the question to the person least able to answer it, and a model
     // without `tools` could be handed definitions it would fail on.
-    allowedPaths: [...CHAT_WRITE_SCOPE],
-    forbiddenPaths: [...NEVER_WRITABLE],
+    // The caller's scope when it declared one, the standing chat scope when
+    // not. A workflow packet's `allowedPaths` is the restriction (A7), and this
+    // used to discard it — every step wrote under the chat scope instead of the
+    // one its own task declared.
+    allowedPaths: request.allowedPaths ?? [...CHAT_WRITE_SCOPE],
+    // Forbidden always wins, so the caller's list ADDS to these rather than
+    // replacing them: no packet should be able to make `.git` writable.
+    forbiddenPaths: [...NEVER_WRITABLE, ...(request.forbiddenPaths ?? [])],
     canWrite: capabilities.tools,
     runCommand: makeCommandRunner(),
   }

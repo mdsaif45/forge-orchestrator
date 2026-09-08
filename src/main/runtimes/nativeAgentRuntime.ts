@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   renderPromptPacket,
+  REPORT_INSTRUCTIONS,
   runtimeIdSchema,
   sessionIdSchema,
   type Capability,
@@ -61,6 +62,18 @@ interface ActiveSession {
   state: RuntimeStatus['state']
   failure: string | null
   lastActivityAt: string
+  /**
+   * What has been said in this session so far.
+   *
+   * A hosted CLI keeps its own conversation and a second prompt lands in it.
+   * This runtime spans provider requests, so without holding the history every
+   * send is a cold start — and `exchange()`'s re-prompt sends the whole packet
+   * again, objective included. Measured: a model that had already edited the
+   * file correctly read the correction as a fresh instruction to do the work,
+   * and spent the round budget re-doing it instead of reporting. Carrying the
+   * history is what makes "your previous reply was rejected" mean anything.
+   */
+  readonly history: { role: 'user' | 'assistant'; content: string }[]
   readonly pending: RuntimeEvent[]
   wake: (() => void) | null
   closed: boolean
@@ -124,6 +137,7 @@ export class NativeAgentRuntime implements IAgentRuntime {
       state: 'idle',
       failure: null,
       lastActivityAt: this.now(),
+      history: [],
       pending: [],
       wake: null,
       closed: false,
@@ -150,6 +164,37 @@ export class NativeAgentRuntime implements IAgentRuntime {
       return
     }
 
+    /*
+     * A correction continues the conversation; a first prompt starts one.
+     *
+     * `exchange()` re-sends the entire packet on its single re-prompt, so the
+     * objective arrives a second time. Replayed cold that reads as "do this
+     * work", which is what a real model did — it re-edited a file it had
+     * already finished. With the history in front of it, and only the
+     * correction as the new turn, the request it answers is the one that was
+     * actually made.
+     */
+    const correcting = packet.correction !== null && session.history.length > 0
+
+    const turnMessages = correcting
+      ? [...session.history, { role: 'user' as const, content: packet.correction ?? '' }]
+      : [{ role: 'user' as const, content: packet.objective }]
+
+    /*
+     * On a correction the objective is deliberately NOT restated.
+     *
+     * `renderPromptPacket` leads with ROLE and OBJECTIVE, and a system message
+     * carries more weight than the correction's own "do not redo the work".
+     * Measured against a real model: the second send re-ran `edit_file`, which
+     * failed because the text it was replacing had already been replaced, and
+     * the model then wrote the file three more times trying to recover — ten
+     * rounds spent undoing a task that was finished after three.
+     *
+     * The report instructions alone are what the second send actually needs:
+     * the work is in the history, and the only thing missing is its shape.
+     */
+    const systemPrompt = correcting ? REPORT_INSTRUCTIONS : renderPromptPacket(packet)
+
     const result = await this.runTurn(
       {
         providerId: model.providerId,
@@ -157,10 +202,22 @@ export class NativeAgentRuntime implements IAgentRuntime {
         endpointUrl: model.endpointUrl,
         apiKey: model.apiKey,
         repositoryPath: session.options.repositoryPath,
-        // The rendered packet is the whole instruction: role, objective,
-        // constraints, scope and the report format the orchestrator parses back.
-        systemPrompt: renderPromptPacket(packet),
-        messages: [{ role: 'user', content: packet.objective }],
+        /*
+         * The packet's scope, not the standing chat scope: what a step may
+         * write is declared by its own task (A7), and this runtime used to
+         * discard it.
+         *
+         * Empty is passed as undefined because the two layers read it
+         * oppositely — `promptPacketSchema` documents empty `allowedPaths` as
+         * unconstrained, while `isWriteAllowed` treats an empty list as
+         * nothing writable. Forwarding the empty array would silently make a
+         * step that declared no paths unable to write at all. Falling back to
+         * the standing scope keeps the packet's meaning without adopting `**`.
+         */
+        ...(packet.allowedPaths.length === 0 ? {} : { allowedPaths: packet.allowedPaths }),
+        ...(packet.forbiddenPaths.length === 0 ? {} : { forbiddenPaths: packet.forbiddenPaths }),
+        systemPrompt,
+        messages: turnMessages,
       },
       (event) => {
         session.lastActivityAt = this.now()
@@ -184,6 +241,15 @@ export class NativeAgentRuntime implements IAgentRuntime {
       this.failTurn(session, result.error ?? 'The turn produced no answer.', result.stoppedAtLimit)
       return
     }
+
+    // Recorded before the reply is emitted, so a re-prompt sees what was asked
+    // and what came back. Only the turn's own request, not the rendered packet:
+    // that is the system prompt and is sent again anyway.
+    session.history.push({
+      role: 'user',
+      content: turnMessages[turnMessages.length - 1]?.content ?? packet.objective,
+    })
+    session.history.push({ role: 'assistant', content: result.content })
 
     // Emitted once, whole, so the report parser sees exactly what the model
     // said — the same discipline the hosted CLI adapter follows.

@@ -267,6 +267,50 @@ describe('requireOneOf', () => {
     expect(afterNudge.at(-1)?.content).toMatch(/have not changed anything yet/i)
   })
 
+  it('uses the round reasoning when the model finishes work but says nothing', async () => {
+    // Measured against a real model: given the report instructions it edited
+    // the file correctly and returned an empty final message, so the caller
+    // had a finished step with nothing to parse. The model did say what it
+    // did — in the reasoning channel the loop was discarding.
+    const root = makeWorkspace()
+    const model = scriptedModel([
+      callTool('write_file', { path: 'src/math.ts', content: 'export const answer = 42\n' }),
+      {
+        ok: true,
+        content: '',
+        reasoning: 'I set the constant to 42.',
+        toolCalls: [],
+        error: null,
+      },
+    ])
+
+    const result = await runAgentLoop({
+      messages: [{ role: 'user', content: 'fix it' }],
+      tools: tools(root),
+      complete: model.complete,
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toBe('I set the constant to 42.')
+  })
+
+  it('keeps an empty answer empty when no tool ran, rather than inventing one', async () => {
+    // Only a turn that did work gets the fallback. A model that neither acted
+    // nor answered has produced nothing, and reasoning is not an answer.
+    const root = makeWorkspace()
+    const model = scriptedModel([
+      { ok: true, content: '', reasoning: 'thinking out loud', toolCalls: [], error: null },
+    ])
+
+    const result = await runAgentLoop({
+      messages: [{ role: 'user', content: 'hello' }],
+      tools: tools(root),
+      complete: model.complete,
+    })
+
+    expect(result.content).toBe('')
+  })
+
   it('accepts the answer when the required tool was already used', async () => {
     const root = makeWorkspace()
     const model = scriptedModel([

@@ -210,10 +210,87 @@ Go-style flags. Nothing transfers from the Claude adapter.
 --mode            NOT --permission-mode, which agy rejects outright.
                   Values are accept-edits / plan, not Claude's acceptEdits.
 --conversation    resume, equivalent to Claude's --resume
+--continue / -c   resume the most recent conversation, no id needed
 --output-format   text | json | stream-json
 --input-format    stream-json reads one NDJSON message per line from stdin and
                   runs a turn for each — a persistent bidirectional channel
+-i                --prompt-interactive: an interactive session that runs an
+                  initial prompt and then stays open. Confirmed present on the
+                  installed binary; HANDOFF.md claimed agy had no interactive
+                  CLI, which is wrong.
 ```
+
+### The stream-json input schema keys on `event`, not `type`
+
+Measured against the installed binary. Claude's stream-json input uses
+`{"type":"user",…}`; `agy` rejects that outright and names the field:
+
+```
+in   {"event":"user","message":{"role":"user","content":"…"}}
+out  {"event":"init","conversation_id":"…","init":{cwd,tools[],permission_mode}}
+     {"event":"result","result":{conversation_id,status,response,error,
+                                 duration_seconds,num_turns,usage{…}}}
+
+wrong shape -> status ERROR, error: 'stream input message is missing the
+               "event" field'
+```
+
+Two flag facts that cost several attempts to establish:
+
+```
+--print needs a value ALWAYS. With --input-format=stream-json the prompt comes
+from stdin, so the correct form is --print="" — an empty attached value.
+Bare --print consumes the next flag, and the CLI says so:
+
+  Error: --print took "--input-format=stream-json" as its prompt, so the
+  intended prompt was left as an argument and ignored.
+
+That refusal is the -p hazard above, caught by the CLI rather than silently
+mis-parsed — so a wrong argv fails loudly here, which the plain -p form does not.
+```
+
+The `init` event carries `permission_mode` and the full tool list, so a hosted
+session learns what the CLI can do from the CLI, without Forge declaring it.
+`--dangerously-skip-permissions` is observable there: `request-review` becomes
+`always-proceed`, which confirms the flag took effect without inferring it.
+
+### A turn never starts on this machine
+
+Distinct from the intermittent eligibility refusal below, and not the same
+failure:
+
+```
+agy models                 -> full model list, exit 0   (backend IS reachable)
+a stream-json turn         -> status ERROR, num_turns 0, duration_seconds 0,
+                              error "timeout waiting for response"
+                              3 consecutive attempts, plus one with an explicit
+                              --model and --dangerously-skip-permissions
+```
+
+`num_turns: 0` with `duration_seconds: 0` means it never reached the model, and
+it does not recover on retry the way the eligibility refusal does. So the argv
+above is verified as ACCEPTED, and the reply path is unverified. Anything that
+depends on observing a completed `agy` turn — hook payload fields especially —
+stays unmeasured until this is resolved.
+
+### `agy` hook payloads are NOT measured
+
+`.agents/hooks.json` accepts a named-hook object whose shape differs
+structurally from Claude's `.claude/settings.local.json`:
+
+```
+.claude/settings.local.json          .agents/hooks.json
+hooks:                               <hook-name>:            keyed by name
+  Stop: [{hooks:[{command}]}]          Stop: [{command}]     flat, no wrapper
+  PermissionRequest: [...]             PreInvocation: [{command}]
+                                       PostToolUse: [{matcher, hooks:[…]}]
+```
+
+The **payload** fields are unverified: no `agy` turn on this machine has yet
+reached the model, so no hook has fired. Claude's `session_id` /
+`last_assistant_message` / `tool_name` must NOT be assumed to transfer (A2).
+Until one fires, a hosted `agy` session should take completion from the
+`result` event on the stream-json channel, which IS measured above.
 
 ### It intermittently refuses before running anything
 

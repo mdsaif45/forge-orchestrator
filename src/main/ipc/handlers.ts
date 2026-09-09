@@ -147,10 +147,24 @@ export function createIpcHandlers({
 
     'runtime:list': () => ({
       runtimes: registry.list().map((runtime) => {
-        // A simulated runtime spawns nothing, so it has no executable to name and
-        // nothing to probe. Reporting a plausible command for it would be the
-        // fabrication this channel exists to avoid.
-        const executable = runtime.simulated ? null : runtimeExecutable(runtime.id)
+        /*
+         * Null when this runtime drives no external command.
+         *
+         * The gate used to be `simulated`, which was the wrong question. The
+         * native agent is `simulated: false` — it does real work — but it
+         * reaches a provider over HTTP and spawns nothing, so it fell through
+         * to `runtimeExecutable('forge-native-agent')`, which has no entry in
+         * its map and returns the id itself. Settings then probed PATH for a
+         * command called `forge-native-agent`, found none, and rendered a red
+         * "Not on PATH" against a runtime that was working perfectly.
+         *
+         * `runtimeExecutable` returning its own argument IS the "no external
+         * command" signal, so read it here rather than adding a second
+         * declaration a new runtime could forget to set. The UI already has a
+         * "Spawns nothing" state for null.
+         */
+        const named = runtimeExecutable(runtime.id)
+        const executable = runtime.simulated || named === runtime.id ? null : named
 
         return {
           id: runtime.id,

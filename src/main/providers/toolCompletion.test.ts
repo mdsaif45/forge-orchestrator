@@ -154,6 +154,37 @@ describe('completeWithTools over Ollama', () => {
   })
 })
 
+describe('a provider that cannot be reached', () => {
+  it('names the provider and the endpoint, not just "fetch failed"', async () => {
+    // Node's fetch throws `TypeError: fetch failed` for every transport
+    // failure, and that string was passed straight through. A real workflow
+    // stage halted with `[AGENT ERROR] fetch failed` against a stopped
+    // Ollama — nothing in that names the address, the provider, or the fact
+    // that the remedy is starting a local service.
+    const dead = (() => Promise.reject(new TypeError('fetch failed'))) as unknown as typeof fetch
+
+    const result = await completeWithTools(ollama, [{ role: 'user', content: 'hi' }], [], dead)
+
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('ollama')
+    expect(result.error).toContain('http://localhost:11434')
+    expect(result.error).toMatch(/is the service running/i)
+    // The original cause is kept, not replaced: a TLS or DNS message is worth
+    // reading, and a tidier sentence that discards it would be a guess.
+    expect(result.error).toContain('fetch failed')
+  })
+
+  it('reports a non-transport failure without claiming the service is down', async () => {
+    const broken = (() => Promise.reject(new TypeError('Invalid URL'))) as unknown as typeof fetch
+
+    const result = await completeWithTools(ollama, [{ role: 'user', content: 'hi' }], [], broken)
+
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('Invalid URL')
+    expect(result.error).not.toMatch(/is the service running/i)
+  })
+})
+
 describe('message shaping', () => {
   it('sends a tool result with the id of the call it answers', async () => {
     const { impl, posted } = jsonFetch({ choices: [{ message: { content: 'ok' } }] })

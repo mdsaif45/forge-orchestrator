@@ -223,14 +223,47 @@ export class HostedSession {
    * fixed sleep, so a fast machine is not made to wait and a slow one is not cut
    * short.
    */
+  /**
+   * Polls a screen predicate until it answers, bounded in TICKS not wall clock.
+   *
+   * `waitForBootSettled` already counts ticks and says why; this method was
+   * missed, and the consequence was a hang rather than a slow test. The
+   * deadline was `Date.now() + this.timeoutMs` — 600s by default — while a
+   * test injects a `sleep` scaled by 500, so each 250ms poll resolved in about
+   * 1ms. A screen that never became ready therefore spun for up to ten real
+   * MINUTES inside a test with a 20s budget.
+   *
+   * That is what failed CI on #187: the Stop-hook test timed out at 20000ms,
+   * the very budget #179 had raised it to. Raising a number moved where it
+   * broke instead of fixing it, because the test was not slow — it was stuck.
+   *
+   * The fix keeps BOTH bounds, whichever is reached first. Making it ticks
+   * alone was tried and rejected: `timeoutMs` is a duration everywhere else,
+   * and reinterpreting it as a poll count silently redefined eight call sites
+   * in `hostedSession.test.ts` — five of which use 10-50ms and would have
+   * collapsed to a single poll, still passing but for the wrong reason. One of
+   * them (`timeoutMs: 5_000`, two turns) then failed on CI while passing
+   * locally, which is precisely the marginality this method should not have.
+   */
   private async pollUntil<T extends string>(check: () => T | null): Promise<T | 'timeout'> {
+    const pollMs = 250
     const deadline = Date.now() + this.timeoutMs
+    // Whichever bound is reached first. The wall clock is what `timeoutMs`
+    // means and what production needs; the tick cap is what stops a scaled
+    // `sleep` spinning here for minutes. Generous on purpose — 4x the polls a
+    // real 600s budget would use — so it never fires before the deadline in
+    // production and only ever catches the fake-clock case.
+    const maxTicks = Math.ceil(this.timeoutMs / pollMs) * 4
 
-    for (;;) {
+    for (let tick = 0; tick < maxTicks; tick += 1) {
       const hit = check()
       if (hit !== null) return hit
       if (Date.now() >= deadline) return 'timeout'
-      await this.sleep(250)
+      await this.sleep(pollMs)
     }
+
+    // Checked once more, so a condition that becomes true on the final tick is
+    // not reported as a timeout.
+    return check() ?? 'timeout'
   }
 }

@@ -266,6 +266,19 @@ describe('HostedClaudeRuntime hook-driven turns', () => {
       sleep: (ms) => new Promise((r) => setTimeout(r, Math.max(1, Math.round(ms / 500)))),
     })
 
+  /**
+   * A session budget these tests can actually reach.
+   *
+   * Without one, a session inherits the 600s production default, which is 2400
+   * poll ticks. Every tick is a real `setTimeout`, so even at 1ms apiece a
+   * screen that never becomes ready takes ~13s to give up — inside a 20s test
+   * budget, that is the difference between a clear failure and a hang. Ten
+   * seconds is 40 ticks: long enough that no healthy case reaches it, short
+   * enough that an unhealthy one fails while there is still budget to report it.
+   */
+  const startHooked = (hosted: HostedClaudeRuntime, worktree: string) =>
+    hosted.start({ repositoryPath: worktree, role: 'implementer', timeoutMs: 10_000 })
+
   it('completes the turn from the Stop hook, emitting the reply exactly once', async () => {
     // The reply arrives whole in the hook payload, and exchange() accumulates
     // every `chunk` it sees into the text it parses a report from. Emitting the
@@ -274,7 +287,7 @@ describe('HostedClaudeRuntime hook-driven turns', () => {
     const { worktree, receiverDir } = makeDirs()
     const { processes, state } = makeProcesses()
     const hosted = hookRuntime(processes, receiverDir)
-    const session = await hosted.start({ repositoryPath: worktree, role: 'implementer' })
+    const session = await startHooked(hosted, worktree)
 
     const chunks: string[] = []
     const states: string[] = []
@@ -315,7 +328,7 @@ describe('HostedClaudeRuntime hook-driven turns', () => {
     const { worktree, receiverDir } = makeDirs()
     const { processes, state } = makeProcesses()
     const hosted = hookRuntime(processes, receiverDir)
-    const session = await hosted.start({ repositoryPath: worktree, role: 'implementer' })
+    const session = await startHooked(hosted, worktree)
 
     state.emit(READY)
     const sending = hosted.send(session, packet())
@@ -339,7 +352,7 @@ describe('HostedClaudeRuntime hook-driven turns', () => {
     const { worktree, receiverDir } = makeDirs()
     const { processes, state } = makeProcesses()
     const hosted = hookRuntime(processes, receiverDir)
-    const session = await hosted.start({ repositoryPath: worktree, role: 'implementer' })
+    const session = await startHooked(hosted, worktree)
 
     state.emit(READY)
     const sending = hosted.send(session, packet())

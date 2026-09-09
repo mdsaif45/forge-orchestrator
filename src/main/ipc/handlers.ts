@@ -23,7 +23,13 @@ import { openTerminal } from '../accounts/terminalLauncher'
 import type { TerminalService } from '../terminal/terminalService'
 import { TemplateV2Store } from '../templates/templateV2Store'
 import { ArtifactStore } from '../artifacts/artifactStore'
-import { detectInstalledClis } from '../runtimes/cliDetector'
+import {
+  detectInstalledClis,
+  loadAgentDefaults,
+  saveAgentDefaults,
+  saveCustomCli,
+  removeCustomCli,
+} from '../runtimes/cliDetector'
 
 export interface IpcDependencies {
   readonly projects: ProjectService
@@ -58,6 +64,12 @@ export interface IpcDependencies {
     readonly endpointUrl?: string | undefined
     readonly apiKey?: string | undefined
   }) => void
+  readonly registerCustomCli?: (cli: {
+    readonly id: string
+    readonly name: string
+    readonly executable: string
+    readonly defaultArgs?: readonly string[] | undefined
+  }) => void
 }
 
 export function createIpcHandlers({
@@ -75,6 +87,7 @@ export function createIpcHandlers({
   artifacts,
   emitProviderChunk,
   setActiveModel,
+  registerCustomCli,
 }: IpcDependencies): IpcHandlerMap {
   const templatesV2Store = templatesV2 ?? new TemplateV2Store()
   const artifactStore = artifacts ?? new ArtifactStore()
@@ -191,6 +204,26 @@ export function createIpcHandlers({
     'runtime:detectClis': async () => ({
       clis: await detectInstalledClis(),
     }),
+
+    'runtime:getAgentDefaults': () => loadAgentDefaults(),
+
+    'runtime:setAgentDefaults': (request) => saveAgentDefaults(request),
+
+    'runtime:addCustomCli': (request) => {
+      saveCustomCli({
+        id: request.id,
+        name: request.name,
+        executable: request.executable,
+        defaultArgs: request.defaultArgs,
+      })
+      registerCustomCli?.(request)
+      return { success: true }
+    },
+
+    'runtime:removeCustomCli': ({ id }) => {
+      removeCustomCli(id)
+      return { success: true }
+    },
 
     'binding:list': ({ projectId }) => bindings.list(projectId),
 

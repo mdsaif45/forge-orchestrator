@@ -15,6 +15,13 @@ import { WorkflowService } from './workflows/workflowService'
 import { RuntimeRegistry, runtimeExecutable } from './runtimes/registry'
 import { HostedClaudeRuntime } from './runtimes/hostedClaudeRuntime'
 import { NativeAgentRuntime } from './runtimes/nativeAgentRuntime'
+import {
+  setCustomCliStorePath,
+  setAgentDefaultsStorePath,
+  loadCustomClis,
+  STANDARD_AGENT_CATALOG,
+} from './runtimes/cliDetector'
+import { GenericCliAgentRuntime } from './runtimes/genericCliRuntime'
 import { ActiveModelStore } from './providers/activeModel'
 import { AgentSessionRegistry } from './terminal/sessionRegistry'
 import { TerminalService } from './terminal/terminalService'
@@ -236,6 +243,38 @@ if (!claimSingleInstance()) {
       }),
     )
 
+    setCustomCliStorePath(join(app.getPath('userData'), 'custom-clis.json'))
+    setAgentDefaultsStorePath(join(app.getPath('userData'), 'agent-defaults.json'))
+
+    // Register all standard CLI agents from the catalog (Agy, OpenCode, Codex, Aider, Cline, etc.)
+    for (const agent of STANDARD_AGENT_CATALOG) {
+      if (!registry.has(agent.id)) {
+        registry.register(
+          new GenericCliAgentRuntime({
+            id: agent.id,
+            name: agent.name,
+            executable: agent.executable,
+            processes,
+          }),
+        )
+      }
+    }
+
+    // Register user-configured custom CLIs
+    for (const customCli of loadCustomClis()) {
+      if (!registry.has(customCli.id)) {
+        registry.register(
+          new GenericCliAgentRuntime({
+            id: customCli.id,
+            name: customCli.name,
+            executable: customCli.executable,
+            defaultArgs: customCli.defaultArgs,
+            processes,
+          }),
+        )
+      }
+    }
+
     // Late-bound on purpose: WorkflowService depends on ProjectService, so reading it
     // through a closure is what keeps the construction order one-way while still
     // letting a project edit be refused during a run (#112).
@@ -339,6 +378,19 @@ if (!claimSingleInstance()) {
         // model the user picked in the renderer (see activeModel.ts).
         setActiveModel: (model) => {
           activeModel.write(model)
+        },
+        registerCustomCli: (cli) => {
+          if (!registry.has(cli.id)) {
+            registry.register(
+              new GenericCliAgentRuntime({
+                id: cli.id,
+                name: cli.name,
+                executable: cli.executable,
+                defaultArgs: cli.defaultArgs,
+                processes,
+              }),
+            )
+          }
         },
       }),
     )

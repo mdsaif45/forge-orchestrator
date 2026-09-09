@@ -32,6 +32,10 @@ const api: ForgeApi = {
   runtime: {
     list: () => call('runtime:list', {}),
     detectClis: () => call('runtime:detectClis', {}),
+    getAgentDefaults: () => call('runtime:getAgentDefaults', {}),
+    setAgentDefaults: (defaults) => call('runtime:setAgentDefaults', defaults),
+    addCustomCli: (request) => call('runtime:addCustomCli', request),
+    removeCustomCli: (id) => call('runtime:removeCustomCli', { id }),
   },
   binding: {
     list: (projectId) => call('binding:list', { projectId }),

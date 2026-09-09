@@ -745,10 +745,67 @@ export const IPC_CONTRACT = {
             name: z.string(),
             executable: z.string(),
             available: z.boolean(),
+            installation: z.enum(['installed', 'not_installed']).optional(),
+            authentication: z
+              .enum(['authorized', 'unauthorized', 'unknown', 'not_applicable'])
+              .optional(),
             resolvedPath: z.string().optional(),
+            isCustom: z.boolean().optional(),
+            defaultModel: z.string().optional(),
           }),
         )
         .readonly(),
+    }),
+  },
+  'runtime:getAgentDefaults': {
+    request: empty,
+    response: z.strictObject({
+      defaultWorker: z.string().optional(),
+      workerModel: z.string().optional(),
+      defaultOrchestrator: z.string().optional(),
+      orchestratorModel: z.string().optional(),
+      defaultReviewer: z.string().optional(),
+      permissionMode: z.string().optional(),
+      autoReviewPrs: z.boolean().optional(),
+    }),
+  },
+  'runtime:setAgentDefaults': {
+    request: z.strictObject({
+      defaultWorker: z.string().optional(),
+      workerModel: z.string().optional(),
+      defaultOrchestrator: z.string().optional(),
+      orchestratorModel: z.string().optional(),
+      defaultReviewer: z.string().optional(),
+      permissionMode: z.string().optional(),
+      autoReviewPrs: z.boolean().optional(),
+    }),
+    response: z.strictObject({
+      defaultWorker: z.string().optional(),
+      workerModel: z.string().optional(),
+      defaultOrchestrator: z.string().optional(),
+      orchestratorModel: z.string().optional(),
+      defaultReviewer: z.string().optional(),
+      permissionMode: z.string().optional(),
+      autoReviewPrs: z.boolean().optional(),
+    }),
+  },
+  'runtime:addCustomCli': {
+    request: z.strictObject({
+      id: z.string(),
+      name: z.string(),
+      executable: z.string(),
+      defaultArgs: z.array(z.string()).readonly().optional(),
+    }),
+    response: z.strictObject({
+      success: z.boolean(),
+    }),
+  },
+  'runtime:removeCustomCli': {
+    request: z.strictObject({
+      id: z.string(),
+    }),
+    response: z.strictObject({
+      success: z.boolean(),
     }),
   },
   'binding:list': {

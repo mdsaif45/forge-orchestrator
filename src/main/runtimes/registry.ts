@@ -6,6 +6,7 @@ import {
   type Role,
   type RuntimeId,
 } from '@shared/domain'
+import { STANDARD_AGENT_CATALOG } from './cliDetector'
 
 /**
  * The runtime registry.
@@ -141,7 +142,12 @@ export function runtimeExecutable(runtimeId: string): string {
     'antigravity-hosted': 'agy',
   }
 
-  return KNOWN[runtimeId] ?? runtimeId
+  if (KNOWN[runtimeId]) return KNOWN[runtimeId]
+
+  const std = STANDARD_AGENT_CATALOG.find((a) => a.id === runtimeId)
+  if (std) return std.executable
+
+  return runtimeId
 }
 
 /**
@@ -165,19 +171,27 @@ export interface RuntimeDescription {
 export function runtimeDescription(runtimeId: string): RuntimeDescription | null {
   const KNOWN: Record<string, RuntimeDescription> = {
     'claude-cli': {
-      name: 'Primary CLI (headless)',
+      name: 'Claude Code (headless)',
       summary:
         'Spawned once per turn over stdin pipes, with its report parsed from stdout. The path most workflow runs still take.',
     },
     'claude-cli-hosted': {
-      name: 'Primary CLI (hosted)',
+      name: 'Claude Code (hosted)',
       summary:
         'The same CLI hosted as a live interactive session. Turn completion comes from the hook the CLI reports itself, not from reading the screen.',
     },
+    claude: {
+      name: 'Claude Code',
+      summary: 'Anthropic Claude Code CLI hosted session.',
+    },
     'antigravity-cli': {
-      name: 'Secondary CLI (headless)',
+      name: 'Antigravity CLI (agy)',
       summary:
         'A second provider CLI, driven headless over pipes. Its workspace is established explicitly, and a pre-flight refusal is retryable rather than the agent failing.',
+    },
+    agy: {
+      name: 'Agy',
+      summary: 'Google Antigravity CLI hosted as an interactive session.',
     },
     'forge-native-agent': {
       name: 'Forge Native Agent',
@@ -191,5 +205,15 @@ export function runtimeDescription(runtimeId: string): RuntimeDescription | null
     },
   }
 
-  return KNOWN[runtimeId] ?? null
+  if (KNOWN[runtimeId]) return KNOWN[runtimeId]
+
+  const std = STANDARD_AGENT_CATALOG.find((a) => a.id === runtimeId)
+  if (std) {
+    return {
+      name: std.name,
+      summary: `${std.name} CLI coding agent.`,
+    }
+  }
+
+  return null
 }

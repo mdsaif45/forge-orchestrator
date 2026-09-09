@@ -79,7 +79,7 @@ export interface ForgeApi {
         }[]
       }>
     >
-    /** Detects which AI coding CLIs (claude, opencode, codex, agy, aider) are installed on PATH. */
+    /** Detects which AI coding CLIs are installed on PATH and candidate paths. */
     detectClis: () => Promise<
       IpcResult<{
         readonly clis: readonly {
@@ -87,10 +87,52 @@ export interface ForgeApi {
           readonly name: string
           readonly executable: string
           readonly available: boolean
+          readonly installation?: 'installed' | 'not_installed' | undefined
+          readonly authentication?:
+            'authorized' | 'unauthorized' | 'unknown' | 'not_applicable' | undefined
           readonly resolvedPath?: string | undefined
+          readonly isCustom?: boolean | undefined
+          readonly defaultModel?: string | undefined
         }[]
       }>
     >
+    getAgentDefaults: () => Promise<
+      IpcResult<{
+        readonly defaultWorker?: string | undefined
+        readonly workerModel?: string | undefined
+        readonly defaultOrchestrator?: string | undefined
+        readonly orchestratorModel?: string | undefined
+        readonly defaultReviewer?: string | undefined
+        readonly permissionMode?: string | undefined
+        readonly autoReviewPrs?: boolean | undefined
+      }>
+    >
+    setAgentDefaults: (defaults: {
+      readonly defaultWorker?: string | undefined
+      readonly workerModel?: string | undefined
+      readonly defaultOrchestrator?: string | undefined
+      readonly orchestratorModel?: string | undefined
+      readonly defaultReviewer?: string | undefined
+      readonly permissionMode?: string | undefined
+      readonly autoReviewPrs?: boolean | undefined
+    }) => Promise<
+      IpcResult<{
+        readonly defaultWorker?: string | undefined
+        readonly workerModel?: string | undefined
+        readonly defaultOrchestrator?: string | undefined
+        readonly orchestratorModel?: string | undefined
+        readonly defaultReviewer?: string | undefined
+        readonly permissionMode?: string | undefined
+        readonly autoReviewPrs?: boolean | undefined
+      }>
+    >
+    addCustomCli: (request: {
+      readonly id: string
+      readonly name: string
+      readonly executable: string
+      readonly defaultArgs?: readonly string[] | undefined
+    }) => Promise<IpcResult<{ readonly success: boolean }>>
+    removeCustomCli: (id: string) => Promise<IpcResult<{ readonly success: boolean }>>
   }
   readonly binding: {
     /** Assignable roles, their current bindings, and the runtimes eligible for each. */

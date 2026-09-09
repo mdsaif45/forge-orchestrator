@@ -1,4 +1,7 @@
 import { execFile } from 'node:child_process'
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
@@ -8,49 +11,310 @@ export interface InstalledCliInfo {
   readonly name: string
   readonly executable: string
   readonly available: boolean
+  readonly installation: 'installed' | 'not_installed'
+  readonly authentication: 'authorized' | 'unauthorized' | 'unknown' | 'not_applicable'
   readonly resolvedPath?: string | undefined
+  readonly isCustom?: boolean | undefined
+  readonly defaultModel?: string | undefined
 }
 
-const KNOWN_CLI_AGENTS = [
-  { id: 'claude', name: 'Claude Code CLI', executable: 'claude' },
-  { id: 'opencode', name: 'OpenCode CLI', executable: 'opencode' },
-  { id: 'codex', name: 'Codex CLI', executable: 'codex' },
-  { id: 'agy', name: 'Antigravity CLI (agy)', executable: 'agy' },
-  { id: 'aider', name: 'Aider AI Pair Programmer', executable: 'aider' },
-] as const
+export interface CustomCliConfig {
+  readonly id: string
+  readonly name: string
+  readonly executable: string
+  readonly description?: string | undefined
+  readonly defaultArgs?: readonly string[] | undefined
+  readonly argsTemplate?: string | undefined
+  readonly env?: Readonly<Record<string, string>> | undefined
+  readonly capabilities?: readonly string[] | undefined
+  readonly permissionMode?: 'developer' | 'ask' | 'headless' | undefined
+}
+
+export interface AgentDefaultsConfig {
+  readonly defaultWorker?: string | undefined
+  readonly workerModel?: string | undefined
+  readonly defaultOrchestrator?: string | undefined
+  readonly orchestratorModel?: string | undefined
+  readonly defaultReviewer?: string | undefined
+  readonly permissionMode?: string | undefined
+  readonly autoReviewPrs?: boolean | undefined
+}
+
+export interface StandardAgentInfo {
+  readonly id: string
+  readonly name: string
+  readonly executable: string
+  readonly defaultModel?: string | undefined
+}
 
 /**
- * Probes the operating system PATH to detect installed AI coding CLIs.
+ * The standard catalog of 27 coding CLI agent providers.
+ * Conforms to Forge Axiom A6 (confined to src/main/runtimes/*).
+ */
+export const STANDARD_AGENT_CATALOG: readonly StandardAgentInfo[] = [
+  { id: 'claude', name: 'Claude Code', executable: 'claude', defaultModel: 'sonnet' },
+  { id: 'agy', name: 'Agy', executable: 'agy', defaultModel: 'gemini-2.5-pro' },
+  { id: 'cline', name: 'Cline', executable: 'cline' },
+  { id: 'opencode', name: 'OpenCode', executable: 'opencode' },
+  { id: 'codex', name: 'Codex', executable: 'codex' },
+  { id: 'aider', name: 'Aider', executable: 'aider' },
+  { id: 'continue', name: 'Continue', executable: 'continue' },
+  { id: 'kilocode', name: 'Kilo Code', executable: 'kilocode' },
+  { id: 'auggie', name: 'Auggie', executable: 'auggie' },
+  { id: 'copilot', name: 'GitHub Copilot', executable: 'copilot' },
+  { id: 'pi', name: 'Pi', executable: 'pi' },
+  { id: 'qwen', name: 'Qwen Code', executable: 'qwen' },
+  { id: 'cursor', name: 'Cursor', executable: 'cursor' },
+  { id: 'amp', name: 'Amp', executable: 'amp' },
+  { id: 'autohand', name: 'Autohand', executable: 'autohand' },
+  { id: 'crush', name: 'Crush', executable: 'crush' },
+  { id: 'devin', name: 'Devin', executable: 'devin' },
+  { id: 'droid', name: 'Droid', executable: 'droid' },
+  { id: 'goose', name: 'Goose', executable: 'goose' },
+  { id: 'grok', name: 'Grok Build', executable: 'grok' },
+  { id: 'kimchi', name: 'Kimchi', executable: 'kimchi' },
+  { id: 'kimi', name: 'Kimi', executable: 'kimi' },
+  { id: 'kiro', name: 'Kiro', executable: 'kiro' },
+  { id: 'vibe', name: 'Mistral Vibe', executable: 'vibe' },
+  { id: 'muse', name: 'Muse Code', executable: 'muse' },
+  { id: 'omp', name: 'OMP', executable: 'omp' },
+  { id: 'prime-agent', name: 'Prime Agent', executable: 'prime-agent' },
+]
+
+let customClisFilePath: string | null = null
+let agentDefaultsFilePath: string | null = null
+
+export function setCustomCliStorePath(filePath: string): void {
+  customClisFilePath = filePath
+}
+
+export function setAgentDefaultsStorePath(filePath: string): void {
+  agentDefaultsFilePath = filePath
+}
+
+export function loadCustomClis(): readonly CustomCliConfig[] {
+  if (customClisFilePath === null) return []
+  try {
+    const content = readFileSync(customClisFilePath, 'utf8')
+    return JSON.parse(content) as CustomCliConfig[]
+  } catch {
+    return []
+  }
+}
+
+export function saveCustomCli(cli: CustomCliConfig): readonly CustomCliConfig[] {
+  const current = loadCustomClis().filter((c) => c.id !== cli.id)
+  const updated = [...current, cli]
+  if (customClisFilePath !== null) {
+    mkdirSync(dirname(customClisFilePath), { recursive: true })
+    writeFileSync(customClisFilePath, JSON.stringify(updated, null, 2), 'utf8')
+  }
+  return updated
+}
+
+export function removeCustomCli(id: string): readonly CustomCliConfig[] {
+  const current = loadCustomClis().filter((c) => c.id !== id)
+  if (customClisFilePath !== null) {
+    mkdirSync(dirname(customClisFilePath), { recursive: true })
+    writeFileSync(customClisFilePath, JSON.stringify(current, null, 2), 'utf8')
+  }
+  return current
+}
+
+export function loadAgentDefaults(): AgentDefaultsConfig {
+  if (agentDefaultsFilePath === null) {
+    return {
+      defaultWorker: 'agy',
+      workerModel: '(agent default)',
+      defaultOrchestrator: 'claude',
+      orchestratorModel: 'Agent default',
+      defaultReviewer: 'Project default',
+      permissionMode: 'Project default',
+      autoReviewPrs: false,
+    }
+  }
+  try {
+    const content = readFileSync(agentDefaultsFilePath, 'utf8')
+    return JSON.parse(content) as AgentDefaultsConfig
+  } catch {
+    return {
+      defaultWorker: 'agy',
+      workerModel: '(agent default)',
+      defaultOrchestrator: 'claude',
+      orchestratorModel: 'Agent default',
+      defaultReviewer: 'Project default',
+      permissionMode: 'Project default',
+      autoReviewPrs: false,
+    }
+  }
+}
+
+export function saveAgentDefaults(defaults: AgentDefaultsConfig): AgentDefaultsConfig {
+  if (agentDefaultsFilePath !== null) {
+    mkdirSync(dirname(agentDefaultsFilePath), { recursive: true })
+    writeFileSync(agentDefaultsFilePath, JSON.stringify(defaults, null, 2), 'utf8')
+  }
+  return defaults
+}
+
+/**
+ * Tests known credential and auth indicators for CLI agents.
+ */
+function probeAuthStatus(
+  id: string,
+  available: boolean,
+): 'authorized' | 'unauthorized' | 'unknown' | 'not_applicable' {
+  if (!available) return 'not_applicable'
+
+  const home = homedir()
+
+  if (id === 'claude') {
+    const credPath = join(home, '.claude', '.credentials.json')
+    if (
+      existsSync(credPath) ||
+      Boolean(process.env.ANTHROPIC_API_KEY) ||
+      Boolean(process.env.CLAUDE_API_KEY)
+    ) {
+      return 'authorized'
+    }
+    return 'unknown'
+  }
+
+  if (id === 'agy') {
+    const agyAuthDir = join(home, '.gemini')
+    const agyConfig = join(home, '.antigravity')
+    if (existsSync(agyAuthDir) || existsSync(agyConfig) || Boolean(process.env.GEMINI_API_KEY)) {
+      return 'authorized'
+    }
+    return 'unknown'
+  }
+
+  if (id === 'copilot') {
+    const ghConfig = join(home, '.config', 'gh', 'hosts.yml')
+    if (existsSync(ghConfig) || Boolean(process.env.GITHUB_TOKEN)) {
+      return 'authorized'
+    }
+    return 'unknown'
+  }
+
+  return 'unknown'
+}
+
+/**
+ * Checks common candidate installation paths on disk.
+ */
+function checkCandidatePaths(executable: string): string | undefined {
+  const isWin = process.platform === 'win32'
+  const home = homedir()
+
+  if (isWin) {
+    const appData = process.env.APPDATA ?? join(home, 'AppData', 'Roaming')
+    const localAppData = process.env.LOCALAPPDATA ?? join(home, 'AppData', 'Local')
+
+    const candidates = [
+      join(appData, 'npm', `${executable}.cmd`),
+      join(appData, 'npm', executable),
+      join(localAppData, 'Programs', executable, `${executable}.exe`),
+      join(localAppData, 'Programs', 'Antigravity', 'bin', `${executable}.cmd`),
+      join(home, '.cargo', 'bin', `${executable}.exe`),
+      join(localAppData, 'Microsoft', 'WinGet', 'Links', `${executable}.exe`),
+    ]
+
+    for (const p of candidates) {
+      if (existsSync(p)) return p
+    }
+  } else {
+    const candidates = [
+      join('/usr/local/bin', executable),
+      join('/opt/homebrew/bin', executable),
+      join(home, '.cargo', 'bin', executable),
+      join(home, '.local', 'bin', executable),
+    ]
+
+    for (const p of candidates) {
+      if (existsSync(p)) return p
+    }
+  }
+
+  return undefined
+}
+
+/**
+ * Probes the operating system PATH and candidate paths to detect installed AI coding CLIs.
  */
 export async function detectInstalledClis(): Promise<readonly InstalledCliInfo[]> {
   const isWin = process.platform === 'win32'
   const lookupCmd = isWin ? 'where.exe' : 'which'
 
+  const customClis = loadCustomClis()
+
+  const allToProbe = [
+    ...STANDARD_AGENT_CATALOG.map((c) => ({
+      id: c.id,
+      name: c.name,
+      executable: c.executable,
+      defaultModel: c.defaultModel,
+      isCustom: false,
+    })),
+    ...customClis.map((c) => ({
+      id: c.id,
+      name: c.name,
+      executable: c.executable,
+      defaultModel: undefined,
+      isCustom: true,
+    })),
+  ]
+
   const results: InstalledCliInfo[] = []
 
-  for (const cli of KNOWN_CLI_AGENTS) {
-    try {
-      const { stdout } = await execFileAsync(lookupCmd, [cli.executable], {
-        timeout: 2000,
-        windowsHide: true,
-      })
-      const firstLine = stdout.trim().split(/\r?\n/)[0] ?? ''
-      results.push({
-        id: cli.id,
-        name: cli.name,
-        executable: cli.executable,
-        available: firstLine.length > 0,
-        resolvedPath: firstLine.length > 0 ? firstLine : undefined,
-      })
-    } catch {
-      results.push({
-        id: cli.id,
-        name: cli.name,
-        executable: cli.executable,
-        available: false,
-      })
-    }
-  }
+  await Promise.all(
+    allToProbe.map(async (cli) => {
+      let resolvedPath: string | undefined
 
-  return results
+      // 1. PATH lookup
+      try {
+        const { stdout } = await execFileAsync(lookupCmd, [cli.executable], {
+          timeout: 2500,
+          windowsHide: true,
+        })
+        const firstLine = stdout.trim().split(/\r?\n/)[0]?.trim()
+        if (firstLine && firstLine.length > 0) {
+          resolvedPath = firstLine
+        }
+      } catch {
+        // Fall through to candidate paths
+      }
+
+      // 2. Candidate paths lookup if PATH lookup did not hit
+      resolvedPath ??= checkCandidatePaths(cli.executable)
+
+      const available = resolvedPath !== undefined
+      const auth = probeAuthStatus(cli.id, available)
+
+      results.push({
+        id: cli.id,
+        name: cli.name,
+        executable: cli.executable,
+        available,
+        installation: available ? 'installed' : 'not_installed',
+        authentication: auth,
+        resolvedPath,
+        isCustom: cli.isCustom,
+        defaultModel: cli.defaultModel,
+      })
+    }),
+  )
+
+  // Maintain catalog order: standard catalog entries first, then custom CLIs
+  const orderMap = new Map<string, number>()
+  STANDARD_AGENT_CATALOG.forEach((item, index) => {
+    orderMap.set(item.id, index)
+  })
+
+  return results.sort((a, b) => {
+    const idxA = orderMap.get(a.id) ?? 999
+    const idxB = orderMap.get(b.id) ?? 999
+    if (idxA !== idxB) return idxA - idxB
+    return a.name.localeCompare(b.name)
+  })
 }

@@ -14,10 +14,12 @@ import type {
   ProviderChunkPayload,
   PromptPacketView,
   RepositoryProbe,
+  WorkflowArtifactView,
   WorkflowDetailView,
   WorkflowEventPayload,
   WorkflowLogPayload,
   WorkflowSummaryView,
+  WorkflowTemplateV2View,
   WorkflowTemplateView,
 } from '@shared/ipc'
 
@@ -74,6 +76,18 @@ export interface ForgeApi {
           readonly executable: string | null
           readonly available: boolean | null
           readonly label: { readonly name: string; readonly summary: string } | null
+        }[]
+      }>
+    >
+    /** Detects which AI coding CLIs (claude, opencode, codex, agy, aider) are installed on PATH. */
+    detectClis: () => Promise<
+      IpcResult<{
+        readonly clis: readonly {
+          readonly id: string
+          readonly name: string
+          readonly executable: string
+          readonly available: boolean
+          readonly resolvedPath?: string | undefined
         }[]
       }>
     >
@@ -248,6 +262,25 @@ export interface ForgeApi {
   readonly template: {
     list: () => Promise<IpcResult<{ readonly templates: readonly WorkflowTemplateView[] }>>
     get: (templateId: string) => Promise<IpcResult<WorkflowTemplateView | null>>
+    listV2: (status?: 'draft' | 'published' | 'archived') => Promise<
+      IpcResult<{
+        readonly templates: readonly WorkflowTemplateV2View[]
+      }>
+    >
+    getV2: (templateId: string) => Promise<IpcResult<WorkflowTemplateV2View | null>>
+    saveV2: (template: WorkflowTemplateV2View) => Promise<IpcResult<WorkflowTemplateV2View>>
+    deleteV2: (templateId: string) => Promise<IpcResult<{ readonly success: boolean }>>
+  }
+  readonly artifact: {
+    list: (
+      workflowId: string,
+      nodeId?: string,
+    ) => Promise<
+      IpcResult<{
+        readonly artifacts: readonly WorkflowArtifactView[]
+      }>
+    >
+    get: (artifactId: string) => Promise<IpcResult<WorkflowArtifactView | null>>
   }
   readonly terminal: {
     spawn: (request: {

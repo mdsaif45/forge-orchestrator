@@ -288,6 +288,89 @@ export const workflowTemplateViewSchema = z.strictObject({
 
 export type WorkflowTemplateView = z.infer<typeof workflowTemplateViewSchema>
 
+export const slotDefinitionViewSchema = z.strictObject({
+  name: z.string().min(1),
+  kind: z.string().min(1),
+  required: z.boolean().default(true),
+  formHint: z.string().optional(),
+  description: z.string().optional(),
+})
+export type SlotDefinitionView = z.infer<typeof slotDefinitionViewSchema>
+
+export const outputDefinitionViewSchema = z.strictObject({
+  name: z.string().min(1),
+  kind: z.string().min(1),
+  format: z.enum(['markdown', 'diff', 'json', 'text']).default('markdown'),
+  requiredH1: z.string().optional(),
+  requiredSections: z.array(z.string()).readonly().default([]),
+  description: z.string().optional(),
+})
+export type OutputDefinitionView = z.infer<typeof outputDefinitionViewSchema>
+
+export const nodeRuntimeConfigViewSchema = z.strictObject({
+  agentExecutable: z.string().optional(),
+  argsTemplate: z.string().optional(),
+  providerId: z.string().optional(),
+  modelId: z.string().optional(),
+  systemPrompt: z.string().optional(),
+  skills: z.array(z.string()).readonly().default([]),
+  permissionMode: z.enum(['read-only', 'developer', 'full-access']).default('developer'),
+})
+export type NodeRuntimeConfigView = z.infer<typeof nodeRuntimeConfigViewSchema>
+
+export const workflowNodeViewSchema = z.strictObject({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  templateId: z.string().optional(),
+  type: z.enum(['agent', 'user_gate', 'verification', 'router']),
+  runtimeType: z.enum(['forge-native', 'cli-agent', 'human', 'forge-engine']),
+  config: nodeRuntimeConfigViewSchema.default({
+    skills: [],
+    permissionMode: 'developer',
+  }),
+  inputs: z.array(slotDefinitionViewSchema).readonly().default([]),
+  outputs: z.array(outputDefinitionViewSchema).readonly().default([]),
+  position: z.strictObject({ x: z.number(), y: z.number() }).optional(),
+})
+export type WorkflowNodeView = z.infer<typeof workflowNodeViewSchema>
+
+export const workflowEdgeViewSchema = z.strictObject({
+  id: z.string().min(1),
+  source: z.string().min(1),
+  sourceHandle: z.string().optional(),
+  target: z.string().min(1),
+  targetHandle: z.string().optional(),
+})
+export type WorkflowEdgeView = z.infer<typeof workflowEdgeViewSchema>
+
+export const workflowTemplateV2ViewSchema = z.strictObject({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  description: z.string().min(1),
+  version: z.number().int().positive().default(1),
+  status: z.enum(['draft', 'published', 'archived']).default('draft'),
+  category: z.string().default('General'),
+  nodes: z.array(workflowNodeViewSchema).min(1).readonly(),
+  edges: z.array(workflowEdgeViewSchema).readonly().default([]),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+})
+export type WorkflowTemplateV2View = z.infer<typeof workflowTemplateV2ViewSchema>
+
+export const workflowArtifactViewSchema = z.strictObject({
+  id: z.string().min(1),
+  workflowId: z.string().min(1),
+  nodeId: z.string().min(1),
+  stepIndex: z.number().int().nonnegative().optional(),
+  kind: z.string().min(1),
+  format: z.enum(['markdown', 'diff', 'json', 'text']),
+  title: z.string().min(1),
+  content: z.string(),
+  metadata: z.record(z.string(), z.unknown()).readonly().default({}),
+  createdAt: z.string().min(1),
+})
+export type WorkflowArtifactView = z.infer<typeof workflowArtifactViewSchema>
+
 export const promptPacketViewSchema = z.strictObject({
   role: z.string(),
   objective: z.string(),
@@ -652,6 +735,22 @@ export const IPC_CONTRACT = {
         .readonly(),
     }),
   },
+  'runtime:detectClis': {
+    request: empty,
+    response: z.strictObject({
+      clis: z
+        .array(
+          z.strictObject({
+            id: z.string(),
+            name: z.string(),
+            executable: z.string(),
+            available: z.boolean(),
+            resolvedPath: z.string().optional(),
+          }),
+        )
+        .readonly(),
+    }),
+  },
   'binding:list': {
     request: z.strictObject({ projectId: z.string() }),
     response: roleBindingsViewSchema,
@@ -815,6 +914,47 @@ export const IPC_CONTRACT = {
   'template:get': {
     request: z.strictObject({ templateId: z.string() }),
     response: workflowTemplateViewSchema.nullable(),
+  },
+  'template:listV2': {
+    request: z.strictObject({
+      status: z.enum(['draft', 'published', 'archived']).optional(),
+    }),
+    response: z.strictObject({
+      templates: z.array(workflowTemplateV2ViewSchema).readonly(),
+    }),
+  },
+  'template:getV2': {
+    request: z.strictObject({
+      templateId: z.string(),
+    }),
+    response: workflowTemplateV2ViewSchema.nullable(),
+  },
+  'template:saveV2': {
+    request: z.strictObject({
+      template: workflowTemplateV2ViewSchema,
+    }),
+    response: workflowTemplateV2ViewSchema,
+  },
+  'template:deleteV2': {
+    request: z.strictObject({
+      templateId: z.string(),
+    }),
+    response: z.strictObject({ success: z.boolean() }),
+  },
+  'artifact:list': {
+    request: z.strictObject({
+      workflowId: z.string(),
+      nodeId: z.string().optional(),
+    }),
+    response: z.strictObject({
+      artifacts: z.array(workflowArtifactViewSchema).readonly(),
+    }),
+  },
+  'artifact:get': {
+    request: z.strictObject({
+      artifactId: z.string(),
+    }),
+    response: workflowArtifactViewSchema.nullable(),
   },
   'terminal:spawn': {
     request: z.strictObject({

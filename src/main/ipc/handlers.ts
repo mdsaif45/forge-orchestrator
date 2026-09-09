@@ -21,6 +21,9 @@ import type { EnrollmentService } from '../accounts/enrollmentService'
 import { openTerminal } from '../accounts/terminalLauncher'
 
 import type { TerminalService } from '../terminal/terminalService'
+import { TemplateV2Store } from '../templates/templateV2Store'
+import { ArtifactStore } from '../artifacts/artifactStore'
+import { detectInstalledClis } from '../runtimes/cliDetector'
 
 export interface IpcDependencies {
   readonly projects: ProjectService
@@ -33,6 +36,8 @@ export interface IpcDependencies {
   readonly bindings: BindingService
   readonly enrollment: EnrollmentService
   readonly terminal: TerminalService
+  readonly templatesV2?: TemplateV2Store
+  readonly artifacts?: ArtifactStore
   /**
    * Broadcasts one chunk of a streamed model reply.
    *
@@ -66,9 +71,14 @@ export function createIpcHandlers({
   bindings,
   enrollment,
   terminal,
+  templatesV2,
+  artifacts,
   emitProviderChunk,
   setActiveModel,
 }: IpcDependencies): IpcHandlerMap {
+  const templatesV2Store = templatesV2 ?? new TemplateV2Store()
+  const artifactStore = artifacts ?? new ArtifactStore()
+
   /**
    * Gathers everything a report needs and renders it.
    *
@@ -176,6 +186,10 @@ export function createIpcHandlers({
           label: runtimeDescription(runtime.id),
         }
       }),
+    }),
+
+    'runtime:detectClis': async () => ({
+      clis: await detectInstalledClis(),
     }),
 
     'binding:list': ({ projectId }) => bindings.list(projectId),
@@ -340,6 +354,24 @@ export function createIpcHandlers({
 
     'template:get': ({ templateId }) =>
       Object.hasOwn(TEMPLATES, templateId) ? TEMPLATES[templateId as keyof typeof TEMPLATES] : null,
+
+    'template:listV2': ({ status }) => ({
+      templates: templatesV2Store.list(status),
+    }),
+
+    'template:getV2': ({ templateId }) => templatesV2Store.get(templateId),
+
+    'template:saveV2': ({ template }) => templatesV2Store.save(template),
+
+    'template:deleteV2': ({ templateId }) => ({
+      success: templatesV2Store.delete(templateId),
+    }),
+
+    'artifact:list': ({ workflowId, nodeId }) => ({
+      artifacts: artifactStore.list(workflowId, nodeId),
+    }),
+
+    'artifact:get': ({ artifactId }) => artifactStore.get(artifactId),
 
     'terminal:spawn': async (request) => terminal.spawn(request),
 

@@ -1,12 +1,17 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import type {
   RoleBindingsView,
+  WorkflowArtifactView,
   WorkflowDetailView,
   WorkflowEventPayload,
   WorkflowLogPayload,
   WorkflowStepView,
+  WorkflowTemplateV2View,
   WorkflowTemplateView,
 } from '@shared/ipc'
+import { WorkflowCatalogView } from './WorkflowCatalogView'
+import { WorkflowCanvas } from './WorkflowCanvas'
+import { WorkflowArtifactViewer } from './WorkflowArtifactViewer'
 import { agentSessionKey } from '@shared/domain'
 import {
   AgentTerminal,
@@ -20,7 +25,6 @@ import {
   StatusDot,
   useToast,
   WorkflowEdge,
-  WorkflowLaunchpad,
   WorkflowNode,
 } from '@renderer/ui'
 import { unwrap } from '@renderer/ipc'
@@ -115,6 +119,123 @@ export function WorkflowPage(): React.JSX.Element {
   const { show } = useToast()
 
   const allTemplates = [...baseTemplates, ...customTemplates]
+
+  const [templatesV2, setTemplatesV2] = useState<readonly WorkflowTemplateV2View[]>([])
+  const [editingTemplate, setEditingTemplate] = useState<WorkflowTemplateV2View | null>(null)
+  const [viewingArtifact, setViewingArtifact] = useState<WorkflowArtifactView | null>(null)
+  const [studioMode, setStudioMode] = useState<'catalog' | 'canvas' | 'player'>('catalog')
+
+  const loadTemplatesV2 = useCallback(() => {
+    window.forge.template
+      .listV2()
+      .then((res) => {
+        if (res.ok) {
+          setTemplatesV2(res.value.templates)
+        }
+      })
+      .catch((err: unknown) => {
+        console.error('Failed to load V2 templates:', err)
+      })
+  }, [])
+
+  useEffect(() => {
+    loadTemplatesV2()
+  }, [loadTemplatesV2])
+
+  const handleRunV2Workflow = (tmpl: WorkflowTemplateV2View) => {
+    setSelectedTemplateId(tmpl.id)
+    void handleStartWorkflow({
+      title: tmpl.name,
+      objective: tmpl.description,
+      templateId: tmpl.id,
+    })
+    setStudioMode('player')
+  }
+
+  const handleSaveTemplateV2 = (tmpl: WorkflowTemplateV2View) => {
+    window.forge.template
+      .saveV2(tmpl)
+      .then((res) => {
+        if (res.ok) {
+          loadTemplatesV2()
+          setEditingTemplate(res.value)
+          show({ title: `Saved "${tmpl.name}"`, tone: 'neutral' })
+        }
+      })
+      .catch(() => {
+        show({ title: 'Failed to save template', tone: 'danger' })
+      })
+  }
+
+  const handleDeleteTemplateV2 = (templateId: string) => {
+    window.forge.template
+      .deleteV2(templateId)
+      .then((res) => {
+        if (res.ok) {
+          loadTemplatesV2()
+          show({ title: 'Template deleted', tone: 'neutral' })
+        }
+      })
+      .catch(() => {
+        show({ title: 'Failed to delete template', tone: 'danger' })
+      })
+  }
+
+  const handleCloneTemplateV2 = (tmpl: WorkflowTemplateV2View) => {
+    const clone: WorkflowTemplateV2View = {
+      ...tmpl,
+      id: `tmpl-${Date.now().toString(36)}`,
+      name: `${tmpl.name} (Copy)`,
+      status: 'draft',
+      version: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    handleSaveTemplateV2(clone)
+  }
+
+  const handleTogglePublishV2 = (tmpl: WorkflowTemplateV2View) => {
+    const nextStatus = tmpl.status === 'published' ? 'draft' : 'published'
+    handleSaveTemplateV2({ ...tmpl, status: nextStatus, updatedAt: new Date().toISOString() })
+  }
+
+  const handleCreateNewWorkflow = () => {
+    const newTmpl: WorkflowTemplateV2View = {
+      id: `custom-${Date.now().toString(36)}`,
+      name: 'Custom Workflow',
+      description: 'A modular multi-agent workflow assembled from Lego pieces.',
+      version: 1,
+      status: 'draft',
+      category: 'General',
+      nodes: [
+        {
+          id: 'agent-1',
+          title: 'Requirements Analyst',
+          type: 'agent',
+          runtimeType: 'forge-native',
+          config: {
+            skills: ['requirements-analysis'],
+            permissionMode: 'read-only',
+          },
+          inputs: [{ name: 'goal', kind: 'user_prompt', required: true }],
+          outputs: [
+            {
+              name: 'spec',
+              kind: 'final_specification',
+              format: 'markdown',
+              requiredSections: [],
+            },
+          ],
+          position: { x: 100, y: 150 },
+        },
+      ],
+      edges: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }
+    setEditingTemplate(newTmpl)
+    setStudioMode('canvas')
+  }
 
   // Load active workflow on project change
   useEffect(() => {
@@ -585,31 +706,54 @@ export function WorkflowPage(): React.JSX.Element {
     )
   }
 
-  // When no active workflow is executing: Render the clean Launchpad
+  // When no active workflow is executing: Render Visual Studio (Catalog or Canvas)
   if (workflow === null) {
+    if (studioMode === 'canvas' && editingTemplate !== null) {
+      return (
+        <>
+          <WorkflowCanvas
+            template={editingTemplate}
+            onBack={() => {
+              setStudioMode('catalog')
+            }}
+            onSave={handleSaveTemplateV2}
+            onRun={handleRunV2Workflow}
+            onSelectArtifact={(art) => {
+              setViewingArtifact(art)
+            }}
+          />
+          {viewingArtifact && (
+            <WorkflowArtifactViewer
+              artifact={viewingArtifact}
+              onClose={() => {
+                setViewingArtifact(null)
+              }}
+            />
+          )}
+        </>
+      )
+    }
+
     return (
-      <div className="flex h-full flex-col gap-3 p-6 overflow-hidden">
-        <div className="flex items-center justify-between border-b border-(--color-border) pb-3">
-          <h1 className="text-[18px] font-bold text-(--color-text)">Workflows</h1>
-        </div>
-        <WorkflowLaunchpad
-          projectName={project.name}
-          repositoryPath={project.repository.absolutePath}
-          templates={allTemplates}
-          selectedTemplateId={selectedTemplateId}
-          onSelectTemplate={setSelectedTemplateId}
-          onStartWork={(tmplId) => {
-            const targetTmpl = tmplId ?? selectedTemplateId
+      <div className="flex h-full flex-col overflow-hidden">
+        <WorkflowCatalogView
+          templates={templatesV2}
+          onOpenInCanvas={(tmpl) => {
+            setEditingTemplate(tmpl)
+            setStudioMode('canvas')
+          }}
+          onRunWorkflow={handleRunV2Workflow}
+          onCreateNewWorkflow={handleCreateNewWorkflow}
+          onCloneWorkflow={handleCloneTemplateV2}
+          onDeleteWorkflow={handleDeleteTemplateV2}
+          onTogglePublish={handleTogglePublishV2}
+          onStartWorkflow={() => {
             void handleStartWorkflow({
               title: 'Automated Task',
-              objective: 'Execute workflow template',
-              templateId: targetTmpl,
+              objective: 'Execute end-to-end SDLC workflow with multi-agent orchestration.',
+              templateId: selectedTemplateId,
             })
           }}
-          onCreateTemplate={() => {
-            setCreateTemplateOpen(true)
-          }}
-          bindings={bindings}
         />
 
         {/* Start New Work / Requirements Modal */}
@@ -619,7 +763,7 @@ export function WorkflowPage(): React.JSX.Element {
           selectedTemplateId={selectedTemplateId}
           onSelectTemplate={setSelectedTemplateId}
           onCreateCustomTemplate={() => {
-            setCreateTemplateOpen(true)
+            handleCreateNewWorkflow()
           }}
           onClose={() => {
             setStartDialogOpen(false)
@@ -635,6 +779,15 @@ export function WorkflowPage(): React.JSX.Element {
           }}
           onSave={handleSaveCustomTemplate}
         />
+
+        {viewingArtifact && (
+          <WorkflowArtifactViewer
+            artifact={viewingArtifact}
+            onClose={() => {
+              setViewingArtifact(null)
+            }}
+          />
+        )}
       </div>
     )
   }
@@ -660,6 +813,17 @@ export function WorkflowPage(): React.JSX.Element {
 
         {/* Action Buttons with clear borders and styling */}
         <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setStudioMode('catalog')
+              setWorkflow(null)
+            }}
+            className="h-8 text-[12px] text-(--color-text-muted) hover:text-(--color-text)"
+          >
+            ← Catalog
+          </Button>
           {isTerminal ? (
             <Button
               variant="primary"
@@ -958,6 +1122,15 @@ export function WorkflowPage(): React.JSX.Element {
         }}
         onSave={handleSaveCustomTemplate}
       />
+
+      {viewingArtifact && (
+        <WorkflowArtifactViewer
+          artifact={viewingArtifact}
+          onClose={() => {
+            setViewingArtifact(null)
+          }}
+        />
+      )}
     </div>
   )
 }

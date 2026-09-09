@@ -99,8 +99,16 @@ app
     ipcMain.handle('account:revokeEnrollment', () => ({ ok: true, value: {} }))
     ipcMain.handle('template:list', () => ({ ok: true, value: { templates: [] } }))
     ipcMain.handle('template:get', () => ({ ok: true, value: null }))
+    ipcMain.handle('template:listV2', () => ({ ok: true, value: { templates: [] } }))
+    ipcMain.handle('template:getV2', () => ({ ok: true, value: null }))
+    ipcMain.handle('template:saveV2', () => ({ ok: true, value: { id: 'stub' } }))
+    ipcMain.handle('template:deleteV2', () => ({ ok: true, value: { success: true } }))
+    ipcMain.handle('artifact:list', () => ({ ok: true, value: { artifacts: [] } }))
+    ipcMain.handle('artifact:get', () => ({ ok: true, value: null }))
+    ipcMain.handle('runtime:detectClis', () => ({ ok: true, value: { clis: [] } }))
     ipcMain.handle('terminal:buffer', () => ({ ok: true, value: { buffer: '' } }))
     ipcMain.handle('provider:scanModels', () => ({ ok: true, value: [] }))
+    ipcMain.handle('provider:setActiveModel', () => ({ ok: true, value: {} }))
 
     // The development-mode bundle, not `out/renderer`: these checks exercise the kitchen
     // sink, which is a development tool and is eliminated from a release build (#103).

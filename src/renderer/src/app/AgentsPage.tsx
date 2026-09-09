@@ -55,6 +55,23 @@ export function AgentsPage(): React.JSX.Element {
   } | null>(null)
   const [saving, setSaving] = useState<string | null>(null)
   const [createAgentOpen, setCreateAgentOpen] = useState(false)
+  const [runtimeLabels, setRuntimeLabels] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    window.forge.runtime
+      .list()
+      .then((res) => {
+        const result = unwrap(res)
+        const labels: Record<string, string> = {}
+        for (const rt of result.runtimes) {
+          if (rt.label?.name) {
+            labels[rt.id] = rt.label.name
+          }
+        }
+        setRuntimeLabels(labels)
+      })
+      .catch(() => undefined)
+  }, [])
 
   // Custom agents stored in localStorage
   const [customAgents, setCustomAgents] = useState<readonly CustomAgentConfig[]>(() => {
@@ -227,18 +244,25 @@ export function AgentsPage(): React.JSX.Element {
                   </div>
                   <p className="m-0 font-mono text-[10px] text-(--color-text-muted)">
                     Current Engine:{' '}
-                    <span className="text-(--color-text)">{binding?.runtimeId ?? 'Not bound'}</span>
+                    <span className="text-(--color-text)">
+                      {binding?.runtimeId
+                        ? (runtimeLabels[binding.runtimeId] ?? binding.runtimeId)
+                        : 'Not bound'}
+                    </span>
                   </p>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <div className="w-44">
+                  <div className="w-48">
                     <Select
                       aria-label={`Runtime for ${role}`}
-                      options={eligibleRuntimes.map((runtime) => ({
-                        value: runtime.id,
-                        label: runtime.simulated ? `${runtime.id} (simulated)` : runtime.id,
-                      }))}
+                      options={eligibleRuntimes.map((runtime) => {
+                        const friendly = runtimeLabels[runtime.id] ?? runtime.id
+                        return {
+                          value: runtime.id,
+                          label: runtime.simulated ? `${friendly} (simulated)` : friendly,
+                        }
+                      })}
                       value={binding?.runtimeId ?? ''}
                       disabled={saving === role}
                       onChange={(event: { target: { value: string } }) => {

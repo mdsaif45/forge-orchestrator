@@ -105,7 +105,20 @@ app
     ipcMain.handle('template:deleteV2', () => ({ ok: true, value: { success: true } }))
     ipcMain.handle('artifact:list', () => ({ ok: true, value: { artifacts: [] } }))
     ipcMain.handle('artifact:get', () => ({ ok: true, value: null }))
+    ipcMain.handle('runtime:list', () => ({ ok: true, value: { runtimes: [] } }))
     ipcMain.handle('runtime:detectClis', () => ({ ok: true, value: { clis: [] } }))
+    ipcMain.handle('runtime:getAgentDefaults', () => ({
+      ok: true,
+      value: {
+        defaultWorker: 'agy',
+        workerModel: '(agent default)',
+        defaultOrchestrator: 'claude',
+        orchestratorModel: 'Agent default',
+        defaultReviewer: 'Project default',
+        permissionMode: 'Project default',
+        autoReviewPrs: false,
+      },
+    }))
     ipcMain.handle('terminal:buffer', () => ({ ok: true, value: { buffer: '' } }))
     ipcMain.handle('provider:scanModels', () => ({ ok: true, value: [] }))
     ipcMain.handle('provider:setActiveModel', () => ({ ok: true, value: {} }))

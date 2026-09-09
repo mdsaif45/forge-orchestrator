@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { EffectiveRuleView, ProjectDetail } from '@shared/ipc'
 import {
+  AddCliAgentDialog,
   AddMcpServerDialog,
   AddProviderDialog,
   Badge,
@@ -9,6 +10,8 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
+  Checkbox,
+  type CliAgentConfig,
   type CustomProviderConfig,
   Dialog,
   EmptyState,
@@ -472,7 +475,7 @@ export function SettingsContent(): React.JSX.Element {
                 {(
                   [
                     { id: 'general', label: 'General & Directives' },
-                    { id: 'cli-agents', label: 'CLI Agents' },
+                    { id: 'cli-agents', label: 'Agents' },
                     { id: 'providers', label: 'LLM Providers' },
                     { id: 'customizations', label: 'Customizations & MCP' },
                   ] as const
@@ -1211,54 +1214,85 @@ interface RuntimeRow {
   readonly capabilities: readonly string[]
   readonly executable: string | null
   readonly available: boolean | null
-  /**
-   * Resolved in main, not here: the ids name providers, and A6 keeps those names
-   * out of the renderer (the lint rule rejects them outright). Null means main
-   * had no mapping, and the raw id is shown instead of a guess.
-   */
   readonly label: { readonly name: string; readonly summary: string } | null
 }
 
+interface DetectedCliRow {
+  readonly id: string
+  readonly name: string
+  readonly executable: string
+  readonly available: boolean
+  readonly installation?: 'installed' | 'not_installed' | undefined
+  readonly authentication?: 'authorized' | 'unauthorized' | 'unknown' | 'not_applicable' | undefined
+  readonly resolvedPath?: string | undefined
+  readonly isCustom?: boolean | undefined
+  readonly defaultModel?: string | undefined
+}
+
+interface AgentDefaultsState {
+  defaultWorker: string
+  workerModel: string
+  defaultOrchestrator: string
+  orchestratorModel: string
+  defaultReviewer: string
+  permissionMode: string
+  autoReviewPrs: boolean
+}
+
 /**
- * The runtimes the running app has actually registered.
- *
- * This used to render a hardcoded array kept in `localStorage`, with fabricated
- * "Connected" badges and a Verify button that reported success after a 600ms
- * timer without spawning anything. None of its ids existed in the registry, and
- * two of its commands (`primary-engine`, `secondary-engine`) are not programs.
- * A pane claiming a CLI is reachable without having checked is the same
- * unverified claim Forge exists to catch in agents (A3), so the list, the status
- * and the executable now all come from `runtime:list`.
+ * Manages CLI agents, system detection, default roles, and custom runtime configurations.
  */
 function CliAgentsGlobalSettings(): React.JSX.Element {
   const { show } = useToast()
   const [runtimes, setRuntimes] = useState<readonly RuntimeRow[] | null>(null)
+  const [clis, setClis] = useState<readonly DetectedCliRow[] | null>(null)
+  const [defaults, setDefaults] = useState<AgentDefaultsState>({
+    defaultWorker: '',
+    workerModel: '(agent default)',
+    defaultOrchestrator: '',
+    orchestratorModel: 'Agent default',
+    defaultReviewer: 'Project default',
+    permissionMode: 'Project default',
+    autoReviewPrs: false,
+  })
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [savingDefaults, setSavingDefaults] = useState(false)
+  const [addDialogOpen, setAddDialogOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
 
-  /**
-   * State is set from the promise's callbacks, never synchronously in the body.
-   *
-   * Matches the pattern the other pages use, and it is what the
-   * `react-hooks/set-state-in-effect` rule requires: a `setRefreshing(true)`
-   * before the await runs during the mount effect and triggers the cascading
-   * render the rule exists to prevent.
-   */
   const load = useCallback(
     (announce: boolean): void => {
-      window.forge.runtime
-        .list()
-        .then((res) => {
-          const result = unwrap(res)
-          setRuntimes(result.runtimes)
+      Promise.all([
+        window.forge.runtime.list(),
+        window.forge.runtime.detectClis(),
+        window.forge.runtime.getAgentDefaults(),
+      ])
+        .then(([runtimesRes, clisRes, defaultsRes]) => {
+          const runtimesResult = unwrap(runtimesRes)
+          const clisResult = unwrap(clisRes)
+          const defaultsResult = unwrap(defaultsRes)
+
+          setRuntimes(runtimesResult.runtimes)
+          setClis(clisResult.clis)
+          setDefaults({
+            defaultWorker: defaultsResult.defaultWorker ?? clisResult.clis[0]?.id ?? '',
+            workerModel: defaultsResult.workerModel ?? '(agent default)',
+            defaultOrchestrator: defaultsResult.defaultOrchestrator ?? clisResult.clis[0]?.id ?? '',
+            orchestratorModel: defaultsResult.orchestratorModel ?? 'Agent default',
+            defaultReviewer: defaultsResult.defaultReviewer ?? 'Project default',
+            permissionMode: defaultsResult.permissionMode ?? 'Project default',
+            autoReviewPrs: defaultsResult.autoReviewPrs ?? false,
+          })
           setError(null)
           setRefreshing(false)
+
           if (announce) {
-            const reachable = result.runtimes.filter((entry) => entry.available === true).length
+            const reachable = clisResult.clis.filter((entry) => entry.available).length
             show({
               tone: 'success',
-              title: 'Re-checked the registered runtimes',
-              description: `${String(reachable)} of ${String(result.runtimes.length)} have an executable on PATH.`,
+              title: 'System check completed',
+              description: `${String(reachable)} of ${String(clisResult.clis.length)} CLI agents detected on your system.`,
             })
           }
         })
@@ -1274,95 +1308,429 @@ function CliAgentsGlobalSettings(): React.JSX.Element {
     load(false)
   }, [load])
 
+  const handleSaveDefaults = async (): Promise<void> => {
+    setSavingDefaults(true)
+    try {
+      await window.forge.runtime.setAgentDefaults(defaults)
+      show({
+        tone: 'success',
+        title: 'Agent defaults saved',
+        description: 'Default workers, models, and role preferences were updated.',
+      })
+    } catch (err: unknown) {
+      show({
+        tone: 'danger',
+        title: 'Could not save defaults',
+        description: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setSavingDefaults(false)
+    }
+  }
+
+  const handleSaveCustomCli = async (config: CliAgentConfig): Promise<void> => {
+    try {
+      await window.forge.runtime.addCustomCli({
+        id: config.id,
+        name: config.name,
+        executable: config.command,
+        defaultArgs: config.argsTemplate ? config.argsTemplate.split(' ') : undefined,
+      })
+      show({
+        tone: 'success',
+        title: `Custom CLI agent "${config.name}" added`,
+        description: `Registered command "${config.command}" for workflow pipelines.`,
+      })
+      load(false)
+    } catch (err: unknown) {
+      show({
+        tone: 'danger',
+        title: 'Could not add custom CLI agent',
+        description: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  const handleRemoveCustomCli = async (id: string, name: string): Promise<void> => {
+    try {
+      await window.forge.runtime.removeCustomCli(id)
+      show({
+        tone: 'neutral',
+        title: `Removed "${name}"`,
+        description: 'The custom agent was removed from configuration.',
+      })
+      load(false)
+    } catch (err: unknown) {
+      show({
+        tone: 'danger',
+        title: 'Could not remove custom CLI agent',
+        description: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  const filteredClis = (clis ?? []).filter((cli) => {
+    if (!searchQuery.trim()) return true
+    const q = searchQuery.toLowerCase()
+    return (
+      cli.name.toLowerCase().includes(q) ||
+      cli.id.toLowerCase().includes(q) ||
+      cli.executable.toLowerCase().includes(q) ||
+      (cli.resolvedPath ? cli.resolvedPath.toLowerCase().includes(q) : false)
+    )
+  })
+
+  // Options for worker / orchestrator / reviewer selects
+  const agentOptions = (clis ?? []).map((cli) => {
+    const statusText = cli.available
+      ? cli.authentication === 'authorized'
+        ? 'Ready'
+        : 'Auth unknown'
+      : 'Needs install'
+    return {
+      value: cli.id,
+      label: `${cli.name} (${statusText})`,
+    }
+  })
+
   return (
     <div className="grid gap-6">
+      {/* Page Header */}
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-[18px] font-bold text-(--color-text)">
-              CLI Agents &amp; Autonomous Runtimes
-            </h1>
+            <h1 className="text-[18px] font-bold text-(--color-text)">Agents &amp; CLI Runtimes</h1>
             <Badge tone="accent" size="sm" className="rounded-full">
-              {runtimes === null ? '—' : `${String(runtimes.length)} Registered`}
+              {clis === null ? '—' : `${String(clis.length)} Agents`}
             </Badge>
           </div>
           <p className="mt-1 text-[12px] text-(--color-text-muted)">
-            Every runtime the running app has registered, read from the registry itself. A role is
-            bound to one of these on the Agents page.
+            Configure default execution agents, detected CLI engines, and role assignments across
+            workflows.
           </p>
         </div>
 
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={refreshing}
-          onClick={() => {
-            setRefreshing(true)
-            load(true)
-          }}
-          className="rounded-lg text-[12px]"
-        >
-          {refreshing ? (
-            <span className="flex items-center gap-1">
-              <Spinner size="sm" />
-              Checking...
-            </span>
-          ) : (
-            'Re-check PATH'
-          )}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              setAddDialogOpen(true)
+            }}
+            className="rounded-lg text-[12px]"
+          >
+            + Add Custom Agent
+          </Button>
+
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={refreshing}
+            onClick={() => {
+              setRefreshing(true)
+              load(true)
+            }}
+            className="rounded-lg text-[12px]"
+          >
+            {refreshing ? (
+              <span className="flex items-center gap-1">
+                <Spinner size="sm" />
+                Checking...
+              </span>
+            ) : (
+              'Re-check System'
+            )}
+          </Button>
+        </div>
       </div>
 
       {error !== null && (
         <Card tone="raised" className="border-(--color-danger)/50 p-4">
           <p className="m-0 text-[12px] text-(--color-danger)">
-            Could not read the runtime registry: {error}
+            Could not read the runtime registry or CLI agents: {error}
           </p>
         </Card>
       )}
 
-      {runtimes !== null && runtimes.some((runtime) => runtime.simulated) && (
-        <Card tone="raised" className="border-(--color-warning)/50 p-4">
-          <p className="m-0 text-[12px] text-(--color-text-muted)">
-            A <strong>simulated</strong> runtime produces scripted output, not real work. It stays
-            registered so a fresh install can run at all, and any step it handles is recorded as
-            simulated so its output is never mistaken for a verified result.
-          </p>
-        </Card>
-      )}
+      {/* 1. Default Roles Section */}
+      <Card tone="raised" className="border-(--color-border) p-5">
+        <div className="flex items-start justify-between border-b border-(--color-border) pb-4 mb-4">
+          <div>
+            <h2 className="text-[15px] font-bold text-(--color-text)">Default Roles</h2>
+            <p className="mt-0.5 text-[12px] text-(--color-text-muted)">
+              Assign default agents and models for different pipeline stages
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={savingDefaults}
+            onClick={() => {
+              void handleSaveDefaults()
+            }}
+            className="rounded-lg text-[12px]"
+          >
+            {savingDefaults ? 'Saving...' : 'Save Defaults'}
+          </Button>
+        </div>
 
-      <section className="grid gap-3">
-        <h2 className="text-[13px] font-semibold text-(--color-text)">Registered runtimes</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[12px]">
+          <div>
+            <label className="block font-semibold text-(--color-text) mb-1.5">Default worker</label>
+            <Select
+              options={agentOptions}
+              value={defaults.defaultWorker}
+              onChange={(e: { target: { value: string } }) => {
+                setDefaults((prev) => ({ ...prev, defaultWorker: e.target.value }))
+              }}
+            />
+          </div>
 
-        {runtimes === null && error === null && (
+          <div>
+            <label className="block font-semibold text-(--color-text) mb-1.5">Worker model</label>
+            <Input
+              value={defaults.workerModel}
+              placeholder="(agent default)"
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                setDefaults((prev) => ({ ...prev, workerModel: e.target.value }))
+              }}
+            />
+          </div>
+
+          <div>
+            <label className="block font-semibold text-(--color-text) mb-1.5">
+              Default orchestrator
+            </label>
+            <Select
+              options={agentOptions}
+              value={defaults.defaultOrchestrator}
+              onChange={(e: { target: { value: string } }) => {
+                setDefaults((prev) => ({ ...prev, defaultOrchestrator: e.target.value }))
+              }}
+            />
+          </div>
+
+          <div>
+            <label className="block font-semibold text-(--color-text) mb-1.5">
+              Orchestrator model
+            </label>
+            <Input
+              value={defaults.orchestratorModel}
+              placeholder="Agent default"
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                setDefaults((prev) => ({ ...prev, orchestratorModel: e.target.value }))
+              }}
+            />
+          </div>
+
+          <div>
+            <label className="block font-semibold text-(--color-text) mb-1.5">
+              Permission mode
+            </label>
+            <Select
+              options={[
+                { value: 'Project default', label: 'Project default' },
+                { value: 'Developer', label: 'Developer (Full auto inside worktree)' },
+                { value: 'Ask before writing', label: 'Ask before writing' },
+              ]}
+              value={defaults.permissionMode}
+              onChange={(e: { target: { value: string } }) => {
+                setDefaults((prev) => ({ ...prev, permissionMode: e.target.value }))
+              }}
+            />
+          </div>
+
+          <div>
+            <label className="block font-semibold text-(--color-text) mb-1.5">
+              Default reviewer
+            </label>
+            <Select
+              options={[{ value: 'Project default', label: 'Project default' }, ...agentOptions]}
+              value={defaults.defaultReviewer}
+              onChange={(e: { target: { value: string } }) => {
+                setDefaults((prev) => ({ ...prev, defaultReviewer: e.target.value }))
+              }}
+            />
+          </div>
+
+          <div className="md:col-span-2 pt-2 border-t border-(--color-border)">
+            <Checkbox
+              checked={defaults.autoReviewPrs}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                setDefaults((prev) => ({ ...prev, autoReviewPrs: e.target.checked }))
+              }}
+              label="Auto review PRs"
+              hint="Automatically run code review on newly created pull requests"
+            />
+          </div>
+        </div>
+      </Card>
+
+      {/* 2. Available Agents Section */}
+      <section className="grid gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-[15px] font-bold text-(--color-text)">
+              Available CLI Agents &amp; Autonomous Runtimes
+            </h2>
+            <p className="mt-0.5 text-[12px] text-(--color-text-muted)">
+              Detected CLI engines and custom agent runtimes available on this machine.
+            </p>
+          </div>
+
+          <div className="w-full sm:w-72">
+            <Input
+              placeholder="Search agents by name or command..."
+              value={searchQuery}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                setSearchQuery(e.target.value)
+              }}
+            />
+          </div>
+        </div>
+
+        {clis === null && error === null && (
           <div className="flex items-center gap-2 text-[12px] text-(--color-text-muted)">
             <Spinner size="sm" />
-            Reading the registry...
+            Probing system PATH and installed tools...
           </div>
         )}
 
-        {runtimes !== null && runtimes.length === 0 && (
-          <EmptyState
-            title="No runtimes registered"
-            description="The running app registered no agent runtimes, so no role can be bound. That is a wiring fault rather than a setting."
-          />
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {filteredClis.map((cli) => {
+            const isInstalled = cli.available
+            const isAuth = cli.authentication === 'authorized'
+
+            return (
+              <Card
+                key={cli.id}
+                tone="raised"
+                className="border-(--color-border) p-4 flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[14px] font-bold text-(--color-text)">
+                          {cli.name}
+                        </span>
+                        {cli.isCustom && (
+                          <Badge tone="accent" size="sm" className="text-[9px]">
+                            Custom
+                          </Badge>
+                        )}
+                      </div>
+                      <code className="text-[11px] font-mono text-(--color-text-muted)">
+                        {cli.executable}
+                      </code>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      {isInstalled ? (
+                        isAuth ? (
+                          <Badge tone="success" size="sm" className="text-[10px]">
+                            Ready
+                          </Badge>
+                        ) : (
+                          <Badge tone="neutral" size="sm" className="text-[10px]">
+                            Auth unknown
+                          </Badge>
+                        )
+                      ) : (
+                        <Badge tone="warning" size="sm" className="text-[10px]">
+                          Needs install
+                        </Badge>
+                      )}
+
+                      {cli.isCustom && (
+                        <button
+                          type="button"
+                          aria-label={`Remove ${cli.name}`}
+                          onClick={() => {
+                            void handleRemoveCustomCli(cli.id, cli.name)
+                          }}
+                          className="p-1 text-(--color-text-muted) hover:text-(--color-danger) cursor-pointer"
+                        >
+                          <CloseIcon />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {cli.resolvedPath ? (
+                    <div className="mt-2.5 pt-2 border-t border-(--color-border) text-[11px]">
+                      <span className="text-(--color-text-subtle) block text-[10px]">PATH:</span>
+                      <span
+                        className="font-mono text-[10px] text-(--color-text-muted) break-all"
+                        title={cli.resolvedPath}
+                      >
+                        {cli.resolvedPath}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="mt-2.5 pt-2 border-t border-(--color-border) text-[11px] text-(--color-text-subtle)">
+                      Not detected on system PATH
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-3 pt-2 border-t border-(--color-border) flex items-center justify-between text-[11px]">
+                  <div className="flex items-center gap-1.5">
+                    <StatusDot
+                      status={isInstalled ? 'passed' : 'failed'}
+                      label={isInstalled ? 'Installed' : 'Missing'}
+                    />
+                    <span
+                      className={
+                        isInstalled
+                          ? 'text-[11px] font-medium text-(--color-success)'
+                          : 'text-[11px] font-medium text-(--color-text-muted)'
+                      }
+                    >
+                      {isInstalled ? 'Detected' : 'Not installed'}
+                    </span>
+                  </div>
+
+                  {cli.defaultModel && (
+                    <span className="font-mono text-[10px] text-(--color-text-muted)">
+                      {cli.defaultModel}
+                    </span>
+                  )}
+                </div>
+              </Card>
+            )
+          })}
+        </div>
+      </section>
+
+      {/* 3. Registered Core Runtimes Section */}
+      <section className="grid gap-3 pt-4 border-t border-(--color-border)">
+        <h2 className="text-[13px] font-semibold text-(--color-text)">
+          Registered Engine Adapters ({String(runtimes?.length ?? 0)})
+        </h2>
+
+        {runtimes !== null && runtimes.some((runtime) => runtime.simulated) && (
+          <Card tone="raised" className="border-(--color-warning)/50 p-3 text-[11px]">
+            <p className="m-0 text-(--color-text-muted)">
+              A <strong>simulated</strong> runtime produces scripted output for testing. Any step it
+              handles is recorded as simulated.
+            </p>
+          </Card>
         )}
 
-        <div className="grid gap-3">
+        <div className="grid gap-2">
           {(runtimes ?? []).map((runtime) => {
             const label = runtime.label
             const reachable = runtime.available
 
             return (
-              <Card key={runtime.id} tone="raised" className="border-(--color-border) p-4">
-                <div className="flex flex-col gap-3">
-                  <div className="space-y-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[14px] font-bold text-(--color-text)">
+              <Card key={runtime.id} tone="raised" className="border-(--color-border) p-3">
+                <div className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[13px] font-bold text-(--color-text)">
                         {label?.name ?? runtime.id}
                       </span>
-                      {/* The id badge is redundant when the heading already IS the
-                          id, which is what an unmapped runtime falls back to. */}
                       {label !== null && (
                         <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
                           {runtime.id}
@@ -1373,74 +1741,47 @@ function CliAgentsGlobalSettings(): React.JSX.Element {
                           Simulated
                         </Badge>
                       )}
-                      {!runtime.supportsAccountIsolation && !runtime.simulated && (
-                        <Badge tone="neutral" size="sm" className="text-[10px]">
-                          Shares one account
-                        </Badge>
-                      )}
-                      <div className="ml-1 flex items-center gap-1.5">
-                        {/* Driven by the probe, not a constant: a runtime whose CLI is
-                            missing says so here instead of reading "Connected". */}
-                        <StatusDot
-                          status={reachable === null ? 'idle' : reachable ? 'passed' : 'failed'}
-                          label={
-                            reachable === null
-                              ? 'Nothing to spawn'
-                              : reachable
-                                ? 'Executable found'
-                                : 'Executable not found'
-                          }
-                        />
-                        <span
-                          className={
-                            reachable === null
-                              ? 'text-[11px] font-medium text-(--color-text-muted)'
-                              : reachable
-                                ? 'text-[11px] font-medium text-(--color-success)'
-                                : 'text-[11px] font-medium text-(--color-danger)'
-                          }
-                        >
-                          {reachable === null
-                            ? 'Spawns nothing'
+                    </div>
+
+                    <div className="flex items-center gap-1.5 text-[11px]">
+                      <StatusDot
+                        status={reachable === null ? 'idle' : reachable ? 'passed' : 'failed'}
+                        label={reachable === null ? 'Internal' : reachable ? 'Found' : 'Missing'}
+                      />
+                      <span
+                        className={
+                          reachable === null
+                            ? 'text-(--color-text-muted)'
                             : reachable
-                              ? 'On PATH'
-                              : 'Not on PATH'}
-                        </span>
-                      </div>
-                    </div>
-                    {label !== null && (
-                      <p className="m-0 text-[12px] text-(--color-text-muted)">{label.summary}</p>
-                    )}
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-3 border-t border-(--color-border) pt-2 text-[11px]">
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-semibold text-(--color-text-muted)">Executable:</span>
-                      <code className="rounded-md border border-(--color-border) bg-(--color-surface-inset) px-2 py-0.5 font-mono text-(--color-text)">
-                        {runtime.executable ?? 'none'}
-                      </code>
-                    </div>
-
-                    <div className="ml-auto flex items-center gap-1.5">
-                      <span className="font-semibold text-(--color-text-muted)">Capabilities:</span>
-                      <div className="flex flex-wrap items-center gap-1">
-                        {runtime.capabilities.map((cap) => (
-                          <span
-                            key={cap}
-                            className="rounded-md border border-(--color-border) bg-(--color-surface-inset) px-1.5 py-0.5 font-mono text-[10px] text-(--color-text-subtle)"
-                          >
-                            {cap}
-                          </span>
-                        ))}
-                      </div>
+                              ? 'text-(--color-success)'
+                              : 'text-(--color-danger)'
+                        }
+                      >
+                        {reachable === null ? 'Internal' : reachable ? 'On PATH' : 'Not on PATH'}
+                      </span>
                     </div>
                   </div>
+
+                  {label !== null && (
+                    <p className="m-0 text-[11px] text-(--color-text-muted)">{label.summary}</p>
+                  )}
                 </div>
               </Card>
             )
           })}
         </div>
       </section>
+
+      {/* Add CLI Agent Dialog */}
+      <AddCliAgentDialog
+        open={addDialogOpen}
+        onClose={() => {
+          setAddDialogOpen(false)
+        }}
+        onSave={(config) => {
+          void handleSaveCustomCli(config)
+        }}
+      />
     </div>
   )
 }

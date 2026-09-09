@@ -114,6 +114,20 @@ along with the issue that will do it. Say plainly what you did not finish; a
 partial change described accurately is useful, and one described as complete is a
 liability.
 
+Human co-authors go on the **pull request body, never on a commit**. This repo
+squash-merges, and `gh pr merge --squash` builds the commit message from the PR
+title and body — so a trailer on the last line of the body lands on the one
+commit that reaches `main`, and GitHub attributes it. Putting it on each commit
+would repeat it and then lose it in the squash anyway.
+
+```
+Co-authored-by: darkcliff <109062950+adarkcliff@users.noreply.github.com>
+```
+
+It must be the last line, with a blank line before it, or the trailer is not
+parsed. This does not relax the rule above: AI co-author trailers are still
+never added, anywhere.
+
 ## When you find a real problem
 
 Say so in a sentence and keep going. Do not silently narrow the task, and do not

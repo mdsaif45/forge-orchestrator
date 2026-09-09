@@ -39,7 +39,7 @@
     "docs:diagram": "esbuild src/shared/domain/transitions.ts --bundle --format=esm --platform=node --outfile=scripts/build/transitions.js --log-level=warning && node scripts/generate-state-diagram.mjs",
     "check:docs": "esbuild src/shared/domain/transitions.ts --bundle --format=esm --platform=node --outfile=scripts/build/transitions.js --log-level=warning && node scripts/generate-state-diagram.mjs --check",
     "dist": "npm run build && electron-builder",
-    "dist:win": "npm run build && electron-builder --win",
+    "dist:win": "npm run build && electron-builder --win --publish never",
     "dist:dir": "npm run build && electron-builder --dir"
   },
   "dependencies": {

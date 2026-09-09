@@ -43,6 +43,20 @@ jobs:
           npm run smoke
           npm run check:ui
 
+      # Builds only. `dist:win` passes `--publish never`, because
+      # electron-builder's own default is `onTag` — so on a tag push with a
+      # token present it publishes by itself, creating draft releases nobody
+      # asked for.
+      #
+      # That is the other half of #136. Switching to `gh release create` fixed
+      # the FLAGS but not the duplication: v0.3.0-alpha.1 still produced three
+      # drafts for one tag — two from electron-builder with
+      # `prerelease: false` (one holding nothing but a blockmap) and the
+      # correct one from the step below. The metadata check caught it and
+      # failed the run, which is what it exists to do.
+      #
+      # The token is still passed: electron-builder reads it to compute the
+      # update feed's URLs even when it publishes nothing.
       - name: Package installer and portable binaries
         run: npm run dist:win
         env:

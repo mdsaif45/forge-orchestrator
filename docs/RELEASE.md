@@ -97,6 +97,25 @@ The workflow now calls `gh release create` directly, which has no reuse path, an
 verification step fails the run if more than one draft exists or the prerelease flag is
 wrong. The manual check is no longer needed (#136).
 
+That diagnosis was incomplete, and `v0.3.0-alpha.1` proved it. The action was one
+cause; `electron-builder` was the other. Its `--publish` default is `onTag`, so on a
+tag push with `GH_TOKEN` in the environment it publishes on its own — producing
+**three** drafts for one tag:
+
+```
+prerelease=true    all four artifacts        <- gh release create, correct
+prerelease=false   three artifacts           <- electron-builder
+prerelease=false   a blockmap and nothing else  <- electron-builder
+```
+
+The binaries themselves were fine and correctly named. `dist:win` now passes
+`--publish never`, so electron-builder builds and the workflow publishes; the token
+stays in the environment because electron-builder reads it to compute the update
+feed's URLs even when publishing nothing.
+
+The verification step caught this rather than a human noticing, which is the point of
+having it.
+
 ---
 
 ## 6. First-Run Health Checks

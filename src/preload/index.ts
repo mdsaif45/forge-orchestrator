@@ -102,10 +102,10 @@ const api: ForgeApi = {
   template: {
     list: () => call('template:list', {}),
     get: (templateId) => call('template:get', { templateId }),
-    listV2: (status) => call('template:v2:list', { status }),
-    getV2: (templateId) => call('template:v2:get', { templateId }),
-    saveV2: (template) => call('template:v2:save', { template }),
-    deleteV2: (templateId) => call('template:v2:delete', { templateId }),
+    listV2: (status) => call('template:listV2', { status }),
+    getV2: (templateId) => call('template:getV2', { templateId }),
+    saveV2: (template) => call('template:saveV2', { template }),
+    deleteV2: (templateId) => call('template:deleteV2', { templateId }),
   },
   artifact: {
     list: (workflowId, nodeId) => call('artifact:list', { workflowId, nodeId }),

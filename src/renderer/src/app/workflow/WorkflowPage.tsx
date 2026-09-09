@@ -747,6 +747,13 @@ export function WorkflowPage(): React.JSX.Element {
           onCloneWorkflow={handleCloneTemplateV2}
           onDeleteWorkflow={handleDeleteTemplateV2}
           onTogglePublish={handleTogglePublishV2}
+          onStartWorkflow={() => {
+            void handleStartWorkflow({
+              title: 'Automated Task',
+              objective: 'Execute end-to-end SDLC workflow with multi-agent orchestration.',
+              templateId: selectedTemplateId,
+            })
+          }}
         />
 
         {/* Start New Work / Requirements Modal */}

@@ -10,6 +10,7 @@ export interface WorkflowCatalogViewProps {
   readonly onCloneWorkflow: (template: WorkflowTemplateV2View) => void
   readonly onDeleteWorkflow: (templateId: string) => void
   readonly onTogglePublish: (template: WorkflowTemplateV2View) => void
+  readonly onStartWorkflow?: () => void
 }
 
 type TabKey = 'all' | 'published' | 'draft' | 'archived'
@@ -22,6 +23,7 @@ export function WorkflowCatalogView({
   onCloneWorkflow,
   onDeleteWorkflow,
   onTogglePublish,
+  onStartWorkflow,
 }: WorkflowCatalogViewProps): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<TabKey>('all')
   const [searchQuery, setSearchQuery] = useState('')
@@ -63,9 +65,21 @@ export function WorkflowCatalogView({
             Create, edit, and manage your reusable AI workflows.
           </p>
         </div>
-        <Button variant="primary" size="md" onClick={onCreateNewWorkflow}>
-          <span className="mr-1 text-[16px] leading-none">+</span> New Workflow
-        </Button>
+        <div className="flex items-center gap-2">
+          {onStartWorkflow && (
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={onStartWorkflow}
+              aria-label="Start Workflow"
+            >
+              Start Workflow
+            </Button>
+          )}
+          <Button variant="primary" size="md" onClick={onCreateNewWorkflow}>
+            <span className="mr-1 text-[16px] leading-none">+</span> New Workflow
+          </Button>
+        </div>
       </div>
 
       {/* 2. Controls: Filter Tabs & Search */}
@@ -127,7 +141,9 @@ export function WorkflowCatalogView({
       {filteredTemplates.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-(--color-border) p-12 text-center">
           <div className="mb-2 text-[32px]">🧩</div>
-          <h3 className="text-[15px] font-semibold text-(--color-text)">No workflows found</h3>
+          <h3 className="text-[15px] font-semibold text-(--color-text)">
+            No matching templates found
+          </h3>
           <p className="mt-1 text-[13px] text-(--color-text-muted)">
             {searchQuery
               ? `No workflows match "${searchQuery}".`

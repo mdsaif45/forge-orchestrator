@@ -355,15 +355,15 @@ export function createIpcHandlers({
     'template:get': ({ templateId }) =>
       Object.hasOwn(TEMPLATES, templateId) ? TEMPLATES[templateId as keyof typeof TEMPLATES] : null,
 
-    'template:v2:list': ({ status }) => ({
+    'template:listV2': ({ status }) => ({
       templates: templatesV2Store.list(status),
     }),
 
-    'template:v2:get': ({ templateId }) => templatesV2Store.get(templateId),
+    'template:getV2': ({ templateId }) => templatesV2Store.get(templateId),
 
-    'template:v2:save': ({ template }) => templatesV2Store.save(template),
+    'template:saveV2': ({ template }) => templatesV2Store.save(template),
 
-    'template:v2:delete': ({ templateId }) => ({
+    'template:deleteV2': ({ templateId }) => ({
       success: templatesV2Store.delete(templateId),
     }),
 

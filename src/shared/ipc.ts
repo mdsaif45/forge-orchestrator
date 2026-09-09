@@ -915,7 +915,7 @@ export const IPC_CONTRACT = {
     request: z.strictObject({ templateId: z.string() }),
     response: workflowTemplateViewSchema.nullable(),
   },
-  'template:v2:list': {
+  'template:listV2': {
     request: z.strictObject({
       status: z.enum(['draft', 'published', 'archived']).optional(),
     }),
@@ -923,19 +923,19 @@ export const IPC_CONTRACT = {
       templates: z.array(workflowTemplateV2ViewSchema).readonly(),
     }),
   },
-  'template:v2:get': {
+  'template:getV2': {
     request: z.strictObject({
       templateId: z.string(),
     }),
     response: workflowTemplateV2ViewSchema.nullable(),
   },
-  'template:v2:save': {
+  'template:saveV2': {
     request: z.strictObject({
       template: workflowTemplateV2ViewSchema,
     }),
     response: workflowTemplateV2ViewSchema,
   },
-  'template:v2:delete': {
+  'template:deleteV2': {
     request: z.strictObject({
       templateId: z.string(),
     }),

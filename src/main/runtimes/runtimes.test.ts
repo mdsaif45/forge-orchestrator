@@ -476,4 +476,17 @@ describe('runtimeExecutable', () => {
     expect(runtimeExecutable('antigravity-cli')).toBe('agy')
     expect(runtimeExecutable('unknown-id')).toBe('unknown-id')
   })
+
+  it('returns its own argument for a runtime that drives no external command', () => {
+    // This is the signal Settings reads to decide whether probing PATH means
+    // anything. The native agent reaches a provider over HTTP and spawns
+    // nothing, so an id echoed back means "there is no command here" — not
+    // "look for a binary by this name".
+    //
+    // The regression: `runtime:list` gated on `simulated`, and the native
+    // agent is not simulated, so Settings probed PATH for a command called
+    // `forge-native-agent` and rendered a red "Not on PATH" against a runtime
+    // that was working.
+    expect(runtimeExecutable('forge-native-agent')).toBe('forge-native-agent')
+  })
 })

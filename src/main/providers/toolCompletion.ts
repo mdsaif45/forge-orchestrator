@@ -188,12 +188,32 @@ export async function completeWithTools(
       error: null,
     }
   } catch (err) {
+    /*
+     * Name the endpoint, because the raw message does not.
+     *
+     * Node's fetch throws `TypeError: fetch failed` for every transport
+     * failure — service down, wrong port, DNS, TLS — and that string was
+     * passed straight through. A workflow stage then halted with
+     * `[AGENT ERROR] fetch failed`, which says nothing about which provider
+     * was called, at what address, or that the cause was a local service not
+     * running. Observed against a stopped Ollama, where the actual remedy is
+     * one command.
+     *
+     * The cause is still included rather than replaced: a TLS or DNS failure
+     * has a different message worth reading, and swallowing it to print a
+     * tidier sentence would trade a real detail for a guess.
+     */
+    const cause = err instanceof Error ? err.message : String(err)
+    const unreachable = /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN/i.test(cause)
+
     return {
       ok: false,
       content: '',
       reasoning: '',
       toolCalls: [],
-      error: err instanceof Error ? err.message : String(err),
+      error: unreachable
+        ? `Could not reach ${request.providerId} at ${url}. Is the service running? (${cause})`
+        : `${request.providerId} request to ${url} failed: ${cause}`,
     }
   }
 }

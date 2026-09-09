@@ -114,19 +114,30 @@ along with the issue that will do it. Say plainly what you did not finish; a
 partial change described accurately is useful, and one described as complete is a
 liability.
 
-Human co-authors go on the **pull request body, never on a commit**. This repo
-squash-merges, and `gh pr merge --squash` builds the commit message from the PR
-title and body — so a trailer on the last line of the body lands on the one
-commit that reaches `main`, and GitHub attributes it. Putting it on each commit
-would repeat it and then lose it in the squash anyway.
+A human co-author trailer goes on the **last commit of the branch**, as its
+final line. Not on the pull request body — measured, and the first version of
+this section said the opposite and was wrong:
+
+```bash
+gh api repos/:owner/:repo --jq '.squash_merge_commit_message'
+# COMMIT_MESSAGES
+```
+
+This repo squash-merges with `squash_merge_commit_message: COMMIT_MESSAGES`,
+so GitHub builds the squash body from the branch's **commit messages** and
+ignores the pull request body entirely. #182 and #184 both carried the trailer
+in the PR body and both landed on `main` without it.
 
 ```
 Co-authored-by: darkcliff <109062950+adarkcliff@users.noreply.github.com>
 ```
 
-It must be the last line, with a blank line before it, or the trailer is not
-parsed. This does not relax the rule above: AI co-author trailers are still
-never added, anywhere.
+It must be the last line with a blank line before it, or git does not parse it
+as a trailer. On a multi-commit branch the squash concatenates every message,
+so put it on one commit only — repeating it is harmless but noisy.
+
+This does not relax the rule above: AI co-author trailers are still never
+added, anywhere. This is for a real person.
 
 ## When you find a real problem
 

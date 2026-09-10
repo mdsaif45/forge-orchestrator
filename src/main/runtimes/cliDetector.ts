@@ -159,23 +159,23 @@ export function loadCustomClis(): readonly CustomCliConfig[] {
 }
 
 export function saveCustomCli(cli: CustomCliConfig): readonly CustomCliConfig[] {
-  cachedClis = null
   const current = loadCustomClis().filter((c) => c.id !== cli.id)
   const updated = [...current, cli]
   if (customClisFilePath !== null) {
     mkdirSync(dirname(customClisFilePath), { recursive: true })
     writeFileSync(customClisFilePath, JSON.stringify(updated, null, 2), 'utf8')
   }
+  cachedClis = getCatalogClis()
   return updated
 }
 
 export function removeCustomCli(id: string): readonly CustomCliConfig[] {
-  cachedClis = null
   const current = loadCustomClis().filter((c) => c.id !== id)
   if (customClisFilePath !== null) {
     mkdirSync(dirname(customClisFilePath), { recursive: true })
     writeFileSync(customClisFilePath, JSON.stringify(current, null, 2), 'utf8')
   }
+  cachedClis = getCatalogClis()
   return current
 }
 
@@ -297,16 +297,36 @@ function checkCandidatePaths(executable: string): string | undefined {
   return undefined
 }
 
-let cachedClis: readonly InstalledCliInfo[] | null = null
+export function getCatalogClis(): readonly InstalledCliInfo[] {
+  const customClis = loadCustomClis()
+  const standard: InstalledCliInfo[] = STANDARD_AGENT_CATALOG.map((c) => ({
+    id: c.id,
+    name: c.name,
+    executable: c.executable,
+    available: true,
+    installation: 'installed',
+    authentication: 'unknown',
+    isCustom: false,
+    defaultModel: c.defaultModel,
+    models: c.models,
+  }))
+  const custom: InstalledCliInfo[] = customClis.map((c) => ({
+    id: c.id,
+    name: c.name,
+    executable: c.executable,
+    available: true,
+    installation: 'installed',
+    authentication: 'unknown',
+    isCustom: true,
+    defaultModel: undefined,
+    models: undefined,
+  }))
+  return [...standard, ...custom]
+}
 
-/**
- * Probes the operating system PATH and candidate paths to detect installed AI coding CLIs.
- */
-export async function detectInstalledClis(forceRefresh = false): Promise<readonly InstalledCliInfo[]> {
-  if (cachedClis !== null && !forceRefresh) {
-    return cachedClis
-  }
+let cachedClis: readonly InstalledCliInfo[] = getCatalogClis()
 
+async function probeAllClis(): Promise<readonly InstalledCliInfo[]> {
   const isWin = process.platform === 'win32'
   const lookupCmd = isWin ? 'where.exe' : 'which'
 
@@ -386,6 +406,18 @@ export async function detectInstalledClis(forceRefresh = false): Promise<readonl
   })
 
   return cachedClis
+}
+
+/**
+ * Probes the operating system PATH and candidate paths to detect installed AI coding CLIs.
+ * Returns the cached catalog immediately, then updates candidate paths in the background.
+ */
+export async function detectInstalledClis(forceRefresh = false): Promise<readonly InstalledCliInfo[]> {
+  if (!forceRefresh && cachedClis.length > 0) {
+    void probeAllClis().catch(() => undefined)
+    return cachedClis
+  }
+  return probeAllClis()
 }
 
 // Warm up CLI detection asynchronously on module load

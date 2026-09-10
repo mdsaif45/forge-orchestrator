@@ -2,11 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Badge,
   Button,
-  type CustomAgentConfig,
   Input,
   MarkdownRenderer,
   ScrollArea,
-  Select,
   useToast,
 } from '../ui'
 import { cn } from '../ui'
@@ -44,62 +42,8 @@ export interface ChatThread {
   readonly pinned?: boolean | undefined
   /** Archived threads are hidden from the list without being destroyed. */
   readonly archived?: boolean | undefined
-  readonly personaId: string
+  readonly personaId?: string | undefined
 }
-
-interface PersonaOption {
-  readonly id: string
-  readonly label: string
-  readonly icon: string
-  readonly description: string
-  readonly defaultRole: string
-}
-
-
-const BUILTIN_PERSONAS: readonly PersonaOption[] = [
-  {
-    id: 'planner',
-    label: 'Implementation Planner',
-    icon: '🧠',
-    description: 'Specializes in architecture design, dependency analysis, and stage planning.',
-    defaultRole: 'planner',
-  },
-  {
-    id: 'coder',
-    label: 'Coding Agent',
-    icon: '💻',
-    description: 'Writes modular code, helper functions, refactors, and implementation patterns.',
-    defaultRole: 'implementer',
-  },
-  {
-    id: 'reviewer',
-    label: 'Code Reviewer',
-    icon: '🔍',
-    description: 'Audits code quality, security boundaries, edge cases, and performance.',
-    defaultRole: 'reviewer',
-  },
-  {
-    id: 'tester',
-    label: 'Test Designer',
-    icon: '🧪',
-    description: 'Designs unit test suites, integration tests, mocks, and edge case coverage.',
-    defaultRole: 'tester',
-  },
-  {
-    id: 'qa',
-    label: 'QA Approver',
-    icon: '🛡️',
-    description: 'Validates acceptance criteria, regression safeguards, and verification flows.',
-    defaultRole: 'qa',
-  },
-  {
-    id: 'debugger',
-    label: 'Debugger',
-    icon: '🐛',
-    description: 'Investigates root causes, error stack traces, and targeted fix recipes.',
-    defaultRole: 'debugger',
-  },
-]
 
 /**
  * The tool trail to append to an agent turn's reply, or null for a chat turn.
@@ -631,19 +575,6 @@ export function AskPage(): React.JSX.Element {
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // Custom agents from localStorage
-  const [customAgents] = useState<readonly CustomAgentConfig[]>(() => {
-    const saved = localStorage.getItem('forge.custom_agents')
-    if (saved) {
-      try {
-        return JSON.parse(saved) as CustomAgentConfig[]
-      } catch {
-        // fallback
-      }
-    }
-    return []
-  })
-
   // Providers & Active Model from localStorage
   const [providers, setProviders] = useState<readonly StoredProviderConfig[]>(() => {
     const saved = localStorage.getItem('forge.providers')
@@ -784,19 +715,6 @@ export function AskPage(): React.JSX.Element {
     })
   }
 
-  // Combine personas
-  const allPersonas: readonly PersonaOption[] = [
-    ...BUILTIN_PERSONAS,
-    ...customAgents.map((ca) => ({
-      id: ca.id,
-      label: ca.name,
-      icon: '🤖',
-      description: ca.instructions || 'Custom specialized agent persona',
-      defaultRole: ca.roleType,
-    })),
-  ]
-
-  const [selectedPersonaId, setSelectedPersonaId] = useState<string>('planner')
   const [selectedEngineId, setSelectedEngineId] = useState<string>('forge-native-agent')
   const [availableEngines, setAvailableEngines] = useState<
     readonly { id: string; label: string }[]
@@ -931,6 +849,17 @@ export function AskPage(): React.JSX.Element {
     return []
   }, [selectedEngineId, providers, currentProvider, currentModel, detectedClis])
 
+  // Combine available engines from project bindings and detected CLIs
+  const engineOptions = useMemo(() => {
+    const list: { id: string; label: string }[] = [...availableEngines]
+    for (const cli of detectedClis) {
+      if (!list.some((e) => e.id === cli.id)) {
+        list.push({ id: cli.id, label: cli.name })
+      }
+    }
+    return list
+  }, [availableEngines, detectedClis])
+
   // Active model ID for currently selected engine
   const activeEngineModelId = useMemo(() => {
     if (selectedEngineId === 'forge-native-agent') {
@@ -942,11 +871,14 @@ export function AskPage(): React.JSX.Element {
       return currentEngineModels[0]?.id ?? ''
     }
     const cli = detectedClis.find((c) => c.id === selectedEngineId)
+    const saved = selectedEngineModels[selectedEngineId]
+    if (saved && currentEngineModels.some((m) => m.id === saved || m.label === saved)) {
+      return saved
+    }
     return (
-      selectedEngineModels[selectedEngineId] ??
-      cli?.defaultModel ??
-      currentEngineModels[0]?.id ??
-      ''
+      (cli?.defaultModel && currentEngineModels.some((m) => m.id === cli.defaultModel)
+        ? cli.defaultModel
+        : currentEngineModels[0]?.id) ?? ''
     )
   }, [
     selectedEngineId,
@@ -1014,7 +946,10 @@ export function AskPage(): React.JSX.Element {
     const saved = localStorage.getItem('forge.ask_threads')
     if (saved) {
       try {
-        return JSON.parse(saved) as ChatThread[]
+        const parsed = JSON.parse(saved) as ChatThread[]
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed
+        }
       } catch {
         // fallback
       }
@@ -1023,21 +958,9 @@ export function AskPage(): React.JSX.Element {
     return [
       {
         id: initThreadId,
-        title: 'New Conversation',
+        title: '',
         createdAt: 'Today',
-        personaId: 'planner',
-        messages: [
-          {
-            id: 'welcome',
-            role: 'assistant',
-            personaName: 'Implementation Planner',
-            personaIcon: '🧠',
-            engineId: 'forge-native-agent',
-            modelName: `${currentProvider?.name ?? 'Ollama'} / ${currentModel}`,
-            text: `Hello! I am your **Implementation Planner** for **${project?.name ?? 'this project'}**.\n\nPowered by **Forge Agent** using **${currentProvider?.name ?? 'Ollama'} (${currentModel})**.\n\nAsk me anything to explore repository architecture, inspect code workflows, plan features, or diagnose issues.`,
-            timestamp: '0:00:00',
-          },
-        ],
+        messages: [],
       },
     ]
   })
@@ -1090,8 +1013,6 @@ export function AskPage(): React.JSX.Element {
   const activeThread = threads.find((t) => t.id === activeThreadId) ?? threads[0]
   const messages = activeThread?.messages ?? []
 
-  const activePersona = allPersonas.find((p) => p.id === selectedPersonaId) ?? allPersonas[0]
-
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -1122,37 +1043,17 @@ export function AskPage(): React.JSX.Element {
   const handleCreateThread = (): void => {
     const now = new Date()
     const newThreadId = `thread-${String(now.getTime())}`
-    const persona = allPersonas.find((p) => p.id === selectedPersonaId) ?? allPersonas[0]
-    const activeEngineLabel =
-      availableEngines.find((e) => e.id === selectedEngineId)?.label ?? selectedEngineId
-    const activeModelDesc =
-      selectedEngineId === 'forge-native-agent'
-        ? `${currentProvider?.name ?? 'Ollama'} / ${currentModel}`
-        : `${activeEngineLabel} · ${activeEngineModelLabel}`
-
     const newThread: ChatThread = {
       id: newThreadId,
-      title: `Conversation ${String(threads.length + 1)}`,
+      title: '',
       createdAt: now.toLocaleDateString(),
-      personaId: selectedPersonaId,
-      messages: [
-        {
-          id: `welcome-${newThreadId}`,
-          role: 'assistant',
-          personaName: persona?.label ?? 'Assistant',
-          personaIcon: persona?.icon ?? '🤖',
-          engineId: selectedEngineId,
-          modelName: activeModelDesc,
-          text: `Started new thread with **${persona?.label ?? 'Assistant'}** (${activeModelDesc}).\n\nHow can I assist you with **${project?.name ?? 'your repository'}** today?`,
-          timestamp: now.toLocaleTimeString(),
-        },
-      ],
+      messages: [],
     }
 
     const updated = [newThread, ...threads]
     saveThreads(updated)
     setActiveThreadId(newThreadId)
-    show({ tone: 'neutral', title: 'New chat thread created' })
+    show({ tone: 'neutral', title: 'New chat created' })
   }
 
   const handleDeleteThread = (threadId: string, e: React.MouseEvent): void => {
@@ -1286,9 +1187,17 @@ export function AskPage(): React.JSX.Element {
     }
 
     const updatedMessages = [...activeThread.messages, userMsg]
+    const firstLine = textToSend.trim().split('\n')[0] ?? ''
+    const cleanPromptTitle = firstLine
+      .replace(/^["'#*-]\s*/, '')
+      .slice(0, 36)
+      .trim()
     const updatedTitle =
-      activeThread.messages.length <= 1
-        ? textToSend.trim().slice(0, 30) + (textToSend.trim().length > 30 ? '...' : '')
+      !activeThread.title ||
+      activeThread.title.trim() === '' ||
+      activeThread.title === 'New Conversation' ||
+      activeThread.title.startsWith('Conversation ')
+        ? cleanPromptTitle + (textToSend.trim().length > 36 ? '...' : '')
         : activeThread.title
 
     const updatedThread: ChatThread = {
@@ -1311,17 +1220,14 @@ export function AskPage(): React.JSX.Element {
       ? `${currentProvider?.name ?? 'Ollama (Local)'} / ${currentModel}`
       : `${activeEngineLabel} · ${activeEngineModelLabel}`
 
-    // Construct system prompt with repository context & active persona
-    const systemPrompt = `You are ${activePersona?.label ?? 'an AI Assistant'}, an expert software engineering persona inside Forge Orchestrator.
+    // Construct direct, context-aware system prompt with repository context
+    const systemPrompt = `You are an expert AI software engineer assisting directly inside Forge Orchestrator.
 Project Context:
 - Name: ${project?.name ?? 'Unknown'}
 - Branch: ${probe?.branch ?? 'main'}
 - Head Commit: ${probe?.headSha?.slice(0, 8) ?? 'N/A'}
 - Tech Stack: ${project?.repository.tech.length ? project.repository.tech.join(', ') : 'TypeScript'}
 - Rules & Guardrails: ${rules.length > 0 ? rules.map((r) => `[${r.scope}] ${r.statement}`).join('; ') : 'None'}
-
-Persona Role:
-- ${activePersona?.description ?? 'Provide helpful code explanations and guidance.'}
 
 Instructions:
 - Provide clear, direct, accurate, and context-aware responses.
@@ -1452,8 +1358,6 @@ ${toolTrail}`
     const assistantMsg: ChatMessage = {
       id: `ai-${responseTime.getTime().toString()}`,
       role: 'assistant',
-      personaName: activePersona?.label ?? 'Assistant',
-      personaIcon: activePersona?.icon ?? '🤖',
       engineId: selectedEngineId,
       modelName: activeModelLabel,
       text: answer,
@@ -1605,12 +1509,14 @@ ${toolTrail}`
                         >
                           {thread.pinned === true && <span className="mr-1">📌</span>}
                           {thread.archived === true && <span className="mr-1">🗄️</span>}
-                          {thread.title}
+                          {thread.title.trim() !== '' ? thread.title : 'New chat'}
                         </div>
                         <div className="mt-0.5 font-mono text-[10px] text-(--color-text-subtle)">
-                          {thread.messages.length > 1
-                            ? `${String(thread.messages.length)} msgs`
-                            : '1 msg'}{' '}
+                          {thread.messages.length === 0
+                            ? 'No messages'
+                            : thread.messages.length === 1
+                              ? '1 msg'
+                              : `${String(thread.messages.length)} msgs`}{' '}
                           · {thread.createdAt}
                         </div>
                       </button>
@@ -1681,26 +1587,6 @@ ${toolTrail}`
             </button>
           )}
         </ScrollArea>
-
-        {/* Bottom controls: Persona selector */}
-        <div className="border-t border-(--color-border) p-3">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-(--color-text-subtle) block mb-1.5">
-            Active Persona
-          </span>
-          {/* Persona selector (compact) — opens upward */}
-          <Select
-            aria-label="Active Persona"
-            value={selectedPersonaId}
-            direction="up"
-            onChange={(e: { target: { value: string } }) => {
-              setSelectedPersonaId(e.target.value)
-            }}
-            options={allPersonas.map((p) => ({
-              value: p.id,
-              label: p.label,
-            }))}
-          />
-        </div>
       </aside>
 
       {/* ── Main Chat Area ── */}
@@ -1709,13 +1595,10 @@ ${toolTrail}`
         <header className="flex items-center justify-between border-b border-(--color-border) px-6 py-2.5 bg-(--color-surface-raised)">
           <div className="min-w-0 flex items-center gap-3">
             <h1 className="text-[14px] font-bold text-(--color-text) truncate">
-              {activeThread?.title ?? 'Chat'}
+              {activeThread?.title && activeThread.title.trim() !== ''
+                ? activeThread.title
+                : 'New chat'}
             </h1>
-            <Badge tone="accent" size="sm" className="hidden sm:inline-flex font-mono text-[11px]">
-              {selectedEngineId === 'forge-native-agent'
-                ? `Forge Agent · ${activeEngineModelLabel}`
-                : `${availableEngines.find((e) => e.id === selectedEngineId)?.label ?? selectedEngineId} · ${activeEngineModelLabel}`}
-            </Badge>
             {/* What the model reported it can do, once a turn has asked. Shown
                 rather than offered as a choice: capability belongs to the model,
                 and a toggle let tools be enabled on one that has none. */}
@@ -1758,40 +1641,39 @@ ${toolTrail}`
         {/* Messages Area */}
         <ScrollArea className="flex-1 min-h-0">
           <div className="max-w-4xl mx-auto px-6 py-4 space-y-5">
+            {/* Empty state matching Image 3 when conversation has no messages */}
+            {messages.length === 0 && (
+              <div className="flex flex-col items-center justify-center min-h-[48vh] text-center px-4">
+                <div className="flex items-center gap-2.5 mb-2">
+                  <span className="text-2xl text-(--color-accent)">✦</span>
+                  <h2 className="text-xl font-medium tracking-tight text-(--color-text)">
+                    What&apos;s up next{project.name ? `, ${project.name}` : ''}?
+                  </h2>
+                </div>
+                <p className="text-[13px] text-(--color-text-muted) max-w-md">
+                  Ask a question about the codebase, explore architecture, plan changes, or run tasks.
+                </p>
+              </div>
+            )}
+
             {messages.map((msg) => (
               <div key={msg.id}>
                 {msg.role === 'assistant' ? (
-                  /* Assistant message — full-width block with icon & metadata */
-                  <div className="flex gap-3">
-                    <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-(--color-accent-muted) text-[14px] mt-1">
-                      {msg.personaIcon ?? '🤖'}
+                  /* Assistant message — clean direct response stream (Claude Code style) */
+                  <div className="group relative space-y-2 py-1">
+                    {msg.reasoning !== undefined && msg.reasoning !== '' && (
+                      <ThinkingBlock text={msg.reasoning} />
+                    )}
+                    <div
+                      className="prose-container text-[13.5px] leading-relaxed text-(--color-text) select-text"
+                      data-selectable
+                    >
+                      <MarkdownRenderer content={msg.text} />
                     </div>
-                    <div className="min-w-0 flex-1 space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[12px] font-bold text-(--color-text)">
-                          {msg.personaName ?? 'Assistant'}
-                        </span>
-                        {msg.modelName && (
-                          <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
-                            {msg.modelName}
-                          </Badge>
-                        )}
-                        {msg.elapsed && (
-                          <span className="text-[10px] text-(--color-text-subtle)">
-                            {msg.elapsed}
-                          </span>
-                        )}
-                        {/* The whole reply, as its markdown source rather than the
-                            rendered text — pasting a table back as pipes is what
-                            makes it reusable somewhere else. */}
-                        <CopyTextButton text={msg.text} />
-                      </div>
-                      {msg.reasoning !== undefined && msg.reasoning !== '' && (
-                        <ThinkingBlock text={msg.reasoning} />
-                      )}
-                      <div className="prose-container text-[13px] leading-relaxed text-(--color-text)">
-                        <MarkdownRenderer content={msg.text} />
-                      </div>
+                    {/* Subtle footer controls on hover: copy & elapsed */}
+                    <div className="flex items-center gap-3 pt-0.5 text-[11px] text-(--color-text-subtle) opacity-0 group-hover:opacity-100 transition-opacity select-none">
+                      <CopyTextButton text={msg.text} />
+                      {msg.elapsed && <span>· {msg.elapsed}</span>}
                     </div>
                   </div>
                 ) : (
@@ -1854,53 +1736,45 @@ ${toolTrail}`
               </div>
             ))}
 
-            {/* The reply as it arrives. The dots alone said only "something is
-                happening"; the text says what, and whether the model is making
-                progress or stuck. */}
+            {/* The reply as it arrives */}
             {liveReply !== null && (
-              <div className="flex gap-3 px-10">
-                <div className="min-w-0 flex-1 space-y-1.5">
-                  {/* Reasoning and tool calls in the order they happened, so
-                      the thinking reads as the explanation for the calls that
-                      follow it. Live only: this is evidence about the turn, not
-                      part of the answer that gets saved. */}
-                  {liveReply.timeline.length > 0 && (
-                    <div
-                      className="space-y-1.5 rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-3 py-2"
-                      data-selectable
-                    >
-                      {liveReply.timeline.map((entry, index) =>
-                        entry.kind === 'reasoning' ? (
-                          <div
-                            key={`r-${String(index)}`}
-                            className="text-[11px] leading-relaxed whitespace-pre-wrap text-(--color-text-muted)"
-                          >
-                            <span className="mr-1">💭</span>
-                            {entry.text}
-                          </div>
-                        ) : (
-                          <div
-                            key={`t-${String(index)}`}
-                            className="font-mono text-[10px] leading-relaxed text-(--color-text-subtle)"
-                          >
-                            {entry.text}
-                          </div>
-                        ),
-                      )}
-                      {thinking && (
-                        <div className="font-mono text-[10px] text-(--color-text-subtle)">
-                          <span className="animate-pulse">working…</span>
-                          {elapsed > 0 ? ` ${String(elapsed)}s` : ''}
+              <div className="space-y-2 py-1">
+                {liveReply.timeline.length > 0 && (
+                  <div
+                    className="space-y-1.5 rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-3 py-2"
+                    data-selectable
+                  >
+                    {liveReply.timeline.map((entry, index) =>
+                      entry.kind === 'reasoning' ? (
+                        <div
+                          key={`r-${String(index)}`}
+                          className="text-[11px] leading-relaxed whitespace-pre-wrap text-(--color-text-muted)"
+                        >
+                          <span className="mr-1">💭</span>
+                          {entry.text}
                         </div>
-                      )}
-                    </div>
-                  )}
-                  {liveReply.content !== '' && (
-                    <div className="text-[13px] leading-relaxed text-(--color-text)">
-                      <MarkdownRenderer content={liveReply.content} />
-                    </div>
-                  )}
-                </div>
+                      ) : (
+                        <div
+                          key={`t-${String(index)}`}
+                          className="font-mono text-[10px] leading-relaxed text-(--color-text-subtle)"
+                        >
+                          {entry.text}
+                        </div>
+                      ),
+                    )}
+                    {thinking && (
+                      <div className="font-mono text-[10px] text-(--color-text-subtle)">
+                        <span className="animate-pulse">working…</span>
+                        {elapsed > 0 ? ` ${String(elapsed)}s` : ''}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {liveReply.content !== '' && (
+                  <div className="prose-container text-[13.5px] leading-relaxed text-(--color-text)">
+                    <MarkdownRenderer content={liveReply.content} />
+                  </div>
+                )}
               </div>
             )}
 
@@ -1908,14 +1782,14 @@ ${toolTrail}`
               liveReply?.content === '' &&
               liveReply.reasoning === '' &&
               liveReply.timeline.length === 0 && (
-                <div className="flex items-center gap-2 px-10 text-[12px] italic text-(--color-text-muted)">
+                <div className="flex items-center gap-2 py-2 text-[12px] italic text-(--color-text-muted)">
                   <span className="inline-flex gap-1">
                     <span className="animate-bounce [animation-delay:0ms]">·</span>
                     <span className="animate-bounce [animation-delay:150ms]">·</span>
                     <span className="animate-bounce [animation-delay:300ms]">·</span>
                   </span>
                   <span>
-                    {activePersona?.label} is working ({currentModel})
+                    Thinking...
                     {elapsed > 0 ? ` · ${String(elapsed)}s` : ''}
                   </span>
                 </div>
@@ -1949,7 +1823,7 @@ ${toolTrail}`
                   }
                 }}
                 disabled={thinking}
-                placeholder={`Ask ${activePersona?.label ?? 'Assistant'} about ${project.name}... (Shift+Enter for newline)`}
+                placeholder="Describe a task or ask a question... (Shift+Enter for newline)"
                 className="w-full resize-none border-0 bg-transparent px-4 pt-3 pb-1.5 text-[13.5px] leading-relaxed text-(--color-text) placeholder:text-(--color-text-subtle) focus:outline-none"
                 autoFocus
               />
@@ -1963,7 +1837,7 @@ ${toolTrail}`
                     onChange={(newEngineId) => {
                       setSelectedEngineId(newEngineId)
                     }}
-                    options={availableEngines}
+                    options={engineOptions}
                   />
 
                   {/* Custom UI-matched Model Selector Dropdown (Image 2 style) */}

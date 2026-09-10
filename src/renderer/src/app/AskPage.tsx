@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Badge,
   Button,
   Input,
   MarkdownRenderer,
@@ -986,12 +985,6 @@ export function AskPage(): React.JSX.Element {
    */
   /** Seconds the running turn has taken, so a slow turn visibly progresses. */
   const [elapsed, setElapsed] = useState(0)
-  const [capabilities, setCapabilities] = useState<{
-    readonly tools: boolean
-    readonly vision: boolean
-    readonly thinking: boolean
-    readonly source: string
-  } | null>(null)
   const [menuThreadId, setMenuThreadId] = useState<string | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
@@ -1309,8 +1302,6 @@ file must actually change. Your final message reports what you changed.
         messages: historyPayload,
       })
 
-      if (res.ok) setCapabilities(res.value.capabilities)
-
       if (res.ok) thinkingText = res.value.reasoning
 
       if (res.ok && res.value.ok && res.value.content.trim() !== '') {
@@ -1601,48 +1592,12 @@ ${toolTrail}`
                 ? activeThread.title
                 : 'New chat'}
             </h1>
-            {/* What the model reported it can do, once a turn has asked. Shown
-                rather than offered as a choice: capability belongs to the model,
-                and a toggle let tools be enabled on one that has none. */}
-            {capabilities !== null && (
-              <div className="hidden items-center gap-1 lg:flex">
-                {capabilities.tools ? (
-                  <Badge tone="success" size="sm" className="text-[10px]">
-                    tools
-                  </Badge>
-                ) : (
-                  <Badge tone="warning" size="sm" className="text-[10px]">
-                    no tools — chat only
-                  </Badge>
-                )}
-                {capabilities.thinking && (
-                  <Badge tone="neutral" size="sm" className="text-[10px]">
-                    thinking
-                  </Badge>
-                )}
-                {capabilities.vision && (
-                  <Badge tone="neutral" size="sm" className="text-[10px]">
-                    vision
-                  </Badge>
-                )}
-                {capabilities.source !== 'reported' && (
-                  <Badge
-                    tone="neutral"
-                    size="sm"
-                    className="text-[10px]"
-                    title="Assumed, not reported by the provider"
-                  >
-                    {capabilities.source}
-                  </Badge>
-                )}
-              </div>
-            )}
           </div>
         </header>
 
         {/* Messages Area */}
         <ScrollArea className="flex-1 min-h-0">
-          <div className="max-w-4xl mx-auto px-6 py-4 space-y-5">
+          <div className="max-w-4xl mx-auto px-6 pt-2 pb-6">
             {/* Empty state matching Image 3 when conversation has no messages */}
             {messages.length === 0 && (
               <div className="flex flex-col items-center justify-center min-h-[48vh] text-center px-4">
@@ -1658,89 +1613,97 @@ ${toolTrail}`
               </div>
             )}
 
-            {messages.map((msg) => (
-              <div key={msg.id}>
-                {msg.role === 'assistant' ? (
-                  /* Assistant message — clean direct response stream (Claude Code style) */
-                  <div className="group relative space-y-2 py-1">
-                    {msg.reasoning !== undefined && msg.reasoning !== '' && (
-                      <ThinkingBlock text={msg.reasoning} />
-                    )}
-                    <div
-                      className="prose-container text-[13.5px] leading-relaxed text-(--color-text) select-text"
-                      data-selectable
-                    >
-                      <MarkdownRenderer content={msg.text} />
-                    </div>
-                    {/* Subtle footer controls on hover: copy & elapsed */}
-                    <div className="flex items-center gap-3 pt-0.5 text-[11px] text-(--color-text-subtle) opacity-0 group-hover:opacity-100 transition-opacity select-none">
-                      <CopyTextButton text={msg.text} />
-                      {msg.elapsed && <span>· {msg.elapsed}</span>}
-                    </div>
-                  </div>
-                ) : (
-                  /* User message — right-aligned bubble with hover features */
-                  <div className="group flex flex-col items-end">
-                    <div className="max-w-xl rounded-2xl bg-(--color-surface) border border-(--color-border)/40 px-3.5 py-1.5 text-[13px] leading-normal text-(--color-text) shadow-xs transition-colors">
-                      {/* Selectable for the same reason the reply is: the body sets
-                          `user-select: none`, so without this a user could not copy
-                          back what they themselves had typed. */}
-                      <div className="whitespace-pre-wrap select-text" data-selectable>
-                        {msg.text}
+            {messages.map((msg, index) => {
+              const prevMsg = index > 0 ? messages[index - 1] : undefined
+              const isFollowUp = msg.role === 'assistant' && prevMsg?.role === 'user'
+              const isNewTurn = msg.role === 'user' && prevMsg?.role === 'assistant'
+              const spacingClass =
+                index === 0 ? '' : isFollowUp ? 'mt-2.5' : isNewTurn ? 'mt-6' : 'mt-3'
+
+              return (
+                <div key={msg.id} className={spacingClass}>
+                  {msg.role === 'assistant' ? (
+                    /* Assistant message — clean direct response stream (Claude Code style) */
+                    <div className="group relative space-y-2">
+                      {msg.reasoning !== undefined && msg.reasoning !== '' && (
+                        <ThinkingBlock text={msg.reasoning} />
+                      )}
+                      <div
+                        className="prose-container text-[13.5px] leading-relaxed text-(--color-text) select-text"
+                        data-selectable
+                      >
+                        <MarkdownRenderer content={msg.text} />
+                      </div>
+                      {/* Subtle footer controls on hover: copy & elapsed */}
+                      <div className="flex items-center gap-3 pt-0.5 text-[11px] text-(--color-text-subtle) opacity-0 group-hover:opacity-100 transition-opacity select-none">
+                        <CopyTextButton text={msg.text} />
+                        {msg.elapsed && <span>· {msg.elapsed}</span>}
                       </div>
                     </div>
+                  ) : (
+                    /* User message — right-aligned bubble with hover features on the left */
+                    <div className="group flex items-center justify-end gap-2">
+                      {/* On hover show some features; no hover don't show any */}
+                      <div className="flex items-center gap-1.5 opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto select-none shrink-0">
+                        <span className="text-[11.5px] text-(--color-text-subtle)">
+                          {formatRelativeTime(msg.timestamp, msg.id)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleCopyPrompt(msg.text, msg.id)
+                          }}
+                          title="Copy prompt"
+                          aria-label="Copy prompt"
+                          className="flex size-5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
+                        >
+                          {copiedPromptId === msg.id ? (
+                            <PromptCheckIcon className="size-3.5 text-(--color-success)" />
+                          ) : (
+                            <PromptCopyIcon className="size-3.5" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleRetryPrompt(msg.text)
+                          }}
+                          title="Edit & retry prompt"
+                          aria-label="Edit & retry prompt"
+                          className="flex size-5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
+                        >
+                          <PromptRetryIcon className="size-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleForkFromPrompt(msg.id)
+                          }}
+                          title="Fork conversation from this prompt"
+                          aria-label="Fork conversation from this prompt"
+                          className="flex size-5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
+                        >
+                          <PromptForkIcon className="size-3.5" />
+                        </button>
+                      </div>
 
-                    {/* On hover show some features; no hover don't show any */}
-                    <div className="mt-2.5 flex items-center gap-2 pr-1.5 opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto select-none">
-                      <span className="text-[11.5px] text-(--color-text-subtle)">
-                        {formatRelativeTime(msg.timestamp, msg.id)}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleCopyPrompt(msg.text, msg.id)
-                        }}
-                        title="Copy prompt"
-                        aria-label="Copy prompt"
-                        className="flex size-5.5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
-                      >
-                        {copiedPromptId === msg.id ? (
-                          <PromptCheckIcon className="size-3.5 text-(--color-success)" />
-                        ) : (
-                          <PromptCopyIcon className="size-3.5" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleRetryPrompt(msg.text)
-                        }}
-                        title="Edit & retry prompt"
-                        aria-label="Edit & retry prompt"
-                        className="flex size-5.5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
-                      >
-                        <PromptRetryIcon className="size-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleForkFromPrompt(msg.id)
-                        }}
-                        title="Fork conversation from this prompt"
-                        aria-label="Fork conversation from this prompt"
-                        className="flex size-5.5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
-                      >
-                        <PromptForkIcon className="size-3.5" />
-                      </button>
+                      <div className="max-w-xl rounded-2xl bg-(--color-surface) border border-(--color-border)/40 px-3.5 py-1.5 text-[13px] leading-normal text-(--color-text) shadow-xs transition-colors">
+                        {/* Selectable for the same reason the reply is: the body sets
+                            `user-select: none`, so without this a user could not copy
+                            back what they themselves had typed. */}
+                        <div className="whitespace-pre-wrap select-text" data-selectable>
+                          {msg.text}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            ))}
+                  )}
+                </div>
+              )
+            })}
 
             {/* The reply as it arrives */}
             {liveReply !== null && (
-              <div className="space-y-2 py-1">
+              <div className="mt-2.5 space-y-2">
                 {liveReply.timeline.length > 0 && (
                   <div
                     className="space-y-1.5 rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-3 py-2"
@@ -1784,7 +1747,7 @@ ${toolTrail}`
               liveReply?.content === '' &&
               liveReply.reasoning === '' &&
               liveReply.timeline.length === 0 && (
-                <div className="flex items-center gap-2 py-2 text-[12px] italic text-(--color-text-muted)">
+                <div className="mt-2.5 flex items-center gap-2 py-1 text-[12px] italic text-(--color-text-muted)">
                   <span className="inline-flex gap-1">
                     <span className="animate-bounce [animation-delay:0ms]">·</span>
                     <span className="animate-bounce [animation-delay:150ms]">·</span>

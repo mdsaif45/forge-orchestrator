@@ -540,6 +540,20 @@ export function createIpcHandlers({
           systemPrompt,
           repositoryPath: detail.project.repository.absolutePath,
           messages,
+          projectId: detail.project.id,
+          setRule: async (scope, key, statement) => {
+            await projects.setRule(detail.project.id, scope, key, statement)
+          },
+          getRules: async () => {
+            const fresh = await projects.get(detail.project.id)
+            return (
+              fresh?.rules.map((r) => ({
+                scope: r.scope,
+                key: r.key,
+                statement: r.statement,
+              })) ?? []
+            )
+          },
         },
         (event) => {
           emitProviderChunk?.({ streamId, kind: event.kind, text: event.text })

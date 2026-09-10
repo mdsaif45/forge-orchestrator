@@ -462,3 +462,257 @@ describe('edit_file', () => {
     expect(result.content).toMatch(/write_file to create it/i)
   })
 })
+
+describe('grep_search', () => {
+  it('finds matching lines with line numbers and file paths', async () => {
+    const root = makeWorkspace()
+    const result = await runTool(
+      'grep_search',
+      { query: 'answer' },
+      context(root),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('src/math.ts:1:')
+    expect(result.content).toContain('answer = 40')
+  })
+
+  it('reports when no matches are found', async () => {
+    const root = makeWorkspace()
+    const result = await runTool(
+      'grep_search',
+      { query: 'nonexistent_symbol_123' },
+      context(root),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('No matches found')
+  })
+
+  it('refuses searches outside the workspace', async () => {
+    const root = makeWorkspace()
+    const result = await runTool(
+      'grep_search',
+      { query: 'hello', path: '../elsewhere' },
+      context(root),
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toMatch(/outside the workspace/i)
+  })
+})
+
+describe('file_glob_search', () => {
+  it('finds files matching a glob pattern', async () => {
+    const root = makeWorkspace()
+    const result = await runTool(
+      'file_glob_search',
+      { pattern: '**/*.ts' },
+      context(root),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('src/math.ts')
+  })
+
+  it('reports when no files match the glob', async () => {
+    const root = makeWorkspace()
+    const result = await runTool(
+      'file_glob_search',
+      { pattern: '**/*.rs' },
+      context(root),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('No files matched glob')
+  })
+})
+
+describe('view_diff', () => {
+  it('executes git diff via command runner', async () => {
+    const root = makeWorkspace()
+    const result = await runTool(
+      'view_diff',
+      {},
+      context(root, {
+        runCommand: () => Promise.resolve({ output: '+ new line in math.ts', code: 0 }),
+      }),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('+ new line in math.ts')
+  })
+
+  it('reports when no changes are detected', async () => {
+    const root = makeWorkspace()
+    const result = await runTool(
+      'view_diff',
+      {},
+      context(root, {
+        runCommand: () => Promise.resolve({ output: '', code: 0 }),
+      }),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('No working git changes detected')
+  })
+})
+
+describe('fetch_url_content', () => {
+  it('refuses non-http URLs', async () => {
+    const root = makeWorkspace()
+    const result = await runTool(
+      'fetch_url_content',
+      { url: 'ftp://example.com' },
+      context(root),
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toMatch(/must begin with http:\/\/ or https:\/\//i)
+  })
+
+  it('fetches HTML and converts to clean markdown', async () => {
+    const root = makeWorkspace()
+    const fakeHtml = '<html><head><title>Docs</title></head><body><h1>API Reference</h1><p>Welcome to the <code>API</code>.</p><a href="https://example.com/login">Login</a></body></html>'
+
+    const result = await runTool(
+      'fetch_url_content',
+      { url: 'https://docs.example.com' },
+      context(root, {
+        fetchImpl: () =>
+          Promise.resolve(
+            new Response(fakeHtml, {
+              status: 200,
+              headers: { 'Content-Type': 'text/html' },
+            }),
+          ),
+      }),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('# API Reference')
+    expect(result.content).toContain('`API`')
+    expect(result.content).toContain('[Login](https://example.com/login)')
+  })
+})
+
+describe('search_web', () => {
+  it('returns formatted web search results', async () => {
+    const root = makeWorkspace()
+    const fakeApiResponse = {
+      Heading: 'TypeScript',
+      AbstractText: 'TypeScript is a strongly typed programming language that builds on JavaScript.',
+      AbstractURL: 'https://www.typescriptlang.org',
+      RelatedTopics: [],
+    }
+
+    const result = await runTool(
+      'search_web',
+      { query: 'typescript' },
+      context(root, {
+        fetchImpl: () =>
+          Promise.resolve(
+            new Response(JSON.stringify(fakeApiResponse), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          ),
+      }),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('TypeScript')
+    expect(result.content).toContain('https://www.typescriptlang.org')
+  })
+})
+
+describe('create_rule_block and request_rule', () => {
+  it('persists a rule and retrieves it', async () => {
+    const root = makeWorkspace()
+    const savedRules: { scope: string; key: string; statement: string }[] = []
+
+    const ctx = context(root, {
+      setRule: (scope, key, statement) => {
+        savedRules.push({ scope, key, statement })
+        return Promise.resolve()
+      },
+      getRules: () => Promise.resolve(savedRules),
+    })
+
+    const createRes = await runTool(
+      'create_rule_block',
+      { scope: 'workspace', key: 'no-any', statement: 'Do not use explicit any in TypeScript.' },
+      ctx,
+    )
+    expect(createRes.ok).toBe(true)
+    expect(savedRules).toHaveLength(1)
+    expect(savedRules[0]?.key).toBe('no-any')
+
+    const getRes = await runTool('request_rule', { query: 'explicit any' }, ctx)
+    expect(getRes.ok).toBe(true)
+    expect(getRes.content).toContain('no-any')
+    expect(getRes.content).toContain('Do not use explicit any')
+  })
+})
+
+describe('read_skill', () => {
+  it('reads skill from workspace .forge/skills', async () => {
+    const root = makeWorkspace()
+    mkdirSync(join(root, '.forge', 'skills', 'test-skill'), { recursive: true })
+    writeFileSync(join(root, '.forge', 'skills', 'test-skill', 'SKILL.md'), '# Test Skill Workflow\nStep 1: check files.\n')
+
+    const result = await runTool('read_skill', { name: 'test-skill' }, context(root))
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('Test Skill Workflow')
+  })
+
+  it('reports missing skills with list of available ones', async () => {
+    const root = makeWorkspace()
+    const result = await runTool('read_skill', { name: 'missing-skill' }, context(root))
+    expect(result.ok).toBe(false)
+    expect(result.content).toContain('Skill "missing-skill" not found')
+  })
+})
+
+describe('read_currently_open_file', () => {
+  it('reads the active file when set', async () => {
+    const root = makeWorkspace()
+    const result = await runTool(
+      'read_currently_open_file',
+      {},
+      context(root, { activeFilePath: 'src/math.ts' }),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('answer = 40')
+  })
+
+  it('reports when no file is active', async () => {
+    const root = makeWorkspace()
+    const result = await runTool('read_currently_open_file', {}, context(root))
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toContain('No file is currently active')
+  })
+})
+
+describe('tool aliases', () => {
+  it('supports ls, create_new_file, edit_existing_file, run_terminal_command', async () => {
+    const root = makeWorkspace()
+    const lsRes = await runTool('ls', { path: '.' }, context(root))
+    expect(lsRes.ok).toBe(true)
+    expect(lsRes.content).toContain('README.md')
+
+    const writeRes = await runTool('create_new_file', { path: 'src/created.ts', content: 'test' }, context(root))
+    expect(writeRes.ok).toBe(true)
+
+    const editRes = await runTool('edit_existing_file', { path: 'src/created.ts', old_text: 'test', new_text: 'updated' }, context(root))
+    expect(editRes.ok).toBe(true)
+
+    const cmdRes = await runTool('run_terminal_command', { command: 'echo 123' }, context(root, {
+      runCommand: (cmd) => Promise.resolve({ output: cmd, code: 0 }),
+    }))
+    expect(cmdRes.ok).toBe(true)
+  })
+})
+

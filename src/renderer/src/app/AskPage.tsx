@@ -8,6 +8,7 @@ import {
 } from '../ui'
 import { cn } from '../ui'
 import { useProjectStore } from './projectStore'
+import { useUiStore } from './uiStore'
 import { unwrap } from '@renderer/ipc'
 import { DEFAULT_PROVIDERS, type StoredProviderConfig } from './Settings'
 
@@ -983,6 +984,8 @@ export function AskPage(): React.JSX.Element {
    * and asking the user to declare it meant they could enable tools on a model
    * that has none and get a broken turn instead of a refusal.
    */
+  const openDevTerminal = useUiStore((state) => state.openDevTerminal)
+  const threadMenuRef = useRef<HTMLDivElement>(null)
   /** Seconds the running turn has taken, so a slow turn visibly progresses. */
   const [elapsed, setElapsed] = useState(0)
   const [menuThreadId, setMenuThreadId] = useState<string | null>(null)
@@ -1049,27 +1052,32 @@ export function AskPage(): React.JSX.Element {
     show({ tone: 'neutral', title: 'New chat created' })
   }
 
-  const handleDeleteThread = (threadId: string, e: React.MouseEvent): void => {
-    e.stopPropagation()
-    if (threads.length <= 1) return
-    const updated = threads.filter((t) => t.id !== threadId)
-    saveThreads(updated)
-    if (activeThreadId === threadId && updated[0]) {
-      setActiveThreadId(updated[0].id)
+  const handleDeleteThread = (threadId: string, e?: React.MouseEvent): void => {
+    e?.stopPropagation()
+    const remaining = threads.filter((t) => t.id !== threadId)
+    if (remaining.length === 0) {
+      const freshThread: ChatThread = {
+        id: `thread-${String(Date.now())}`,
+        title: '',
+        createdAt: 'Today',
+        messages: [],
+      }
+      saveThreads([freshThread])
+      setActiveThreadId(freshThread.id)
+    } else {
+      saveThreads(remaining)
+      if (activeThreadId === threadId && remaining[0]) {
+        setActiveThreadId(remaining[0].id)
+      }
     }
+    show({ tone: 'neutral', title: 'Chat deleted' })
   }
 
-  // A visible clock while a turn runs. An agent turn reads files and can take
-  // 30s or more, and the previous static "analyzing" line made that look like a
-  // hang — which is exactly how it was reported.
+  // A visible clock while a turn runs.
   useEffect(() => {
     if (!thinking) return undefined
 
     const started = Date.now()
-    // State is set only from the interval callback, never synchronously in the
-    // effect body — the latter triggers the cascading render the
-    // `react-hooks/set-state-in-effect` rule exists to prevent. The counter is
-    // reset when the next turn starts rather than when this one ends.
     const timer = setInterval(() => {
       setElapsed(Math.round((Date.now() - started) / 1000))
     }, 1000)
@@ -1078,18 +1086,23 @@ export function AskPage(): React.JSX.Element {
     }
   }, [thinking])
 
-  // Dismissed on any outside click, so the menu cannot be left open over a row
-  // it no longer belongs to. Registered only while a menu is open.
+  // Dismissed on outside click (mousedown) or Escape key, without intercepting
+  // menu button clicks in capture phase.
   useEffect(() => {
     if (menuThreadId === null) return undefined
-    const close = (): void => {
-      setMenuThreadId(null)
+    const handleOutsideClick = (e: MouseEvent): void => {
+      if (threadMenuRef.current && !threadMenuRef.current.contains(e.target as Node)) {
+        setMenuThreadId(null)
+      }
     }
-    // Capture phase, so a click on another row's trigger still toggles that one
-    // rather than being swallowed by this listener.
-    window.addEventListener('click', close, { capture: true })
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setMenuThreadId(null)
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    document.addEventListener('keydown', handleKeyDown)
     return () => {
-      window.removeEventListener('click', close, { capture: true })
+      document.removeEventListener('mousedown', handleOutsideClick)
+      document.removeEventListener('keydown', handleKeyDown)
     }
   }, [menuThreadId])
 
@@ -1099,26 +1112,28 @@ export function AskPage(): React.JSX.Element {
   }
 
   const handleTogglePin = (thread: ChatThread): void => {
-    updateThread(thread.id, { pinned: thread.pinned !== true })
+    const pinned = thread.pinned !== true
+    updateThread(thread.id, { pinned })
+    show({ tone: 'neutral', title: pinned ? 'Chat pinned to top' : 'Chat unpinned' })
   }
 
   const handleToggleArchive = (thread: ChatThread): void => {
     const archived = thread.archived !== true
     updateThread(thread.id, { archived, ...(archived ? { pinned: false } : {}) })
 
-    // Archiving the open thread would leave the transcript showing something the
-    // list no longer offers, so move to the first thread still visible.
     if (archived && activeThreadId === thread.id) {
       const next = threads.find((t) => t.id !== thread.id && t.archived !== true)
       if (next !== undefined) setActiveThreadId(next.id)
     }
+    show({ tone: 'neutral', title: archived ? 'Chat archived' : 'Chat unarchived' })
   }
 
   const handleRenameThread = (thread: ChatThread): void => {
     const title = renameDraft.trim()
-    // An empty title would leave an unidentifiable row; keeping the old one is
-    // the honest outcome of a cancelled rename.
-    if (title !== '') updateThread(thread.id, { title })
+    if (title !== '' && title !== thread.title) {
+      updateThread(thread.id, { title })
+      show({ tone: 'neutral', title: 'Chat renamed' })
+    }
     setRenamingId(null)
   }
 
@@ -1490,11 +1505,11 @@ ${toolTrail}`
                         onClick={() => {
                           setActiveThreadId(thread.id)
                         }}
-                        className="min-w-0 flex-1 cursor-pointer truncate pr-1.5 text-left"
+                        className="min-w-0 flex-1 cursor-pointer truncate pr-1.5 text-left py-0.5"
                       >
                         <div
                           className={cn(
-                            'truncate text-[12px]',
+                            'truncate text-[12px] leading-snug',
                             isCurrent ? 'font-semibold' : 'font-medium',
                           )}
                         >
@@ -1502,20 +1517,13 @@ ${toolTrail}`
                           {thread.archived === true && <span className="mr-1">🗄️</span>}
                           {thread.title.trim() !== '' ? thread.title : 'New chat'}
                         </div>
-                        <div className="mt-0.5 font-mono text-[10px] text-(--color-text-subtle)">
-                          {thread.messages.length === 0
-                            ? 'No messages'
-                            : thread.messages.length === 1
-                              ? '1 msg'
-                              : `${String(thread.messages.length)} msgs`}{' '}
-                          · {thread.createdAt}
-                        </div>
                       </button>
 
                       <button
                         type="button"
                         aria-label="Thread actions"
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation()
                           setMenuThreadId((current) => (current === thread.id ? null : thread.id))
                         }}
                         className="shrink-0 cursor-pointer px-1 text-[13px] opacity-0 group-hover:opacity-100 hover:text-(--color-text)"
@@ -1526,7 +1534,13 @@ ${toolTrail}`
                   )}
 
                   {menuThreadId === thread.id && (
-                    <div className="absolute top-8 right-1 z-20 w-36 overflow-hidden rounded-lg border border-(--color-border) bg-(--color-surface-raised) shadow-lg">
+                    <div
+                      ref={threadMenuRef}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                      }}
+                      className="absolute top-8 right-1 z-30 w-36 overflow-hidden rounded-lg border border-(--color-border) bg-(--color-surface-raised) shadow-lg"
+                    >
                       <ThreadMenuItem
                         label={thread.pinned === true ? 'Unpin' : 'Pin'}
                         onSelect={() => {
@@ -1549,16 +1563,14 @@ ${toolTrail}`
                           setMenuThreadId(null)
                         }}
                       />
-                      {threads.length > 1 && (
-                        <ThreadMenuItem
-                          label="Delete"
-                          danger
-                          onSelect={(e) => {
-                            handleDeleteThread(thread.id, e)
-                            setMenuThreadId(null)
-                          }}
-                        />
-                      )}
+                      <ThreadMenuItem
+                        label="Delete"
+                        danger
+                        onSelect={(e) => {
+                          handleDeleteThread(thread.id, e)
+                          setMenuThreadId(null)
+                        }}
+                      />
                     </div>
                   )}
                 </div>
@@ -1816,6 +1828,19 @@ ${toolTrail}`
                       }}
                       options={currentEngineModels}
                     />
+                  )}
+
+                  {/* Dev Terminal Quick Launcher (Dev Mode Only) */}
+                  {import.meta.env.DEV && (
+                    <button
+                      type="button"
+                      onClick={openDevTerminal}
+                      title="Inspect real model API calls, prompts, responses, and tool executions"
+                      className="flex items-center gap-1 rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-2 py-1 text-[11px] font-mono text-(--color-accent) hover:border-(--color-accent) hover:bg-(--color-accent)/10 transition-colors cursor-pointer"
+                    >
+                      <span>📟</span>
+                      <span className="hidden sm:inline font-semibold">Dev Terminal</span>
+                    </button>
                   )}
                 </div>
 

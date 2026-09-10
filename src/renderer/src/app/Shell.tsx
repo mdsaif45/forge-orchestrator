@@ -12,6 +12,10 @@ const KitchenSink = import.meta.env.DEV
   ? lazy(async () => ({ default: (await import('../dev/KitchenSink')).KitchenSink }))
   : null
 
+const DevTerminalModal = import.meta.env.DEV
+  ? lazy(async () => ({ default: (await import('./DevTerminalModal')).DevTerminalModal }))
+  : null
+
 /**
  * The application frame: status strip on top, sidebar beside routed content.
  * Centralized container for modals and shell navigation.
@@ -26,6 +30,10 @@ export function Shell(): React.JSX.Element {
   const createProjectOpen = useUiStore((state) => state.createProjectOpen)
   const openCreateProject = useUiStore((state) => state.openCreateProject)
   const closeCreateProject = useUiStore((state) => state.closeCreateProject)
+
+  const devTerminalOpen = useUiStore((state) => state.devTerminalOpen)
+  const openDevTerminal = useUiStore((state) => state.openDevTerminal)
+  const closeDevTerminal = useUiStore((state) => state.closeDevTerminal)
 
   const projects = useProjectStore((state) => state.projects)
   const selectedProjectId = useProjectStore((state) => state.selectedProjectId)
@@ -102,6 +110,7 @@ export function Shell(): React.JSX.Element {
         onOpenKitchenSink={() => {
           setSinkOpen(true)
         }}
+        onOpenDevTerminal={openDevTerminal}
       />
 
       <div className="flex min-h-0 flex-1">
@@ -124,6 +133,12 @@ export function Shell(): React.JSX.Element {
             <KitchenSink />
           </Suspense>
         </Dialog>
+      )}
+
+      {DevTerminalModal !== null && (
+        <Suspense fallback={null}>
+          <DevTerminalModal open={devTerminalOpen} onClose={closeDevTerminal} />
+        </Suspense>
       )}
 
       <CreateProjectDialog open={createProjectOpen} onClose={closeCreateProject} />

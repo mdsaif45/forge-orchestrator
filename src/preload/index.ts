@@ -175,6 +175,19 @@ const api: ForgeApi = {
       ipcRenderer.removeListener('terminal:exit', handler)
     }
   },
+  dev: {
+    getModelCalls: () => call('dev:getModelCalls', {}),
+    clearModelCalls: () => call('dev:clearModelCalls', {}),
+  },
+  onDevModelCall: (listener) => {
+    const handler = (_event: unknown, payload: unknown) => {
+      listener(payload as Parameters<typeof listener>[0])
+    }
+    ipcRenderer.on('dev:modelCall', handler)
+    return () => {
+      ipcRenderer.removeListener('dev:modelCall', handler)
+    }
+  },
 }
 
 contextBridge.exposeInMainWorld('forge', api)

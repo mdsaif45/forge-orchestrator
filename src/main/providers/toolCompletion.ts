@@ -1,6 +1,7 @@
 import { chatCompletionsUrl, DEFAULT_ENDPOINTS, isOllama } from './chatStream'
 import type { CompletionResult, LoopMessage, ToolCall } from './agentLoop'
 import type { TOOL_DEFINITIONS } from './tools'
+import { devModelTracker } from './devModelTracker'
 
 /**
  * One tool-calling completion, from an OpenAI-compatible or Ollama endpoint.
@@ -26,6 +27,7 @@ export interface ToolCompletionRequest {
   readonly model: string
   readonly endpointUrl?: string | undefined
   readonly apiKey?: string | undefined
+  readonly round?: number | undefined
 }
 
 /**
@@ -138,26 +140,49 @@ export async function completeWithTools(
     headers.Authorization = `Bearer ${request.apiKey}`
   }
 
+  const requestBody = {
+    model: request.model,
+    messages: messages.map((message) => toWireMessage(message, ollama)),
+    tools,
+    stream: false,
+  }
+
+  const callRecord = devModelTracker.startCall({
+    type: 'tool_completion',
+    providerId: request.providerId,
+    model: request.model,
+    endpointUrl: url,
+    round: request.round,
+    headers,
+    body: requestBody,
+  })
+  const startTime = Date.now()
+
   try {
     const res = await fetchImpl(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify({
-        model: request.model,
-        messages: messages.map((message) => toWireMessage(message, ollama)),
-        tools,
-        stream: false,
-      }),
+      body: JSON.stringify(requestBody),
     })
+
+    const durationMs = Date.now() - startTime
 
     if (!res.ok) {
       const detail = await res.text().catch(() => res.statusText)
+      const errorMsg = `${ollama ? 'Ollama' : 'API'} error (${String(res.status)}): ${detail}`
+      devModelTracker.finishCall(callRecord.id, {
+        status: res.status,
+        statusText: res.statusText,
+        durationMs,
+        error: errorMsg,
+      })
       return {
         ok: false,
         content: '',
         reasoning: '',
         toolCalls: [],
-        error: `${ollama ? 'Ollama' : 'API'} error (${String(res.status)}): ${detail}`,
+        error: errorMsg,
+        callId: callRecord.id,
       }
     }
 
@@ -167,53 +192,70 @@ export async function completeWithTools(
       : (body as { choices?: { message?: Record<string, unknown> }[] }).choices?.[0]?.message
 
     if (message === undefined) {
+      const errorMsg = 'The provider returned no message.'
+      devModelTracker.finishCall(callRecord.id, {
+        status: res.status,
+        statusText: res.statusText,
+        durationMs,
+        rawBody: body,
+        error: errorMsg,
+      })
       return {
         ok: false,
         content: '',
         reasoning: '',
         toolCalls: [],
-        error: 'The provider returned no message.',
+        error: errorMsg,
+        callId: callRecord.id,
       }
     }
 
     const content = typeof message.content === 'string' ? message.content : ''
     const reasoningField = message.reasoning ?? message.reasoning_content ?? message.thinking
     const reasoning = typeof reasoningField === 'string' ? reasoningField : ''
+    const toolCalls = readToolCalls(message.tool_calls)
+
+    devModelTracker.finishCall(callRecord.id, {
+      status: res.status,
+      statusText: res.statusText,
+      durationMs,
+      rawBody: body,
+      reasoning,
+      content,
+      toolCalls,
+      error: null,
+    })
 
     return {
       ok: true,
       content,
       reasoning,
-      toolCalls: readToolCalls(message.tool_calls),
+      toolCalls,
       error: null,
+      callId: callRecord.id,
     }
   } catch (err) {
-    /*
-     * Name the endpoint, because the raw message does not.
-     *
-     * Node's fetch throws `TypeError: fetch failed` for every transport
-     * failure — service down, wrong port, DNS, TLS — and that string was
-     * passed straight through. A workflow stage then halted with
-     * `[AGENT ERROR] fetch failed`, which says nothing about which provider
-     * was called, at what address, or that the cause was a local service not
-     * running. Observed against a stopped Ollama, where the actual remedy is
-     * one command.
-     *
-     * The cause is still included rather than replaced: a TLS or DNS failure
-     * has a different message worth reading, and swallowing it to print a
-     * tidier sentence would trade a real detail for a guess.
-     */
+    const durationMs = Date.now() - startTime
     const cause = err instanceof Error ? err.message : String(err)
     const unreachable = /fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN/i.test(cause)
+    const errorMsg = unreachable
+      ? `Could not reach ${request.providerId} at ${url}. Is the service running? (${cause})`
+      : `${request.providerId} request to ${url} failed: ${cause}`
+
+    devModelTracker.finishCall(callRecord.id, {
+      status: 0,
+      statusText: 'FETCH_ERROR',
+      durationMs,
+      error: errorMsg,
+    })
 
     return {
       ok: false,
       content: '',
       reasoning: '',
       toolCalls: [],
-      error: unreachable
-        ? `Could not reach ${request.providerId} at ${url}. Is the service running? (${cause})`
-        : `${request.providerId} request to ${url} failed: ${cause}`,
+      error: errorMsg,
+      callId: callRecord.id,
     }
   }
 }

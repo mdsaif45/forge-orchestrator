@@ -1,4 +1,5 @@
 import { runTool, TOOL_DEFINITIONS, type ToolContext } from './tools'
+import { devModelTracker } from './devModelTracker'
 
 /**
  * The loop that turns a chat model into an agent.
@@ -41,6 +42,7 @@ export interface CompletionResult {
   readonly reasoning: string
   readonly toolCalls: readonly ToolCall[]
   readonly error: string | null
+  readonly callId?: string | undefined
 }
 
 export interface AgentLoopOptions {
@@ -52,6 +54,7 @@ export interface AgentLoopOptions {
     // A readonly list rather than the literal tuple type: a caller may send
     // none, which is how a model without tool support degrades to plain chat.
     tools: readonly (typeof TOOL_DEFINITIONS)[number][],
+    round: number,
   ) => Promise<CompletionResult>
   /**
    * Which tool definitions the model is offered, when not all of them.
@@ -137,7 +140,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
   let nudged = false
 
   for (let round = 0; round < maxRounds; round += 1) {
-    const completion = await options.complete(conversation, offeredTools)
+    const completion = await options.complete(conversation, offeredTools, round + 1)
 
     if (completion.reasoning !== '') {
       reasoning += completion.reasoning
@@ -226,8 +229,20 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
         args: JSON.stringify(call.args).slice(0, 200),
       })
 
+      const toolStartTime = Date.now()
       const result = await runTool(call.name, call.args, options.tools)
+      const toolDurationMs = Date.now() - toolStartTime
       toolsUsed.push({ name: call.name, ok: result.ok })
+
+      if (completion.callId !== undefined) {
+        devModelTracker.recordToolExecution(completion.callId, {
+          name: call.name,
+          args: call.args,
+          ok: result.ok,
+          output: result.content,
+          durationMs: toolDurationMs,
+        })
+      }
 
       options.onEvent?.({
         kind: 'tool-end',

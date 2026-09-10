@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises'
 import { app, clipboard, dialog, BrowserWindow } from 'electron'
 import { APP_NAME } from '@shared/app'
-import type { ProviderChunkPayload } from '@shared/ipc'
+import type { IpcResponse, ProviderChunkPayload } from '@shared/ipc'
 import { TEMPLATES } from '@shared/domain'
 import { generateWorkflowReportMarkdown } from '../audit/workflowReportGenerator'
 import type { ProjectService } from '../projects/projectService'
@@ -16,6 +16,7 @@ import { runtimeDescription, runtimeExecutable, type RuntimeRegistry } from '../
 import { isCommandAvailable } from '../process/processManager'
 import { streamChat } from '../providers/chatStream'
 import { runAgentTurn } from '../providers/agentTurn'
+import { devModelTracker } from '../providers/devModelTracker'
 import type { BindingService } from '../bindings/bindingService'
 import type { EnrollmentService } from '../accounts/enrollmentService'
 import { openTerminal } from '../accounts/terminalLauncher'
@@ -691,6 +692,16 @@ export function createIpcHandlers({
           error: err instanceof Error ? err.message : String(err),
         }
       }
+    },
+
+    'dev:getModelCalls': () => {
+      const calls = devModelTracker.getHistory()
+      return { calls: calls as unknown as IpcResponse<'dev:getModelCalls'>['calls'] }
+    },
+
+    'dev:clearModelCalls': () => {
+      devModelTracker.clear()
+      return { ok: true as const }
     },
   }
 }

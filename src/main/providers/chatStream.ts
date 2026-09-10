@@ -1,3 +1,5 @@
+import { devModelTracker } from './devModelTracker'
+
 /**
  * Streams a chat completion from an OpenAI-compatible or Ollama endpoint.
  *
@@ -215,25 +217,52 @@ export async function streamChat(
     onChunk(chunk)
   }
 
+  const requestBody = { model: request.model, messages, stream: true }
+  const callRecord = devModelTracker.startCall({
+    type: 'chat_stream',
+    providerId: request.providerId,
+    model: request.model,
+    endpointUrl: url,
+    headers,
+    body: requestBody,
+  })
+  const startTime = Date.now()
+
   try {
     const res = await fetchImpl(url, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ model: request.model, messages, stream: true }),
+      body: JSON.stringify(requestBody),
     })
+
+    const durationMs = Date.now() - startTime
 
     if (!res.ok) {
       const detail = await res.text().catch(() => res.statusText)
+      const errorMsg = `${ollama ? 'Ollama' : 'API'} error (${String(res.status)}): ${detail}`
+      devModelTracker.finishCall(callRecord.id, {
+        status: res.status,
+        statusText: res.statusText,
+        durationMs,
+        error: errorMsg,
+      })
       return {
         ok: false,
         content: '',
         reasoning: '',
-        error: `${ollama ? 'Ollama' : 'API'} error (${String(res.status)}): ${detail}`,
+        error: errorMsg,
       }
     }
 
     if (res.body === null) {
-      return { ok: false, content: '', reasoning: '', error: 'The response carried no body.' }
+      const errorMsg = 'The response carried no body.'
+      devModelTracker.finishCall(callRecord.id, {
+        status: res.status,
+        statusText: res.statusText,
+        durationMs,
+        error: errorMsg,
+      })
+      return { ok: false, content: '', reasoning: '', error: errorMsg }
     }
 
     for await (const line of lines(res.body)) {
@@ -262,13 +291,29 @@ export async function streamChat(
 
     for (const chunk of splitter.flush()) take(chunk)
 
+    devModelTracker.finishCall(callRecord.id, {
+      status: res.status,
+      statusText: res.statusText,
+      durationMs: Date.now() - startTime,
+      content,
+      reasoning,
+      error: null,
+    })
+
     return { ok: true, content, reasoning, error: null }
   } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err)
+    devModelTracker.finishCall(callRecord.id, {
+      status: 0,
+      statusText: 'FETCH_ERROR',
+      durationMs: Date.now() - startTime,
+      error: errorMsg,
+    })
     return {
       ok: false,
       content,
       reasoning,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMsg,
     }
   }
 }

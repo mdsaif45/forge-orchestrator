@@ -1215,6 +1215,65 @@ export const IPC_CONTRACT = {
       error: z.string().nullable(),
     }),
   },
+
+  'dev:getModelCalls': {
+    request: z.strictObject({}),
+    response: z.strictObject({
+      calls: z.array(
+        z.strictObject({
+          id: z.string(),
+          timestamp: z.number(),
+          timeFormatted: z.string(),
+          type: z.enum(['tool_completion', 'chat_stream', 'direct_chat']),
+          providerId: z.string(),
+          model: z.string(),
+          endpointUrl: z.string(),
+          round: z.number().optional(),
+          request: z.strictObject({
+            method: z.string(),
+            headers: z.record(z.string(), z.string()),
+            body: z.unknown(),
+          }),
+          response: z
+            .strictObject({
+              status: z.number(),
+              statusText: z.string(),
+              durationMs: z.number(),
+              rawBody: z.unknown().optional(),
+              reasoning: z.string().optional(),
+              content: z.string().optional(),
+              toolCalls: z
+                .array(
+                  z.strictObject({
+                    id: z.string(),
+                    name: z.string(),
+                    args: z.unknown(),
+                  }),
+                )
+                .optional(),
+              error: z.string().nullable().optional(),
+            })
+            .optional(),
+          toolExecutions: z
+            .array(
+              z.strictObject({
+                name: z.string(),
+                args: z.unknown(),
+                ok: z.boolean(),
+                output: z.string(),
+                durationMs: z.number(),
+              }),
+            )
+            .optional(),
+        }),
+      ),
+    }),
+  },
+
+  'dev:clearModelCalls': {
+    request: z.strictObject({}),
+    response: z.strictObject({ ok: z.literal(true) }),
+  },
 } as const satisfies IpcContractShape
 
 /**
@@ -1253,6 +1312,8 @@ export type IpcChannel = keyof IpcContract
 
 export type IpcRequest<C extends IpcChannel> = z.infer<IpcContract[C]['request']>
 export type IpcResponse<C extends IpcChannel> = z.infer<IpcContract[C]['response']>
+
+export type DevModelCallView = IpcResponse<'dev:getModelCalls'>['calls'][number]
 
 export const IPC_CHANNELS = Object.keys(IPC_CONTRACT) as readonly IpcChannel[]
 

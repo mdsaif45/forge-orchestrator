@@ -238,13 +238,14 @@ export async function runAgentTurn(
     // A model that cannot call tools is offered none, decided once here rather
     // than re-filtered on every round inside `complete`.
     toolDefinitions: toolsEnabled ? TOOL_DEFINITIONS : [],
-    complete: (messages, toolDefinitions) =>
+    complete: (messages, toolDefinitions, round) =>
       completeWithTools(
         {
           providerId: request.providerId,
           model: request.model,
           endpointUrl: request.endpointUrl,
           apiKey: request.apiKey,
+          round,
         },
         messages,
         // Already narrowed by `toolDefinitions` above; passed straight through

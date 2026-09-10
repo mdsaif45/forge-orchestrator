@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Badge,
   Button,
@@ -453,6 +453,102 @@ function EngineSelectDropdown({
   )
 }
 
+function ModelSelectDropdown({
+  value,
+  onChange,
+  options,
+}: {
+  readonly value: string
+  readonly onChange: (value: string) => void
+  readonly options: readonly { readonly id: string; readonly label: string }[]
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  const selected = options.find((opt) => opt.id === value) ?? options[0]
+
+  useEffect(() => {
+    if (!open) return undefined
+    const handleOutsideClick = (e: MouseEvent): void => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open])
+
+  return (
+    <div ref={dropdownRef} className="relative">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((prev) => !prev)
+        }}
+        aria-expanded={open}
+        aria-label="Select Model"
+        className="flex items-center gap-1.5 rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-2.5 py-1 text-[11.5px] font-medium text-(--color-text-muted) hover:text-(--color-text) hover:border-(--color-border-strong) transition-colors cursor-pointer"
+      >
+        <span className="truncate max-w-[130px] sm:max-w-[180px]">
+          {(selected?.label ?? value) || 'Select Model'}
+        </span>
+        <svg
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          className={cn(
+            'size-3 shrink-0 text-(--color-text-subtle) transition-transform duration-150',
+            open ? 'rotate-180' : '',
+          )}
+          aria-hidden="true"
+        >
+          <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute bottom-full left-0 mb-1.5 z-30 w-64 max-h-64 overflow-y-auto rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-1 shadow-xl">
+          <div className="px-2.5 py-1 text-[10px] font-semibold text-(--color-text-subtle) uppercase tracking-wider">
+            Model
+          </div>
+          <div className="space-y-0.5">
+            {options.map((opt) => {
+              const isSelected = opt.id === value
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => {
+                    onChange(opt.id)
+                    setOpen(false)
+                  }}
+                  className={cn(
+                    'flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[12px] transition-colors cursor-pointer',
+                    isSelected
+                      ? 'bg-(--color-accent)/10 font-semibold text-(--color-accent)'
+                      : 'text-(--color-text) hover:bg-(--color-surface-overlay)',
+                  )}
+                >
+                  <span className="truncate pr-2">{opt.label}</span>
+                  {isSelected && <span className="text-[11px] font-bold">✓</span>}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function AskPage(): React.JSX.Element {
   const detail = useProjectStore((state) => state.detail)
   const project = detail?.project ?? null
@@ -644,6 +740,102 @@ export function AskPage(): React.JSX.Element {
       })
   }, [project])
 
+  // Load detected CLIs and their supported models
+  const [detectedClis, setDetectedClis] = useState<
+    readonly {
+      readonly id: string
+      readonly name: string
+      readonly defaultModel?: string | undefined
+      readonly models?: readonly { readonly id: string; readonly label: string }[] | undefined
+    }[]
+  >([])
+
+  useEffect(() => {
+    window.forge.runtime
+      .detectClis()
+      .then((res) => {
+        const data = unwrap(res)
+        setDetectedClis(data.clis)
+      })
+      .catch((err: unknown) => {
+        console.error('Failed to detect CLIs in AskPage:', err)
+      })
+  }, [])
+
+  // User selected model per engine, persisted across sessions
+  const [selectedEngineModels, setSelectedEngineModels] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem('forge.engine_selected_models')
+      if (saved) return JSON.parse(saved) as Record<string, string>
+    } catch {
+      // ignore
+    }
+    return {}
+  })
+
+  const saveEngineModel = (engineId: string, modelId: string): void => {
+    setSelectedEngineModels((prev) => {
+      const updated = { ...prev, [engineId]: modelId }
+      localStorage.setItem('forge.engine_selected_models', JSON.stringify(updated))
+      return updated
+    })
+  }
+
+  // Available models for currently selected engine
+  const currentEngineModels: readonly { readonly id: string; readonly label: string }[] =
+    useMemo(() => {
+      if (selectedEngineId === 'forge-native-agent') {
+        return (currentProvider?.models ?? []).map((m) => ({ id: m, label: m }))
+      }
+      const cli = detectedClis.find((c) => c.id === selectedEngineId)
+      if (cli?.models && cli.models.length > 0) {
+        return cli.models
+      }
+      if (cli?.defaultModel) {
+        return [{ id: cli.defaultModel, label: cli.defaultModel }]
+      }
+      return []
+    }, [selectedEngineId, currentProvider, detectedClis])
+
+  // Active model ID for currently selected engine
+  const activeEngineModelId = useMemo(() => {
+    if (selectedEngineId === 'forge-native-agent') {
+      return currentModel
+    }
+    const cli = detectedClis.find((c) => c.id === selectedEngineId)
+    return (
+      selectedEngineModels[selectedEngineId] ??
+      cli?.defaultModel ??
+      currentEngineModels[0]?.id ??
+      ''
+    )
+  }, [selectedEngineId, currentModel, detectedClis, selectedEngineModels, currentEngineModels])
+
+  // Active model human-readable label
+  const activeEngineModelLabel = useMemo(() => {
+    if (selectedEngineId === 'forge-native-agent') {
+      return `${currentProvider?.name ?? 'Ollama'} (${currentModel})`
+    }
+    const matched = currentEngineModels.find((m) => m.id === activeEngineModelId)
+    if (matched) return matched.label
+    if (activeEngineModelId) return activeEngineModelId
+    return 'Default'
+  }, [selectedEngineId, currentProvider, currentModel, currentEngineModels, activeEngineModelId])
+
+  const handleSelectEngineModel = (newModel: string): void => {
+    if (selectedEngineId === 'forge-native-agent') {
+      handleSelectModel(newModel)
+    } else {
+      saveEngineModel(selectedEngineId, newModel)
+      const found = currentEngineModels.find((m) => m.id === newModel)
+      show({
+        tone: 'neutral',
+        title: 'Model Selected',
+        description: `Active model set to ${found?.label ?? newModel}`,
+      })
+    }
+  }
+
   // Chat Threads
   const [threads, setThreads] = useState<readonly ChatThread[]>(() => {
     const saved = localStorage.getItem('forge.ask_threads')
@@ -758,10 +950,12 @@ export function AskPage(): React.JSX.Element {
     const now = new Date()
     const newThreadId = `thread-${String(now.getTime())}`
     const persona = allPersonas.find((p) => p.id === selectedPersonaId) ?? allPersonas[0]
+    const activeEngineLabel =
+      availableEngines.find((e) => e.id === selectedEngineId)?.label ?? selectedEngineId
     const activeModelDesc =
       selectedEngineId === 'forge-native-agent'
         ? `${currentProvider?.name ?? 'Ollama'} / ${currentModel}`
-        : selectedEngineId
+        : `${activeEngineLabel} · ${activeEngineModelLabel}`
 
     const newThread: ChatThread = {
       id: newThreadId,
@@ -937,10 +1131,12 @@ export function AskPage(): React.JSX.Element {
     setElapsed(0)
 
     const startTime = Date.now()
+    const activeEngineLabel =
+      availableEngines.find((e) => e.id === selectedEngineId)?.label ?? selectedEngineId
     const isForgeNative = selectedEngineId === 'forge-native-agent'
     const activeModelLabel = isForgeNative
       ? `${currentProvider?.name ?? 'Ollama (Local)'} / ${currentModel}`
-      : selectedEngineId
+      : `${activeEngineLabel} · ${activeEngineModelLabel}`
 
     // Construct system prompt with repository context & active persona
     const systemPrompt = `You are ${activePersona?.label ?? 'an AI Assistant'}, an expert software engineering persona inside Forge Orchestrator.
@@ -1344,8 +1540,8 @@ ${toolTrail}`
             </h1>
             <Badge tone="accent" size="sm" className="hidden sm:inline-flex font-mono text-[11px]">
               {selectedEngineId === 'forge-native-agent'
-                ? `Forge Agent · ${currentProvider?.name ?? 'Ollama'} (${currentModel})`
-                : selectedEngineId}
+                ? `Forge Agent · ${activeEngineModelLabel}`
+                : `${availableEngines.find((e) => e.id === selectedEngineId)?.label ?? selectedEngineId} · ${activeEngineModelLabel}`}
             </Badge>
             {/* What the model reported it can do, once a turn has asked. Shown
                 rather than offered as a choice: capability belongs to the model,
@@ -1386,29 +1582,27 @@ ${toolTrail}`
           </div>
 
           <div className="flex items-center gap-2">
-            {/* If Forge Agent is selected, allow picking models directly */}
-            {selectedEngineId === 'forge-native-agent' &&
-              currentProvider?.models &&
-              currentProvider.models.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-semibold text-(--color-text-subtle) hidden md:inline">
-                    Model:
-                  </span>
-                  <div className="w-44">
-                    <Select
-                      aria-label="Active Model"
-                      value={currentModel}
-                      onChange={(e: { target: { value: string } }) => {
-                        handleSelectModel(e.target.value)
-                      }}
-                      options={currentProvider.models.map((m) => ({
-                        value: m,
-                        label: m,
-                      }))}
-                    />
-                  </div>
+            {/* If the active engine has models available, allow picking models directly */}
+            {currentEngineModels.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-semibold text-(--color-text-subtle) hidden md:inline">
+                  Model:
+                </span>
+                <div className="w-52">
+                  <Select
+                    aria-label="Active Model"
+                    value={activeEngineModelId}
+                    onChange={(e: { target: { value: string } }) => {
+                      handleSelectEngineModel(e.target.value)
+                    }}
+                    options={currentEngineModels.map((m) => ({
+                      value: m.id,
+                      label: m.label,
+                    }))}
+                  />
                 </div>
-              )}
+              </div>
+            )}
           </div>
         </header>
 
@@ -1613,14 +1807,27 @@ ${toolTrail}`
 
               {/* Bottom Card Controls Strip */}
               <div className="flex items-center justify-between px-3 pb-2.5 pt-1">
-                {/* Custom UI-matched Engine Selector Dropdown */}
-                <EngineSelectDropdown
-                  value={selectedEngineId}
-                  onChange={(newEngineId) => {
-                    setSelectedEngineId(newEngineId)
-                  }}
-                  options={availableEngines}
-                />
+                <div className="flex items-center gap-2">
+                  {/* Custom UI-matched Engine Selector Dropdown */}
+                  <EngineSelectDropdown
+                    value={selectedEngineId}
+                    onChange={(newEngineId) => {
+                      setSelectedEngineId(newEngineId)
+                    }}
+                    options={availableEngines}
+                  />
+
+                  {/* Custom UI-matched Model Selector Dropdown (Image 2 style) */}
+                  {currentEngineModels.length > 0 && (
+                    <ModelSelectDropdown
+                      value={activeEngineModelId}
+                      onChange={(newModel) => {
+                        handleSelectEngineModel(newModel)
+                      }}
+                      options={currentEngineModels}
+                    />
+                  )}
+                </div>
 
                 {/* Circular Send Button inside input card (Image 4) */}
                 <button

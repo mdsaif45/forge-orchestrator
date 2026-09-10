@@ -752,6 +752,15 @@ export const IPC_CONTRACT = {
             resolvedPath: z.string().optional(),
             isCustom: z.boolean().optional(),
             defaultModel: z.string().optional(),
+            models: z
+              .array(
+                z.strictObject({
+                  id: z.string(),
+                  label: z.string(),
+                }),
+              )
+              .readonly()
+              .optional(),
           }),
         )
         .readonly(),

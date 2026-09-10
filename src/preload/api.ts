@@ -93,6 +93,12 @@ export interface ForgeApi {
           readonly resolvedPath?: string | undefined
           readonly isCustom?: boolean | undefined
           readonly defaultModel?: string | undefined
+          readonly models?:
+            | readonly {
+                readonly id: string
+                readonly label: string
+              }[]
+            | undefined
         }[]
       }>
     >

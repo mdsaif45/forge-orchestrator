@@ -16,6 +16,7 @@ export interface InstalledCliInfo {
   readonly resolvedPath?: string | undefined
   readonly isCustom?: boolean | undefined
   readonly defaultModel?: string | undefined
+  readonly models?: readonly { readonly id: string; readonly label: string }[] | undefined
 }
 
 export interface CustomCliConfig {
@@ -45,6 +46,7 @@ export interface StandardAgentInfo {
   readonly name: string
   readonly executable: string
   readonly defaultModel?: string | undefined
+  readonly models?: readonly { readonly id: string; readonly label: string }[] | undefined
 }
 
 /**
@@ -52,11 +54,62 @@ export interface StandardAgentInfo {
  * Conforms to Forge Axiom A6 (confined to src/main/runtimes/*).
  */
 export const STANDARD_AGENT_CATALOG: readonly StandardAgentInfo[] = [
-  { id: 'claude', name: 'Claude Code', executable: 'claude', defaultModel: 'sonnet' },
-  { id: 'agy', name: 'Agy', executable: 'agy', defaultModel: 'gemini-2.5-pro' },
+  {
+    id: 'claude',
+    name: 'Claude Code',
+    executable: 'claude',
+    defaultModel: 'sonnet',
+    models: [
+      { id: 'sonnet', label: 'Claude 3.7 Sonnet' },
+      { id: 'haiku', label: 'Claude 3.5 Haiku' },
+      { id: 'opus', label: 'Claude 3 Opus' },
+    ],
+  },
+  {
+    id: 'agy',
+    name: 'Agy',
+    executable: 'agy',
+    defaultModel: 'gemini-3.8-flash-high',
+    models: [
+      { id: 'gemini-3.8-flash-high', label: 'Gemini 3.8 Flash (High)' },
+      { id: 'gemini-3.8-flash-medium', label: 'Gemini 3.8 Flash (Medium)' },
+      { id: 'gemini-3.8-flash-low', label: 'Gemini 3.8 Flash (Low)' },
+      { id: 'gemini-3.7-flash-high', label: 'Gemini 3.7 Flash (High)' },
+      { id: 'gemini-3.7-flash-medium', label: 'Gemini 3.7 Flash (Medium)' },
+      { id: 'gemini-3.7-flash-low', label: 'Gemini 3.7 Flash (Low)' },
+      { id: 'gemini-3.6-flash-high', label: 'Gemini 3.6 Flash (High)' },
+      { id: 'gemini-3.6-flash-medium', label: 'Gemini 3.6 Flash (Medium)' },
+      { id: 'gemini-3.6-flash-low', label: 'Gemini 3.6 Flash (Low)' },
+      { id: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)' },
+      { id: 'gemini-3.1-pro-low', label: 'Gemini 3.1 Pro (Low)' },
+      { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Thinking)' },
+      { id: 'claude-opus-4-6-thinking', label: 'Claude Opus 4.6 (Thinking)' },
+      { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)' },
+    ],
+  },
   { id: 'cline', name: 'Cline', executable: 'cline' },
-  { id: 'opencode', name: 'OpenCode', executable: 'opencode' },
-  { id: 'codex', name: 'Codex', executable: 'codex' },
+  {
+    id: 'opencode',
+    name: 'OpenCode',
+    executable: 'opencode',
+    defaultModel: 'deepseek-r1',
+    models: [
+      { id: 'deepseek-r1', label: 'DeepSeek R1' },
+      { id: 'deepseek-v3', label: 'DeepSeek V3' },
+      { id: 'qwen-2.5-coder', label: 'Qwen 2.5 Coder' },
+    ],
+  },
+  {
+    id: 'codex',
+    name: 'Codex',
+    executable: 'codex',
+    defaultModel: 'o3-mini',
+    models: [
+      { id: 'o3-mini', label: 'OpenAI o3-mini' },
+      { id: 'gpt-4o', label: 'GPT-4o' },
+      { id: 'gpt-4o-mini', label: 'GPT-4o mini' },
+    ],
+  },
   { id: 'aider', name: 'Aider', executable: 'aider' },
   { id: 'continue', name: 'Continue', executable: 'continue' },
   { id: 'kilocode', name: 'Kilo Code', executable: 'kilocode' },
@@ -254,6 +307,7 @@ export async function detectInstalledClis(): Promise<readonly InstalledCliInfo[]
       name: c.name,
       executable: c.executable,
       defaultModel: c.defaultModel,
+      models: c.models,
       isCustom: false,
     })),
     ...customClis.map((c) => ({
@@ -261,6 +315,7 @@ export async function detectInstalledClis(): Promise<readonly InstalledCliInfo[]
       name: c.name,
       executable: c.executable,
       defaultModel: undefined,
+      models: undefined,
       isCustom: true,
     })),
   ]
@@ -301,6 +356,7 @@ export async function detectInstalledClis(): Promise<readonly InstalledCliInfo[]
         resolvedPath,
         isCustom: cli.isCustom,
         defaultModel: cli.defaultModel,
+        models: cli.models,
       })
     }),
   )

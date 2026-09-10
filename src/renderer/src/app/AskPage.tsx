@@ -569,7 +569,7 @@ export function AskPage(): React.JSX.Element {
   const [activeThreadId, setActiveThreadId] = useState<string>(threads[0]?.id ?? 'thread-1')
   const [input, setInput] = useState('')
   const [thinking, setThinking] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [copiedPromptId, setCopiedPromptId] = useState<string | null>(null)
   /**
    * The reply currently arriving, before it becomes a saved message.
@@ -620,6 +620,15 @@ export function AskPage(): React.JSX.Element {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length, thinking])
+
+  // Auto-resize textarea to fit text dynamically up to 192px (max-h-48), then scroll within field
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    const nextHeight = Math.min(Math.max(el.scrollHeight, 42), 192)
+    el.style.height = `${String(nextHeight)}px`
+  }, [input])
 
   const saveThreads = (updatedThreads: readonly ChatThread[]): void => {
     setThreads(updatedThreads)
@@ -750,7 +759,7 @@ export function AskPage(): React.JSX.Element {
 
   const handleRetryPrompt = (promptText: string): void => {
     setInput(promptText)
-    inputRef.current?.focus()
+    textareaRef.current?.focus()
     show({ tone: 'neutral', title: 'Prompt restored to input' })
   }
 
@@ -1461,28 +1470,31 @@ ${toolTrail}`
               e.preventDefault()
               void handleSend()
             }}
-            className="flex items-center gap-3 max-w-4xl mx-auto"
+            className="flex items-end gap-3 max-w-4xl mx-auto"
           >
             <div className="flex-1 relative">
-              <Input
-                ref={inputRef}
-                placeholder={
-                  currentModel
-                    ? `Ask Forge Agent (${currentModel}) about ${project.name}...`
-                    : `Ask about ${project.name}...`
-                }
+              <textarea
+                ref={textareaRef}
+                rows={1}
                 value={input}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
                   setInput(e.target.value)
                 }}
+                onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    void handleSend()
+                  }
+                }}
                 disabled={thinking}
-                className="h-10 text-[13px] pr-10 rounded-xl bg-(--color-surface) border-(--color-border)"
+                placeholder={`Ask ${activePersona?.label ?? 'Assistant'} about ${project.name}... (Shift+Enter for newline)`}
+                className="w-full min-h-[42px] max-h-48 resize-none overflow-y-auto rounded-xl border border-(--color-border) bg-(--color-surface) px-3.5 py-2.5 text-[13px] leading-relaxed text-(--color-text) placeholder:text-(--color-text-subtle) focus:border-(--color-border-focus) focus:outline-none transition-colors"
                 autoFocus
               />
             </div>
 
             {/* Engine selector (compact) */}
-            <div className="w-48 shrink-0">
+            <div className="w-48 shrink-0 pb-0.5">
               <Select
                 aria-label="Engine"
                 value={selectedEngineId}
@@ -1497,31 +1509,11 @@ ${toolTrail}`
               />
             </div>
 
-            {/* Model selector if Forge Native Agent is active */}
-            {selectedEngineId === 'forge-native-agent' &&
-              currentProvider?.models &&
-              currentProvider.models.length > 0 && (
-                <div className="w-44 shrink-0">
-                  <Select
-                    aria-label="Model"
-                    value={currentModel}
-                    direction="up"
-                    onChange={(e: { target: { value: string } }) => {
-                      handleSelectModel(e.target.value)
-                    }}
-                    options={currentProvider.models.map((m) => ({
-                      value: m,
-                      label: m,
-                    }))}
-                  />
-                </div>
-              )}
-
             <Button
               type="submit"
               variant="primary"
               disabled={input.trim() === '' || thinking}
-              className="h-9 px-5 text-[12px] font-semibold rounded-lg shrink-0"
+              className="h-10 px-5 text-[12px] font-semibold rounded-xl shrink-0 mb-0.5"
             >
               Send
             </Button>

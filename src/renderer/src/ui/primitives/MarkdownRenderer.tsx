@@ -54,17 +54,30 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps):
           // A wide table must scroll inside its own box. Without this the whole
           // conversation column widens and the layout breaks sideways.
           table: ({ children }) => (
-            <div className="my-2 overflow-x-auto rounded-lg border border-(--color-border)">
+            <div className="my-2.5 overflow-x-auto rounded-lg border border-(--color-border) shadow-xs">
               <table className="w-full border-collapse text-[12px]">{children}</table>
             </div>
           ),
+          thead: ({ children }) => (
+            <thead className="border-b border-(--color-border-strong) bg-(--color-surface-inset)">
+              {children}
+            </thead>
+          ),
           th: ({ children }) => (
-            <th className="border-b border-(--color-border) bg-(--color-surface-raised) px-3 py-1.5 text-left font-semibold text-(--color-text)">
+            <th className="px-3.5 py-2 text-left text-[11px] font-bold uppercase tracking-wider text-(--color-text-muted)">
               {children}
             </th>
           ),
+          tbody: ({ children }) => (
+            <tbody className="divide-y divide-(--color-border)/60 bg-(--color-canvas)">{children}</tbody>
+          ),
+          tr: ({ children }) => (
+            <tr className="transition-colors hover:bg-(--color-surface-raised)/50">
+              {children}
+            </tr>
+          ),
           td: ({ children }) => (
-            <td className="border-b border-(--color-border) px-3 py-1.5 align-top text-(--color-text)">
+            <td className="px-3.5 py-2 align-top text-[12px] text-(--color-text)">
               {children}
             </td>
           ),

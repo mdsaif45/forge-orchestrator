@@ -25,18 +25,6 @@ interface UiState {
   readonly createProjectOpen: boolean
   readonly openCreateProject: () => void
   readonly closeCreateProject: () => void
-  readonly terminalDrawerOpen: boolean
-  readonly toggleTerminalDrawer: () => void
-  readonly artifactsDrawerOpen: boolean
-  readonly toggleArtifactsDrawer: () => void
-  readonly filesDrawerOpen: boolean
-  readonly toggleFilesDrawer: () => void
-  readonly activeMode: 'chat' | 'code'
-  readonly setActiveMode: (mode: 'chat' | 'code') => void
-  readonly activeThreadTitle: string
-  readonly setActiveThreadTitle: (title: string) => void
-  readonly keepComputerAwake: boolean
-  readonly setKeepComputerAwake: (awake: boolean) => void
 }
 
 export const useUiStore = create<UiState>()(
@@ -52,28 +40,10 @@ export const useUiStore = create<UiState>()(
       createProjectOpen: false,
       openCreateProject: () => set({ createProjectOpen: true }),
       closeCreateProject: () => set({ createProjectOpen: false }),
-      terminalDrawerOpen: false,
-      toggleTerminalDrawer: () =>
-        set((state) => ({ terminalDrawerOpen: !state.terminalDrawerOpen })),
-      artifactsDrawerOpen: false,
-      toggleArtifactsDrawer: () =>
-        set((state) => ({ artifactsDrawerOpen: !state.artifactsDrawerOpen })),
-      filesDrawerOpen: false,
-      toggleFilesDrawer: () => set((state) => ({ filesDrawerOpen: !state.filesDrawerOpen })),
-      activeMode: 'chat',
-      setActiveMode: (activeMode) => set({ activeMode }),
-      activeThreadTitle: 'Project overview',
-      setActiveThreadTitle: (activeThreadTitle) => set({ activeThreadTitle }),
-      keepComputerAwake: false,
-      setKeepComputerAwake: (keepComputerAwake) => set({ keepComputerAwake }),
     }),
     {
       name: 'forge.ui',
-      partialize: (state) => ({
-        sidebarCollapsed: state.sidebarCollapsed,
-        activeMode: state.activeMode,
-        activeThreadTitle: state.activeThreadTitle,
-      }),
+      partialize: (state) => ({ sidebarCollapsed: state.sidebarCollapsed }),
     },
   ),
 )

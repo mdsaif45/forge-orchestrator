@@ -11,7 +11,6 @@ import {
 } from '../ui'
 import { cn } from '../ui'
 import { useProjectStore } from './projectStore'
-import { useUiStore } from './uiStore'
 import { unwrap } from '@renderer/ipc'
 
 export interface ChatMessage {
@@ -151,6 +150,86 @@ function ThreadMenuItem({
       )}
     >
       {label}
+    </button>
+  )
+}
+
+/**
+ * A model's visible reasoning, collapsed by default once the reply has landed.
+ *
+ * Open while streaming so the working-out can be watched live, then closed so
+ * the transcript stays readable — the reasoning is usually far longer than the
+ * answer, and leaving it expanded buries the part that was asked for.
+ */
+function ThinkingBlock({
+  text,
+  streaming = false,
+}: {
+  readonly text: string
+  readonly streaming?: boolean
+}): React.JSX.Element {
+  const [open, setOpen] = useState(streaming)
+
+  return (
+    <div className="rounded-lg border border-(--color-border) bg-(--color-surface-inset)">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((current) => !current)
+        }}
+        aria-expanded={open}
+        className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-[11px] text-(--color-text-muted) hover:text-(--color-text)"
+      >
+        <span className={streaming ? 'animate-pulse' : ''}>💭</span>
+        <span className="font-semibold">Thinking</span>
+        {streaming && <span className="italic">…</span>}
+        <span className="ml-auto font-mono text-[10px] text-(--color-text-subtle)">
+          {open ? 'hide' : `${String(text.length)} chars`}
+        </span>
+      </button>
+      {open && (
+        <div
+          className="max-h-64 overflow-y-auto border-t border-(--color-border) px-3 py-2 text-[11px] leading-relaxed whitespace-pre-wrap text-(--color-text-muted)"
+          data-selectable
+        >
+          {text}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Copies one message's markdown source.
+ *
+ * Alongside making the text selectable rather than instead of it: a drag-select
+ * across a long reply is awkward, and the source is what pastes usefully into an
+ * editor or an issue — the rendered table becomes pipes again.
+ */
+function CopyTextButton({ text }: { readonly text: string }): React.JSX.Element {
+  const [copied, setCopied] = useState(false)
+
+  return (
+    <button
+      type="button"
+      aria-label="Copy message"
+      onClick={() => {
+        navigator.clipboard
+          .writeText(text)
+          .then(() => {
+            setCopied(true)
+            setTimeout(() => {
+              setCopied(false)
+            }, 1200)
+          })
+          .catch(() => {
+            // A denied clipboard is a user setting, not a failure to report. The
+            // message is selectable, so copying is still possible by hand.
+          })
+      }}
+      className="cursor-pointer text-[10px] text-(--color-text-subtle) hover:text-(--color-text)"
+    >
+      {copied ? 'Copied' : 'Copy'}
     </button>
   )
 }
@@ -422,63 +501,10 @@ export function AskPage(): React.JSX.Element {
     readonly timeline: readonly { readonly kind: 'reasoning' | 'tool'; readonly text: string }[]
   } | null>(null)
 
-  const [slashMenuOpen, setSlashMenuOpen] = useState(false)
-  const [reasoningEffort, setReasoningEffort] = useState<'Low' | 'Medium' | 'High'>('High')
-
   const activeThread = threads.find((t) => t.id === activeThreadId) ?? threads[0]
   const messages = activeThread?.messages ?? []
 
   const activePersona = allPersonas.find((p) => p.id === selectedPersonaId) ?? allPersonas[0]
-
-  const setActiveThreadTitle = useUiStore((state) => state.setActiveThreadTitle)
-
-  // Sync active thread title with UI store
-  useEffect(() => {
-    if (activeThread?.title) {
-      setActiveThreadTitle(activeThread.title)
-    }
-  }, [activeThread?.id, activeThread?.title, setActiveThreadTitle])
-
-  // Sync header rename back to thread title
-  useEffect(() => {
-    return useUiStore.subscribe((state, prevState) => {
-      if (
-        state.activeThreadTitle !== prevState.activeThreadTitle &&
-        state.activeThreadTitle.trim() !== ''
-      ) {
-        setThreads((prev) => {
-          const updated = prev.map((t) =>
-            t.id === activeThreadId ? { ...t, title: state.activeThreadTitle } : t,
-          )
-          localStorage.setItem('forge.ask_threads', JSON.stringify(updated))
-          return updated
-        })
-      }
-    })
-  }, [activeThreadId])
-
-  const handleForkFromMessage = (messageId: string): void => {
-    const msgIdx = messages.findIndex((m) => m.id === messageId)
-    if (msgIdx === -1) return
-    const forkedMessages = messages.slice(0, msgIdx + 1)
-    const newThreadId = `thread-${String(Date.now())}`
-    const newThread: ChatThread = {
-      id: newThreadId,
-      title: `${activeThread?.title ?? 'Conversation'} (Fork)`,
-      createdAt: 'Just now',
-      personaId: selectedPersonaId,
-      messages: forkedMessages,
-    }
-    const updated = [newThread, ...threads]
-    setThreads(updated)
-    setActiveThreadId(newThreadId)
-    localStorage.setItem('forge.ask_threads', JSON.stringify(updated))
-    show({
-      tone: 'success',
-      title: 'Thread Forked',
-      description: 'Forked conversation to a new branch',
-    })
-  }
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -1034,10 +1060,9 @@ ${toolTrail}`
         {/* Top Header Bar */}
         <header className="flex items-center justify-between border-b border-(--color-border) px-6 py-2.5 bg-(--color-surface-raised)">
           <div className="min-w-0 flex items-center gap-3">
-            <h1 className="sr-only">Ask</h1>
-            <span className="text-[14px] font-bold text-(--color-text) truncate">
-              {activeThread?.title ?? 'Project overview'}
-            </span>
+            <h1 className="text-[14px] font-bold text-(--color-text) truncate">
+              {activeThread?.title ?? 'Chat'}
+            </h1>
             <Badge tone="accent" size="sm" className="hidden sm:inline-flex font-mono text-[11px]">
               {selectedEngineId === 'forge-native-agent'
                 ? `Forge Agent · ${currentProvider?.name ?? 'Ollama'} (${currentModel})`
@@ -1110,223 +1135,72 @@ ${toolTrail}`
 
         {/* Messages Area */}
         <ScrollArea className="flex-1 min-h-0">
-          <div className="max-w-4xl mx-auto px-6 py-6 space-y-6">
+          <div className="max-w-4xl mx-auto px-6 py-4 space-y-5">
             {messages.map((msg) => (
               <div key={msg.id}>
                 {msg.role === 'assistant' ? (
-                  /* Assistant message — clean typography with collapsible details and bottom hover bar (Image 1, 2, 4) */
-                  <div className="group flex flex-col space-y-2.5">
-                    {/* Collapsible execution block if reasoning / tools exist (Image 1, 2, 4) */}
-                    {msg.reasoning !== undefined && msg.reasoning !== '' && (
-                      <div className="rounded-xl border border-(--color-border) bg-(--color-surface) overflow-hidden">
-                        <details className="group/details">
-                          <summary className="flex cursor-pointer items-center justify-between px-3.5 py-2 text-[12px] font-medium text-(--color-text-muted) hover:text-(--color-text) hover:bg-(--color-surface-raised) select-none">
-                            <span>
-                              Confirmed current branch/commit state before writing the handoff
-                              prompt
-                            </span>
-                            <svg
-                              className="size-3.5 transition-transform group-open/details:rotate-90 text-(--color-text-subtle)"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                              strokeWidth="2"
-                            >
-                              <polyline points="9 18 15 12 9 6" />
-                            </svg>
-                          </summary>
-                          <div
-                            className="border-t border-(--color-border) p-3 bg-(--color-surface-inset) text-[11px] font-mono whitespace-pre-wrap text-(--color-text-muted) max-h-72 overflow-y-auto"
-                            data-selectable
-                          >
-                            {msg.reasoning}
-                          </div>
-                        </details>
+                  /* Assistant message — full-width block with icon & metadata */
+                  <div className="flex gap-3">
+                    <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-(--color-accent-muted) text-[14px] mt-1">
+                      {msg.personaIcon ?? '🤖'}
+                    </div>
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[12px] font-bold text-(--color-text)">
+                          {msg.personaName ?? 'Assistant'}
+                        </span>
+                        {msg.modelName && (
+                          <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
+                            {msg.modelName}
+                          </Badge>
+                        )}
+                        {msg.elapsed && (
+                          <span className="text-[10px] text-(--color-text-subtle)">
+                            {msg.elapsed}
+                          </span>
+                        )}
+                        {/* The whole reply, as its markdown source rather than the
+                            rendered text — pasting a table back as pipes is what
+                            makes it reusable somewhere else. */}
+                        <CopyTextButton text={msg.text} />
                       </div>
-                    )}
-
-                    {/* Main reply content */}
-                    <div className="prose-container text-[13.5px] leading-relaxed text-(--color-text)">
-                      <MarkdownRenderer content={msg.text} />
-                    </div>
-
-                    {/* Assistant Hover Action Bar (Image 4) */}
-                    <div className="flex items-center gap-2.5 pt-1 text-[11px] text-(--color-text-subtle) opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        type="button"
-                        title="Copy response"
-                        onClick={() => {
-                          void navigator.clipboard.writeText(msg.text)
-                          show({
-                            tone: 'neutral',
-                            title: 'Copied',
-                            description: 'Reply copied to clipboard',
-                          })
-                        }}
-                        className="p-1 rounded hover:text-(--color-text) hover:bg-(--color-surface-raised) cursor-pointer"
-                      >
-                        <svg
-                          className="size-3.5"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        title="Fork conversation from this turn"
-                        onClick={() => {
-                          handleForkFromMessage(msg.id)
-                        }}
-                        className="p-1 rounded hover:text-(--color-text) hover:bg-(--color-surface-raised) cursor-pointer"
-                      >
-                        <svg
-                          className="size-3.5"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <line x1="6" y1="3" x2="6" y2="15" />
-                          <circle cx="18" cy="6" r="3" />
-                          <circle cx="6" cy="18" r="3" />
-                          <path d="M18 9a9 9 0 0 1-9 9" />
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        title="Star / Bookmark response"
-                        onClick={() => {
-                          show({
-                            tone: 'success',
-                            title: 'Saved',
-                            description: 'Message bookmarked',
-                          })
-                        }}
-                        className="p-1 rounded hover:text-(--color-text) hover:bg-(--color-surface-raised) cursor-pointer"
-                      >
-                        <svg
-                          className="size-3.5"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                        </svg>
-                      </button>
-                      <span>{msg.elapsed ?? '5 days ago'}</span>
-                    </div>
-
-                    {/* Claude Sun / Asterisk Icon at bottom-left of reply (Image 1, 2, 4) */}
-                    <div className="pt-0.5">
-                      <span
-                        className="text-[#d97706] text-lg font-bold select-none cursor-default"
-                        title="Assistant response"
-                      >
-                        ✳
-                      </span>
+                      {msg.reasoning !== undefined && msg.reasoning !== '' && (
+                        <ThinkingBlock text={msg.reasoning} />
+                      )}
+                      <div className="prose-container text-[13px] leading-relaxed text-(--color-text)">
+                        <MarkdownRenderer content={msg.text} />
+                      </div>
                     </div>
                   </div>
                 ) : (
-                  /* User message — right-aligned bubble with hover action bar (Image 1 & 3) */
-                  <div className="group flex flex-col items-end space-y-1">
-                    <div className="max-w-2xl rounded-2xl bg-(--color-surface-raised) border border-(--color-border) px-4 py-2.5 text-[13.5px] font-normal leading-relaxed text-(--color-text) shadow-xs">
+                  /* User message — right-aligned bubble */
+                  <div className="flex justify-end">
+                    <div className="max-w-lg rounded-2xl bg-(--color-accent) text-white px-4 py-2.5 text-[13px] font-medium leading-relaxed shadow-sm">
+                      {/* Selectable for the same reason the reply is: the body sets
+                          `user-select: none`, so without this a user could not copy
+                          back what they themselves had typed. */}
                       <div className="whitespace-pre-wrap" data-selectable>
                         {msg.text}
                       </div>
-                    </div>
-
-                    {/* Hover Action Bar (Image 3) */}
-                    <div className="flex items-center gap-2 pt-0.5 pr-1 text-[11px] text-(--color-text-subtle) opacity-0 group-hover:opacity-100 transition-opacity">
-                      <span>{msg.elapsed ?? '5 days ago'}</span>
-                      <button
-                        type="button"
-                        title="Copy prompt"
-                        onClick={() => {
-                          void navigator.clipboard.writeText(msg.text)
-                          show({
-                            tone: 'neutral',
-                            title: 'Copied',
-                            description: 'Prompt copied to clipboard',
-                          })
-                        }}
-                        className="p-1 rounded hover:text-(--color-text) hover:bg-(--color-surface-raised) cursor-pointer"
-                      >
-                        <svg
-                          className="size-3.5"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        title="Retry / Edit prompt"
-                        onClick={() => {
-                          setInput(msg.text)
-                        }}
-                        className="p-1 rounded hover:text-(--color-text) hover:bg-(--color-surface-raised) cursor-pointer"
-                      >
-                        <svg
-                          className="size-3.5"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <polyline points="1 4 1 10 7 10" />
-                          <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-                        </svg>
-                      </button>
-                      <button
-                        type="button"
-                        title="Share prompt"
-                        onClick={() => {
-                          void navigator.clipboard.writeText(msg.text)
-                          show({
-                            tone: 'neutral',
-                            title: 'Shared',
-                            description: 'Prompt text copied to share',
-                          })
-                        }}
-                        className="p-1 rounded hover:text-(--color-text) hover:bg-(--color-surface-raised) cursor-pointer"
-                      >
-                        <svg
-                          className="size-3.5"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        >
-                          <circle cx="18" cy="5" r="3" />
-                          <circle cx="6" cy="12" r="3" />
-                          <circle cx="18" cy="19" r="3" />
-                          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
-                          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
-                        </svg>
-                      </button>
                     </div>
                   </div>
                 )}
               </div>
             ))}
 
-            {/* The reply as it arrives */}
+            {/* The reply as it arrives. The dots alone said only "something is
+                happening"; the text says what, and whether the model is making
+                progress or stuck. */}
             {liveReply !== null && (
-              <div className="flex gap-3 px-6">
-                <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex gap-3 px-10">
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  {/* Reasoning and tool calls in the order they happened, so
+                      the thinking reads as the explanation for the calls that
+                      follow it. Live only: this is evidence about the turn, not
+                      part of the answer that gets saved. */}
                   {liveReply.timeline.length > 0 && (
                     <div
-                      className="space-y-1.5 rounded-xl border border-(--color-border) bg-(--color-surface-inset) px-3.5 py-2.5"
+                      className="space-y-1.5 rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-3 py-2"
                       data-selectable
                     >
                       {liveReply.timeline.map((entry, index) =>
@@ -1356,7 +1230,7 @@ ${toolTrail}`
                     </div>
                   )}
                   {liveReply.content !== '' && (
-                    <div className="text-[13.5px] leading-relaxed text-(--color-text)">
+                    <div className="text-[13px] leading-relaxed text-(--color-text)">
                       <MarkdownRenderer content={liveReply.content} />
                     </div>
                   )}
@@ -1368,7 +1242,7 @@ ${toolTrail}`
               liveReply?.content === '' &&
               liveReply.reasoning === '' &&
               liveReply.timeline.length === 0 && (
-                <div className="flex items-center gap-2 px-6 text-[12px] italic text-(--color-text-muted)">
+                <div className="flex items-center gap-2 px-10 text-[12px] italic text-(--color-text-muted)">
                   <span className="inline-flex gap-1">
                     <span className="animate-bounce [animation-delay:0ms]">·</span>
                     <span className="animate-bounce [animation-delay:150ms]">·</span>
@@ -1385,222 +1259,77 @@ ${toolTrail}`
           </div>
         </ScrollArea>
 
-        {/* Floating Bottom Input Bar matching Image 1 & 2 */}
-        <div className="p-4 bg-transparent">
-          <div className="relative max-w-4xl mx-auto rounded-2xl border border-(--color-border) bg-(--color-surface) p-2.5 shadow-(--shadow-md) focus-within:border-(--color-border-strong) transition-all">
-            {/* Slash commands popup */}
-            {slashMenuOpen && (
-              <div className="absolute bottom-full mb-2 left-0 w-64 rounded-xl border border-(--color-border) bg-(--color-surface) py-1.5 shadow-(--shadow-lg) z-20 text-[12px]">
-                <div className="px-3 py-1 font-semibold text-(--color-text-subtle) text-[10px] uppercase tracking-wider">
-                  Commands
-                </div>
-                {[
-                  { cmd: '/goal', desc: 'Run thorough long-running task' },
-                  { cmd: '/schedule', desc: 'Recurring schedule or timer' },
-                  { cmd: '/browser', desc: 'Web browsing and research' },
-                  { cmd: '/grill-me', desc: 'Interactive interview on plan' },
-                  { cmd: '/teamwork-preview', desc: 'Team of autonomous agents' },
-                  { cmd: '/learn', desc: 'Persist setup / knowledge' },
-                  { cmd: '/boost', desc: 'Deep thinking & multi-perspective' },
-                  { cmd: '/clear', desc: 'Clear conversation' },
-                ].map((c) => (
-                  <button
-                    key={c.cmd}
-                    type="button"
-                    onClick={() => {
-                      setInput(c.cmd + ' ')
-                      setSlashMenuOpen(false)
-                    }}
-                    className="flex w-full items-center justify-between px-3 py-1.5 hover:bg-(--color-surface-raised) text-left cursor-pointer"
-                  >
-                    <span className="font-mono font-bold text-(--color-accent)">{c.cmd}</span>
-                    <span className="text-(--color-text-subtle) text-[11px]">{c.desc}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <textarea
-              rows={2}
-              placeholder="Type / for commands"
-              value={input}
-              onChange={(e) => {
-                const val = e.target.value
-                setInput(val)
-                if (val.startsWith('/')) {
-                  setSlashMenuOpen(true)
-                } else {
-                  setSlashMenuOpen(false)
+        {/* Bottom Input Bar */}
+        <div className="border-t border-(--color-border) bg-(--color-surface-raised) px-6 py-3">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              void handleSend()
+            }}
+            className="flex items-center gap-3 max-w-4xl mx-auto"
+          >
+            <div className="flex-1 relative">
+              <Input
+                placeholder={
+                  currentModel
+                    ? `Ask Forge Agent (${currentModel}) about ${project.name}...`
+                    : `Ask about ${project.name}...`
                 }
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  if (input.trim() !== '' && !thinking) {
-                    void handleSend()
-                  }
-                }
-              }}
-              disabled={thinking}
-              className="w-full resize-none bg-transparent px-2 pt-1 text-[13.5px] text-(--color-text) placeholder-(--color-text-subtle) outline-none"
-            />
-
-            {/* Bottom Controls inside input bar (Image 1 & 2) */}
-            <div className="flex items-center justify-between px-1 pt-1.5 border-t border-(--color-border)/50">
-              <div className="flex items-center gap-1.5">
-                {/* Auto / Engine selector */}
-                <div className="relative group">
-                  <div className="flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] font-medium text-(--color-text-muted) hover:text-(--color-text) hover:bg-(--color-surface-raised) cursor-pointer select-none">
-                    <span>
-                      {selectedEngineId === 'forge-native-agent' ? 'Auto' : selectedEngineId}
-                    </span>
-                    <svg
-                      className="size-3 text-(--color-text-subtle)"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <polyline points="6 9 12 15 18 9" />
-                    </svg>
-                  </div>
-                  <select
-                    aria-label="Engine selector"
-                    value={selectedEngineId}
-                    onChange={(e) => {
-                      setSelectedEngineId(e.target.value)
-                    }}
-                    className="absolute inset-0 opacity-0 cursor-pointer text-[11px]"
-                  >
-                    {availableEngines.map((eng) => (
-                      <option key={eng.id} value={eng.id}>
-                        {eng.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Attach button + */}
-                <button
-                  type="button"
-                  title="Add files or context"
-                  onClick={() => {
-                    show({
-                      tone: 'neutral',
-                      title: 'Context Attachment',
-                      description: 'Attach files or context',
-                    })
-                  }}
-                  className="flex size-6 items-center justify-center rounded-md text-(--color-text-muted) hover:text-(--color-text) hover:bg-(--color-surface-raised) cursor-pointer"
-                >
-                  <svg
-                    className="size-4"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </svg>
-                </button>
-              </div>
-
-              <div className="flex items-center gap-2">
-                {/* Model pill selector */}
-                {currentProvider?.models && currentProvider.models.length > 0 ? (
-                  <div className="relative group">
-                    <div className="flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] font-medium text-(--color-text-muted) hover:text-(--color-text) hover:bg-(--color-surface-raised) cursor-pointer select-none">
-                      <span>{currentModel || 'Sonnet 5'}</span>
-                      <svg
-                        className="size-3 text-(--color-text-subtle)"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                      >
-                        <polyline points="6 9 12 15 18 9" />
-                      </svg>
-                    </div>
-                    <select
-                      aria-label="Active Model"
-                      value={currentModel}
-                      onChange={(e) => {
-                        handleSelectModel(e.target.value)
-                      }}
-                      className="absolute inset-0 opacity-0 cursor-pointer text-[11px]"
-                    >
-                      {currentProvider.models.map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <div className="rounded-md px-2 py-1 text-[11.5px] font-medium text-(--color-text-muted)">
-                    <span>Sonnet 5</span>
-                  </div>
-                )}
-
-                {/* Effort level pill: High */}
-                <div className="relative group">
-                  <div className="flex items-center gap-1 rounded-md px-2 py-1 text-[11.5px] font-medium text-(--color-text-muted) hover:text-(--color-text) hover:bg-(--color-surface-raised) cursor-pointer select-none">
-                    <span>{reasoningEffort}</span>
-                    <svg
-                      className="size-3 text-(--color-text-subtle)"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <polyline points="6 9 12 15 18 9" />
-                    </svg>
-                  </div>
-                  <select
-                    aria-label="Reasoning Effort"
-                    value={reasoningEffort}
-                    onChange={(e) => {
-                      setReasoningEffort(e.target.value as 'Low' | 'Medium' | 'High')
-                    }}
-                    className="absolute inset-0 opacity-0 cursor-pointer text-[11px]"
-                  >
-                    <option value="Low">Low</option>
-                    <option value="Medium">Medium</option>
-                    <option value="High">High</option>
-                  </select>
-                </div>
-
-                {/* Submit Button with upward arrow ↑ */}
-                <button
-                  type="button"
-                  disabled={input.trim() === '' || thinking}
-                  onClick={() => {
-                    if (input.trim() !== '' && !thinking) {
-                      void handleSend()
-                    }
-                  }}
-                  className={cn(
-                    'flex size-7 items-center justify-center rounded-full transition-all cursor-pointer',
-                    input.trim() !== '' && !thinking
-                      ? 'bg-(--color-accent) text-white shadow-sm'
-                      : 'bg-(--color-surface-raised) text-(--color-text-subtle) cursor-not-allowed',
-                  )}
-                >
-                  <svg
-                    className="size-4"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.5"
-                  >
-                    <line x1="12" y1="19" x2="12" y2="5" />
-                    <polyline points="5 12 12 5 19 12" />
-                  </svg>
-                </button>
-              </div>
+                value={input}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                  setInput(e.target.value)
+                }}
+                disabled={thinking}
+                className="h-10 text-[13px] pr-10 rounded-xl bg-(--color-surface) border-(--color-border)"
+                autoFocus
+              />
             </div>
-          </div>
+
+            {/* Engine selector (compact) */}
+            <div className="w-48 shrink-0">
+              <Select
+                aria-label="Engine"
+                value={selectedEngineId}
+                direction="up"
+                onChange={(e: { target: { value: string } }) => {
+                  setSelectedEngineId(e.target.value)
+                }}
+                options={availableEngines.map((eng) => ({
+                  value: eng.id,
+                  label: eng.label,
+                }))}
+              />
+            </div>
+
+            {/* Model selector if Forge Native Agent is active */}
+            {selectedEngineId === 'forge-native-agent' &&
+              currentProvider?.models &&
+              currentProvider.models.length > 0 && (
+                <div className="w-44 shrink-0">
+                  <Select
+                    aria-label="Model"
+                    value={currentModel}
+                    direction="up"
+                    onChange={(e: { target: { value: string } }) => {
+                      handleSelectModel(e.target.value)
+                    }}
+                    options={currentProvider.models.map((m) => ({
+                      value: m,
+                      label: m,
+                    }))}
+                  />
+                </div>
+              )}
+
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={input.trim() === '' || thinking}
+              className="h-9 px-5 text-[12px] font-semibold rounded-lg shrink-0"
+            >
+              Send
+            </Button>
+          </form>
         </div>
       </div>
     </div>

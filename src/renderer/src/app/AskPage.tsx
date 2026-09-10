@@ -1326,7 +1326,7 @@ ${toolTrail}`
                 ) : (
                   /* User message — right-aligned bubble with hover features */
                   <div className="group flex flex-col items-end">
-                    <div className="max-w-xl rounded-2xl bg-(--color-surface) border border-(--color-border) px-5 py-3 text-[13.5px] leading-relaxed text-(--color-text) shadow-xs transition-colors">
+                    <div className="max-w-xl rounded-2xl bg-(--color-surface) border border-(--color-border)/40 px-3.5 py-1.5 text-[13px] leading-normal text-(--color-text) shadow-xs transition-colors">
                       {/* Selectable for the same reason the reply is: the body sets
                           `user-select: none`, so without this a user could not copy
                           back what they themselves had typed. */}
@@ -1336,7 +1336,7 @@ ${toolTrail}`
                     </div>
 
                     {/* On hover show some features; no hover don't show any */}
-                    <div className="mt-1 flex items-center gap-2 pr-1 opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto select-none">
+                    <div className="mt-2.5 flex items-center gap-2 pr-1.5 opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto select-none">
                       <span className="text-[11.5px] text-(--color-text-subtle)">
                         {formatRelativeTime(msg.timestamp, msg.id)}
                       </span>
@@ -1347,7 +1347,7 @@ ${toolTrail}`
                         }}
                         title="Copy prompt"
                         aria-label="Copy prompt"
-                        className="flex size-6 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
+                        className="flex size-5.5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
                       >
                         {copiedPromptId === msg.id ? (
                           <PromptCheckIcon className="size-3.5 text-(--color-success)" />
@@ -1362,7 +1362,7 @@ ${toolTrail}`
                         }}
                         title="Edit & retry prompt"
                         aria-label="Edit & retry prompt"
-                        className="flex size-6 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
+                        className="flex size-5.5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
                       >
                         <PromptRetryIcon className="size-3.5" />
                       </button>
@@ -1373,7 +1373,7 @@ ${toolTrail}`
                         }}
                         title="Fork conversation from this prompt"
                         aria-label="Fork conversation from this prompt"
-                        className="flex size-6 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
+                        className="flex size-5.5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
                       >
                         <PromptForkIcon className="size-3.5" />
                       </button>

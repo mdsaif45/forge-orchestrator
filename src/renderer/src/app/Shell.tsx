@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { Outlet } from 'react-router'
-import { Dialog } from '../ui'
+import { Dialog, Drawer, RealTerminal } from '../ui'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { useProjectStore } from './projectStore'
 import { SettingsDialog } from './Settings'
@@ -89,6 +89,9 @@ export function Shell(): React.JSX.Element {
   const workflowState: WorkflowStatePlaceholder =
     selectedProjectId === null ? 'idle' : activeWorkflowState
 
+  const terminalDrawerOpen = useUiStore((state) => state.terminalDrawerOpen)
+  const toggleTerminalDrawer = useUiStore((state) => state.toggleTerminalDrawer)
+
   return (
     <div className="flex h-full flex-col bg-(--color-canvas)">
       <StatusStrip
@@ -124,6 +127,20 @@ export function Shell(): React.JSX.Element {
             <KitchenSink />
           </Suspense>
         </Dialog>
+      )}
+
+      {terminalDrawerOpen && (
+        <Drawer
+          open={terminalDrawerOpen}
+          onClose={toggleTerminalDrawer}
+          title="Terminal Console"
+          size="xl"
+          side="right"
+        >
+          <div className="flex h-full flex-1 flex-col p-4">
+            <RealTerminal projectId={selectedProjectId ?? 'default'} />
+          </div>
+        </Drawer>
       )}
 
       <CreateProjectDialog open={createProjectOpen} onClose={closeCreateProject} />

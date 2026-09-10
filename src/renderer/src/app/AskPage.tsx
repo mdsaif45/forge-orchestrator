@@ -1590,9 +1590,11 @@ ${toolTrail}`
       </aside>
 
       {/* ── Main Chat Area ── */}
-      <div className="flex flex-1 flex-col min-w-0 bg-(--color-canvas)">
+      <div className="relative flex flex-1 flex-col min-w-0 bg-(--color-canvas) overflow-hidden">
         {/* Top Header Bar */}
-        <header className="flex items-center justify-between border-b border-(--color-border) px-6 py-2.5 bg-(--color-surface-raised)">
+        <header className="relative z-20 flex items-center justify-between px-6 py-2.5 bg-(--color-canvas)/85 backdrop-blur-md">
+          {/* Subtle downward blur feather under header */}
+          <div className="pointer-events-none absolute -bottom-5 left-0 right-0 h-5 bg-gradient-to-b from-(--color-canvas)/85 to-transparent" />
           <div className="min-w-0 flex items-center gap-3">
             <h1 className="text-[14px] font-bold text-(--color-text) truncate">
               {activeThread?.title && activeThread.title.trim() !== ''
@@ -1799,8 +1801,10 @@ ${toolTrail}`
           </div>
         </ScrollArea>
 
-        {/* Bottom Input Bar */}
-        <div className="border-t border-(--color-border) bg-(--color-canvas) px-6 py-3">
+        {/* Bottom Input Bar with Image 1-style blur feel */}
+        <div className="relative z-20 bg-gradient-to-t from-(--color-canvas) via-(--color-canvas)/90 to-transparent px-6 pb-4 pt-4 backdrop-blur-md">
+          {/* Top blur feather overlay fading into the message scroll area */}
+          <div className="pointer-events-none absolute -top-8 left-0 right-0 h-8 bg-gradient-to-t from-(--color-canvas)/90 to-transparent backdrop-blur-[2px]" />
           <form
             onSubmit={(e) => {
               e.preventDefault()

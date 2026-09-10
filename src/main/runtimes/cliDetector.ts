@@ -17,7 +17,11 @@ export interface InstalledCliInfo {
   readonly isCustom?: boolean | undefined
   readonly defaultModel?: string | undefined
   readonly models?:
-    | readonly { readonly id: string; readonly label: string; readonly category?: string | undefined }[]
+    | readonly {
+        readonly id: string
+        readonly label: string
+        readonly category?: string | undefined
+      }[]
     | undefined
 }
 
@@ -85,9 +89,21 @@ export const STANDARD_AGENT_CATALOG: readonly StandardAgentInfo[] = [
       { id: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro', category: 'Gemini Models' },
       { id: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)', category: 'Gemini Models' },
       { id: 'gemini-3.1-pro-low', label: 'Gemini 3.1 Pro (Low)', category: 'Gemini Models' },
-      { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (Thinking)', category: 'Claude & Open Models' },
-      { id: 'claude-opus-4-6-thinking', label: 'Claude Opus 4.6 (Thinking)', category: 'Claude & Open Models' },
-      { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', category: 'Claude & Open Models' },
+      {
+        id: 'claude-sonnet-4-6',
+        label: 'Claude Sonnet 4.6 (Thinking)',
+        category: 'Claude & Open Models',
+      },
+      {
+        id: 'claude-opus-4-6-thinking',
+        label: 'Claude Opus 4.6 (Thinking)',
+        category: 'Claude & Open Models',
+      },
+      {
+        id: 'gpt-oss-120b-medium',
+        label: 'GPT-OSS 120B (Medium)',
+        category: 'Claude & Open Models',
+      },
     ],
   },
   { id: 'cline', name: 'Cline', executable: 'cline' },
@@ -412,7 +428,9 @@ async function probeAllClis(): Promise<readonly InstalledCliInfo[]> {
  * Probes the operating system PATH and candidate paths to detect installed AI coding CLIs.
  * Returns the cached catalog immediately, then updates candidate paths in the background.
  */
-export async function detectInstalledClis(forceRefresh = false): Promise<readonly InstalledCliInfo[]> {
+export async function detectInstalledClis(
+  forceRefresh = false,
+): Promise<readonly InstalledCliInfo[]> {
   if (!forceRefresh && cachedClis.length > 0) {
     void probeAllClis().catch(() => undefined)
     return cachedClis

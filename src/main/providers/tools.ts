@@ -2,6 +2,39 @@ import { readFile, readdir, stat, writeFile, mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { matchesAny, matchesGlob } from '@shared/domain'
+import {
+  TASK_TOOL_DEFINITIONS,
+  todoWriteTool,
+  taskCreateTool,
+  taskGetTool,
+  taskListTool,
+  taskUpdateTool,
+  taskOutputTool,
+  taskStopTool,
+} from './tools/taskTools'
+import {
+  PLAN_TOOL_DEFINITIONS,
+  enterPlanModeTool,
+  exitPlanModeTool,
+  enterWorktreeTool,
+  exitWorktreeTool,
+  isPlanModeActive,
+  getActiveWorktree,
+} from './tools/planTools'
+import { CODE_INTEL_TOOL_DEFINITIONS, notebookEditTool, lspQueryTool } from './tools/codeIntelTools'
+import {
+  SUBAGENT_TOOL_DEFINITIONS,
+  spawnSubagentTool,
+  sendAgentMessageTool,
+} from './tools/subagentTools'
+import {
+  MCP_TOOL_DEFINITIONS,
+  listMcpResourcesTool,
+  readMcpResourceTool,
+  toolSearchTool,
+  setToolSearchRegistry,
+} from './tools/mcpTools'
+import { SCHEDULE_TOOL_DEFINITIONS, scheduleCronTool, sleepDelayTool } from './tools/scheduleTools'
 
 /**
  * The tools a hosted model is given, and the rules they run under.
@@ -43,12 +76,12 @@ export interface ToolContext {
   /** Project ID for persistent rules. */
   readonly projectId?: string | undefined
   /** Callback to persist project rules in database. */
-  readonly setRule?:
-    | ((scope: string, key: string, statement: string) => Promise<void>)
-    | undefined
+  readonly setRule?: ((scope: string, key: string, statement: string) => Promise<void>) | undefined
   /** Callback to retrieve project rules. */
   readonly getRules?:
-    | (() => Promise<readonly { readonly scope: string; readonly key: string; readonly statement: string }[]>)
+    | (() => Promise<
+        readonly { readonly scope: string; readonly key: string; readonly statement: string }[]
+      >)
     | undefined
   /** Active file currently open in workspace editor. */
   readonly activeFilePath?: string | undefined
@@ -56,8 +89,8 @@ export interface ToolContext {
   readonly fetchImpl?: typeof fetch | undefined
 }
 
-/** The complete JSON-schema tool declarations sent to the model (15 tools). */
-export const TOOL_DEFINITIONS = [
+/** The core JSON-schema tool declarations sent to the model (15 tools). */
+export const CORE_TOOL_DEFINITIONS = [
   {
     type: 'function',
     function: {
@@ -324,8 +357,7 @@ export const TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'read_skill',
-      description:
-        'Read the instructions and workflow content of a specialized skill by its name.',
+      description: 'Read the instructions and workflow content of a specialized skill by its name.',
       parameters: {
         type: 'object',
         properties: {
@@ -342,8 +374,7 @@ export const TOOL_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'read_currently_open_file',
-      description:
-        'Read the file currently open and focused in the IDE workspace editor.',
+      description: 'Read the file currently open and focused in the IDE workspace editor.',
       parameters: {
         type: 'object',
         properties: {},
@@ -351,6 +382,20 @@ export const TOOL_DEFINITIONS = [
     },
   },
 ] as const
+
+/** The full JSON-schema tool declarations sent to the model (35 tools across all domains). */
+export const TOOL_DEFINITIONS = [
+  ...CORE_TOOL_DEFINITIONS,
+  ...TASK_TOOL_DEFINITIONS,
+  ...PLAN_TOOL_DEFINITIONS,
+  ...CODE_INTEL_TOOL_DEFINITIONS,
+  ...SUBAGENT_TOOL_DEFINITIONS,
+  ...MCP_TOOL_DEFINITIONS,
+  ...SCHEDULE_TOOL_DEFINITIONS,
+]
+
+// Register all tool definitions for tool_search discovery
+setToolSearchRegistry(TOOL_DEFINITIONS)
 
 /** Largest file body handed to a model, and the cap on command output. */
 const MAX_READ_BYTES = 64 * 1024
@@ -427,42 +472,128 @@ export async function runTool(
   context: ToolContext,
 ): Promise<ToolResult> {
   try {
+    const effectiveWorkspace = getActiveWorktree(context.workspacePath) ?? context.workspacePath
+    const effectiveContext =
+      effectiveWorkspace !== context.workspacePath
+        ? { ...context, workspacePath: effectiveWorkspace }
+        : context
+
+    if (isPlanModeActive(context.workspacePath)) {
+      const isWrite =
+        name === 'write_file' ||
+        name === 'create_new_file' ||
+        name === 'edit_file' ||
+        name === 'edit_existing_file' ||
+        name === 'single_find_and_replace' ||
+        name === 'notebook_edit'
+      if (isWrite) {
+        return {
+          ok: false,
+          content:
+            'Refused: Planning mode is currently active. Please formulate and finalize your implementation plan using exit_plan_mode before modifying files.',
+        }
+      }
+    }
+
     switch (name) {
+      // Core 15 tools
       case 'read_file':
-        return await readFileTool(args, context)
+        return await readFileTool(args, effectiveContext)
       case 'list_dir':
       case 'ls':
-        return await listDirTool(args, context)
+        return await listDirTool(args, effectiveContext)
       case 'search_files':
-        return await searchFilesTool(args, context)
+        return await searchFilesTool(args, effectiveContext)
       case 'write_file':
       case 'create_new_file':
-        return await writeFileTool(args, context)
+        return await writeFileTool(args, effectiveContext)
       case 'edit_file':
       case 'edit_existing_file':
       case 'single_find_and_replace':
-        return await editFileTool(args, context)
+        return await editFileTool(args, effectiveContext)
       case 'run_command':
       case 'run_terminal_command':
-        return await runCommandTool(args, context)
+        return await runCommandTool(args, effectiveContext)
       case 'grep_search':
-        return await grepSearchTool(args, context)
+        return await grepSearchTool(args, effectiveContext)
       case 'file_glob_search':
-        return await fileGlobSearchTool(args, context)
+        return await fileGlobSearchTool(args, effectiveContext)
       case 'view_diff':
-        return await viewDiffTool(args, context)
+        return await viewDiffTool(args, effectiveContext)
       case 'search_web':
-        return await searchWebTool(args, context)
+        return await searchWebTool(args, effectiveContext)
       case 'fetch_url_content':
-        return await fetchUrlContentTool(args, context)
+        return await fetchUrlContentTool(args, effectiveContext)
       case 'create_rule_block':
-        return await createRuleBlockTool(args, context)
+        return await createRuleBlockTool(args, effectiveContext)
       case 'request_rule':
-        return await requestRuleTool(args, context)
+        return await requestRuleTool(args, effectiveContext)
       case 'read_skill':
-        return await readSkillTool(args, context)
+        return await readSkillTool(args, effectiveContext)
       case 'read_currently_open_file':
-        return await readCurrentlyOpenFileTool(args, context)
+        return await readCurrentlyOpenFileTool(args, effectiveContext)
+
+      // Domain A: Task & Todo Checklist Tracking
+      case 'todo_write':
+        return await todoWriteTool(args, effectiveContext)
+      case 'task_create':
+        return await taskCreateTool(args, effectiveContext)
+      case 'task_get':
+        return await taskGetTool(args, effectiveContext)
+      case 'task_list':
+        return await taskListTool(args, effectiveContext)
+      case 'task_update':
+        return await taskUpdateTool(args, effectiveContext)
+      case 'task_output':
+        return await taskOutputTool(args, effectiveContext)
+      case 'task_stop':
+      case 'kill_task':
+      case 'kill_shell':
+        return await taskStopTool(args, effectiveContext)
+
+      // Domain B: Planning Mode & Git Worktree Isolation
+      case 'enter_plan_mode':
+        return await enterPlanModeTool(args, effectiveContext)
+      case 'exit_plan_mode':
+        return await exitPlanModeTool(args, effectiveContext)
+      case 'enter_worktree':
+        return await enterWorktreeTool(args, effectiveContext)
+      case 'exit_worktree':
+        return await exitWorktreeTool(args, effectiveContext)
+
+      // Domain C: Code Intelligence & Jupyter Notebooks
+      case 'notebook_edit':
+        return await notebookEditTool(args, effectiveContext)
+      case 'lsp_query':
+      case 'lsp':
+        return await lspQueryTool(args, effectiveContext)
+
+      // Domain D: Subagents & Multi-Agent Collaboration
+      case 'spawn_subagent':
+      case 'agent_task':
+        return await spawnSubagentTool(args, effectiveContext)
+      case 'send_agent_message':
+      case 'send_message':
+        return await sendAgentMessageTool(args, effectiveContext)
+
+      // Domain E: MCP Resources & Dynamic Tool Search
+      case 'list_mcp_resources':
+        return await listMcpResourcesTool(args, effectiveContext)
+      case 'read_mcp_resource':
+        return await readMcpResourceTool(args, effectiveContext)
+      case 'tool_search':
+        return await toolSearchTool(args, effectiveContext)
+
+      // Domain F: Scheduling & Automation Triggers
+      case 'schedule_cron':
+      case 'cron_create':
+      case 'cron_list':
+      case 'cron_delete':
+        return await scheduleCronTool(args, effectiveContext)
+      case 'sleep_delay':
+      case 'sleep':
+        return await sleepDelayTool(args, effectiveContext)
+
       default:
         return { ok: false, content: `Unknown tool "${name}".` }
     }
@@ -918,7 +1049,8 @@ async function fetchUrlContentTool(
   try {
     const res = await fetcher(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       },
     })
 
@@ -936,7 +1068,10 @@ async function fetchUrlContentTool(
     const markdown = htmlToMarkdown(body)
     return { ok: true, content: truncate(markdown, maxLength) }
   } catch (err) {
-    return { ok: false, content: `Fetch failed: ${err instanceof Error ? err.message : String(err)}` }
+    return {
+      ok: false,
+      content: `Fetch failed: ${err instanceof Error ? err.message : String(err)}`,
+    }
   }
 }
 
@@ -949,7 +1084,8 @@ async function searchWebTool(
     return { ok: false, content: 'search_web needs a string "query".' }
   }
 
-  const maxResults = typeof args.max_results === 'number' ? Math.min(Math.max(args.max_results, 1), 10) : 5
+  const maxResults =
+    typeof args.max_results === 'number' ? Math.min(Math.max(args.max_results, 1), 10) : 5
   const fetcher = context.fetchImpl ?? fetch
 
   try {
@@ -994,15 +1130,20 @@ async function searchWebTool(
     // 2. If JSON API returned fewer results, query DuckDuckGo HTML
     if (results.length < maxResults) {
       try {
-        const htmlRes = await fetcher(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        const htmlRes = await fetcher(
+          `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`,
+          {
+            headers: {
+              'User-Agent':
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            },
           },
-        })
+        )
 
         if (htmlRes.ok) {
           const html = await htmlRes.text()
-          const linkRegex = /<a\b[^>]*class="[^"]*result__snippet[^"]*"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi
+          const linkRegex =
+            /<a\b[^>]*class="[^"]*result__snippet[^"]*"[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi
           let match: RegExpExecArray | null
           while ((match = linkRegex.exec(html)) !== null && results.length < maxResults) {
             const rawUrl = match[1] ?? ''
@@ -1031,7 +1172,10 @@ async function searchWebTool(
 
     return { ok: true, content: `Search results for "${query}":\n\n${formatted}` }
   } catch (err) {
-    return { ok: false, content: `Web search failed: ${err instanceof Error ? err.message : String(err)}` }
+    return {
+      ok: false,
+      content: `Web search failed: ${err instanceof Error ? err.message : String(err)}`,
+    }
   }
 }
 
@@ -1127,9 +1271,7 @@ async function requestRuleTool(
     return { ok: true, content: 'No rules found matching criteria.' }
   }
 
-  const formatted = filtered
-    .map((r) => `- **[${r.scope}] ${r.key}**: ${r.statement}`)
-    .join('\n')
+  const formatted = filtered.map((r) => `- **[${r.scope}] ${r.key}**: ${r.statement}`).join('\n')
 
   return { ok: true, content: `Found ${String(filtered.length)} rule(s):\n${formatted}` }
 }
@@ -1181,3 +1323,10 @@ async function readCurrentlyOpenFileTool(
 
   return await readFileTool({ path: context.activeFilePath }, context)
 }
+
+export * from './tools/taskTools'
+export * from './tools/planTools'
+export * from './tools/codeIntelTools'
+export * from './tools/subagentTools'
+export * from './tools/mcpTools'
+export * from './tools/scheduleTools'

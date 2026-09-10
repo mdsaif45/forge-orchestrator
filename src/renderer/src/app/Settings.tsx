@@ -1820,8 +1820,8 @@ function AIProvidersSettings({
         <div>
           <h1 className="text-[18px] font-bold text-(--color-text)">LLM Providers</h1>
           <p className="mt-1 text-[12px] text-(--color-text-muted)">
-            Manage API credentials and model endpoints. These power Forge Agent as well
-            as direct completions.
+            Manage API credentials and model endpoints. These power Forge Agent as well as direct
+            completions.
           </p>
         </div>
 

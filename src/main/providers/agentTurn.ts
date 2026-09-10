@@ -57,7 +57,11 @@ export interface AgentTurnRequest {
   readonly useTools?: boolean | undefined
   readonly projectId?: string | undefined
   readonly setRule?: ((scope: string, key: string, statement: string) => Promise<void>) | undefined
-  readonly getRules?: (() => Promise<readonly { readonly scope: string; readonly key: string; readonly statement: string }[]>) | undefined
+  readonly getRules?:
+    | (() => Promise<
+        readonly { readonly scope: string; readonly key: string; readonly statement: string }[]
+      >)
+    | undefined
   readonly activeFilePath?: string | undefined
 }
 

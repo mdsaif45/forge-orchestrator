@@ -464,11 +464,13 @@ export interface ForgeApi {
   readonly onTerminalExit: (
     listener: (payload: { readonly terminalId: string; readonly exitCode: number | null }) => void,
   ) => () => void
-  readonly dev?: {
-    readonly getModelCalls: () => Promise<
-      IpcResult<{ readonly calls: readonly DevModelCallView[] }>
-    >
-    readonly clearModelCalls: () => Promise<IpcResult<{ readonly ok: true }>>
-  } | undefined
+  readonly dev?:
+    | {
+        readonly getModelCalls: () => Promise<
+          IpcResult<{ readonly calls: readonly DevModelCallView[] }>
+        >
+        readonly clearModelCalls: () => Promise<IpcResult<{ readonly ok: true }>>
+      }
+    | undefined
   readonly onDevModelCall?: (listener: (call: DevModelCallView) => void) => () => void
 }

@@ -27,7 +27,9 @@ export function DevConsole(): React.JSX.Element | null {
   const filterText = useDevConsoleStore((state) => state.filterText)
   const setFilterText = useDevConsoleStore((state) => state.setFilterText)
 
-  const [activeTab, setActiveTab] = useState<'request' | 'response' | 'tools' | 'headers'>('request')
+  const [activeTab, setActiveTab] = useState<'request' | 'response' | 'tools' | 'headers'>(
+    'request',
+  )
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const dragStartY = useRef<number>(0)
@@ -86,7 +88,8 @@ export function DevConsole(): React.JSX.Element | null {
                         args: rec.args,
                         ok: Boolean(rec.ok),
                         output: getString(rec.output, ''),
-                        durationMs: rec.durationMs !== undefined ? getNumber(rec.durationMs, 0) : undefined,
+                        durationMs:
+                          rec.durationMs !== undefined ? getNumber(rec.durationMs, 0) : undefined,
                       }
                     })
                   : undefined,
@@ -217,7 +220,8 @@ export function DevConsole(): React.JSX.Element | null {
     )
   }, [transactions, filterText])
 
-  const selectedTx = transactions.find((t) => t.id === selectedTransactionId) ?? filtered[filtered.length - 1]
+  const selectedTx =
+    transactions.find((t) => t.id === selectedTransactionId) ?? filtered[filtered.length - 1]
 
   if (!isOpen) return null
 
@@ -307,7 +311,9 @@ export function DevConsole(): React.JSX.Element | null {
               />
             )}
             <span className="w-8 text-right font-mono text-neutral-300">
-              {dockPosition === 'bottom' ? `${String(bottomHeightPct)}%` : `${String(rightWidthPx)}px`}
+              {dockPosition === 'bottom'
+                ? `${String(bottomHeightPct)}%`
+                : `${String(rightWidthPx)}px`}
             </span>
           </div>
 
@@ -319,7 +325,11 @@ export function DevConsole(): React.JSX.Element | null {
             onClick={() => {
               setDockPosition(dockPosition === 'bottom' ? 'right' : 'bottom')
             }}
-            title={dockPosition === 'bottom' ? 'Dock console to Right' : 'Dock console to Bottom (1/4 screen)'}
+            title={
+              dockPosition === 'bottom'
+                ? 'Dock console to Right'
+                : 'Dock console to Bottom (1/4 screen)'
+            }
             className="flex items-center gap-1 rounded px-1.5 py-1 text-[11px] text-neutral-300 hover:bg-white/10 hover:text-white cursor-pointer"
           >
             {dockPosition === 'bottom' ? '⬰ Dock Right' : '⬱ Dock Bottom'}
@@ -413,14 +423,17 @@ export function DevConsole(): React.JSX.Element | null {
 
                     <div className="flex items-center justify-between text-[10px] text-neutral-400">
                       <span className="truncate pr-1">
-                        {tx.request.promptSummary ? `"${tx.request.promptSummary}"` : `${tx.request.method} ${tx.endpointUrl}`}
+                        {tx.request.promptSummary
+                          ? `"${tx.request.promptSummary}"`
+                          : `${tx.request.method} ${tx.endpointUrl}`}
                       </span>
                       <span className="shrink-0">{tx.timeFormatted}</span>
                     </div>
 
                     {tx.toolExecutions && tx.toolExecutions.length > 0 && (
                       <div className="text-[9.5px] text-amber-300/80 truncate">
-                        ⚡ {String(tx.toolExecutions.length)} tool {tx.toolExecutions.length === 1 ? 'call' : 'calls'}
+                        ⚡ {String(tx.toolExecutions.length)} tool{' '}
+                        {tx.toolExecutions.length === 1 ? 'call' : 'calls'}
                       </div>
                     )}
                   </button>
@@ -440,7 +453,10 @@ export function DevConsole(): React.JSX.Element | null {
                   [
                     { key: 'request', label: 'Request & Payload' },
                     { key: 'response', label: 'Response & Stream' },
-                    { key: 'tools', label: `Tool Calls (${String(selectedTx.toolExecutions?.length ?? 0)})` },
+                    {
+                      key: 'tools',
+                      label: `Tool Calls (${String(selectedTx.toolExecutions?.length ?? 0)})`,
+                    },
                     { key: 'headers', label: 'Headers & Endpoint' },
                   ] as const
                 ).map((tab) => (
@@ -539,7 +555,11 @@ export function DevConsole(): React.JSX.Element | null {
                       type="button"
                       onClick={() => {
                         handleCopy(
-                          JSON.stringify(selectedTx.response ?? selectedTx.streamTimeline ?? {}, null, 2),
+                          JSON.stringify(
+                            selectedTx.response ?? selectedTx.streamTimeline ?? {},
+                            null,
+                            2,
+                          ),
                           'resp-body',
                         )
                       }}
@@ -617,28 +637,40 @@ export function DevConsole(): React.JSX.Element | null {
                       >
                         <div className="flex items-center justify-between mb-1">
                           <div className="flex items-center gap-1.5">
-                            <span className={tool.ok ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
+                            <span
+                              className={
+                                tool.ok ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'
+                              }
+                            >
                               {tool.ok ? '✓' : '✗'}
                             </span>
                             <span className="font-bold text-white text-[12px]">{tool.name}</span>
                             {tool.round !== undefined && (
-                              <span className="text-[10px] text-neutral-400">Round {String(tool.round)}</span>
+                              <span className="text-[10px] text-neutral-400">
+                                Round {String(tool.round)}
+                              </span>
                             )}
                           </div>
                           {tool.durationMs !== undefined && (
-                            <span className="text-[10px] text-neutral-400 font-mono">{String(tool.durationMs)}ms</span>
+                            <span className="text-[10px] text-neutral-400 font-mono">
+                              {String(tool.durationMs)}ms
+                            </span>
                           )}
                         </div>
 
                         <div className="mt-1 space-y-1">
-                          <div className="text-[10px] text-neutral-400 font-semibold uppercase">Arguments:</div>
+                          <div className="text-[10px] text-neutral-400 font-semibold uppercase">
+                            Arguments:
+                          </div>
                           <pre className="rounded bg-black/40 p-1.5 text-[10.5px] text-neutral-300 whitespace-pre-wrap break-words">
                             {JSON.stringify(tool.args, null, 2)}
                           </pre>
                         </div>
 
                         <div className="mt-2 space-y-1">
-                          <div className="text-[10px] text-neutral-400 font-semibold uppercase">Output / Result:</div>
+                          <div className="text-[10px] text-neutral-400 font-semibold uppercase">
+                            Output / Result:
+                          </div>
                           <pre className="rounded bg-black/40 p-1.5 text-[10.5px] text-neutral-200 whitespace-pre-wrap break-words max-h-36 overflow-y-auto">
                             {tool.output}
                           </pre>
@@ -663,15 +695,21 @@ export function DevConsole(): React.JSX.Element | null {
                     </div>
                     <div className="flex py-1.5 justify-between">
                       <span className="text-neutral-400">HTTP Method:</span>
-                      <span className="text-emerald-400 font-bold">{selectedTx.request.method}</span>
+                      <span className="text-emerald-400 font-bold">
+                        {selectedTx.request.method}
+                      </span>
                     </div>
                     <div className="flex py-1.5 justify-between">
                       <span className="text-neutral-400">Status Code:</span>
-                      <span className="text-white font-bold">{String(selectedTx.statusCode || 200)}</span>
+                      <span className="text-white font-bold">
+                        {String(selectedTx.statusCode || 200)}
+                      </span>
                     </div>
                     <div className="flex py-1.5 justify-between">
                       <span className="text-neutral-400">Model:</span>
-                      <span className="text-(--color-accent) font-semibold">{selectedTx.model}</span>
+                      <span className="text-(--color-accent) font-semibold">
+                        {selectedTx.model}
+                      </span>
                     </div>
                     <div className="flex py-1.5 justify-between">
                       <span className="text-neutral-400">Provider:</span>
@@ -679,7 +717,9 @@ export function DevConsole(): React.JSX.Element | null {
                     </div>
                     <div className="flex py-1.5 justify-between">
                       <span className="text-neutral-400">Timestamp:</span>
-                      <span className="text-neutral-300">{new Date(selectedTx.timestamp).toISOString()}</span>
+                      <span className="text-neutral-300">
+                        {new Date(selectedTx.timestamp).toISOString()}
+                      </span>
                     </div>
                     {selectedTx.durationMs !== undefined && (
                       <div className="flex py-1.5 justify-between">
@@ -703,7 +743,8 @@ export function DevConsole(): React.JSX.Element | null {
           </div>
         ) : (
           <div className="flex flex-1 items-center justify-center text-neutral-500">
-            Select a network transaction on the left to inspect full request, response, and tool details.
+            Select a network transaction on the left to inspect full request, response, and tool
+            details.
           </div>
         )}
       </div>

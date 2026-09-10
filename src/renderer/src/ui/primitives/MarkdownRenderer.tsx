@@ -69,17 +69,15 @@ export function MarkdownRenderer({ content, className }: MarkdownRendererProps):
             </th>
           ),
           tbody: ({ children }) => (
-            <tbody className="divide-y divide-(--color-border)/60 bg-(--color-canvas)">{children}</tbody>
+            <tbody className="divide-y divide-(--color-border)/60 bg-(--color-canvas)">
+              {children}
+            </tbody>
           ),
           tr: ({ children }) => (
-            <tr className="transition-colors hover:bg-(--color-surface-raised)/50">
-              {children}
-            </tr>
+            <tr className="transition-colors hover:bg-(--color-surface-raised)/50">{children}</tr>
           ),
           td: ({ children }) => (
-            <td className="px-3.5 py-2 align-top text-[12px] text-(--color-text)">
-              {children}
-            </td>
+            <td className="px-3.5 py-2 align-top text-[12px] text-(--color-text)">{children}</td>
           ),
           // `pre` carries the block; the `code` inside it keeps the language class
           // that rehype-highlight added, so it must not be restyled as inline code.

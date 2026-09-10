@@ -1,11 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import {
-  Button,
-  Input,
-  MarkdownRenderer,
-  ScrollArea,
-  useToast,
-} from '../ui'
+import { Button, Input, MarkdownRenderer, ScrollArea, useToast } from '../ui'
 import { cn } from '../ui'
 import { useProjectStore } from './projectStore'
 import { unwrap } from '@renderer/ipc'
@@ -412,8 +406,7 @@ function ModelSelectDropdown({
     setSearch('')
   }
 
-  const selected =
-    options.find((opt) => opt.id === value || opt.label === value) ?? options[0]
+  const selected = options.find((opt) => opt.id === value || opt.label === value) ?? options[0]
 
   useEffect(() => {
     if (!open) return undefined
@@ -1700,7 +1693,8 @@ ${toolTrail}`
                   </h2>
                 </div>
                 <p className="text-[13px] text-(--color-text-muted) max-w-md">
-                  Ask a question about the codebase, explore architecture, plan changes, or run tasks.
+                  Ask a question about the codebase, explore architecture, plan changes, or run
+                  tasks.
                 </p>
               </div>
             )}

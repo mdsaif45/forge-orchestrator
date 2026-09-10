@@ -1217,62 +1217,73 @@ export const IPC_CONTRACT = {
   },
 
   'dev:getModelCalls': {
-    request: z.strictObject({}),
-    response: z.strictObject({
-      calls: z.array(
-        z.strictObject({
-          id: z.string(),
-          timestamp: z.number(),
-          timeFormatted: z.string(),
-          type: z.enum(['tool_completion', 'chat_stream', 'direct_chat']),
-          providerId: z.string(),
-          model: z.string(),
-          endpointUrl: z.string(),
-          round: z.number().optional(),
-          request: z.strictObject({
-            method: z.string(),
-            headers: z.record(z.string(), z.string()),
-            body: z.unknown(),
-          }),
-          response: z
-            .strictObject({
-              status: z.number(),
-              statusText: z.string(),
-              durationMs: z.number(),
-              rawBody: z.unknown().optional(),
-              reasoning: z.string().optional(),
-              content: z.string().optional(),
-              toolCalls: z
+    request: z.record(z.string(), z.unknown()),
+    response: z
+      .object({
+        calls: z.array(
+          z
+            .object({
+              id: z.string(),
+              timestamp: z.number(),
+              timeFormatted: z.string(),
+              type: z.string(),
+              providerId: z.string(),
+              model: z.string(),
+              endpointUrl: z.string(),
+              round: z.number().optional(),
+              request: z
+                .object({
+                  method: z.string(),
+                  headers: z.record(z.string(), z.string()),
+                  body: z.unknown(),
+                })
+                .loose(),
+              response: z
+                .object({
+                  status: z.number(),
+                  statusText: z.string(),
+                  durationMs: z.number(),
+                  rawBody: z.unknown().optional(),
+                  reasoning: z.string().optional(),
+                  content: z.string().optional(),
+                  toolCalls: z
+                    .array(
+                      z
+                        .object({
+                          id: z.string(),
+                          name: z.string(),
+                          args: z.unknown(),
+                        })
+                        .loose(),
+                    )
+                    .optional(),
+                  error: z.string().nullable().optional(),
+                })
+                .loose()
+                .optional(),
+              toolExecutions: z
                 .array(
-                  z.strictObject({
-                    id: z.string(),
-                    name: z.string(),
-                    args: z.unknown(),
-                  }),
+                  z
+                    .object({
+                      name: z.string(),
+                      args: z.unknown(),
+                      ok: z.boolean(),
+                      output: z.string(),
+                      durationMs: z.number(),
+                    })
+                    .loose(),
                 )
                 .optional(),
-              error: z.string().nullable().optional(),
             })
-            .optional(),
-          toolExecutions: z
-            .array(
-              z.strictObject({
-                name: z.string(),
-                args: z.unknown(),
-                ok: z.boolean(),
-                output: z.string(),
-                durationMs: z.number(),
-              }),
-            )
-            .optional(),
-        }),
-      ),
-    }),
+            .loose(),
+        ),
+      })
+      .loose(),
   },
 
   'dev:clearModelCalls': {
-    request: z.strictObject({}),
-    response: z.strictObject({ ok: z.literal(true) }),
+    request: z.record(z.string(), z.unknown()),
+    response: z.object({ ok: z.literal(true) }).loose(),
   },
 } as const satisfies IpcContractShape
 

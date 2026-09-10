@@ -13,7 +13,6 @@ export interface StatusStripProps {
   readonly onNewProject: () => void
   readonly workflowState?: WorkflowStatePlaceholder | undefined
   readonly onOpenKitchenSink: () => void
-  readonly onOpenDevTerminal?: (() => void) | undefined
 }
 
 export type WorkflowStatePlaceholder = 'idle' | 'running' | 'waiting' | 'passed' | 'failed'
@@ -24,7 +23,6 @@ export function StatusStrip({
   onSelectProject,
   onNewProject,
   onOpenKitchenSink,
-  onOpenDevTerminal,
 }: StatusStripProps): React.JSX.Element {
   return (
     <header className="app-drag-region flex h-[38px] shrink-0 select-none items-center gap-2.5 border-b border-(--color-border) bg-(--color-surface) px-3 pr-36 text-(--color-text) transition-colors duration-(--duration-fast)">
@@ -74,17 +72,6 @@ export function StatusStrip({
       {/* Dev Tools (Dev Mode Only) */}
       {import.meta.env.DEV && (
         <div className="app-no-drag flex items-center gap-1.5">
-          {onOpenDevTerminal !== undefined && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={onOpenDevTerminal}
-              className="h-6 rounded px-2 text-[11px] font-mono text-(--color-accent) hover:bg-(--color-accent)/10 font-semibold"
-              title="Inspect real model API calls, prompts, responses, and tool executions"
-            >
-              📟 Dev Terminal
-            </Button>
-          )}
           <Button
             size="sm"
             variant="ghost"

@@ -25,10 +25,6 @@ interface UiState {
   readonly createProjectOpen: boolean
   readonly openCreateProject: () => void
   readonly closeCreateProject: () => void
-  readonly devTerminalOpen: boolean
-  readonly openDevTerminal: () => void
-  readonly closeDevTerminal: () => void
-  readonly toggleDevTerminal: () => void
 }
 
 export const useUiStore = create<UiState>()(
@@ -44,10 +40,6 @@ export const useUiStore = create<UiState>()(
       createProjectOpen: false,
       openCreateProject: () => set({ createProjectOpen: true }),
       closeCreateProject: () => set({ createProjectOpen: false }),
-      devTerminalOpen: false,
-      openDevTerminal: () => set({ devTerminalOpen: true }),
-      closeDevTerminal: () => set({ devTerminalOpen: false }),
-      toggleDevTerminal: () => set((state) => ({ devTerminalOpen: !state.devTerminalOpen })),
     }),
     {
       name: 'forge.ui',

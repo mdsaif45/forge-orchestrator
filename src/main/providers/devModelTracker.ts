@@ -104,6 +104,10 @@ class DevModelTrackerService {
       this.history.shift()
     }
 
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(`[DevModelTracker] START ${record.type} -> ${record.model} (${record.endpointUrl}) [${record.id}]`)
+    }
+
     this.notify(record)
     return record
   }
@@ -131,6 +135,9 @@ class DevModelTrackerService {
     const record = this.history.find((r) => r.id === callId)
     if (record) {
       record.response = response
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(`[DevModelTracker] FINISH [${callId}] status=${String(response.status)} duration=${String(response.durationMs)}ms tools=${String(response.toolCalls?.length ?? 0)}`)
+      }
       this.notify(record)
     }
   }

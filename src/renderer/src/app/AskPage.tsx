@@ -8,9 +8,9 @@ import {
 } from '../ui'
 import { cn } from '../ui'
 import { useProjectStore } from './projectStore'
-import { useUiStore } from './uiStore'
 import { unwrap } from '@renderer/ipc'
 import { DEFAULT_PROVIDERS, type StoredProviderConfig } from './Settings'
+import { useDevConsoleStore } from './devConsoleStore'
 
 export interface ChatMessage {
   readonly id: string
@@ -984,7 +984,6 @@ export function AskPage(): React.JSX.Element {
    * and asking the user to declare it meant they could enable tools on a model
    * that has none and get a broken turn instead of a refusal.
    */
-  const openDevTerminal = useUiStore((state) => state.openDevTerminal)
   const threadMenuRef = useRef<HTMLDivElement>(null)
   /** Seconds the running turn has taken, so a slow turn visibly progresses. */
   const [elapsed, setElapsed] = useState(0)
@@ -1259,6 +1258,52 @@ Instructions:
     const streamId = `s-${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`
     setLiveReply({ streamId, content: '', reasoning: '', timeline: [] })
 
+    const fullSystemPrompt = `${systemPrompt}
+
+You are operating on a real repository through tools, not describing work to
+someone else who will do it.
+
+RULE: a request to change, update, add, fix or remove something in a file is a
+request to EDIT IT NOW. Read what you need, then call edit_file. Replying with a
+plan, a proposal, or a description of what you would add is a failed turn — the
+file must actually change. Your final message reports what you changed.
+
+- edit_file replaces one exact snippet and is the tool to reach for; you supply
+  only the part that changes, so it works on large files.
+- write_file replaces a whole file, so use it only for a new one.
+- Never guess a file's contents. Read it, or list and search first.
+- If a write is refused as out of scope, say so plainly rather than working
+  around it.`
+
+    const txId = `tx-${streamId}`
+    useDevConsoleStore.getState().recordTransaction({
+      id: txId,
+      timestamp: startTime,
+      timeFormatted: new Date(startTime).toLocaleTimeString(),
+      type: 'agent_turn',
+      status: 'pending',
+      statusCode: 0,
+      model: currentModel || 'default',
+      providerId: currentProvider?.id ?? 'ollama',
+      endpointUrl: currentProvider?.localUrl ?? 'http://localhost:11434',
+      request: {
+        method: 'POST',
+        url: `${currentProvider?.localUrl ?? 'http://localhost:11434'}/api/chat`,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(currentProvider?.apiKey ? { Authorization: 'Bearer ***' } : {}),
+        },
+        body: {
+          model: currentModel,
+          systemPrompt: fullSystemPrompt,
+          messages: historyPayload,
+        },
+        promptSummary: cleanPromptTitle,
+        systemPrompt: fullSystemPrompt,
+        messagesCount: historyPayload.length,
+      },
+    })
+
     const unsubscribe = window.forge.onProviderChunk((chunk) => {
       if (chunk.streamId !== streamId) return
       setLiveReply((current) => {
@@ -1277,6 +1322,16 @@ Instructions:
           return { ...current, reasoning: current.reasoning + chunk.text, timeline }
         }
         if (chunk.kind === 'tool') {
+          useDevConsoleStore.getState().updateTransaction(txId, (prev) => {
+            const toolExecs = prev.toolExecutions ? [...prev.toolExecutions] : []
+            toolExecs.push({
+              name: chunk.text,
+              args: {},
+              ok: !chunk.text.startsWith('✗'),
+              output: chunk.text,
+            })
+            return { ...prev, toolExecutions: toolExecs }
+          })
           return {
             ...current,
             timeline: [...current.timeline, { kind: 'tool' as const, text: chunk.text }],
@@ -1298,22 +1353,7 @@ Instructions:
         model: currentModel,
         endpointUrl: currentProvider?.localUrl,
         apiKey: currentProvider?.apiKey,
-        systemPrompt: `${systemPrompt}
-
-You are operating on a real repository through tools, not describing work to
-someone else who will do it.
-
-RULE: a request to change, update, add, fix or remove something in a file is a
-request to EDIT IT NOW. Read what you need, then call edit_file. Replying with a
-plan, a proposal, or a description of what you would add is a failed turn — the
-file must actually change. Your final message reports what you changed.
-
-- edit_file replaces one exact snippet and is the tool to reach for; you supply
-  only the part that changes, so it works on large files.
-- write_file replaces a whole file, so use it only for a new one.
-- Never guess a file's contents. Read it, or list and search first.
-- If a write is refused as out of scope, say so plainly rather than working
-  around it.`,
+        systemPrompt: fullSystemPrompt,
         messages: historyPayload,
       })
 
@@ -1333,9 +1373,49 @@ file must actually change. Your final message reports what you changed.
         const summary = toolSummary(res.value)
         if (summary !== null) toolTrail = summary
       }
+
+      const isSuccess = res.ok && res.value.ok
+      useDevConsoleStore.getState().updateTransaction(txId, (prev) => ({
+        ...prev,
+        status: isSuccess ? 'success' : 'error',
+        statusCode: isSuccess ? 200 : 500,
+        durationMs: Date.now() - startTime,
+        response: {
+          status: isSuccess ? 200 : 500,
+          statusText: isSuccess ? 'OK' : 'Agent Turn Ended',
+          durationMs: Date.now() - startTime,
+          content: answer,
+          reasoning: thinkingText,
+          toolCallsCount: res.ok ? res.value.toolsUsed.length : 0,
+          rawBody: res.ok ? res.value : null,
+          error: res.ok ? res.value.error : 'Connection error',
+        },
+        toolExecutions:
+          res.ok && res.value.toolsUsed.length > 0
+            ? res.value.toolsUsed.map((t, idx) => ({
+                round: idx + 1,
+                name: t.name,
+                args: {},
+                ok: t.ok,
+                output: t.ok ? 'Tool executed successfully' : 'Tool execution failed',
+              }))
+            : prev.toolExecutions,
+      }))
     } catch (err) {
       console.error('Chat error:', err)
       answer = `⚠️ **Connection Error**:\n\nCould not reach ${activeModelLabel}. Please verify that the provider service is running.`
+      useDevConsoleStore.getState().updateTransaction(txId, (prev) => ({
+        ...prev,
+        status: 'error',
+        statusCode: 500,
+        durationMs: Date.now() - startTime,
+        response: {
+          status: 500,
+          statusText: 'Connection Error',
+          durationMs: Date.now() - startTime,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      }))
     } finally {
       // Unsubscribed in `finally` so a thrown request cannot leave a listener
       // attached, accumulating a second copy of the next reply.
@@ -1828,19 +1908,6 @@ ${toolTrail}`
                       }}
                       options={currentEngineModels}
                     />
-                  )}
-
-                  {/* Dev Terminal Quick Launcher (Dev Mode Only) */}
-                  {import.meta.env.DEV && (
-                    <button
-                      type="button"
-                      onClick={openDevTerminal}
-                      title="Inspect real model API calls, prompts, responses, and tool executions"
-                      className="flex items-center gap-1 rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-2 py-1 text-[11px] font-mono text-(--color-accent) hover:border-(--color-accent) hover:bg-(--color-accent)/10 transition-colors cursor-pointer"
-                    >
-                      <span>📟</span>
-                      <span className="hidden sm:inline font-semibold">Dev Terminal</span>
-                    </button>
                   )}
                 </div>
 

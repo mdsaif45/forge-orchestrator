@@ -234,6 +234,114 @@ function CopyTextButton({ text }: { readonly text: string }): React.JSX.Element 
   )
 }
 
+/** Formats relative time (e.g. "6 days ago", "just now", "15m ago"). */
+function formatRelativeTime(timestamp: string, id?: string): string {
+  let timeMs: number | null = null
+  if (id !== undefined) {
+    const match = /^(?:user|ai)-(\d{10,16})$/.exec(id)
+    if (match?.[1]) {
+      timeMs = Number(match[1])
+    }
+  }
+  if (timeMs === null) {
+    const parsed = Date.parse(timestamp)
+    if (!Number.isNaN(parsed)) {
+      timeMs = parsed
+    }
+  }
+  if (timeMs === null) {
+    return timestamp || 'just now'
+  }
+
+  const diffMs = Date.now() - timeMs
+  if (diffMs < 0 || diffMs < 45_000) return 'just now'
+  const diffSec = Math.floor(diffMs / 1000)
+  const diffMin = Math.floor(diffSec / 60)
+  if (diffMin < 60) return `${String(diffMin)}m ago`
+  const diffHours = Math.floor(diffMin / 60)
+  if (diffHours < 24) return `${String(diffHours)}h ago`
+  const diffDays = Math.floor(diffHours / 24)
+  if (diffDays === 1) return 'yesterday'
+  if (diffDays < 30) return `${String(diffDays)} days ago`
+  const diffMonths = Math.floor(diffDays / 30)
+  if (diffMonths < 12) return `${String(diffMonths)}mo ago`
+  return `${String(Math.floor(diffDays / 365))}y ago`
+}
+
+function PromptCopyIcon({ className }: { readonly className?: string }): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className ?? 'size-3.5'}
+      aria-hidden="true"
+    >
+      <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+      <path d="M3.5 10.5h-1a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v1" />
+    </svg>
+  )
+}
+
+function PromptCheckIcon({ className }: { readonly className?: string }): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className ?? 'size-3.5'}
+      aria-hidden="true"
+    >
+      <path d="M3.5 8.5 6.5 11.5 12.5 4.5" />
+    </svg>
+  )
+}
+
+function PromptRetryIcon({ className }: { readonly className?: string }): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className ?? 'size-3.5'}
+      aria-hidden="true"
+    >
+      <path d="M2.5 3v4h4" />
+      <path d="M3.5 9.5a5 5 0 1 0 1.2-5.3L2.5 7" />
+    </svg>
+  )
+}
+
+function PromptForkIcon({ className }: { readonly className?: string }): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className ?? 'size-3.5'}
+      aria-hidden="true"
+    >
+      <circle cx="4.5" cy="4.5" r="1.75" />
+      <circle cx="4.5" cy="11.5" r="1.75" />
+      <circle cx="11.5" cy="4.5" r="1.75" />
+      <path d="M4.5 6.25v3.5" />
+      <path d="M11.5 6.25a3.5 3.5 0 0 1-3.5 3.5H4.5" />
+    </svg>
+  )
+}
+
 export function AskPage(): React.JSX.Element {
   const detail = useProjectStore((state) => state.detail)
   const project = detail?.project ?? null
@@ -461,6 +569,8 @@ export function AskPage(): React.JSX.Element {
   const [activeThreadId, setActiveThreadId] = useState<string>(threads[0]?.id ?? 'thread-1')
   const [input, setInput] = useState('')
   const [thinking, setThinking] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [copiedPromptId, setCopiedPromptId] = useState<string | null>(null)
   /**
    * The reply currently arriving, before it becomes a saved message.
    *
@@ -621,6 +731,47 @@ export function AskPage(): React.JSX.Element {
     // the honest outcome of a cancelled rename.
     if (title !== '') updateThread(thread.id, { title })
     setRenamingId(null)
+  }
+
+  const handleCopyPrompt = (promptText: string, messageId: string): void => {
+    navigator.clipboard
+      .writeText(promptText)
+      .then(() => {
+        setCopiedPromptId(messageId)
+        setTimeout(() => {
+          setCopiedPromptId(null)
+        }, 1500)
+        show({ tone: 'neutral', title: 'Prompt copied to clipboard' })
+      })
+      .catch(() => {
+        // clipboard access denied
+      })
+  }
+
+  const handleRetryPrompt = (promptText: string): void => {
+    setInput(promptText)
+    inputRef.current?.focus()
+    show({ tone: 'neutral', title: 'Prompt restored to input' })
+  }
+
+  const handleForkFromPrompt = (messageId: string): void => {
+    if (!activeThread) return
+    const msgIndex = activeThread.messages.findIndex((m) => m.id === messageId)
+    if (msgIndex === -1) return
+    const slicedMessages = activeThread.messages.slice(0, msgIndex + 1)
+    const now = new Date()
+    const newThreadId = `thread-${String(now.getTime())}`
+    const newThread: ChatThread = {
+      ...activeThread,
+      id: newThreadId,
+      title: `${activeThread.title} (Fork)`,
+      createdAt: now.toLocaleDateString(),
+      messages: slicedMessages,
+    }
+    const updated = [newThread, ...threads]
+    saveThreads(updated)
+    setActiveThreadId(newThreadId)
+    show({ tone: 'neutral', title: 'Conversation branched from prompt' })
   }
 
   const handleSend = async (queryText?: string): Promise<void> => {
@@ -1173,15 +1324,59 @@ ${toolTrail}`
                     </div>
                   </div>
                 ) : (
-                  /* User message — right-aligned bubble */
-                  <div className="flex justify-end">
-                    <div className="max-w-lg rounded-2xl bg-(--color-accent) text-white px-4 py-2.5 text-[13px] font-medium leading-relaxed shadow-sm">
+                  /* User message — right-aligned bubble with hover features */
+                  <div className="group flex flex-col items-end">
+                    <div className="max-w-xl rounded-2xl bg-(--color-surface) border border-(--color-border) px-5 py-3 text-[13.5px] leading-relaxed text-(--color-text) shadow-xs transition-colors">
                       {/* Selectable for the same reason the reply is: the body sets
                           `user-select: none`, so without this a user could not copy
                           back what they themselves had typed. */}
-                      <div className="whitespace-pre-wrap" data-selectable>
+                      <div className="whitespace-pre-wrap select-text" data-selectable>
                         {msg.text}
                       </div>
+                    </div>
+
+                    {/* On hover show some features; no hover don't show any */}
+                    <div className="mt-1 flex items-center gap-2 pr-1 opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto select-none">
+                      <span className="text-[11.5px] text-(--color-text-subtle)">
+                        {formatRelativeTime(msg.timestamp, msg.id)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleCopyPrompt(msg.text, msg.id)
+                        }}
+                        title="Copy prompt"
+                        aria-label="Copy prompt"
+                        className="flex size-6 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
+                      >
+                        {copiedPromptId === msg.id ? (
+                          <PromptCheckIcon className="size-3.5 text-(--color-success)" />
+                        ) : (
+                          <PromptCopyIcon className="size-3.5" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleRetryPrompt(msg.text)
+                        }}
+                        title="Edit & retry prompt"
+                        aria-label="Edit & retry prompt"
+                        className="flex size-6 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
+                      >
+                        <PromptRetryIcon className="size-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleForkFromPrompt(msg.id)
+                        }}
+                        title="Fork conversation from this prompt"
+                        aria-label="Fork conversation from this prompt"
+                        className="flex size-6 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
+                      >
+                        <PromptForkIcon className="size-3.5" />
+                      </button>
                     </div>
                   </div>
                 )}
@@ -1270,6 +1465,7 @@ ${toolTrail}`
           >
             <div className="flex-1 relative">
               <Input
+                ref={inputRef}
                 placeholder={
                   currentModel
                     ? `Ask Forge Agent (${currentModel}) about ${project.name}...`

@@ -342,6 +342,117 @@ function PromptForkIcon({ className }: { readonly className?: string }): React.J
   )
 }
 
+function SendArrowIcon({ className }: { readonly className?: string }): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className ?? 'size-4'}
+      aria-hidden="true"
+    >
+      <path d="M3 8h10M9 4l4 4-4 4" />
+    </svg>
+  )
+}
+
+function EngineSelectDropdown({
+  value,
+  onChange,
+  options,
+}: {
+  readonly value: string
+  readonly onChange: (value: string) => void
+  readonly options: readonly { readonly id: string; readonly label: string }[]
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  const selected = options.find((opt) => opt.id === value) ?? options[0]
+
+  useEffect(() => {
+    if (!open) return undefined
+    const handleOutsideClick = (e: MouseEvent): void => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open])
+
+  return (
+    <div ref={dropdownRef} className="relative">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((prev) => !prev)
+        }}
+        aria-expanded={open}
+        aria-label="Select Engine"
+        className="flex items-center gap-1.5 rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-2.5 py-1 text-[11.5px] font-medium text-(--color-text-muted) hover:text-(--color-text) hover:border-(--color-border-strong) transition-colors cursor-pointer"
+      >
+        <span className="truncate max-w-[150px] sm:max-w-[200px]">{selected?.label ?? value}</span>
+        <svg
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          className={cn(
+            'size-3 shrink-0 text-(--color-text-subtle) transition-transform duration-150',
+            open ? 'rotate-180' : '',
+          )}
+          aria-hidden="true"
+        >
+          <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute bottom-full left-0 mb-1.5 z-30 w-60 max-h-64 overflow-y-auto rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-1 shadow-xl">
+          <div className="px-2.5 py-1 text-[10px] font-semibold text-(--color-text-subtle) uppercase tracking-wider">
+            Agent Engine
+          </div>
+          <div className="space-y-0.5">
+            {options.map((opt) => {
+              const isSelected = opt.id === value
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => {
+                    onChange(opt.id)
+                    setOpen(false)
+                  }}
+                  className={cn(
+                    'flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[12px] transition-colors cursor-pointer',
+                    isSelected
+                      ? 'bg-(--color-accent)/10 font-semibold text-(--color-accent)'
+                      : 'text-(--color-text) hover:bg-(--color-surface-overlay)',
+                  )}
+                >
+                  <span className="truncate pr-2">{opt.label}</span>
+                  {isSelected && <span className="text-[11px] font-bold">✓</span>}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function AskPage(): React.JSX.Element {
   const detail = useProjectStore((state) => state.detail)
   const project = detail?.project ?? null
@@ -621,13 +732,21 @@ export function AskPage(): React.JSX.Element {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length, thinking])
 
-  // Auto-resize textarea to fit text dynamically up to 192px (max-h-48), then scroll within field
+  // Auto-resize textarea dynamically up to 192px max height.
+  // When within max height, overflow is hidden so NO default scrollbar appears!
+  // When content exceeds 192px, overflow-y-auto activates so user can scroll within the field.
   useEffect(() => {
     const el = textareaRef.current
     if (!el) return
     el.style.height = 'auto'
-    const nextHeight = Math.min(Math.max(el.scrollHeight, 42), 192)
-    el.style.height = `${String(nextHeight)}px`
+    const scrollHeight = el.scrollHeight
+    if (scrollHeight > 192) {
+      el.style.height = '192px'
+      el.style.overflowY = 'auto'
+    } else {
+      el.style.height = `${String(Math.max(scrollHeight, 38))}px`
+      el.style.overflowY = 'hidden'
+    }
   }, [input])
 
   const saveThreads = (updatedThreads: readonly ChatThread[]): void => {
@@ -1464,15 +1583,15 @@ ${toolTrail}`
         </ScrollArea>
 
         {/* Bottom Input Bar */}
-        <div className="border-t border-(--color-border) bg-(--color-surface-raised) px-6 py-3">
+        <div className="border-t border-(--color-border) bg-(--color-canvas) px-6 py-3">
           <form
             onSubmit={(e) => {
               e.preventDefault()
               void handleSend()
             }}
-            className="flex items-end gap-3 max-w-4xl mx-auto"
+            className="mx-auto max-w-4xl"
           >
-            <div className="flex-1 relative">
+            <div className="relative flex flex-col rounded-2xl border border-(--color-border) bg-(--color-surface-raised) shadow-xs transition-colors focus-within:border-(--color-border-focus)/80 focus-within:ring-2 focus-within:ring-(--color-border-focus)/15">
               <textarea
                 ref={textareaRef}
                 rows={1}
@@ -1488,35 +1607,33 @@ ${toolTrail}`
                 }}
                 disabled={thinking}
                 placeholder={`Ask ${activePersona?.label ?? 'Assistant'} about ${project.name}... (Shift+Enter for newline)`}
-                className="w-full min-h-[42px] max-h-48 resize-none overflow-y-auto rounded-xl border border-(--color-border) bg-(--color-surface) px-3.5 py-2.5 text-[13px] leading-relaxed text-(--color-text) placeholder:text-(--color-text-subtle) focus:border-(--color-border-focus) focus:outline-none transition-colors"
+                className="w-full resize-none border-0 bg-transparent px-4 pt-3 pb-1.5 text-[13.5px] leading-relaxed text-(--color-text) placeholder:text-(--color-text-subtle) focus:outline-none"
                 autoFocus
               />
-            </div>
 
-            {/* Engine selector (compact) */}
-            <div className="w-48 shrink-0 pb-0.5">
-              <Select
-                aria-label="Engine"
-                value={selectedEngineId}
-                direction="up"
-                onChange={(e: { target: { value: string } }) => {
-                  setSelectedEngineId(e.target.value)
-                }}
-                options={availableEngines.map((eng) => ({
-                  value: eng.id,
-                  label: eng.label,
-                }))}
-              />
-            </div>
+              {/* Bottom Card Controls Strip */}
+              <div className="flex items-center justify-between px-3 pb-2.5 pt-1">
+                {/* Custom UI-matched Engine Selector Dropdown */}
+                <EngineSelectDropdown
+                  value={selectedEngineId}
+                  onChange={(newEngineId) => {
+                    setSelectedEngineId(newEngineId)
+                  }}
+                  options={availableEngines}
+                />
 
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={input.trim() === '' || thinking}
-              className="h-10 px-5 text-[12px] font-semibold rounded-xl shrink-0 mb-0.5"
-            >
-              Send
-            </Button>
+                {/* Circular Send Button inside input card (Image 4) */}
+                <button
+                  type="submit"
+                  disabled={input.trim() === '' || thinking}
+                  title="Send message"
+                  aria-label="Send message"
+                  className="flex size-8 items-center justify-center rounded-full bg-(--color-accent) text-white shadow-xs transition-all hover:bg-(--color-accent-hover) disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer shrink-0"
+                >
+                  <SendArrowIcon className="size-4" />
+                </button>
+              </div>
+            </div>
           </form>
         </div>
       </div>

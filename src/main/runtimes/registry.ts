@@ -194,7 +194,7 @@ export function runtimeDescription(runtimeId: string): RuntimeDescription | null
       summary: 'Google Antigravity CLI hosted as an interactive session.',
     },
     'forge-native-agent': {
-      name: 'Forge Native Agent',
+      name: 'Forge Agent',
       summary:
         'Forge’s own agent: any model from any provider, driven through Forge’s tool loop. Needs no external CLI and no enrolled account.',
     },

@@ -12,6 +12,7 @@ import {
 import { cn } from '../ui'
 import { useProjectStore } from './projectStore'
 import { unwrap } from '@renderer/ipc'
+import { DEFAULT_PROVIDERS, type StoredProviderConfig } from './Settings'
 
 export interface ChatMessage {
   readonly id: string
@@ -54,17 +55,6 @@ interface PersonaOption {
   readonly defaultRole: string
 }
 
-interface StoredProviderConfig {
-  readonly id: string
-  readonly name: string
-  readonly type: 'api_key' | 'local' | 'custom'
-  readonly description: string
-  readonly apiKey?: string | undefined
-  readonly envVarHint?: string | undefined
-  readonly localUrl?: string | undefined
-  readonly models?: readonly string[] | undefined
-  readonly activeModel?: string | undefined
-}
 
 const BUILTIN_PERSONAS: readonly PersonaOption[] = [
   {
@@ -453,6 +443,12 @@ function EngineSelectDropdown({
   )
 }
 
+export interface CategorizedModelOption {
+  readonly id: string
+  readonly label: string
+  readonly category?: string | undefined
+}
+
 function ModelSelectDropdown({
   value,
   onChange,
@@ -460,37 +456,80 @@ function ModelSelectDropdown({
 }: {
   readonly value: string
   readonly onChange: (value: string) => void
-  readonly options: readonly { readonly id: string; readonly label: string }[]
+  readonly options: readonly CategorizedModelOption[]
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
   const dropdownRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
-  const selected = options.find((opt) => opt.id === value) ?? options[0]
+  const closeDropdown = (): void => {
+    setOpen(false)
+    setSearch('')
+  }
+
+  const selected =
+    options.find((opt) => opt.id === value || opt.label === value) ?? options[0]
 
   useEffect(() => {
     if (!open) return undefined
+
+    const timer = setTimeout(() => {
+      searchInputRef.current?.focus()
+    }, 50)
+
     const handleOutsideClick = (e: MouseEvent): void => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setOpen(false)
+        closeDropdown()
       }
     }
     const handleKeyDown = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') setOpen(false)
+      if (e.key === 'Escape') closeDropdown()
     }
     document.addEventListener('mousedown', handleOutsideClick)
     document.addEventListener('keydown', handleKeyDown)
     return () => {
+      clearTimeout(timer)
       document.removeEventListener('mousedown', handleOutsideClick)
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [open])
+
+  // Filter options based on search query
+  const filteredOptions = useMemo(() => {
+    if (!search.trim()) return options
+    const query = search.toLowerCase()
+    return options.filter(
+      (opt) =>
+        opt.label.toLowerCase().includes(query) ||
+        Boolean(opt.category?.toLowerCase().includes(query)),
+    )
+  }, [options, search])
+
+  // Group options by category
+  const groups = useMemo(() => {
+    const map = new Map<string, CategorizedModelOption[]>()
+    for (const opt of filteredOptions) {
+      const cat = opt.category ?? 'General'
+      const list = map.get(cat) ?? []
+      list.push(opt)
+      map.set(cat, list)
+    }
+    return Array.from(map.entries()).map(([category, items]) => ({
+      category,
+      items,
+    }))
+  }, [filteredOptions])
 
   return (
     <div ref={dropdownRef} className="relative">
       <button
         type="button"
         onClick={() => {
-          setOpen((prev) => !prev)
+          setOpen((prev) => {
+            if (prev) setSearch('')
+            return !prev
+          })
         }}
         aria-expanded={open}
         aria-label="Select Model"
@@ -515,34 +554,68 @@ function ModelSelectDropdown({
       </button>
 
       {open && (
-        <div className="absolute bottom-full left-0 mb-1.5 z-30 w-64 max-h-64 overflow-y-auto rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-1 shadow-xl">
-          <div className="px-2.5 py-1 text-[10px] font-semibold text-(--color-text-subtle) uppercase tracking-wider">
-            Model
-          </div>
-          <div className="space-y-0.5">
-            {options.map((opt) => {
-              const isSelected = opt.id === value
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => {
-                    onChange(opt.id)
-                    setOpen(false)
-                  }}
-                  className={cn(
-                    'flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[12px] transition-colors cursor-pointer',
-                    isSelected
-                      ? 'bg-(--color-accent)/10 font-semibold text-(--color-accent)'
-                      : 'text-(--color-text) hover:bg-(--color-surface-overlay)',
+        <div className="absolute bottom-full left-0 mb-1.5 z-30 w-72 max-h-80 overflow-y-auto rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-1.5 shadow-xl flex flex-col">
+          {/* Search box when 5 or more models */}
+          {options.length >= 5 && (
+            <div className="sticky top-0 z-10 -mx-1.5 -mt-1.5 mb-1.5 bg-(--color-surface-raised) p-1.5 border-b border-(--color-border)/60">
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value)
+                }}
+                placeholder="Search models..."
+                className="w-full rounded-md border border-(--color-border) bg-(--color-surface-inset) px-2.5 py-1 text-[11px] text-(--color-text) placeholder:text-(--color-text-subtle) focus:border-(--color-accent) focus:outline-none"
+              />
+            </div>
+          )}
+
+          {groups.length === 0 ? (
+            <div className="px-3 py-4 text-center text-[11px] text-(--color-text-subtle)">
+              No matching models found
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {groups.map((group, groupIdx) => (
+                <div key={group.category} className="space-y-0.5">
+                  <div className="flex items-center justify-between px-2 py-1 text-[10px] font-semibold text-(--color-text-subtle) uppercase tracking-wider">
+                    <span className="truncate">{group.category}</span>
+                    <span className="rounded-full bg-(--color-surface-overlay) px-1.5 py-0.2 text-[9px] font-normal text-(--color-text-muted)">
+                      {group.items.length}
+                    </span>
+                  </div>
+
+                  {group.items.map((opt) => {
+                    const isSelected = opt.id === value || opt.label === value
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => {
+                          onChange(opt.id)
+                          closeDropdown()
+                        }}
+                        className={cn(
+                          'flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[11.5px] transition-colors cursor-pointer',
+                          isSelected
+                            ? 'bg-(--color-accent)/10 font-semibold text-(--color-accent)'
+                            : 'text-(--color-text) hover:bg-(--color-surface-overlay)',
+                        )}
+                      >
+                        <span className="truncate pr-2">{opt.label}</span>
+                        {isSelected && <span className="text-[11px] font-bold">✓</span>}
+                      </button>
+                    )
+                  })}
+
+                  {groupIdx < groups.length - 1 && (
+                    <div className="my-1 border-t border-(--color-border)/40" />
                   )}
-                >
-                  <span className="truncate pr-2">{opt.label}</span>
-                  {isSelected && <span className="text-[11px] font-bold">✓</span>}
-                </button>
-              )
-            })}
-          </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -574,41 +647,41 @@ export function AskPage(): React.JSX.Element {
   // Providers & Active Model from localStorage
   const [providers, setProviders] = useState<readonly StoredProviderConfig[]>(() => {
     const saved = localStorage.getItem('forge.providers')
+    let baseList: readonly StoredProviderConfig[] = DEFAULT_PROVIDERS
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as StoredProviderConfig[]
-        return parsed.map((p) => {
-          if (
-            p.id === 'ollama' &&
-            p.models?.includes('llama3') &&
-            !p.models.some((m) => m.includes(':'))
-          ) {
-            return { ...p, models: [], activeModel: '' }
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const merged = [...parsed]
+          for (const def of DEFAULT_PROVIDERS) {
+            if (!merged.some((p) => p.id === def.id)) {
+              merged.push(def)
+            }
           }
-          if (p.id === 'lmstudio' && p.models?.includes('local-model')) {
-            return { ...p, models: [], activeModel: '' }
-          }
-          return p
-        })
+          baseList = merged
+        }
       } catch {
         // fallback
       }
     }
-    return [
-      {
-        id: 'ollama',
-        name: 'Ollama (Local)',
-        type: 'local',
-        description: 'Run open-weight models locally on your machine with Ollama.',
-        localUrl: 'http://localhost:11434',
-        models: [],
-        activeModel: '',
-      },
-    ]
+    return baseList.map((p) => {
+      if (
+        p.id === 'ollama' &&
+        p.models?.includes('llama3') &&
+        !p.models.some((m) => m.includes(':'))
+      ) {
+        return { ...p, models: [], activeModel: '' }
+      }
+      if (p.id === 'lmstudio' && p.models?.includes('local-model')) {
+        return { ...p, models: [], activeModel: '' }
+      }
+      return p
+    })
   })
 
-  // Auto-scan Ollama on mount
+  // Auto-scan Ollama and LM Studio on mount
   useEffect(() => {
+    // Scan Ollama
     window.forge.provider
       .scanModels('ollama', 'http://localhost:11434')
       .then((res) => {
@@ -635,9 +708,37 @@ export function AskPage(): React.JSX.Element {
       .catch(() => {
         // ignore
       })
+
+    // Scan LM Studio
+    window.forge.provider
+      .scanModels('lmstudio', 'http://localhost:1234/v1')
+      .then((res) => {
+        if (res.ok && res.value.ok && res.value.models.length > 0) {
+          const detected = res.value.models
+          setProviders((prev) => {
+            const updated = prev.map((p) =>
+              p.id === 'lmstudio'
+                ? {
+                    ...p,
+                    models: detected,
+                    activeModel:
+                      p.activeModel && detected.includes(p.activeModel)
+                        ? p.activeModel
+                        : (detected[0] ?? ''),
+                  }
+                : p,
+            )
+            localStorage.setItem('forge.providers', JSON.stringify(updated))
+            return updated
+          })
+        }
+      })
+      .catch(() => {
+        // ignore
+      })
   }, [])
 
-  const [activeProviderId] = useState<string>(() => {
+  const [activeProviderId, setActiveProviderId] = useState<string>(() => {
     return localStorage.getItem('forge.active_provider_id') ?? 'ollama'
   })
 
@@ -700,7 +801,7 @@ export function AskPage(): React.JSX.Element {
   const [availableEngines, setAvailableEngines] = useState<
     readonly { id: string; label: string }[]
   >([
-    { id: 'forge-native-agent', label: 'Forge Native Agent (Built-in)' },
+    { id: 'forge-native-agent', label: 'Forge Agent' },
     { id: 'primary-engine', label: 'Primary Engine' },
     { id: 'secondary-engine', label: 'Secondary Engine' },
     { id: 'mock:default', label: 'mock:default (Simulated)' },
@@ -719,7 +820,7 @@ export function AskPage(): React.JSX.Element {
       .then((res) => {
         const data = unwrap(res)
         const list: { id: string; label: string }[] = [
-          { id: 'forge-native-agent', label: 'Forge Native Agent (Built-in)' },
+          { id: 'forge-native-agent', label: 'Forge Agent' },
         ]
         for (const role of data.roles) {
           for (const er of role.eligibleRuntimes) {
@@ -746,7 +847,13 @@ export function AskPage(): React.JSX.Element {
       readonly id: string
       readonly name: string
       readonly defaultModel?: string | undefined
-      readonly models?: readonly { readonly id: string; readonly label: string }[] | undefined
+      readonly models?:
+        | readonly {
+            readonly id: string
+            readonly label: string
+            readonly category?: string | undefined
+          }[]
+        | undefined
     }[]
   >([])
 
@@ -781,26 +888,58 @@ export function AskPage(): React.JSX.Element {
     })
   }
 
-  // Available models for currently selected engine
-  const currentEngineModels: readonly { readonly id: string; readonly label: string }[] =
-    useMemo(() => {
-      if (selectedEngineId === 'forge-native-agent') {
-        return (currentProvider?.models ?? []).map((m) => ({ id: m, label: m }))
+  // Available models for currently selected engine, organized category-wise
+  const currentEngineModels: readonly CategorizedModelOption[] = useMemo(() => {
+    if (selectedEngineId === 'forge-native-agent') {
+      const list: CategorizedModelOption[] = []
+      // Gather models across all configured providers
+      for (const p of providers) {
+        if (p.models && p.models.length > 0) {
+          for (const m of p.models) {
+            list.push({
+              id: `${p.id}:::${m}`,
+              label: m,
+              category: p.name,
+            })
+          }
+        }
       }
-      const cli = detectedClis.find((c) => c.id === selectedEngineId)
-      if (cli?.models && cli.models.length > 0) {
-        return cli.models
+      if (list.length === 0) {
+        if (currentModel) {
+          list.push({
+            id: `${currentProvider?.id ?? 'ollama'}:::${currentModel}`,
+            label: currentModel,
+            category: currentProvider?.name ?? 'Ollama (Local)',
+          })
+        } else {
+          list.push({
+            id: 'ollama:::llama3:latest',
+            label: 'llama3:latest (Default)',
+            category: 'Ollama (Local)',
+          })
+        }
       }
-      if (cli?.defaultModel) {
-        return [{ id: cli.defaultModel, label: cli.defaultModel }]
-      }
-      return []
-    }, [selectedEngineId, currentProvider, detectedClis])
+      return list
+    }
+    const cli = detectedClis.find((c) => c.id === selectedEngineId)
+    if (cli?.models && cli.models.length > 0) {
+      return cli.models
+    }
+    if (cli?.defaultModel) {
+      return [{ id: cli.defaultModel, label: cli.defaultModel, category: cli.name }]
+    }
+    return []
+  }, [selectedEngineId, providers, currentProvider, currentModel, detectedClis])
 
   // Active model ID for currently selected engine
   const activeEngineModelId = useMemo(() => {
     if (selectedEngineId === 'forge-native-agent') {
-      return currentModel
+      const currentCombinedId = `${currentProvider?.id ?? 'ollama'}:::${currentModel}`
+      const matchExact = currentEngineModels.find((m) => m.id === currentCombinedId)
+      if (matchExact) return matchExact.id
+      const matchLabel = currentEngineModels.find((m) => m.label === currentModel)
+      if (matchLabel) return matchLabel.id
+      return currentEngineModels[0]?.id ?? ''
     }
     const cli = detectedClis.find((c) => c.id === selectedEngineId)
     return (
@@ -809,12 +948,19 @@ export function AskPage(): React.JSX.Element {
       currentEngineModels[0]?.id ??
       ''
     )
-  }, [selectedEngineId, currentModel, detectedClis, selectedEngineModels, currentEngineModels])
+  }, [
+    selectedEngineId,
+    currentProvider,
+    currentModel,
+    detectedClis,
+    selectedEngineModels,
+    currentEngineModels,
+  ])
 
   // Active model human-readable label
   const activeEngineModelLabel = useMemo(() => {
     if (selectedEngineId === 'forge-native-agent') {
-      return `${currentProvider?.name ?? 'Ollama'} (${currentModel})`
+      return `${currentModel || 'Default'} (${currentProvider?.name ?? 'Forge Agent'})`
     }
     const matched = currentEngineModels.find((m) => m.id === activeEngineModelId)
     if (matched) return matched.label
@@ -824,6 +970,33 @@ export function AskPage(): React.JSX.Element {
 
   const handleSelectEngineModel = (newModel: string): void => {
     if (selectedEngineId === 'forge-native-agent') {
+      if (newModel.includes(':::')) {
+        const [providerId, modelName] = newModel.split(':::')
+        const targetProvider = providers.find((p) => p.id === providerId)
+        if (targetProvider && modelName) {
+          setActiveProviderId(targetProvider.id)
+          localStorage.setItem('forge.active_provider_id', targetProvider.id)
+          const updated = providers.map((p) =>
+            p.id === targetProvider.id ? { ...p, activeModel: modelName } : p,
+          )
+          setProviders(updated)
+          localStorage.setItem('forge.providers', JSON.stringify(updated))
+          void window.forge.provider.setActiveModel({
+            providerId: targetProvider.id,
+            model: modelName,
+            ...(targetProvider.localUrl === undefined
+              ? {}
+              : { endpointUrl: targetProvider.localUrl }),
+            ...(targetProvider.apiKey === undefined ? {} : { apiKey: targetProvider.apiKey }),
+          })
+          show({
+            tone: 'success',
+            title: 'Model Selected',
+            description: `Active model set to ${modelName} (${targetProvider.name})`,
+          })
+          return
+        }
+      }
       handleSelectModel(newModel)
     } else {
       saveEngineModel(selectedEngineId, newModel)
@@ -861,7 +1034,7 @@ export function AskPage(): React.JSX.Element {
             personaIcon: '🧠',
             engineId: 'forge-native-agent',
             modelName: `${currentProvider?.name ?? 'Ollama'} / ${currentModel}`,
-            text: `Hello! I am your **Implementation Planner** for **${project?.name ?? 'this project'}**.\n\nPowered by **Forge Native Agent** using **${currentProvider?.name ?? 'Ollama'} (${currentModel})**.\n\nAsk me anything to explore repository architecture, inspect code workflows, plan features, or diagnose issues.`,
+            text: `Hello! I am your **Implementation Planner** for **${project?.name ?? 'this project'}**.\n\nPowered by **Forge Agent** using **${currentProvider?.name ?? 'Ollama'} (${currentModel})**.\n\nAsk me anything to explore repository architecture, inspect code workflows, plan features, or diagnose issues.`,
             timestamp: '0:00:00',
           },
         ],
@@ -1577,30 +1750,6 @@ ${toolTrail}`
                     {capabilities.source}
                   </Badge>
                 )}
-              </div>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* If the active engine has models available, allow picking models directly */}
-            {currentEngineModels.length > 0 && (
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] font-semibold text-(--color-text-subtle) hidden md:inline">
-                  Model:
-                </span>
-                <div className="w-52">
-                  <Select
-                    aria-label="Active Model"
-                    value={activeEngineModelId}
-                    onChange={(e: { target: { value: string } }) => {
-                      handleSelectEngineModel(e.target.value)
-                    }}
-                    options={currentEngineModels.map((m) => ({
-                      value: m.id,
-                      label: m.label,
-                    }))}
-                  />
-                </div>
               </div>
             )}
           </div>

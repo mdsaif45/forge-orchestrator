@@ -757,6 +757,7 @@ export const IPC_CONTRACT = {
                 z.strictObject({
                   id: z.string(),
                   label: z.string(),
+                  category: z.string().optional(),
                 }),
               )
               .readonly()

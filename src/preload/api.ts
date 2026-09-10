@@ -97,6 +97,7 @@ export interface ForgeApi {
             | readonly {
                 readonly id: string
                 readonly label: string
+                readonly category?: string | undefined
               }[]
             | undefined
         }[]

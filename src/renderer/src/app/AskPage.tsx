@@ -12,9 +12,6 @@ import {
 import { cn } from '../ui'
 import { useProjectStore } from './projectStore'
 import { unwrap } from '@renderer/ipc'
-import { ConversationMenu } from './ask/ConversationMenu'
-import { SlashCommandsMenu, SLASH_COMMANDS } from './ask/SlashCommandsMenu'
-import { AskArtifactsDrawer } from './ask/AskArtifactsDrawer'
 
 export interface ChatMessage {
   readonly id: string
@@ -29,6 +26,10 @@ export interface ChatMessage {
   readonly elapsed?: string | undefined
   /**
    * The model's visible reasoning, kept apart from the answer.
+   *
+   * Stored separately rather than left inline: a model that emits `<think>`
+   * blocks would otherwise bake them into the saved message, where the answer
+   * and the working-out can no longer be told apart.
    */
   readonly reasoning?: string | undefined
 }
@@ -98,11 +99,25 @@ const BUILTIN_PERSONAS: readonly PersonaOption[] = [
     id: 'qa',
     label: 'QA Approver',
     icon: '🛡️',
-    description: 'Verifies release criteria, regression smoke tests, and PR signoff.',
-    defaultRole: 'reviewer',
+    description: 'Validates acceptance criteria, regression safeguards, and verification flows.',
+    defaultRole: 'qa',
+  },
+  {
+    id: 'debugger',
+    label: 'Debugger',
+    icon: '🐛',
+    description: 'Investigates root causes, error stack traces, and targeted fix recipes.',
+    defaultRole: 'debugger',
   },
 ]
 
+/**
+ * The tool trail to append to an agent turn's reply, or null for a chat turn.
+ *
+ * A separate typed helper because the two send paths return different shapes,
+ * and narrowing a union with `'toolsUsed' in value` types the array as unknown —
+ * which the strict lint rules then reject rather than silently accept.
+ */
 function toolSummary(value: object): string | null {
   const { toolsUsed, rounds } = value as {
     readonly toolsUsed?: readonly { readonly name: string; readonly ok: boolean }[]
@@ -139,51 +154,58 @@ function ThreadMenuItem({
   )
 }
 
-/** Collapsible execution step block matching modern developer agent experience */
-function ExecutionBlock({
-  title = 'Confirmed current branch/commit state before writing the handoff prompt',
-  children,
+/**
+ * A model's visible reasoning, collapsed by default once the reply has landed.
+ *
+ * Open while streaming so the working-out can be watched live, then closed so
+ * the transcript stays readable — the reasoning is usually far longer than the
+ * answer, and leaving it expanded buries the part that was asked for.
+ */
+function ThinkingBlock({
+  text,
+  streaming = false,
 }: {
-  readonly title?: string
-  readonly children: React.ReactNode
+  readonly text: string
+  readonly streaming?: boolean
 }): React.JSX.Element {
-  const [expanded, setExpanded] = useState(false)
+  const [open, setOpen] = useState(streaming)
+
   return (
-    <div className="my-2 rounded-xl border border-(--color-border) bg-(--color-surface-raised)/60 overflow-hidden text-[12px]">
+    <div className="rounded-lg border border-(--color-border) bg-(--color-surface-inset)">
       <button
         type="button"
         onClick={() => {
-          setExpanded(!expanded)
+          setOpen((current) => !current)
         }}
-        className="flex w-full items-center justify-between px-3 py-2 text-left font-mono text-[11px] text-(--color-text-muted) hover:text-(--color-text) hover:bg-(--color-surface-inset) cursor-pointer select-none"
+        aria-expanded={open}
+        className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-[11px] text-(--color-text-muted) hover:text-(--color-text)"
       >
-        <span className="truncate">{title}</span>
-        <svg
-          className={cn(
-            'size-3 text-(--color-text-subtle) transition-transform shrink-0',
-            expanded ? 'rotate-90' : '',
-          )}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-        >
-          <polyline points="9 18 15 12 9 6" />
-        </svg>
+        <span className={streaming ? 'animate-pulse' : ''}>💭</span>
+        <span className="font-semibold">Thinking</span>
+        {streaming && <span className="italic">…</span>}
+        <span className="ml-auto font-mono text-[10px] text-(--color-text-subtle)">
+          {open ? 'hide' : `${String(text.length)} chars`}
+        </span>
       </button>
-      {expanded && (
+      {open && (
         <div
-          className="border-t border-(--color-border) p-3 bg-(--color-surface-inset)/50 max-h-60 overflow-y-auto"
+          className="max-h-64 overflow-y-auto border-t border-(--color-border) px-3 py-2 text-[11px] leading-relaxed whitespace-pre-wrap text-(--color-text-muted)"
           data-selectable
         >
-          {children}
+          {text}
         </div>
       )}
     </div>
   )
 }
 
-/** Copies one message's markdown source. */
+/**
+ * Copies one message's markdown source.
+ *
+ * Alongside making the text selectable rather than instead of it: a drag-select
+ * across a long reply is awkward, and the source is what pastes usefully into an
+ * editor or an issue — the rendered table becomes pipes again.
+ */
 function CopyTextButton({ text }: { readonly text: string }): React.JSX.Element {
   const [copied, setCopied] = useState(false)
 
@@ -192,12 +214,18 @@ function CopyTextButton({ text }: { readonly text: string }): React.JSX.Element 
       type="button"
       aria-label="Copy message"
       onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => {
-          setCopied(true)
-          setTimeout(() => {
-            setCopied(false)
-          }, 1200)
-        })
+        navigator.clipboard
+          .writeText(text)
+          .then(() => {
+            setCopied(true)
+            setTimeout(() => {
+              setCopied(false)
+            }, 1200)
+          })
+          .catch(() => {
+            // A denied clipboard is a user setting, not a failure to report. The
+            // message is selectable, so copying is still possible by hand.
+          })
       }}
       className="cursor-pointer text-[10px] text-(--color-text-subtle) hover:text-(--color-text)"
     >
@@ -214,7 +242,6 @@ export function AskPage(): React.JSX.Element {
   const { show } = useToast()
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Custom agents from localStorage
   const [customAgents] = useState<readonly CustomAgentConfig[]>(() => {
@@ -305,6 +332,17 @@ export function AskPage(): React.JSX.Element {
       ? currentProvider.activeModel
       : (currentProvider?.models?.[0] ?? '')
 
+  /**
+   * Publishes the chosen model to main, where a workflow can read it.
+   *
+   * Ask mode sends the model with every turn, so this changes nothing here. A
+   * workflow runs entirely in main and cannot see this component's
+   * `localStorage`, so without this it has no model to call.
+   *
+   * Keyed on the derived values rather than fired from the select handler:
+   * the model also settles on first load and again when detection replaces a
+   * stale name, and a handler would miss both.
+   */
   useEffect(() => {
     if (currentProvider === undefined || currentModel === '') return
 
@@ -411,28 +449,40 @@ export function AskPage(): React.JSX.Element {
             personaName: 'Implementation Planner',
             personaIcon: '🧠',
             engineId: 'forge-native-agent',
-            modelName: 'Ollama (Local)',
-            text: `Welcome to **Forge Ask**. How can I help you explore this project's architecture, workflows, and conventions today?`,
-            timestamp: 'Just now',
+            modelName: `${currentProvider?.name ?? 'Ollama'} / ${currentModel}`,
+            text: `Hello! I am your **Implementation Planner** for **${project?.name ?? 'this project'}**.\n\nPowered by **Forge Native Agent** using **${currentProvider?.name ?? 'Ollama'} (${currentModel})**.\n\nAsk me anything to explore repository architecture, inspect code workflows, plan features, or diagnose issues.`,
+            timestamp: '0:00:00',
           },
         ],
       },
     ]
   })
 
-  const [activeThreadId, setActiveThreadId] = useState<string>(
-    () => threads[0]?.id ?? 'thread-init',
-  )
+  const [activeThreadId, setActiveThreadId] = useState<string>(threads[0]?.id ?? 'thread-1')
   const [input, setInput] = useState('')
   const [thinking, setThinking] = useState(false)
+  /**
+   * The reply currently arriving, before it becomes a saved message.
+   *
+   * Held outside the thread so a partial answer is never persisted: an
+   * interrupted stream leaves the transcript unchanged rather than storing half
+   * a message that reads as complete.
+   */
+  /**
+   * What the selected model was found to support, once a turn has asked.
+   *
+   * Null until the first turn. Never a toggle: capability belongs to the model,
+   * and asking the user to declare it meant they could enable tools on a model
+   * that has none and get a broken turn instead of a refusal.
+   */
+  /** Seconds the running turn has taken, so a slow turn visibly progresses. */
   const [elapsed, setElapsed] = useState(0)
   const [capabilities, setCapabilities] = useState<{
     readonly tools: boolean
-    readonly thinking: boolean
     readonly vision: boolean
+    readonly thinking: boolean
     readonly source: string
   } | null>(null)
-
   const [menuThreadId, setMenuThreadId] = useState<string | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
@@ -441,18 +491,15 @@ export function AskPage(): React.JSX.Element {
     readonly streamId: string
     readonly content: string
     readonly reasoning: string
+    /**
+     * Reasoning and tool calls in the order they happened.
+     *
+     * One timeline rather than two boxes: the reasoning explains the tool calls
+     * that follow it, and showing them separately put the thinking after the
+     * work it described.
+     */
     readonly timeline: readonly { readonly kind: 'reasoning' | 'tool'; readonly text: string }[]
   } | null>(null)
-
-  // Modern UI states
-  const [artifactsDrawerOpen, setArtifactsDrawerOpen] = useState(false)
-  const [conversationMenuOpen, setConversationMenuOpen] = useState(false)
-  const [slashMenuOpen, setSlashMenuOpen] = useState(false)
-  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0)
-  const [reasoningEffort, setReasoningEffort] = useState<'Low' | 'Medium' | 'High'>('High')
-  const [bannerDismissed, setBannerDismissed] = useState(false)
-  const [editingSessionTitle, setEditingSessionTitle] = useState(false)
-  const [tempSessionTitle, setTempSessionTitle] = useState('')
 
   const activeThread = threads.find((t) => t.id === activeThreadId) ?? threads[0]
   const messages = activeThread?.messages ?? []
@@ -503,8 +550,8 @@ export function AskPage(): React.JSX.Element {
     show({ tone: 'neutral', title: 'New chat thread created' })
   }
 
-  const handleDeleteThread = (threadId: string, e?: React.MouseEvent): void => {
-    e?.stopPropagation()
+  const handleDeleteThread = (threadId: string, e: React.MouseEvent): void => {
+    e.stopPropagation()
     if (threads.length <= 1) return
     const updated = threads.filter((t) => t.id !== threadId)
     saveThreads(updated)
@@ -513,11 +560,17 @@ export function AskPage(): React.JSX.Element {
     }
   }
 
-  // A visible clock while a turn runs
+  // A visible clock while a turn runs. An agent turn reads files and can take
+  // 30s or more, and the previous static "analyzing" line made that look like a
+  // hang — which is exactly how it was reported.
   useEffect(() => {
     if (!thinking) return undefined
 
     const started = Date.now()
+    // State is set only from the interval callback, never synchronously in the
+    // effect body — the latter triggers the cascading render the
+    // `react-hooks/set-state-in-effect` rule exists to prevent. The counter is
+    // reset when the next turn starts rather than when this one ends.
     const timer = setInterval(() => {
       setElapsed(Math.round((Date.now() - started) / 1000))
     }, 1000)
@@ -526,18 +579,22 @@ export function AskPage(): React.JSX.Element {
     }
   }, [thinking])
 
-  // Dismiss menu on outside click
+  // Dismissed on any outside click, so the menu cannot be left open over a row
+  // it no longer belongs to. Registered only while a menu is open.
   useEffect(() => {
     if (menuThreadId === null) return undefined
     const close = (): void => {
       setMenuThreadId(null)
     }
+    // Capture phase, so a click on another row's trigger still toggles that one
+    // rather than being swallowed by this listener.
     window.addEventListener('click', close, { capture: true })
     return () => {
       window.removeEventListener('click', close, { capture: true })
     }
   }, [menuThreadId])
 
+  /** Applies one change to one thread and persists the result. */
   const updateThread = (threadId: string, change: Partial<ChatThread>): void => {
     saveThreads(threads.map((t) => (t.id === threadId ? { ...t, ...change } : t)))
   }
@@ -550,6 +607,8 @@ export function AskPage(): React.JSX.Element {
     const archived = thread.archived !== true
     updateThread(thread.id, { archived, ...(archived ? { pinned: false } : {}) })
 
+    // Archiving the open thread would leave the transcript showing something the
+    // list no longer offers, so move to the first thread still visible.
     if (archived && activeThreadId === thread.id) {
       const next = threads.find((t) => t.id !== thread.id && t.archived !== true)
       if (next !== undefined) setActiveThreadId(next.id)
@@ -558,71 +617,17 @@ export function AskPage(): React.JSX.Element {
 
   const handleRenameThread = (thread: ChatThread): void => {
     const title = renameDraft.trim()
+    // An empty title would leave an unidentifiable row; keeping the old one is
+    // the honest outcome of a cancelled rename.
     if (title !== '') updateThread(thread.id, { title })
     setRenamingId(null)
-  }
-
-  const handleForkConversation = (fromMessageId?: string): void => {
-    if (!activeThread) return
-    let forkedMsgs = activeThread.messages
-    if (fromMessageId) {
-      const idx = activeThread.messages.findIndex((m) => m.id === fromMessageId)
-      if (idx !== -1) {
-        forkedMsgs = activeThread.messages.slice(0, idx + 1)
-      }
-    }
-    const newId = `thread-${String(Date.now())}`
-    const forkedThread: ChatThread = {
-      id: newId,
-      title: `${activeThread.title} (Fork)`,
-      createdAt: 'Just now',
-      personaId: selectedPersonaId,
-      messages: forkedMsgs,
-    }
-    const updated = [forkedThread, ...threads]
-    saveThreads(updated)
-    setActiveThreadId(newId)
-    show({
-      tone: 'success',
-      title: 'Conversation forked',
-      description: `Branched into "${forkedThread.title}"`,
-    })
-  }
-
-  const handleExportTranscript = (format: 'markdown' | 'jsonl'): void => {
-    if (!activeThread) return
-    let content: string
-    if (format === 'markdown') {
-      content = `# ${activeThread.title}\n\n`
-      for (const m of activeThread.messages) {
-        content += `### ${m.role === 'user' ? 'User' : (m.personaName ?? 'Assistant')} (${m.timestamp})\n\n${m.text}\n\n---\n\n`
-      }
-    } else {
-      content = activeThread.messages.map((m) => JSON.stringify(m)).join('\n')
-    }
-    void navigator.clipboard.writeText(content)
-    show({
-      tone: 'success',
-      title: 'Transcript copied',
-      description: `Exported ${format.toUpperCase()} copied to clipboard.`,
-    })
-  }
-
-  const handleRetryPrompt = (text: string): void => {
-    setInput(text)
-    textareaRef.current?.focus()
-  }
-
-  const handleCommitSessionRename = (): void => {
-    if (tempSessionTitle.trim() && activeThread) {
-      updateThread(activeThread.id, { title: tempSessionTitle.trim() })
-    }
-    setEditingSessionTitle(false)
   }
 
   const handleSend = async (queryText?: string): Promise<void> => {
     const textToSend = queryText ?? input
     if (textToSend.trim() === '' || thinking || activeThread === undefined) return
+    // Captured before the awaits below: agent mode needs a project id to resolve
+    // the workspace in main, and the page renders a placeholder without one.
     const projectId = project?.id
     if (projectId === undefined) return
 
@@ -649,7 +654,6 @@ export function AskPage(): React.JSX.Element {
     const updatedThreads = threads.map((t) => (t.id === activeThread.id ? updatedThread : t))
     saveThreads(updatedThreads)
     setInput('')
-    setSlashMenuOpen(false)
     setThinking(true)
     setElapsed(0)
 
@@ -659,6 +663,7 @@ export function AskPage(): React.JSX.Element {
       ? `${currentProvider?.name ?? 'Ollama (Local)'} / ${currentModel}`
       : selectedEngineId
 
+    // Construct system prompt with repository context & active persona
     const systemPrompt = `You are ${activePersona?.label ?? 'an AI Assistant'}, an expert software engineering persona inside Forge Orchestrator.
 Project Context:
 - Name: ${project?.name ?? 'Unknown'}
@@ -674,6 +679,7 @@ Instructions:
 - Provide clear, direct, accurate, and context-aware responses.
 - Use markdown formatting, code blocks, bullet points, and actionable solutions.`
 
+    // Prepare chat history
     const historyPayload = updatedMessages
       .filter((m) => m.id !== 'welcome')
       .map((m) => ({
@@ -683,8 +689,11 @@ Instructions:
 
     let answer = ''
     let thinkingText = ''
+    /** The tool trail, appended to whatever answer (or non-answer) results. */
     let toolTrail = ''
 
+    // Streamed, so the reply appears as it is produced. Filtered by streamId
+    // because chunks are broadcast to every window and two replies can overlap.
     const streamId = `s-${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`
     setLiveReply({ streamId, content: '', reasoning: '', timeline: [] })
 
@@ -694,6 +703,8 @@ Instructions:
         if (current?.streamId !== streamId) return current
         if (chunk.kind === 'reasoning') {
           const last = current.timeline.at(-1)
+          // Appended to the open reasoning entry rather than starting a new one,
+          // so a round's thinking reads as one paragraph instead of fragments.
           const timeline =
             last?.kind === 'reasoning'
               ? [
@@ -714,6 +725,10 @@ Instructions:
     })
 
     try {
+      // Always the agent path. Whether tools are actually sent is decided in
+      // main from the model's own reported capabilities, so a model without
+      // tool support degrades to a plain completion rather than failing — and
+      // nobody has to know in advance which of their models is which.
       const res = await window.forge.provider.agentTurn({
         streamId,
         projectId,
@@ -741,6 +756,7 @@ file must actually change. Your final message reports what you changed.
       })
 
       if (res.ok) setCapabilities(res.value.capabilities)
+
       if (res.ok) thinkingText = res.value.reasoning
 
       if (res.ok && res.value.ok && res.value.content.trim() !== '') {
@@ -749,6 +765,10 @@ file must actually change. Your final message reports what you changed.
         answer = `⚠️ **${activeModelLabel} could not finish:**\n\n${res.value.error}`
       }
 
+      // Appended whatever the outcome. The trail is how the answer can be
+      // trusted (A3), and on a turn that produced no answer it is the only
+      // record of what was attempted — which is exactly the case where it was
+      // previously dropped, leaving a bare and untrue connection error.
       if (res.ok) {
         const summary = toolSummary(res.value)
         if (summary !== null) toolTrail = summary
@@ -757,17 +777,26 @@ file must actually change. Your final message reports what you changed.
       console.error('Chat error:', err)
       answer = `⚠️ **Connection Error**:\n\nCould not reach ${activeModelLabel}. Please verify that the provider service is running.`
     } finally {
+      // Unsubscribed in `finally` so a thrown request cannot leave a listener
+      // attached, accumulating a second copy of the next reply.
       unsubscribe()
       setLiveReply(null)
     }
 
+    // An empty reply is not evidence of a connection problem, and claiming one
+    // was actively misleading: a turn that read six files and was then refused
+    // a write reported "Unable to connect" while the model was plainly
+    // reachable and had just answered. The tool trail is appended either way,
+    // so what actually happened is visible rather than guessed at.
     if (!answer) {
       answer = `⚠️ **${activeModelLabel} finished without an answer.**\n\nIt used its tools but produced no final reply — usually a small model losing track after several rounds, or every path it tried being refused. The tool trail below shows what it attempted; asking again more specifically often works.`
     }
 
-    if (toolTrail !== '') {
-      answer = `${answer}\n\n---\n${toolTrail}`
-    }
+    if (toolTrail !== '')
+      answer = `${answer}
+
+---
+${toolTrail}`
 
     const elapsedSeconds = Math.max(1, Math.round((Date.now() - startTime) / 1000))
     const responseTime = new Date()
@@ -799,65 +828,22 @@ file must actually change. Your final message reports what you changed.
   // Filtered and sorted threads
   const filteredThreads = threads
     .filter((t) => {
+      // Archived threads stay out of the list unless the archive is being shown,
+      // and a search still reaches them there rather than hiding them twice.
       if (t.archived === true && !showArchived) return false
       if (searchQuery.trim() === '') return true
       return t.title.toLowerCase().includes(searchQuery.toLowerCase())
     })
     .slice()
     .sort((a, b) => {
+      // Pinned first, regardless of the chosen order — that is what pinning is
+      // for, and applying the sort to it would make the pin do nothing.
       if ((a.pinned === true) !== (b.pinned === true)) return a.pinned === true ? -1 : 1
       if (sortOrder === 'newest') return b.id.localeCompare(a.id)
       return a.id.localeCompare(b.id)
     })
 
-  const pinnedThreads = filteredThreads.filter((t) => t.pinned === true)
-  const recentThreads = filteredThreads.filter((t) => t.pinned !== true)
   const archivedCount = threads.filter((t) => t.archived === true).length
-
-  // Slash commands input handling
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>): void => {
-    const val = e.target.value
-    setInput(val)
-    if (val.startsWith('/')) {
-      setSlashMenuOpen(true)
-      setSlashSelectedIndex(0)
-    } else {
-      setSlashMenuOpen(false)
-    }
-  }
-
-  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>): void => {
-    if (slashMenuOpen) {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault()
-        setSlashSelectedIndex((prev) => (prev + 1) % SLASH_COMMANDS.length)
-        return
-      }
-      if (e.key === 'ArrowUp') {
-        e.preventDefault()
-        setSlashSelectedIndex((prev) => (prev - 1 + SLASH_COMMANDS.length) % SLASH_COMMANDS.length)
-        return
-      }
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        const selected = SLASH_COMMANDS[slashSelectedIndex]
-        if (selected) {
-          setInput(selected.command + ' ')
-          setSlashMenuOpen(false)
-        }
-        return
-      }
-      if (e.key === 'Escape') {
-        setSlashMenuOpen(false)
-        return
-      }
-    }
-
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      void handleSend()
-    }
-  }
 
   if (project === null) {
     return (
@@ -874,18 +860,18 @@ file must actually change. Your final message reports what you changed.
   }
 
   return (
-    <div className="flex h-full overflow-hidden relative">
-      {/* ── Ask Mode Threads Drawer (Left Pane) ── */}
-      <aside className="flex w-64 shrink-0 flex-col border-r border-(--color-border) bg-(--color-surface)">
+    <div className="flex h-full overflow-hidden">
+      {/* ── Left Sidebar ── */}
+      <aside className="flex w-60 shrink-0 flex-col border-r border-(--color-border) bg-(--color-surface)">
         {/* New Chat Button */}
         <div className="p-3">
           <Button
             variant="primary"
             size="sm"
             onClick={handleCreateThread}
-            className="w-full justify-center rounded-xl text-[12px] font-semibold h-9 shadow-xs"
+            className="w-full justify-center rounded-lg text-[12px] font-semibold h-9"
           >
-            <span className="mr-1 text-[13px] font-bold">+</span> New chat
+            + New chat
           </Button>
         </div>
 
@@ -897,13 +883,15 @@ file must actually change. Your final message reports what you changed.
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
               setSearchQuery(e.target.value)
             }}
-            className="h-8 text-[12px] rounded-lg bg-(--color-surface-raised)"
+            className="h-8 text-[12px] bg-(--color-surface-raised)"
           />
         </div>
 
-        {/* Sort header */}
-        <div className="flex items-center justify-between px-3 pb-1.5 text-[10px] font-semibold text-(--color-text-subtle) uppercase tracking-wider">
-          <span>Sort: {sortOrder === 'newest' ? 'Newest' : 'Oldest'}</span>
+        {/* Sort & Persona selector */}
+        <div className="flex items-center justify-between px-3 pb-2">
+          <span className="text-[10px] font-semibold text-(--color-text-subtle) uppercase tracking-wider">
+            Sort: {sortOrder === 'newest' ? 'Newest first' : 'Oldest first'}
+          </span>
           <button
             type="button"
             onClick={() => {
@@ -915,137 +903,24 @@ file must actually change. Your final message reports what you changed.
           </button>
         </div>
 
-        {/* Threads List */}
+        {/* Thread List */}
         <ScrollArea className="flex-1 px-2 pb-2">
-          <div className="space-y-1">
-            {/* Pinned Section */}
-            {pinnedThreads.length > 0 && (
-              <div className="mb-2">
-                <div className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold tracking-wider text-(--color-text-subtle) uppercase">
-                  <span>📌 Pinned</span>
-                </div>
-                {pinnedThreads.map((thread) => {
-                  const isCurrent = thread.id === activeThreadId
-                  const isRenaming = renamingId === thread.id
-                  return (
-                    <div
-                      key={thread.id}
-                      className={cn(
-                        'group relative flex w-full items-start justify-between rounded-lg px-2.5 py-1.5 transition-colors',
-                        isCurrent
-                          ? 'bg-(--color-surface-raised) text-(--color-text) font-semibold shadow-xs'
-                          : 'text-(--color-text-muted) hover:bg-(--color-surface-raised)/60 hover:text-(--color-text)',
-                      )}
-                    >
-                      {isRenaming ? (
-                        <Input
-                          autoFocus
-                          value={renameDraft}
-                          onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                            setRenameDraft(e.target.value)
-                          }}
-                          onBlur={() => {
-                            handleRenameThread(thread)
-                          }}
-                          onKeyDown={(e: React.KeyboardEvent) => {
-                            if (e.key === 'Enter') handleRenameThread(thread)
-                            if (e.key === 'Escape') setRenamingId(null)
-                          }}
-                          className="h-7 text-[12px]"
-                        />
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveThreadId(thread.id)
-                            }}
-                            className="min-w-0 flex-1 cursor-pointer truncate pr-1.5 text-left"
-                          >
-                            <div className="flex items-center gap-1.5 truncate text-[12px]">
-                              <span className="size-1.5 rounded-full bg-(--color-accent) shrink-0" />
-                              <span className="truncate">{thread.title}</span>
-                            </div>
-                            <div className="ml-3 mt-0.5 font-mono text-[10px] text-(--color-text-subtle)">
-                              {thread.messages.length > 1
-                                ? `${String(thread.messages.length)} msgs`
-                                : '1 msg'}{' '}
-                              · {thread.createdAt}
-                            </div>
-                          </button>
-                          <button
-                            type="button"
-                            aria-label="Thread actions"
-                            onClick={() => {
-                              setMenuThreadId((current) =>
-                                current === thread.id ? null : thread.id,
-                              )
-                            }}
-                            className="shrink-0 cursor-pointer px-1 text-[13px] opacity-0 group-hover:opacity-100 hover:text-(--color-text)"
-                          >
-                            ⋯
-                          </button>
-                        </>
-                      )}
-
-                      {menuThreadId === thread.id && (
-                        <div className="absolute top-8 right-1 z-20 w-36 overflow-hidden rounded-lg border border-(--color-border) bg-(--color-surface-raised) shadow-lg">
-                          <ThreadMenuItem
-                            label="Unpin"
-                            onSelect={() => {
-                              handleTogglePin(thread)
-                              setMenuThreadId(null)
-                            }}
-                          />
-                          <ThreadMenuItem
-                            label="Rename"
-                            onSelect={() => {
-                              setRenameDraft(thread.title)
-                              setRenamingId(thread.id)
-                              setMenuThreadId(null)
-                            }}
-                          />
-                          <ThreadMenuItem
-                            label={thread.archived === true ? 'Unarchive' : 'Archive'}
-                            onSelect={() => {
-                              handleToggleArchive(thread)
-                              setMenuThreadId(null)
-                            }}
-                          />
-                          {threads.length > 1 && (
-                            <ThreadMenuItem
-                              label="Delete"
-                              danger
-                              onSelect={(e) => {
-                                handleDeleteThread(thread.id, e)
-                                setMenuThreadId(null)
-                              }}
-                            />
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-
-            {/* Recents Section */}
-            <div className="flex items-center gap-1 px-2 py-1 text-[10px] font-bold tracking-wider text-(--color-text-subtle) uppercase">
-              <span>Recents</span>
-            </div>
-            {recentThreads.map((thread) => {
+          <div className="space-y-0.5">
+            {filteredThreads.map((thread) => {
               const isCurrent = thread.id === activeThreadId
               const isRenaming = renamingId === thread.id
 
               return (
+                // A div, not a button: the row carries its own action buttons,
+                // and a button nested inside a button is invalid markup that
+                // browsers resolve unpredictably.
                 <div
                   key={thread.id}
                   className={cn(
-                    'group relative flex w-full items-start justify-between rounded-lg px-2.5 py-1.5 transition-colors',
+                    'group relative flex w-full items-start justify-between rounded-lg px-2.5 py-2 transition-colors',
                     isCurrent
-                      ? 'bg-(--color-surface-raised) text-(--color-text) font-semibold shadow-xs'
-                      : 'text-(--color-text-muted) hover:bg-(--color-surface-raised)/60 hover:text-(--color-text)',
+                      ? 'bg-(--color-accent)/10 text-(--color-accent)'
+                      : 'text-(--color-text-muted) hover:bg-(--color-surface-raised) hover:text-(--color-text)',
                   )}
                 >
                   {isRenaming ? (
@@ -1060,6 +935,7 @@ file must actually change. Your final message reports what you changed.
                       }}
                       onKeyDown={(e: React.KeyboardEvent) => {
                         if (e.key === 'Enter') handleRenameThread(thread)
+                        // Escape abandons the edit, leaving the old title.
                         if (e.key === 'Escape') setRenamingId(null)
                       }}
                       className="h-7 text-[12px]"
@@ -1073,16 +949,17 @@ file must actually change. Your final message reports what you changed.
                         }}
                         className="min-w-0 flex-1 cursor-pointer truncate pr-1.5 text-left"
                       >
-                        <div className="flex items-center gap-1.5 truncate text-[12px]">
-                          <span
-                            className={cn(
-                              'size-1.5 rounded-full shrink-0',
-                              isCurrent ? 'bg-(--color-accent)' : 'bg-(--color-text-subtle)',
-                            )}
-                          />
-                          <span className="truncate">{thread.title}</span>
+                        <div
+                          className={cn(
+                            'truncate text-[12px]',
+                            isCurrent ? 'font-semibold' : 'font-medium',
+                          )}
+                        >
+                          {thread.pinned === true && <span className="mr-1">📌</span>}
+                          {thread.archived === true && <span className="mr-1">🗄️</span>}
+                          {thread.title}
                         </div>
-                        <div className="ml-3 mt-0.5 font-mono text-[10px] text-(--color-text-subtle)">
+                        <div className="mt-0.5 font-mono text-[10px] text-(--color-text-subtle)">
                           {thread.messages.length > 1
                             ? `${String(thread.messages.length)} msgs`
                             : '1 msg'}{' '}
@@ -1157,43 +1034,12 @@ file must actually change. Your final message reports what you changed.
           )}
         </ScrollArea>
 
-        {/* CLI Session Import Callout Banner */}
-        {!bannerDismissed && (
-          <div className="m-2 rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-2.5 text-[11px] shadow-xs">
-            <div className="flex items-start justify-between gap-1">
-              <span className="font-semibold text-(--color-text)">
-                ⚡ 9 CLI sessions on this computer
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setBannerDismissed(true)
-                }}
-                className="text-(--color-text-subtle) hover:text-(--color-text) cursor-pointer"
-              >
-                ✕
-              </button>
-            </div>
-            <div className="mt-1.5 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setBannerDismissed(true)
-                  handleCreateThread()
-                }}
-                className="font-medium text-(--color-accent) hover:underline cursor-pointer"
-              >
-                Import
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Persona Selector (Bottom of Sidebar) */}
+        {/* Bottom controls: Persona selector */}
         <div className="border-t border-(--color-border) p-3">
           <span className="text-[10px] font-bold uppercase tracking-wider text-(--color-text-subtle) block mb-1.5">
             Active Persona
           </span>
+          {/* Persona selector (compact) — opens upward */}
           <Select
             aria-label="Active Persona"
             value={selectedPersonaId}
@@ -1211,53 +1057,29 @@ file must actually change. Your final message reports what you changed.
 
       {/* ── Main Chat Area ── */}
       <div className="flex flex-1 flex-col min-w-0 bg-(--color-canvas)">
-        {/* Top Chat Header Bar */}
-        <header className="flex items-center justify-between border-b border-(--color-border) px-5 py-2.5 bg-(--color-surface)">
-          <h1 className="sr-only">Ask</h1>
-          <div className="min-w-0 flex items-center gap-2.5">
-            {editingSessionTitle ? (
-              <input
-                type="text"
-                autoFocus
-                value={tempSessionTitle}
-                onChange={(e) => {
-                  setTempSessionTitle(e.target.value)
-                }}
-                onBlur={handleCommitSessionRename}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleCommitSessionRename()
-                  if (e.key === 'Escape') setEditingSessionTitle(false)
-                }}
-                className="h-6 rounded border border-(--color-border-focus) bg-(--color-surface-raised) px-1.5 text-[13px] font-semibold text-(--color-text) outline-none"
-              />
-            ) : (
-              <span
-                onDoubleClick={() => {
-                  setTempSessionTitle(activeThread?.title ?? '')
-                  setEditingSessionTitle(true)
-                }}
-                title="Double click to rename session"
-                className="cursor-pointer text-[14px] font-bold text-(--color-text) truncate hover:underline"
-              >
-                {activeThread?.title ?? 'Chat'}
-              </span>
-            )}
-
-            <Badge tone="accent" size="sm" className="font-mono text-[11px] truncate max-w-[280px]">
+        {/* Top Header Bar */}
+        <header className="flex items-center justify-between border-b border-(--color-border) px-6 py-2.5 bg-(--color-surface-raised)">
+          <div className="min-w-0 flex items-center gap-3">
+            <h1 className="text-[14px] font-bold text-(--color-text) truncate">
+              {activeThread?.title ?? 'Chat'}
+            </h1>
+            <Badge tone="accent" size="sm" className="hidden sm:inline-flex font-mono text-[11px]">
               {selectedEngineId === 'forge-native-agent'
                 ? `Forge Agent · ${currentProvider?.name ?? 'Ollama'} (${currentModel})`
                 : selectedEngineId}
             </Badge>
-
+            {/* What the model reported it can do, once a turn has asked. Shown
+                rather than offered as a choice: capability belongs to the model,
+                and a toggle let tools be enabled on one that has none. */}
             {capabilities !== null && (
-              <div className="hidden items-center gap-1 xl:flex">
+              <div className="hidden items-center gap-1 lg:flex">
                 {capabilities.tools ? (
                   <Badge tone="success" size="sm" className="text-[10px]">
                     tools
                   </Badge>
                 ) : (
                   <Badge tone="warning" size="sm" className="text-[10px]">
-                    no tools
+                    no tools — chat only
                   </Badge>
                 )}
                 {capabilities.thinking && (
@@ -1270,122 +1092,59 @@ file must actually change. Your final message reports what you changed.
                     vision
                   </Badge>
                 )}
+                {capabilities.source !== 'reported' && (
+                  <Badge
+                    tone="neutral"
+                    size="sm"
+                    className="text-[10px]"
+                    title="Assumed, not reported by the provider"
+                  >
+                    {capabilities.source}
+                  </Badge>
+                )}
               </div>
             )}
           </div>
 
-          <div className="flex items-center gap-1.5">
-            {/* Deliverables / Artifacts Drawer Toggle */}
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setArtifactsDrawerOpen(true)
-              }}
-              className="h-7 px-2 text-[12px] text-(--color-text-muted) hover:text-(--color-text)"
-            >
-              <svg
-                className="size-3.5 mr-1"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-              >
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              Deliverables
-            </Button>
-
-            {/* Engine Selector */}
-            <div className="w-40 hidden md:block">
-              <Select
-                aria-label="Engine"
-                value={selectedEngineId}
-                onChange={(e: { target: { value: string } }) => {
-                  setSelectedEngineId(e.target.value)
-                }}
-                options={availableEngines.map((eng) => ({
-                  value: eng.id,
-                  label: eng.label,
-                }))}
-              />
-            </div>
-
-            {/* Model Selector if native agent */}
+          <div className="flex items-center gap-2">
+            {/* If Forge Agent is selected, allow picking models directly */}
             {selectedEngineId === 'forge-native-agent' &&
               currentProvider?.models &&
               currentProvider.models.length > 0 && (
-                <div className="w-36 hidden sm:block">
-                  <Select
-                    aria-label="Active Model"
-                    value={currentModel}
-                    onChange={(e: { target: { value: string } }) => {
-                      handleSelectModel(e.target.value)
-                    }}
-                    options={currentProvider.models.map((m) => ({
-                      value: m,
-                      label: m,
-                    }))}
-                  />
+                <div className="flex items-center gap-2">
+                  <span className="text-[11px] font-semibold text-(--color-text-subtle) hidden md:inline">
+                    Model:
+                  </span>
+                  <div className="w-44">
+                    <Select
+                      aria-label="Active Model"
+                      value={currentModel}
+                      onChange={(e: { target: { value: string } }) => {
+                        handleSelectModel(e.target.value)
+                      }}
+                      options={currentProvider.models.map((m) => ({
+                        value: m,
+                        label: m,
+                      }))}
+                    />
+                  </div>
                 </div>
               )}
-
-            {/* 3-Dots Conversation Options Menu */}
-            <div className="relative">
-              <Button
-                size="sm"
-                variant="ghost"
-                aria-label="Conversation options"
-                onClick={() => {
-                  setConversationMenuOpen(!conversationMenuOpen)
-                }}
-                className="h-7 w-7 p-0 text-(--color-text-muted) hover:text-(--color-text)"
-              >
-                ⁝
-              </Button>
-
-              <ConversationMenu
-                open={conversationMenuOpen}
-                onClose={() => {
-                  setConversationMenuOpen(false)
-                }}
-                onRename={() => {
-                  setTempSessionTitle(activeThread?.title ?? '')
-                  setEditingSessionTitle(true)
-                }}
-                onFork={() => {
-                  handleForkConversation()
-                }}
-                onTranscriptView={(format) => {
-                  handleExportTranscript(format)
-                }}
-                onArchive={() => {
-                  if (activeThread) handleToggleArchive(activeThread)
-                }}
-                onDelete={() => {
-                  if (activeThread) {
-                    handleDeleteThread(activeThread.id)
-                  }
-                }}
-              />
-            </div>
           </div>
         </header>
 
         {/* Messages Area */}
         <ScrollArea className="flex-1 min-h-0">
-          <div className="max-w-4xl mx-auto px-6 py-5 space-y-6">
+          <div className="max-w-4xl mx-auto px-6 py-4 space-y-5">
             {messages.map((msg) => (
               <div key={msg.id}>
                 {msg.role === 'assistant' ? (
-                  /* Assistant message — clean typography, Claude sun icon, collapsible execution */
-                  <div className="group flex gap-3.5">
-                    <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-(--color-surface-raised) text-[14px] text-amber-500 font-bold border border-(--color-border) select-none mt-0.5">
-                      ✳
+                  /* Assistant message — full-width block with icon & metadata */
+                  <div className="flex gap-3">
+                    <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-(--color-accent-muted) text-[14px] mt-1">
+                      {msg.personaIcon ?? '🤖'}
                     </div>
-                    <div className="min-w-0 flex-1 space-y-2">
+                    <div className="min-w-0 flex-1 space-y-1.5">
                       <div className="flex items-center gap-2">
                         <span className="text-[12px] font-bold text-(--color-text)">
                           {msg.personaName ?? 'Assistant'}
@@ -1395,106 +1154,33 @@ file must actually change. Your final message reports what you changed.
                             {msg.modelName}
                           </Badge>
                         )}
+                        {msg.elapsed && (
+                          <span className="text-[10px] text-(--color-text-subtle)">
+                            {msg.elapsed}
+                          </span>
+                        )}
+                        {/* The whole reply, as its markdown source rather than the
+                            rendered text — pasting a table back as pipes is what
+                            makes it reusable somewhere else. */}
                         <CopyTextButton text={msg.text} />
                       </div>
-
-                      {/* Collapsible Execution / Reasoning Block */}
                       {msg.reasoning !== undefined && msg.reasoning !== '' && (
-                        <ExecutionBlock title="Confirmed current branch/commit state before writing the handoff prompt">
-                          <div className="whitespace-pre-wrap font-mono text-[11px] leading-relaxed text-(--color-text-muted)">
-                            {msg.reasoning}
-                          </div>
-                        </ExecutionBlock>
+                        <ThinkingBlock text={msg.reasoning} />
                       )}
-
                       <div className="prose-container text-[13px] leading-relaxed text-(--color-text)">
                         <MarkdownRenderer content={msg.text} />
-                      </div>
-
-                      {/* Bottom Hover Action Toolbar */}
-                      <div className="flex items-center gap-2 pt-1 opacity-0 group-hover:opacity-100 transition-opacity text-[11px] text-(--color-text-subtle)">
-                        <button
-                          type="button"
-                          title="Copy reply"
-                          onClick={() => {
-                            void navigator.clipboard.writeText(msg.text).then(() => {
-                              show({ tone: 'neutral', title: 'Response copied' })
-                            })
-                          }}
-                          className="flex items-center gap-1 hover:text-(--color-text) cursor-pointer"
-                        >
-                          <span>⎘</span>
-                          <span>Copy</span>
-                        </button>
-                        <span className="opacity-40">·</span>
-                        <button
-                          type="button"
-                          title="Fork conversation from this message"
-                          onClick={() => {
-                            handleForkConversation(msg.id)
-                          }}
-                          className="flex items-center gap-1 hover:text-(--color-text) cursor-pointer"
-                        >
-                          <span>⤤</span>
-                          <span>Fork</span>
-                        </button>
-                        <span className="opacity-40">·</span>
-                        <button
-                          type="button"
-                          title="Star message"
-                          onClick={() => {
-                            show({ tone: 'neutral', title: 'Starred message' })
-                          }}
-                          className="flex items-center gap-1 hover:text-(--color-text) cursor-pointer"
-                        >
-                          <span>☆</span>
-                        </button>
-                        {msg.elapsed && (
-                          <>
-                            <span className="opacity-40">·</span>
-                            <span>{msg.elapsed}</span>
-                          </>
-                        )}
                       </div>
                     </div>
                   </div>
                 ) : (
-                  /* User message — right-aligned bubble with hover action bar */
-                  <div className="flex justify-end group">
-                    <div className="relative max-w-xl">
-                      <div
-                        className="rounded-2xl rounded-br-xs bg-(--color-surface-raised) border border-(--color-border) px-4 py-3 text-[13px] text-(--color-text) shadow-xs leading-relaxed"
-                        data-selectable
-                      >
-                        <div className="whitespace-pre-wrap">{msg.text}</div>
-                      </div>
-
-                      {/* User Message Hover Toolbar */}
-                      <div className="absolute -bottom-6 right-1 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-(--color-text-subtle) bg-(--color-surface-raised) border border-(--color-border) px-2 py-0.5 rounded-full shadow-xs">
-                        <span>{msg.timestamp}</span>
-                        <span className="opacity-40">·</span>
-                        <button
-                          type="button"
-                          title="Copy prompt"
-                          onClick={() => {
-                            void navigator.clipboard.writeText(msg.text).then(() => {
-                              show({ tone: 'neutral', title: 'Prompt copied' })
-                            })
-                          }}
-                          className="hover:text-(--color-text) cursor-pointer"
-                        >
-                          ⎘
-                        </button>
-                        <button
-                          type="button"
-                          title="Retry prompt"
-                          onClick={() => {
-                            handleRetryPrompt(msg.text)
-                          }}
-                          className="hover:text-(--color-text) cursor-pointer"
-                        >
-                          ↺
-                        </button>
+                  /* User message — right-aligned bubble */
+                  <div className="flex justify-end">
+                    <div className="max-w-lg rounded-2xl bg-(--color-accent) text-white px-4 py-2.5 text-[13px] font-medium leading-relaxed shadow-sm">
+                      {/* Selectable for the same reason the reply is: the body sets
+                          `user-select: none`, so without this a user could not copy
+                          back what they themselves had typed. */}
+                      <div className="whitespace-pre-wrap" data-selectable>
+                        {msg.text}
                       </div>
                     </div>
                   </div>
@@ -1502,13 +1188,19 @@ file must actually change. Your final message reports what you changed.
               </div>
             ))}
 
-            {/* Streaming Live Turn */}
+            {/* The reply as it arrives. The dots alone said only "something is
+                happening"; the text says what, and whether the model is making
+                progress or stuck. */}
             {liveReply !== null && (
-              <div className="flex gap-3.5 px-4">
-                <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex gap-3 px-10">
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  {/* Reasoning and tool calls in the order they happened, so
+                      the thinking reads as the explanation for the calls that
+                      follow it. Live only: this is evidence about the turn, not
+                      part of the answer that gets saved. */}
                   {liveReply.timeline.length > 0 && (
                     <div
-                      className="space-y-1.5 rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-3"
+                      className="space-y-1.5 rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-3 py-2"
                       data-selectable
                     >
                       {liveReply.timeline.map((entry, index) =>
@@ -1550,8 +1242,8 @@ file must actually change. Your final message reports what you changed.
               liveReply?.content === '' &&
               liveReply.reasoning === '' &&
               liveReply.timeline.length === 0 && (
-                <div className="flex items-center gap-2 px-6 text-[12px] italic text-(--color-text-muted)">
-                  <span className="inline-flex gap-1 text-amber-500">
+                <div className="flex items-center gap-2 px-10 text-[12px] italic text-(--color-text-muted)">
+                  <span className="inline-flex gap-1">
                     <span className="animate-bounce [animation-delay:0ms]">·</span>
                     <span className="animate-bounce [animation-delay:150ms]">·</span>
                     <span className="animate-bounce [animation-delay:300ms]">·</span>
@@ -1567,116 +1259,79 @@ file must actually change. Your final message reports what you changed.
           </div>
         </ScrollArea>
 
-        {/* Floating Bottom Prompt Bar matching Claude Code aesthetic */}
-        <div className="sticky bottom-3 z-10 mx-auto w-full max-w-3xl px-4">
-          <div className="relative rounded-2xl border border-(--color-border) bg-(--color-surface) shadow-xl transition-all focus-within:border-(--color-border-strong) focus-within:ring-2 focus-within:ring-(--color-accent)/20">
-            <SlashCommandsMenu
-              open={slashMenuOpen}
-              query={input}
-              selectedIndex={slashSelectedIndex}
-              onSelect={(cmd) => {
-                setInput(cmd + ' ')
-                setSlashMenuOpen(false)
-                textareaRef.current?.focus()
-              }}
-              onClose={() => {
-                setSlashMenuOpen(false)
-              }}
-            />
-
-            <form
-              onSubmit={(e) => {
-                e.preventDefault()
-                void handleSend()
-              }}
-              className="p-3"
-            >
-              <textarea
-                ref={textareaRef}
-                rows={1}
-                value={input}
-                onChange={handleInputChange}
-                onKeyDown={handleInputKeyDown}
+        {/* Bottom Input Bar */}
+        <div className="border-t border-(--color-border) bg-(--color-surface-raised) px-6 py-3">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              void handleSend()
+            }}
+            className="flex items-center gap-3 max-w-4xl mx-auto"
+          >
+            <div className="flex-1 relative">
+              <Input
                 placeholder={
                   currentModel
-                    ? `Ask ${activePersona?.label ?? 'Forge'} (${currentModel}) · Type / for commands...`
-                    : `Ask about ${project.name} · Type / for commands...`
+                    ? `Ask Forge Agent (${currentModel}) about ${project.name}...`
+                    : `Ask about ${project.name}...`
                 }
+                value={input}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                  setInput(e.target.value)
+                }}
                 disabled={thinking}
-                className="w-full resize-none bg-transparent text-[13px] text-(--color-text) placeholder:text-(--color-text-subtle) outline-none max-h-36 overflow-y-auto"
+                className="h-10 text-[13px] pr-10 rounded-xl bg-(--color-surface) border-(--color-border)"
+                autoFocus
               />
+            </div>
 
-              <div className="mt-2 flex items-center justify-between border-t border-(--color-border)/50 pt-2">
-                <div className="flex items-center gap-2 text-[11px]">
-                  {/* Attach context button */}
-                  <button
-                    type="button"
-                    title="Add context"
-                    onClick={() => {
-                      setInput((prev) => prev + ' @')
-                      textareaRef.current?.focus()
+            {/* Engine selector (compact) */}
+            <div className="w-48 shrink-0">
+              <Select
+                aria-label="Engine"
+                value={selectedEngineId}
+                direction="up"
+                onChange={(e: { target: { value: string } }) => {
+                  setSelectedEngineId(e.target.value)
+                }}
+                options={availableEngines.map((eng) => ({
+                  value: eng.id,
+                  label: eng.label,
+                }))}
+              />
+            </div>
+
+            {/* Model selector if Forge Native Agent is active */}
+            {selectedEngineId === 'forge-native-agent' &&
+              currentProvider?.models &&
+              currentProvider.models.length > 0 && (
+                <div className="w-44 shrink-0">
+                  <Select
+                    aria-label="Model"
+                    value={currentModel}
+                    direction="up"
+                    onChange={(e: { target: { value: string } }) => {
+                      handleSelectModel(e.target.value)
                     }}
-                    className="flex size-6 items-center justify-center rounded-md text-(--color-text-muted) hover:bg-(--color-surface-raised) hover:text-(--color-text) cursor-pointer"
-                  >
-                    +
-                  </button>
-                  <div className="flex items-center gap-1 rounded-md bg-(--color-surface-raised) px-2 py-0.5 font-medium text-(--color-text-muted)">
-                    <span>Auto</span>
-                    <span className="text-[9px]">⌄</span>
-                  </div>
+                    options={currentProvider.models.map((m) => ({
+                      value: m,
+                      label: m,
+                    }))}
+                  />
                 </div>
+              )}
 
-                <div className="flex items-center gap-2">
-                  {/* Engine / Model indicator */}
-                  <span className="hidden sm:inline-block max-w-[160px] truncate text-[11px] font-mono text-(--color-text-subtle)">
-                    {currentModel || selectedEngineId}
-                  </span>
-
-                  {/* Reasoning effort pill */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setReasoningEffort((prev) =>
-                        prev === 'Low' ? 'Medium' : prev === 'Medium' ? 'High' : 'Low',
-                      )
-                    }}
-                    className="rounded-md bg-(--color-surface-raised) px-2 py-0.5 text-[11px] font-medium text-(--color-text-muted) hover:text-(--color-text) cursor-pointer"
-                  >
-                    {reasoningEffort} ⌄
-                  </button>
-
-                  {/* Submit arrow button */}
-                  <button
-                    type="submit"
-                    disabled={input.trim() === '' || thinking}
-                    className="flex size-7 items-center justify-center rounded-full bg-(--color-text) text-(--color-surface) transition-all hover:opacity-90 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
-                  >
-                    <svg
-                      className="size-3.5"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                    >
-                      <line x1="12" y1="19" x2="12" y2="5" />
-                      <polyline points="5 12 12 5 19 12" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-            </form>
-          </div>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={input.trim() === '' || thinking}
+              className="h-9 px-5 text-[12px] font-semibold rounded-lg shrink-0"
+            >
+              Send
+            </Button>
+          </form>
         </div>
       </div>
-
-      {/* Deliverables / Artifacts Drawer */}
-      <AskArtifactsDrawer
-        open={artifactsDrawerOpen}
-        onClose={() => {
-          setArtifactsDrawerOpen(false)
-        }}
-        projectName={project.name}
-      />
     </div>
   )
 }

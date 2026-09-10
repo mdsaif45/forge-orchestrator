@@ -98,7 +98,3 @@ export {
   type AddCliAgentDialogProps,
   type CliAgentConfig,
 } from './primitives/AddCliAgentDialog'
-export {
-  ConversationActionsMenu,
-  type ConversationActionsMenuProps,
-} from './primitives/ConversationActionsMenu'

@@ -15,8 +15,10 @@ import {
   stepEvidenceSchema,
   stepIdSchema,
   taskIdSchema,
+  taskSchema,
   workflowIdSchema,
   type AgentReport,
+  type CriterionResult,
   type Discrepancy,
   type IAgentRuntime,
   type PromptPacket,
@@ -28,13 +30,14 @@ import {
   type SessionOptions,
   type Sha,
   type StepEvidence,
+  type Task,
 } from '@shared/domain'
 import { GitService } from '../git'
 import { readRepositoryInstructions } from '../context/repositoryInstructions'
 import type { AgentTurnRequest, AgentTurnPlan } from '../providers/agentTurn'
 import type { AgentLoopResult } from '../providers/agentLoop'
 import { buildChangeSet } from '../evidence/changeSetBuilder'
-import { verifyStep, type VerifyResult } from '../evidence/verifier'
+import { verifyStep } from '../evidence/verifier'
 import type { ForgeCore } from './forgeCore'
 import { resolveEffectiveModel, type ActiveModel } from '../providers/activeModel'
 
@@ -50,7 +53,12 @@ export type DirectTaskEvent =
       readonly detail?: string
     }
   | { readonly kind: 'discrepancy'; readonly detail: string }
-  | { readonly kind: 'verification'; readonly verdict: string; readonly detail: string }
+  | {
+      readonly kind: 'verification'
+      readonly verdict: string
+      readonly detail: string
+      readonly criteria?: readonly CriterionResult[] | undefined
+    }
 
 export interface DirectTaskOptions {
   /** The root directory of the repository/workspace. */
@@ -116,6 +124,7 @@ export interface TaskExecutionResult {
         readonly passed: boolean
         readonly verdict: string
         readonly findings: readonly string[]
+        readonly criteria?: readonly CriterionResult[] | undefined
       }
     | undefined
   /** Authoritative EVIDENCE-001 domain contract. */
@@ -383,29 +392,31 @@ export async function executeDirectTask(
   emitRunEvent('run.started', { task: options.task, model: model.model })
 
   try {
+    const task: Task = taskSchema.parse({
+      id: taskId,
+      objective: options.task,
+      constraints: [],
+      completionCriteria: [
+        { kind: 'no-assumptions', description: 'No unverified assumptions', params: {} },
+        ...(projectDetail.project.repository.buildCommand !== null
+          ? [{ kind: 'build' as const, description: 'Build passes', params: {} }]
+          : []),
+        ...(projectDetail.project.repository.testCommand !== null
+          ? [{ kind: 'tests' as const, description: 'Tests pass', params: {} }]
+          : []),
+      ],
+      scope: {
+        allowedPaths: options.allowedPaths ? [...options.allowedPaths] : [],
+        forbiddenPaths: options.forbiddenPaths ? [...options.forbiddenPaths] : [],
+      },
+      lockedDecisionIds: [],
+      correctsTaskId: null,
+      createdAt: new Date().toISOString(),
+    })
+
     const compiled = compileContext({
       role: 'implementer',
-      task: {
-        id: taskId,
-        objective: options.task,
-        constraints: [],
-        completionCriteria: [
-          { kind: 'no-assumptions', description: 'No unverified assumptions', params: {} },
-          ...(projectDetail.project.repository.buildCommand !== null
-            ? [{ kind: 'build' as const, description: 'Build passes', params: {} }]
-            : []),
-          ...(projectDetail.project.repository.testCommand !== null
-            ? [{ kind: 'tests' as const, description: 'Tests pass', params: {} }]
-            : []),
-        ],
-        scope: {
-          allowedPaths: options.allowedPaths ? [...options.allowedPaths] : [],
-          forbiddenPaths: options.forbiddenPaths ? [...options.forbiddenPaths] : [],
-        },
-        lockedDecisionIds: [],
-        correctsTaskId: null,
-        createdAt: new Date().toISOString(),
-      },
+      task,
       rules: effectiveRules,
       lockedDecisions: [],
       files: [],
@@ -538,77 +549,74 @@ export async function executeDirectTask(
       })
     }
 
-    // Run independent verification if build/test commands are defined
-    let vResult: VerifyResult | undefined
-    let verification: { passed: boolean; verdict: string; findings: readonly string[] } | undefined
-    if (
-      projectDetail.project.repository.buildCommand !== null ||
-      projectDetail.project.repository.testCommand !== null
-    ) {
-      options.onEvent?.({ kind: 'status', text: 'Running independent verification...' })
-      vResult = await verifyStep({
-        repository: {
-          ...projectDetail.project.repository,
-          id: repositoryIdSchema.parse(projectDetail.project.repository.id),
-        },
-        workflowId: workflowIdSchema.parse(randomUUID()),
-        stepId,
-        report,
-        reconciliation: built.reconciliation,
-      })
+    // Run independent verification and completion criteria assessment
+    options.onEvent?.({
+      kind: 'status',
+      text: 'Running independent verification and criteria evaluation...',
+    })
+    const vResult = await verifyStep({
+      repository: {
+        ...projectDetail.project.repository,
+        id: repositoryIdSchema.parse(projectDetail.project.repository.id),
+      },
+      workflowId: workflowIdSchema.parse(randomUUID()),
+      stepId,
+      report,
+      reconciliation: built.reconciliation,
+      task,
+    })
 
-      verification = {
-        passed: vResult.passed,
-        verdict: vResult.verdict,
-        findings: vResult.findings,
-      }
-
-      // Persist verification stdout / stderr artifacts
-      for (const cmdArt of vResult.artifacts) {
-        if (cmdArt.stdout) {
-          await core.artifacts.writeArtifact({
-            runId,
-            stepId,
-            kind: 'stdout',
-            name: `verify-${cmdArt.kind}-stdout.log`,
-            content: cmdArt.stdout,
-            mimeType: 'text/plain; charset=utf-8',
-          })
-        }
-        if (cmdArt.stderr) {
-          await core.artifacts.writeArtifact({
-            runId,
-            stepId,
-            kind: 'stderr',
-            name: `verify-${cmdArt.kind}-stderr.log`,
-            content: cmdArt.stderr,
-            mimeType: 'text/plain; charset=utf-8',
-          })
-        }
-      }
-
-      emitRunEvent('verification', {
-        verdict: vResult.verdict,
-        passed: vResult.passed,
-        detail: vResult.detail,
-      })
-
-      options.onEvent?.({
-        kind: 'verification',
-        verdict: vResult.verdict,
-        detail: vResult.detail,
-      })
+    const verification = {
+      passed: vResult.passed,
+      verdict: vResult.verdict,
+      findings: vResult.findings,
+      criteria: vResult.criteria,
     }
+
+    // Persist verification stdout / stderr artifacts
+    for (const cmdArt of vResult.artifacts) {
+      if (cmdArt.stdout) {
+        await core.artifacts.writeArtifact({
+          runId,
+          stepId,
+          kind: 'stdout',
+          name: `verify-${cmdArt.kind}-stdout.log`,
+          content: cmdArt.stdout,
+          mimeType: 'text/plain; charset=utf-8',
+        })
+      }
+      if (cmdArt.stderr) {
+        await core.artifacts.writeArtifact({
+          runId,
+          stepId,
+          kind: 'stderr',
+          name: `verify-${cmdArt.kind}-stderr.log`,
+          content: cmdArt.stderr,
+          mimeType: 'text/plain; charset=utf-8',
+        })
+      }
+    }
+
+    emitRunEvent('verification', {
+      verdict: vResult.verdict,
+      passed: vResult.passed,
+      detail: vResult.detail,
+      criteria: vResult.criteria,
+    })
+
+    options.onEvent?.({
+      kind: 'verification',
+      verdict: vResult.verdict,
+      detail: vResult.detail,
+      criteria: vResult.criteria,
+    })
 
     // Determine clean exit code contract (0=OK, 1=Fail, 2=Halt/Policy)
     let exitCode = 0
     if (built.reconciliation.outOfScope.length > 0) {
       exitCode = 2 // Policy violation (out of scope edits)
-    } else if (
-      report.status === 'blocked' ||
-      (verification !== undefined && !verification.passed)
-    ) {
-      exitCode = 1 // Execution or test failure
+    } else if (report.status === 'blocked' || !vResult.passed) {
+      exitCode = 1 // Execution, criteria, or test failure
     }
 
     // Authoritative EVIDENCE-001 domain contract
@@ -621,12 +629,13 @@ export async function executeDirectTask(
       baseSha,
       headSha: null,
       changeSet: built.changeSet,
-      commandArtifacts: vResult ? vResult.artifacts : [],
+      commandArtifacts: vResult.artifacts,
+      criteria: vResult.criteria,
       discrepancies: built.reconciliation.discrepancies,
       passed: exitCode === 0,
       verdict: exitCode === 0 ? 'pass' : 'fail',
-      findings: vResult ? vResult.findings : [],
-      falseClaims: vResult ? vResult.falseClaims : [],
+      findings: vResult.findings,
+      falseClaims: vResult.falseClaims,
       recordedAt: now,
     })
 
@@ -647,7 +656,7 @@ export async function executeDirectTask(
       finishedAt: new Date().toISOString(),
       exitCode,
       summary: report.summary,
-      error: exitCode !== 0 ? (verification?.verdict ?? 'Task failed') : null,
+      error: exitCode !== 0 ? verification.verdict : null,
     })
 
     emitRunEvent('run.finished', { exitCode, passed: exitCode === 0 })

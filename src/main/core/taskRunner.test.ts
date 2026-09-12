@@ -101,6 +101,17 @@ describe('executeDirectTask', () => {
       expect(result.evidence.changeSet?.patch).toContain('Updated by Forge Agent!')
       expect(result.evidence.discrepancies.length).toBe(0)
 
+      // Check completion criteria evaluation (CRIT-001)
+      expect(result.verification).toBeDefined()
+      expect(result.verification?.passed).toBe(true)
+      expect(result.verification?.criteria).toBeDefined()
+      expect(result.verification?.criteria?.length).toBeGreaterThan(0)
+      expect(result.verification?.criteria?.some((c) => c.kind === 'no-assumptions')).toBe(true)
+      expect(result.evidence.criteria.length).toBeGreaterThan(0)
+      expect(
+        result.evidence.criteria.some((c) => c.kind === 'no-assumptions' && c.verdict === 'pass'),
+      ).toBe(true)
+
       // Events were streamed
       expect(events.some((e) => e.kind === 'status')).toBe(true)
       expect(events.some((e) => e.kind === 'tool_start')).toBe(true)
@@ -242,6 +253,54 @@ describe('executeDirectTask', () => {
       expect(result.filesChanged).toContain('README.md')
       expect(result.evidence.passed).toBe(true)
       expect(result.evidence.changeSet?.patch).toContain('Updated via Custom IAgentRuntime')
+    },
+  )
+
+  it(
+    'evaluates completion criteria and fails with exitCode 1 when agent admits unverified assumptions',
+    { timeout: 30_000 },
+    async () => {
+      const result = await executeDirectTask(core, {
+        workspacePath: repoPath,
+        task: 'Refactor configuration',
+        runTurn: async () => {
+          await Promise.resolve()
+          writeFileSync(join(repoPath, 'README.md'), '# Refactored\n')
+          return {
+            ok: true,
+            content: JSON.stringify({
+              status: 'completed',
+              summary: 'Refactored configuration assuming port 8080 is available',
+              filesChanged: ['README.md'],
+              assumptions: ['Assumed port 8080 is always open'],
+            }),
+            reasoning: 'I assumed port 8080 without checking',
+            toolsUsed: [{ name: 'edit_file', ok: true }],
+            rounds: 1,
+            error: null,
+            stoppedAtLimit: false,
+            plan: {
+              capabilities: { tools: true, vision: false, thinking: false, source: 'reported' },
+              usedTools: true,
+            },
+          }
+        },
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.exitCode).toBe(1)
+      expect(result.verification).toBeDefined()
+      expect(result.verification?.passed).toBe(false)
+      expect(
+        result.verification?.criteria?.some(
+          (c) => c.kind === 'no-assumptions' && c.verdict === 'fail',
+        ),
+      ).toBe(true)
+      expect(result.evidence.passed).toBe(false)
+      expect(result.evidence.verdict).toBe('fail')
+      expect(
+        result.evidence.criteria.some((c) => c.kind === 'no-assumptions' && c.verdict === 'fail'),
+      ).toBe(true)
     },
   )
 })

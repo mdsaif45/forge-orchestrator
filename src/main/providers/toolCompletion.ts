@@ -215,6 +215,47 @@ export async function completeWithTools(
     const reasoning = typeof reasoningField === 'string' ? reasoningField : ''
     const toolCalls = readToolCalls(message.tool_calls)
 
+    const bodyRecord = body as Record<string, unknown> | null | undefined
+    const rawUsage = bodyRecord?.usage as Record<string, unknown> | undefined
+
+    const inputTokens =
+      typeof rawUsage?.prompt_tokens === 'number'
+        ? rawUsage.prompt_tokens
+        : typeof bodyRecord?.prompt_eval_count === 'number'
+          ? bodyRecord.prompt_eval_count
+          : undefined
+
+    const outputTokens =
+      typeof rawUsage?.completion_tokens === 'number'
+        ? rawUsage.completion_tokens
+        : typeof bodyRecord?.eval_count === 'number'
+          ? bodyRecord.eval_count
+          : undefined
+
+    const totalTokens =
+      typeof rawUsage?.total_tokens === 'number'
+        ? rawUsage.total_tokens
+        : inputTokens !== undefined || outputTokens !== undefined
+          ? (inputTokens ?? 0) + (outputTokens ?? 0)
+          : undefined
+
+    const evalDurationNs =
+      typeof bodyRecord?.eval_duration === 'number' ? bodyRecord.eval_duration : undefined
+
+    let tokensPerSec: number | undefined
+    if (outputTokens !== undefined && outputTokens > 0) {
+      if (evalDurationNs !== undefined && evalDurationNs > 0) {
+        tokensPerSec = Math.round((outputTokens / (evalDurationNs / 1e9)) * 10) / 10
+      } else if (durationMs > 0) {
+        tokensPerSec = Math.round((outputTokens / (durationMs / 1000)) * 10) / 10
+      }
+    }
+
+    const usage =
+      inputTokens !== undefined || outputTokens !== undefined || totalTokens !== undefined
+        ? { inputTokens, outputTokens, totalTokens, tokensPerSec }
+        : undefined
+
     devModelTracker.finishCall(callRecord.id, {
       status: res.status,
       statusText: res.statusText,
@@ -223,6 +264,7 @@ export async function completeWithTools(
       reasoning,
       content,
       toolCalls,
+      usage,
       error: null,
     })
 

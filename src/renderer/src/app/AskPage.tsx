@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, Input, MarkdownRenderer, ScrollArea, useToast } from '../ui'
 import { cn } from '../ui'
+import { PanelRightIcon, ThinkingIcon } from './icons'
 import { useProjectStore } from './projectStore'
 import { unwrap } from '@renderer/ipc'
 import { DEFAULT_PROVIDERS, type StoredProviderConfig } from './Settings'
 import { useDevConsoleStore } from './devConsoleStore'
+import { RightOverviewPanel } from './RightOverviewPanel'
+import { useOverviewStore } from './overviewStore'
 
 export interface ChatMessage {
   readonly id: string
@@ -108,7 +111,12 @@ function ThinkingBlock({
         aria-expanded={open}
         className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-[11px] text-(--color-text-muted) hover:text-(--color-text)"
       >
-        <span className={streaming ? 'animate-pulse' : ''}>💭</span>
+        <ThinkingIcon
+          className={cn(
+            'size-3.5 text-(--color-text-muted)',
+            streaming && 'animate-pulse text-(--color-accent)',
+          )}
+        />
         <span className="font-semibold">Thinking</span>
         {streaming && <span className="italic">…</span>}
         <span className="ml-auto font-mono text-[10px] text-(--color-text-subtle)">
@@ -565,6 +573,48 @@ export function AskPage(): React.JSX.Element {
   const probe = detail?.probe ?? null
   const rules = detail?.rules ?? []
   const { show } = useToast()
+
+  const isOverviewOpen = useOverviewStore((state) => state.isOpen)
+  const isOverviewExpanded = useOverviewStore((state) => state.isExpanded)
+  const toggleOverviewOpen = useOverviewStore((state) => state.toggleOpen)
+  const panelWidth = useOverviewStore((state) => state.panelWidth)
+  const setPanelWidth = useOverviewStore((state) => state.setPanelWidth)
+  const isDraggingSplitter = useOverviewStore((state) => state.isDraggingSplitter)
+  const setIsDraggingSplitter = useOverviewStore((state) => state.setIsDraggingSplitter)
+
+  const dragStartX = useRef(0)
+  const dragStartWidth = useRef(0)
+
+  useEffect(() => {
+    if (!isDraggingSplitter) return undefined
+
+    const handleMouseMove = (e: MouseEvent): void => {
+      const deltaX = dragStartX.current - e.clientX
+      const newWidth = Math.max(
+        280,
+        Math.min(window.innerWidth - 450, dragStartWidth.current + deltaX),
+      )
+      setPanelWidth(newWidth)
+    }
+
+    const handleMouseUp = (): void => {
+      setIsDraggingSplitter(false)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDraggingSplitter, setIsDraggingSplitter, setPanelWidth])
+
+  const handleStartSplitterDrag = (e: React.MouseEvent): void => {
+    e.preventDefault()
+    setIsDraggingSplitter(true)
+    dragStartX.current = e.clientX
+    dragStartWidth.current = panelWidth
+  }
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -1491,9 +1541,26 @@ ${toolTrail}`
   }
 
   return (
-    <div className="flex h-full overflow-hidden">
-      {/* ── Left Sidebar ── */}
-      <aside className="flex w-60 shrink-0 flex-col border-r border-(--color-border) bg-(--color-surface)">
+    <div className="relative flex h-full overflow-hidden">
+      {/* Fullscreen transparent drag overlay to prevent text selection / lost mouse during slider drag */}
+      {isDraggingSplitter && (
+        <div className="fixed inset-0 z-50 cursor-col-resize select-none" />
+      )}
+
+      {/* ── Left Workspace Container (Sidebar + Chat Area) ── */}
+      <div
+        className={cn(
+          'flex min-w-0 overflow-hidden',
+          isOverviewOpen && isOverviewExpanded
+            ? 'w-0 flex-none opacity-0 pointer-events-none'
+            : 'flex-1 opacity-100',
+          isDraggingSplitter
+            ? 'transition-none'
+            : 'transition-all duration-300 ease-in-out',
+        )}
+      >
+        {/* ── Left Sidebar ── */}
+        <aside className="flex w-60 shrink-0 flex-col border-r border-(--color-border) bg-(--color-surface)">
         {/* New Chat Button */}
         <div className="p-3">
           <Button
@@ -1668,16 +1735,29 @@ ${toolTrail}`
       {/* ── Main Chat Area ── */}
       <div className="relative flex flex-1 flex-col min-w-0 bg-(--color-canvas) overflow-hidden">
         {/* Top Header Bar */}
-        <header className="relative z-20 flex items-center justify-between px-6 py-2.5 bg-(--color-canvas)/85 backdrop-blur-md">
+        <header className="relative z-20 flex h-9 shrink-0 items-center justify-between border-b border-transparent pl-6 pr-2 bg-(--color-canvas)/85 backdrop-blur-md">
           {/* Subtle downward blur feather under header */}
           <div className="pointer-events-none absolute -bottom-5 left-0 right-0 h-5 bg-gradient-to-b from-(--color-canvas)/85 to-transparent" />
           <div className="min-w-0 flex items-center gap-3">
-            <h1 className="text-[14px] font-bold text-(--color-text) truncate">
+            <h1 className="text-[13px] font-bold text-(--color-text) truncate">
               {activeThread?.title && activeThread.title.trim() !== ''
                 ? activeThread.title
                 : 'New chat'}
             </h1>
           </div>
+
+          {/* Right Header: Right Window Expand Button (exact same position as collapse button when open) */}
+          {!isOverviewOpen && (
+            <button
+              type="button"
+              title="Expand right panel"
+              aria-label="Expand right panel"
+              onClick={toggleOverviewOpen}
+              className="flex size-6 items-center justify-center rounded hover:bg-(--color-surface-raised) text-(--color-text-subtle) hover:text-(--color-text) cursor-pointer"
+            >
+              <PanelRightIcon className="size-3.5" />
+            </button>
+          )}
         </header>
 
         {/* Messages Area */}
@@ -1920,6 +2000,43 @@ ${toolTrail}`
           </form>
         </div>
       </div>
+      </div>
+
+      {/* ── Resizable Splitter Slider between Chat and Right Panel (Image 1: thin separator, only hover shows highlight & pill) ── */}
+      {isOverviewOpen && !isOverviewExpanded && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize right panel"
+          onMouseDown={handleStartSplitterDrag}
+          onDoubleClick={() => {
+            setPanelWidth(440)
+          }}
+          title="Drag to resize panel, double-click to reset"
+          className="group relative w-1.5 -mr-1.5 cursor-col-resize z-20 select-none flex items-center justify-center shrink-0"
+        >
+          {/* Thin separator line: transparent normally, glowing accent on hover or drag */}
+          <div
+            className={cn(
+              'w-0.5 h-full transition-colors duration-150',
+              isDraggingSplitter
+                ? 'bg-(--color-accent)'
+                : 'bg-transparent group-hover:bg-(--color-accent)',
+            )}
+          />
+
+          {/* Grip pill: ONLY visible on hover or active dragging */}
+          <div
+            className={cn(
+              'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-8 w-1 rounded-full bg-(--color-accent) shadow-xs transition-opacity duration-150 pointer-events-none',
+              isDraggingSplitter ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+            )}
+          />
+        </div>
+      )}
+
+      {/* ── Right Overview Panel (Antigravity Image 2 style) ── */}
+      <RightOverviewPanel />
     </div>
   )
 }

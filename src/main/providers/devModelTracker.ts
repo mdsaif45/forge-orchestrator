@@ -38,6 +38,14 @@ export interface DevModelCallRecord {
             }[]
           | undefined
         readonly error?: string | null | undefined
+        readonly usage?:
+          | {
+              readonly inputTokens?: number | undefined
+              readonly outputTokens?: number | undefined
+              readonly totalTokens?: number | undefined
+              readonly tokensPerSec?: number | undefined
+            }
+          | undefined
       }
     | undefined
   toolExecutions?:
@@ -132,6 +140,14 @@ class DevModelTrackerService {
           }[]
         | undefined
       readonly error?: string | null | undefined
+      readonly usage?:
+        | {
+            readonly inputTokens?: number | undefined
+            readonly outputTokens?: number | undefined
+            readonly totalTokens?: number | undefined
+            readonly tokensPerSec?: number | undefined
+          }
+        | undefined
     },
   ): void {
     const record = this.history.find((r) => r.id === callId)

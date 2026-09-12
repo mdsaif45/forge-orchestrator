@@ -265,6 +265,15 @@ export async function streamChat(
       return { ok: false, content: '', reasoning: '', error: errorMsg }
     }
 
+    let streamUsage:
+      | {
+          readonly inputTokens?: number | undefined
+          readonly outputTokens?: number | undefined
+          readonly totalTokens?: number | undefined
+          readonly tokensPerSec?: number | undefined
+        }
+      | undefined
+
     for await (const line of lines(res.body)) {
       const trimmed = line.trim()
       if (trimmed === '') continue
@@ -282,6 +291,46 @@ export async function streamChat(
         continue
       }
 
+      if (typeof parsed === 'object' && parsed !== null) {
+        const obj = parsed as Record<string, unknown>
+        const rawUsage = obj.usage as Record<string, unknown> | undefined
+        const inTok =
+          typeof rawUsage?.prompt_tokens === 'number'
+            ? rawUsage.prompt_tokens
+            : typeof obj.prompt_eval_count === 'number'
+              ? obj.prompt_eval_count
+              : undefined
+        const outTok =
+          typeof rawUsage?.completion_tokens === 'number'
+            ? rawUsage.completion_tokens
+            : typeof obj.eval_count === 'number'
+              ? obj.eval_count
+              : undefined
+        const evalDur = typeof obj.eval_duration === 'number' ? obj.eval_duration : undefined
+
+        if (inTok !== undefined || outTok !== undefined) {
+          const totalTok =
+            typeof rawUsage?.total_tokens === 'number'
+              ? rawUsage.total_tokens
+              : (inTok ?? 0) + (outTok ?? 0)
+          const elapsedSec = (Date.now() - startTime) / 1000
+          let tps: number | undefined
+          if (outTok !== undefined && outTok > 0) {
+            if (evalDur !== undefined && evalDur > 0) {
+              tps = Math.round((outTok / (evalDur / 1e9)) * 10) / 10
+            } else if (elapsedSec > 0) {
+              tps = Math.round((outTok / elapsedSec) * 10) / 10
+            }
+          }
+          streamUsage = {
+            inputTokens: inTok,
+            outputTokens: outTok,
+            totalTokens: totalTok,
+            tokensPerSec: tps,
+          }
+        }
+      }
+
       for (const chunk of readDelta(parsed, ollama)) {
         for (const split of chunk.kind === 'content' ? splitter.push(chunk.text) : [chunk]) {
           take(split)
@@ -291,12 +340,26 @@ export async function streamChat(
 
     for (const chunk of splitter.flush()) take(chunk)
 
+    const totalDurationMs = Date.now() - startTime
+    if (streamUsage === undefined && content.length > 0 && totalDurationMs > 0) {
+      // Rough estimation if provider omits stream usage: ~4 chars per token
+      const estOutputTokens = Math.max(1, Math.round(content.length / 4))
+      const estInputTokens = Math.max(1, Math.round(JSON.stringify(requestBody).length / 4))
+      streamUsage = {
+        inputTokens: estInputTokens,
+        outputTokens: estOutputTokens,
+        totalTokens: estInputTokens + estOutputTokens,
+        tokensPerSec: Math.round((estOutputTokens / (totalDurationMs / 1000)) * 10) / 10,
+      }
+    }
+
     devModelTracker.finishCall(callRecord.id, {
       status: res.status,
       statusText: res.statusText,
-      durationMs: Date.now() - startTime,
+      durationMs: totalDurationMs,
       content,
       reasoning,
+      usage: streamUsage,
       error: null,
     })
 

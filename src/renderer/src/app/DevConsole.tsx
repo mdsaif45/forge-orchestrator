@@ -10,6 +10,18 @@ function getNumber(val: unknown, fallback: number): number {
   return typeof val === 'number' && !Number.isNaN(val) ? val : fallback
 }
 
+function parseUsage(resp: Record<string, unknown> | undefined) {
+  if (!resp || typeof resp !== 'object') return undefined
+  const usageObj = resp.usage as Record<string, unknown> | undefined
+  if (!usageObj || typeof usageObj !== 'object') return undefined
+  return {
+    inputTokens: typeof usageObj.inputTokens === 'number' ? usageObj.inputTokens : undefined,
+    outputTokens: typeof usageObj.outputTokens === 'number' ? usageObj.outputTokens : undefined,
+    totalTokens: typeof usageObj.totalTokens === 'number' ? usageObj.totalTokens : undefined,
+    tokensPerSec: typeof usageObj.tokensPerSec === 'number' ? usageObj.tokensPerSec : undefined,
+  }
+}
+
 export function DevConsole(): React.JSX.Element | null {
   const isOpen = useDevConsoleStore((state) => state.isOpen)
   const closeDevConsole = useDevConsoleStore((state) => state.closeDevConsole)
@@ -78,6 +90,7 @@ export function DevConsole(): React.JSX.Element | null {
                       reasoning: typeof resp.reasoning === 'string' ? resp.reasoning : undefined,
                       rawBody: resp.rawBody,
                       error: typeof resp.error === 'string' ? resp.error : null,
+                      usage: parseUsage(resp),
                     }
                   : undefined,
                 toolExecutions: Array.isArray(toolExecs)
@@ -136,6 +149,7 @@ export function DevConsole(): React.JSX.Element | null {
               reasoning: typeof resp.reasoning === 'string' ? resp.reasoning : undefined,
               rawBody: resp.rawBody,
               error: typeof resp.error === 'string' ? resp.error : null,
+              usage: parseUsage(resp),
             }
           : undefined,
         toolExecutions: Array.isArray(toolExecs)
@@ -436,6 +450,22 @@ export function DevConsole(): React.JSX.Element | null {
                         {tx.toolExecutions.length === 1 ? 'call' : 'calls'}
                       </div>
                     )}
+
+                    {tx.response?.usage && (
+                      <div className="flex items-center gap-1.5 text-[9.5px] text-cyan-300/90 font-mono truncate">
+                        <span>
+                          📊{' '}
+                          {tx.response.usage.totalTokens !== undefined
+                            ? `${String(tx.response.usage.totalTokens)} tok`
+                            : tx.response.usage.outputTokens !== undefined
+                              ? `${String(tx.response.usage.outputTokens)} out tok`
+                              : ''}
+                        </span>
+                        {tx.response.usage.tokensPerSec !== undefined && (
+                          <span>· {String(tx.response.usage.tokensPerSec)} t/s</span>
+                        )}
+                      </div>
+                    )}
                   </button>
                 )
               })
@@ -493,6 +523,77 @@ export function DevConsole(): React.JSX.Element | null {
 
             {/* Tab content area */}
             <div className="flex-1 overflow-y-auto p-3 text-[11px] font-mono leading-relaxed">
+              {/* Token & Performance Metrics Strip */}
+              {selectedTx.response?.usage ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
+                  <div className="rounded border border-white/10 bg-[#070709] p-2">
+                    <div className="text-[9.5px] font-semibold text-neutral-400 uppercase tracking-wider">
+                      Input Tokens
+                    </div>
+                    <div className="text-[14px] font-bold text-cyan-400 font-mono">
+                      {selectedTx.response.usage.inputTokens !== undefined
+                        ? selectedTx.response.usage.inputTokens.toLocaleString()
+                        : '—'}
+                    </div>
+                  </div>
+                  <div className="rounded border border-white/10 bg-[#070709] p-2">
+                    <div className="text-[9.5px] font-semibold text-neutral-400 uppercase tracking-wider">
+                      Output Tokens
+                    </div>
+                    <div className="text-[14px] font-bold text-emerald-400 font-mono">
+                      {selectedTx.response.usage.outputTokens !== undefined
+                        ? selectedTx.response.usage.outputTokens.toLocaleString()
+                        : '—'}
+                    </div>
+                  </div>
+                  <div className="rounded border border-white/10 bg-[#070709] p-2">
+                    <div className="text-[9.5px] font-semibold text-neutral-400 uppercase tracking-wider">
+                      Total Tokens
+                    </div>
+                    <div className="text-[14px] font-bold text-amber-400 font-mono">
+                      {selectedTx.response.usage.totalTokens !== undefined
+                        ? selectedTx.response.usage.totalTokens.toLocaleString()
+                        : selectedTx.response.usage.inputTokens !== undefined ||
+                            selectedTx.response.usage.outputTokens !== undefined
+                          ? (
+                              (selectedTx.response.usage.inputTokens ?? 0) +
+                              (selectedTx.response.usage.outputTokens ?? 0)
+                            ).toLocaleString()
+                          : '—'}
+                    </div>
+                  </div>
+                  <div className="rounded border border-white/10 bg-[#070709] p-2">
+                    <div className="text-[9.5px] font-semibold text-neutral-400 uppercase tracking-wider">
+                      Generation Speed
+                    </div>
+                    <div className="text-[14px] font-bold text-indigo-400 font-mono">
+                      {selectedTx.response.usage.tokensPerSec !== undefined
+                        ? `${String(selectedTx.response.usage.tokensPerSec)} t/s`
+                        : selectedTx.response.usage.outputTokens !== undefined &&
+                            selectedTx.durationMs &&
+                            selectedTx.durationMs > 0
+                          ? `${String(Math.round((selectedTx.response.usage.outputTokens / (selectedTx.durationMs / 1000)) * 10) / 10)} t/s`
+                          : '—'}
+                    </div>
+                  </div>
+                </div>
+              ) : selectedTx.durationMs ? (
+                <div className="flex items-center gap-3 rounded border border-white/5 bg-[#070709] px-3 py-2 mb-3 text-[11px] text-neutral-400">
+                  <span>
+                    ⏱️ Duration:{' '}
+                    <strong className="text-neutral-200">{String(selectedTx.durationMs)}ms</strong>
+                  </span>
+                  <span>
+                    ⚡ Status:{' '}
+                    <strong className="text-emerald-400">
+                      {String(selectedTx.statusCode || 200)} OK
+                    </strong>
+                  </span>
+                  <span className="text-neutral-500">
+                    · Token counts not reported by model endpoint
+                  </span>
+                </div>
+              ) : null}
               {/* TAB 1: Request & Payload */}
               {activeTab === 'request' && (
                 <div className="space-y-3">

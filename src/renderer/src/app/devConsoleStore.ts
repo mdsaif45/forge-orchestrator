@@ -45,6 +45,14 @@ export interface DevNetworkTransaction {
         readonly toolCallsCount?: number | undefined
         readonly rawBody?: unknown
         readonly error?: string | null | undefined
+        readonly usage?:
+          | {
+              readonly inputTokens?: number | undefined
+              readonly outputTokens?: number | undefined
+              readonly totalTokens?: number | undefined
+              readonly tokensPerSec?: number | undefined
+            }
+          | undefined
       }
     | undefined
   readonly toolExecutions?: readonly DevToolExecution[] | undefined

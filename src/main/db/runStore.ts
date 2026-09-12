@@ -69,16 +69,29 @@ export class RunStore {
   }
 
   /**
-   * Lists runs for a project ordered newest first.
+   * Lists runs ordered newest first, with optional filtering by project or status.
    */
-  listRunsForProject(projectId: ProjectId, limit = 50): readonly RunRecord[] {
-    const rows = this.db
-      .select()
-      .from(runs)
-      .where(eq(runs.projectId, projectId))
-      .orderBy(desc(runs.startedAt))
-      .limit(limit)
-      .all()
+  listRuns(
+    options: {
+      readonly limit?: number | undefined
+      readonly projectId?: ProjectId | undefined
+      readonly status?: RunStatus | undefined
+    } = {},
+  ): readonly RunRecord[] {
+    const limit = options.limit ?? 50
+    const conditions = []
+
+    if (options.projectId !== undefined) {
+      conditions.push(eq(runs.projectId, options.projectId))
+    }
+    if (options.status !== undefined) {
+      conditions.push(eq(runs.status, options.status))
+    }
+
+    const query = this.db.select().from(runs)
+    const filtered = conditions.length === 0 ? query : query.where(and(...conditions))
+
+    const rows = filtered.orderBy(desc(runs.startedAt)).limit(limit).all()
 
     return rows.map((row) =>
       parseRow(
@@ -87,9 +100,16 @@ export class RunStore {
           ...row,
           metadata: fromJson(runRecordSchema.shape.metadata, row.metadata, 'runs.metadata'),
         },
-        'runs.listRunsForProject',
+        'runs.listRuns',
       ),
     )
+  }
+
+  /**
+   * Lists runs for a project ordered newest first.
+   */
+  listRunsForProject(projectId: ProjectId, limit = 50): readonly RunRecord[] {
+    return this.listRuns({ projectId, limit })
   }
 
   /**

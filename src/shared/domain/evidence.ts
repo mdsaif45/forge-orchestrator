@@ -10,6 +10,7 @@ import {
 } from './ids'
 import { verdictSchema } from './enums'
 import { changeSetSchema, discrepancySchema } from './changeset'
+import { criterionResultSchema } from './criterion'
 
 /**
  * Why a command run ended.
@@ -185,6 +186,7 @@ export const stepEvidenceSchema = z.strictObject({
   headSha: shaSchema.nullable(),
   changeSet: changeSetSchema.nullable(),
   commandArtifacts: z.array(evidenceArtifactSchema).readonly(),
+  criteria: z.array(criterionResultSchema).readonly().default([]),
   discrepancies: z.array(discrepancySchema).readonly(),
   passed: z.boolean(),
   verdict: verdictSchema,
@@ -208,5 +210,7 @@ export function summariseStepEvidence(evidence: StepEvidence): string {
   const discStr = discCount > 0 ? `, ${String(discCount)} discrepancy(ies)` : ''
   const cmdsCount = evidence.commandArtifacts.length
   const cmdsStr = cmdsCount > 0 ? `, ${String(cmdsCount)} command artifact(s)` : ''
-  return `[${verdict}] ${String(filesCount)} file(s) changed${discStr}${cmdsStr}`
+  const critCount = evidence.criteria.length
+  const critStr = critCount > 0 ? `, ${String(critCount)} criterion(a)` : ''
+  return `[${verdict}] ${String(filesCount)} file(s) changed${discStr}${cmdsStr}${critStr}`
 }

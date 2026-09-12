@@ -178,4 +178,57 @@ describe('RunStore', () => {
     expect(events[0]?.type).toBe('run.started')
     expect(events[1]?.type).toBe('status')
   })
+
+  it('lists runs globally with limit and status filters (CLI-004)', () => {
+    const runId1 = runIdSchema.parse(randomUUID())
+    const runId2 = runIdSchema.parse(randomUUID())
+
+    runStore.createRun({
+      id: runId1,
+      projectId,
+      taskId: taskIdSchema.parse(randomUUID()),
+      type: 'direct-task',
+      status: 'completed',
+      startedAt: '2026-08-23T10:00:00.000Z',
+      finishedAt: '2026-08-23T10:05:00.000Z',
+      exitCode: 0,
+      summary: 'Run 1 passed',
+      error: null,
+      metadata: {},
+    })
+
+    runStore.createRun({
+      id: runId2,
+      projectId,
+      taskId: taskIdSchema.parse(randomUUID()),
+      type: 'direct-task',
+      status: 'failed',
+      startedAt: '2026-08-23T11:00:00.000Z',
+      finishedAt: '2026-08-23T11:02:00.000Z',
+      exitCode: 1,
+      summary: 'Run 2 failed',
+      error: 'Test failure',
+      metadata: {},
+    })
+
+    // Global list (ordered newest first)
+    const allRuns = runStore.listRuns()
+    expect(allRuns.length).toBe(2)
+    expect(allRuns[0]?.id).toBe(runId2)
+    expect(allRuns[1]?.id).toBe(runId1)
+
+    // Filter by status
+    const completedRuns = runStore.listRuns({ status: 'completed' })
+    expect(completedRuns.length).toBe(1)
+    expect(completedRuns[0]?.id).toBe(runId1)
+
+    const failedRuns = runStore.listRuns({ status: 'failed' })
+    expect(failedRuns.length).toBe(1)
+    expect(failedRuns[0]?.id).toBe(runId2)
+
+    // Limit filter
+    const limitedRuns = runStore.listRuns({ limit: 1 })
+    expect(limitedRuns.length).toBe(1)
+    expect(limitedRuns[0]?.id).toBe(runId2)
+  })
 })

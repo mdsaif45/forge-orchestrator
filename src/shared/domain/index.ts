@@ -160,13 +160,9 @@ export {
   type TestCounts,
 } from './evidence'
 
-export {
-  assessCompletion,
-  criterionResultSchema,
-  type CompletionAssessment,
-  type CompletionInput,
-  type CriterionResult,
-} from './completion'
+export { criterionResultSchema, formatCriterionResult, type CriterionResult } from './criterion'
+
+export { assessCompletion, type CompletionAssessment, type CompletionInput } from './completion'
 
 export {
   assessReview,

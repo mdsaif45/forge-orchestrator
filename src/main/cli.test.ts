@@ -1,8 +1,11 @@
+import { randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { projectIdSchema, runIdSchema, stepIdSchema, taskIdSchema } from '@shared/domain'
+import { createForgeCore } from './core/forgeCore'
 import { runCli } from './cli'
 
 describe('Forge CLI (runCli)', () => {
@@ -67,5 +70,149 @@ describe('Forge CLI (runCli)', () => {
   it('fails with exit code 1 when run is called without a task', async () => {
     const code = await runCli(['run', '--cwd', repoPath, '--data-dir', dataDir])
     expect(code).toBe(1)
+  })
+
+  it('lists runs in empty state', async () => {
+    const code = await runCli(['runs', '--data-dir', dataDir])
+    expect(code).toBe(0)
+
+    const jsonCode = await runCli(['runs', 'list', '--data-dir', dataDir, '--json'])
+    expect(jsonCode).toBe(0)
+  })
+
+  it('inspects runs, steps, events, and artifacts across subcommands', async () => {
+    const core = createForgeCore({ dataDir })
+    const projectView = await core.projects.create({
+      name: 'Test Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'master',
+      buildCommand: null,
+      testCommand: null,
+      tech: [],
+      rules: [],
+    })
+    const projectId = projectIdSchema.parse(projectView.id)
+    const runId = runIdSchema.parse(randomUUID())
+    const stepId = stepIdSchema.parse(randomUUID())
+    const taskId = taskIdSchema.parse(randomUUID())
+
+    core.runs.createRun({
+      id: runId,
+      projectId,
+      taskId,
+      type: 'direct-task',
+      status: 'completed',
+      startedAt: new Date(Date.now() - 10000).toISOString(),
+      finishedAt: new Date().toISOString(),
+      exitCode: 0,
+      summary: 'Test task execution succeeded',
+      error: null,
+      metadata: {
+        task: 'Implement unit tests',
+        baseSha: '0123456789abcdef',
+      },
+    })
+
+    core.runs.createStep({
+      id: stepId,
+      runId,
+      index: 1,
+      role: 'agent',
+      runtimeId: null,
+      status: 'completed',
+      startedAt: new Date(Date.now() - 5000).toISOString(),
+      finishedAt: new Date().toISOString(),
+      summary: 'Executed agent step successfully',
+      changeSetId: null,
+      evidenceId: null,
+    })
+
+    core.runs.appendEvent(runId, {
+      stepId,
+      type: 'run.started',
+      payload: { message: 'Run initiated' },
+    })
+
+    const artifact = await core.artifacts.writeArtifact({
+      runId,
+      stepId,
+      kind: 'stdout',
+      name: 'test-output.txt',
+      content: 'Hello Forge artifact verification',
+    })
+
+    await core.close()
+
+    // 1. List runs
+    const listCode = await runCli(['runs', '--data-dir', dataDir, '--all'])
+    expect(listCode).toBe(0)
+
+    const listJsonCode = await runCli(['runs', 'list', '--data-dir', dataDir, '--all', '--json'])
+    expect(listJsonCode).toBe(0)
+
+    // 2. Inspect run
+    const inspectCode = await runCli(['runs', 'inspect', runId, '--data-dir', dataDir])
+    expect(inspectCode).toBe(0)
+
+    const inspectJsonCode = await runCli([
+      'runs',
+      'inspect',
+      runId,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(inspectJsonCode).toBe(0)
+
+    const inspectNotFound = await runCli(['runs', 'inspect', 'non-existent', '--data-dir', dataDir])
+    expect(inspectNotFound).toBe(1)
+
+    // 3. Events
+    const eventsCode = await runCli(['runs', 'events', runId, '--data-dir', dataDir])
+    expect(eventsCode).toBe(0)
+
+    const eventsJsonCode = await runCli([
+      'runs',
+      'events',
+      runId,
+      '--from',
+      '1',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(eventsJsonCode).toBe(0)
+
+    // 4. Artifacts list
+    const artListCode = await runCli(['artifacts', 'list', runId, '--data-dir', dataDir])
+    expect(artListCode).toBe(0)
+
+    const artListJsonCode = await runCli(['artifacts', runId, '--data-dir', dataDir, '--json'])
+    expect(artListJsonCode).toBe(0)
+
+    // 5. Artifacts cat
+    const stdoutWrite = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+    const catCode = await runCli(['artifacts', 'cat', artifact.id, '--data-dir', dataDir])
+    expect(catCode).toBe(0)
+    expect(stdoutWrite).toHaveBeenCalled()
+
+    const catWindowCode = await runCli([
+      'artifacts',
+      'cat',
+      artifact.id,
+      '--offset',
+      '0',
+      '--length',
+      '5',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(catWindowCode).toBe(0)
+
+    const catNotFound = await runCli(['artifacts', 'cat', 'non-existent', '--data-dir', dataDir])
+    expect(catNotFound).toBe(1)
+
+    stdoutWrite.mockRestore()
   })
 })

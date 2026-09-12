@@ -1,5 +1,4 @@
-import { z } from 'zod'
-import { criterionKindSchema, verdictSchema, type Verdict } from './enums'
+import type { Verdict } from './enums'
 import { evidencePassed, type EvidenceArtifact } from './evidence'
 import type { AgentReport } from './runtime'
 import type { CompletionCriterion, Task } from './task'
@@ -27,18 +26,8 @@ import type { ReconcileResult } from './reconcile'
  * assumptions, and whether a reviewer reached a verdict.
  */
 
-/** One criterion's outcome, with the reason a user reads in the workflow log. */
-export const criterionResultSchema = z.strictObject({
-  kind: criterionKindSchema,
-  description: z.string().min(1),
-  verdict: verdictSchema,
-  /** Why this verdict, phrased for a human. Never empty, including on a pass. */
-  reason: z.string().min(1),
-  /** Which artifact decided it, when one did. */
-  evidenceId: z.string().nullable(),
-})
-
-export type CriterionResult = z.infer<typeof criterionResultSchema>
+import { criterionResultSchema, type CriterionResult } from './criterion'
+export { criterionResultSchema, type CriterionResult }
 
 export interface CompletionInput {
   readonly task: Task

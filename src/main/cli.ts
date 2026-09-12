@@ -1,5 +1,12 @@
 import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
+import {
+  runStatusSchema,
+  type ArtifactId,
+  type ProjectId,
+  type RunId,
+  type RunStatus,
+} from '@shared/domain'
 import { createForgeCore, resolveDataDir } from './core/forgeCore'
 import { executeDirectTask, type DirectTaskEvent } from './core/taskRunner'
 import { GitService } from './git'
@@ -31,9 +38,11 @@ ${ANSI.bold}USAGE${ANSI.reset}
   forge <command> [options]
 
 ${ANSI.bold}COMMANDS${ANSI.reset}
-  run <task>           Execute an autonomous coding task against the current repository
-  status               Display current repository status and Forge control plane state
-  models [list|set]    Inspect or configure the active AI model and provider
+  run <task>                 Execute an autonomous coding task against the current repository
+  runs [list|inspect|events] Inspect past runs, steps, and event streams
+  artifacts [list|cat]       Inspect and view run artifacts (patches, stdout, tool logs)
+  status                     Display current repository status and Forge control plane state
+  models [list|set]          Inspect or configure the active AI model and provider
 
 ${ANSI.bold}OPTIONS${ANSI.reset}
   -v, --version        Display Forge version
@@ -45,13 +54,23 @@ ${ANSI.bold}OPTIONS${ANSI.reset}
   --endpoint <url>     Custom OpenAI/Ollama API endpoint URL
   --api-key <key>      API key for cloud model providers
   --max-rounds <n>     Maximum tool execution rounds (default: 15)
+  --limit <n>          Maximum number of runs to list
+  --status <s>         Filter runs by status (running, completed, failed, halted)
+  --all                Show runs across all projects (default: current repository only)
+  --from <seq>         Starting event sequence number for events inspection
+  --offset <n>         Byte offset for reading artifact window
+  --length <n>         Byte length for reading artifact window
   --json               Output machine-readable NDJSON events (ideal for CI and subagents)
   -y, --yes            Unattended mode (auto-confirm operations)
 
 ${ANSI.bold}EXAMPLES${ANSI.reset}
   forge run "Fix failing tests in src/parser.ts"
   forge run "Add unit test for auth token validation" --model gpt-4o
-  forge run "Refactor database migrations" --json
+  forge runs
+  forge runs inspect 123e4567-e89b-12d3-a456-426614174000
+  forge runs events 123e4567-e89b-12d3-a456-426614174000 --from 1
+  forge artifacts list 123e4567-e89b-12d3-a456-426614174000
+  forge artifacts cat 123e4567-e89b-12d3-a456-426614174000 --offset 0 --length 1024
   forge models set ollama qwen2.5-coder:7b
 `)
 }
@@ -71,6 +90,12 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       json: { type: 'boolean', default: false },
       'max-rounds': { type: 'string' },
       yes: { type: 'boolean', short: 'y', default: false },
+      limit: { type: 'string' },
+      status: { type: 'string' },
+      all: { type: 'boolean', default: false },
+      from: { type: 'string' },
+      offset: { type: 'string' },
+      length: { type: 'string' },
     },
     allowPositionals: true,
   })
@@ -129,6 +154,31 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       endpointUrl: values.endpoint,
       apiKey: values['api-key'],
       maxRounds,
+      json: values.json,
+    })
+  }
+
+  if (command === 'runs') {
+    return handleRuns({
+      action: positionals[1],
+      targetId: positionals[2],
+      limit: values.limit,
+      status: values.status,
+      all: values.all,
+      from: values.from,
+      cwd,
+      dataDir,
+      json: values.json,
+    })
+  }
+
+  if (command === 'artifacts') {
+    return handleArtifacts({
+      subcommandOrId: positionals[1],
+      targetId: positionals[2],
+      offset: values.offset,
+      length: values.length,
+      dataDir,
       json: values.json,
     })
   }
@@ -378,12 +428,23 @@ async function handleRun(opts: {
     }
 
     if (result.verification !== undefined) {
-      console.log(`\n${ANSI.bold}Independent Verification:${ANSI.reset}`)
+      console.log(`\n${ANSI.bold}Independent Verification & Criteria:${ANSI.reset}`)
       console.log(
         result.verification.passed
           ? `  ${ANSI.green}✓ Verdict: ${result.verification.verdict} (All completion criteria satisfied)${ANSI.reset}`
           : `  ${ANSI.red}✗ Verdict: ${result.verification.verdict}${ANSI.reset}`,
       )
+      if (result.verification.criteria && result.verification.criteria.length > 0) {
+        for (const crit of result.verification.criteria) {
+          const icon =
+            crit.verdict === 'pass'
+              ? `${ANSI.green}✓${ANSI.reset}`
+              : crit.verdict === 'fail'
+                ? `${ANSI.red}✗${ANSI.reset}`
+                : `${ANSI.yellow}?${ANSI.reset}`
+          console.log(`    ${icon} [${crit.kind}] ${crit.description}: ${crit.reason}`)
+        }
+      }
       if (result.verification.findings.length > 0) {
         for (const finding of result.verification.findings) {
           console.log(`    ${ANSI.red}• ${finding}${ANSI.reset}`)
@@ -399,6 +460,421 @@ async function handleRun(opts: {
       console.log(JSON.stringify({ type: 'error', error: message }))
     } else {
       console.error(`\n${ANSI.red}${ANSI.bold}Execution Error:${ANSI.reset} ${message}\n`)
+    }
+    return 1
+  } finally {
+    await core.close()
+  }
+}
+
+function formatStatus(status: string): string {
+  switch (status) {
+    case 'completed':
+      return `${ANSI.green}COMPLETED${ANSI.reset}`
+    case 'failed':
+      return `${ANSI.red}FAILED${ANSI.reset}`
+    case 'running':
+      return `${ANSI.cyan}RUNNING${ANSI.reset}`
+    case 'halted':
+      return `${ANSI.yellow}HALTED${ANSI.reset}`
+    default:
+      return status
+  }
+}
+
+async function handleRuns(opts: {
+  action?: string | undefined
+  targetId?: string | undefined
+  limit?: string | undefined
+  status?: string | undefined
+  all?: boolean | undefined
+  from?: string | undefined
+  cwd: string
+  dataDir: string
+  json: boolean
+}): Promise<number> {
+  const core = createForgeCore({ dataDir: opts.dataDir })
+  try {
+    let action = opts.action ?? 'list'
+    let targetId = opts.targetId
+
+    if (action !== 'list' && action !== 'inspect' && action !== 'events') {
+      targetId = action
+      action = 'inspect'
+    }
+
+    if (action === 'list') {
+      let limit: number | undefined
+      if (opts.limit !== undefined) {
+        limit = parseInt(opts.limit, 10)
+        if (isNaN(limit) || limit < 0) {
+          const err = `Invalid limit: ${opts.limit}`
+          if (opts.json) console.log(JSON.stringify({ error: err }))
+          else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          return 1
+        }
+      }
+
+      let status: RunStatus | undefined
+      if (opts.status !== undefined) {
+        const parsed = runStatusSchema.safeParse(opts.status)
+        if (!parsed.success) {
+          const err = `Invalid status "${opts.status}". Valid statuses: ${runStatusSchema.options.join(', ')}`
+          if (opts.json) console.log(JSON.stringify({ error: err }))
+          else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          return 1
+        }
+        status = parsed.data
+      }
+
+      let projectId: ProjectId | undefined
+      if (!opts.all) {
+        try {
+          const projects = core.projects.list()
+          const normCwd = resolve(opts.cwd)
+          const match = projects.find((p) => resolve(p.repository.absolutePath) === normCwd)
+          if (match) {
+            projectId = match.id as ProjectId
+          }
+        } catch {
+          // If project resolution fails, list runs unconstrained
+        }
+      }
+
+      const runs = core.runs.listRuns({ limit, status, projectId })
+
+      if (opts.json) {
+        console.log(JSON.stringify({ runs }))
+        return 0
+      }
+
+      printBanner()
+      console.log(`\n${ANSI.bold}FORGE RUNS${ANSI.reset}`)
+      if (runs.length === 0) {
+        console.log(`  ${ANSI.dim}No runs found.${ANSI.reset}\n`)
+        return 0
+      }
+
+      for (const run of runs) {
+        const statusStr = formatStatus(run.status)
+        const exitStr = run.exitCode !== null ? String(run.exitCode) : '-'
+        let durationStr = '-'
+        if (run.startedAt && run.finishedAt) {
+          const ms = new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()
+          durationStr = `${(ms / 1000).toFixed(1)}s`
+        }
+        const taskText =
+          typeof run.metadata.task === 'string'
+            ? run.metadata.task
+            : (run.summary ?? '(No description)')
+        const obj = taskText.length > 50 ? taskText.slice(0, 47) + '...' : taskText
+
+        console.log(
+          `  ${ANSI.bold}${run.id}${ANSI.reset}  ${statusStr}  exit:${exitStr}  dur:${durationStr}`,
+        )
+        console.log(`    Task: ${obj}`)
+        console.log(`    Date: ${ANSI.dim}${run.startedAt}${ANSI.reset}`)
+      }
+      console.log('')
+      return 0
+    }
+
+    if (action === 'inspect') {
+      const runId = targetId
+      if (!runId) {
+        const err = 'No run ID provided.'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else {
+          console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          console.error('Usage: forge runs inspect <runId> [--json]')
+        }
+        return 1
+      }
+
+      const run = core.runs.getRun(runId as RunId)
+      if (!run) {
+        const err = `Run "${runId}" not found.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      const steps = core.runs.listStepsForRun(runId as RunId)
+      const artifacts = core.artifacts.listArtifacts(runId as RunId)
+
+      if (opts.json) {
+        console.log(JSON.stringify({ run, steps, artifacts }))
+        return 0
+      }
+
+      printBanner()
+      console.log(`\n${ANSI.bold}RUN DETAILS: ${ANSI.cyan}${run.id}${ANSI.reset}`)
+      console.log(`  Project ID:  ${run.projectId}`)
+      console.log(`  Status:      ${formatStatus(run.status)}`)
+      const taskText =
+        typeof run.metadata.task === 'string'
+          ? run.metadata.task
+          : (run.summary ?? '(No description)')
+      console.log(`  Objective:   ${taskText}`)
+      if (typeof run.metadata.baseSha === 'string') {
+        console.log(`  Base SHA:    ${ANSI.dim}${run.metadata.baseSha}${ANSI.reset}`)
+      }
+      console.log(`  Exit Code:   ${run.exitCode !== null ? String(run.exitCode) : '-'}`)
+      console.log(`  Started:     ${ANSI.dim}${run.startedAt}${ANSI.reset}`)
+      console.log(`  Finished:    ${ANSI.dim}${run.finishedAt ?? '-'}${ANSI.reset}`)
+      if (run.error) {
+        console.log(`  Error:       ${ANSI.red}${run.error}${ANSI.reset}`)
+      }
+
+      console.log(`\n${ANSI.bold}STEPS (${String(steps.length)})${ANSI.reset}`)
+      if (steps.length === 0) {
+        console.log(`  ${ANSI.dim}(No steps recorded)${ANSI.reset}`)
+      } else {
+        for (const s of steps) {
+          let dur = ''
+          if (s.startedAt && s.finishedAt) {
+            const ms = new Date(s.finishedAt).getTime() - new Date(s.startedAt).getTime()
+            dur = ` (${(ms / 1000).toFixed(2)}s)`
+          }
+          console.log(
+            `  • #${String(s.index)} [${ANSI.cyan}${s.role}${ANSI.reset}] ${formatStatus(s.status)}${dur} - id: ${ANSI.dim}${s.id}${ANSI.reset}`,
+          )
+        }
+      }
+
+      console.log(`\n${ANSI.bold}ARTIFACTS (${String(artifacts.length)})${ANSI.reset}`)
+      if (artifacts.length === 0) {
+        console.log(`  ${ANSI.dim}(No artifacts recorded)${ANSI.reset}`)
+      } else {
+        for (const a of artifacts) {
+          console.log(
+            `  • ${ANSI.bold}${a.id}${ANSI.reset} [${ANSI.cyan}${a.kind}${ANSI.reset}] ${a.name} (${String(a.sizeBytes)} bytes)`,
+          )
+        }
+      }
+      console.log('')
+      return 0
+    }
+
+    if (action === 'events') {
+      const runId = targetId
+      if (!runId) {
+        const err = 'No run ID provided.'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else {
+          console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          console.error('Usage: forge runs events <runId> [--from <seq>] [--json]')
+        }
+        return 1
+      }
+
+      let fromSeq: number | undefined
+      if (opts.from !== undefined) {
+        fromSeq = parseInt(opts.from, 10)
+        if (isNaN(fromSeq) || fromSeq < 0) {
+          const err = `Invalid --from sequence: ${opts.from}`
+          if (opts.json) console.log(JSON.stringify({ error: err }))
+          else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          return 1
+        }
+      }
+
+      const events = core.runs.listEventsForRun(runId as RunId, fromSeq)
+
+      if (opts.json) {
+        console.log(JSON.stringify({ events }))
+        return 0
+      }
+
+      printBanner()
+      console.log(`\n${ANSI.bold}RUN EVENTS: ${ANSI.cyan}${runId}${ANSI.reset}`)
+      if (events.length === 0) {
+        console.log(`  ${ANSI.dim}No events found.${ANSI.reset}\n`)
+        return 0
+      }
+
+      for (const ev of events) {
+        console.log(
+          `  #${String(ev.seq)} [${ANSI.dim}${ev.occurredAt}${ANSI.reset}] ${ANSI.cyan}${ev.type}${ANSI.reset}`,
+        )
+        const payloadStr = typeof ev.payload === 'string' ? ev.payload : JSON.stringify(ev.payload)
+        if (payloadStr !== '{}' && payloadStr !== '') {
+          const truncated = payloadStr.length > 80 ? payloadStr.slice(0, 77) + '...' : payloadStr
+          console.log(`    ${ANSI.dim}${truncated}${ANSI.reset}`)
+        }
+      }
+      console.log('')
+      return 0
+    }
+
+    const err = `Unknown runs action: ${action}`
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else {
+      console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+      console.error('Usage: forge runs [list|inspect|events] [options]')
+    }
+    return 1
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (opts.json) {
+      console.log(JSON.stringify({ error: msg }))
+    } else {
+      console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+    }
+    return 1
+  } finally {
+    await core.close()
+  }
+}
+
+async function handleArtifacts(opts: {
+  subcommandOrId?: string | undefined
+  targetId?: string | undefined
+  offset?: string | undefined
+  length?: string | undefined
+  dataDir: string
+  json: boolean
+}): Promise<number> {
+  const core = createForgeCore({ dataDir: opts.dataDir })
+  try {
+    let action = opts.subcommandOrId
+    let id = opts.targetId
+
+    if (action === 'cat') {
+      // id is targetId
+    } else if (action === 'list') {
+      // id is targetId
+    } else if (action !== undefined && id === undefined) {
+      // User invoked `forge artifacts <runId>`
+      id = action
+      action = 'list'
+    } else if (action === undefined) {
+      const err = 'No arguments provided.'
+      if (opts.json) console.log(JSON.stringify({ error: err }))
+      else {
+        console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        console.error('Usage: forge artifacts [list] <runId> | forge artifacts cat <artifactId>')
+      }
+      return 1
+    }
+
+    if (action === 'list') {
+      const runId = id
+      if (!runId) {
+        const err = 'No run ID provided.'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else {
+          console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          console.error('Usage: forge artifacts list <runId> [--json]')
+        }
+        return 1
+      }
+
+      const artifacts = core.artifacts.listArtifacts(runId as RunId)
+
+      if (opts.json) {
+        console.log(JSON.stringify({ artifacts }))
+        return 0
+      }
+
+      printBanner()
+      console.log(`\n${ANSI.bold}ARTIFACTS FOR RUN: ${ANSI.cyan}${runId}${ANSI.reset}`)
+      if (artifacts.length === 0) {
+        console.log(`  ${ANSI.dim}No artifacts found for run ${runId}.${ANSI.reset}\n`)
+        return 0
+      }
+
+      for (const art of artifacts) {
+        console.log(
+          `  • ${ANSI.bold}${art.id}${ANSI.reset} [${ANSI.cyan}${art.kind}${ANSI.reset}] ${art.name} (${String(art.sizeBytes)} bytes)`,
+        )
+        console.log(
+          `    SHA256: ${ANSI.dim}${art.sha256}${ANSI.reset}  Path: ${ANSI.dim}${art.relativePath}${ANSI.reset}`,
+        )
+      }
+      console.log('')
+      return 0
+    }
+
+    if (action === 'cat') {
+      const artifactId = id
+      if (!artifactId) {
+        const err = 'No artifact ID provided.'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else {
+          console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          console.error('Usage: forge artifacts cat <artifactId> [--offset <n>] [--length <n>]')
+        }
+        return 1
+      }
+
+      const meta = core.artifacts.getMetadata(artifactId as ArtifactId)
+      if (!meta) {
+        const err = `Artifact "${artifactId}" not found.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      const hasOffset = opts.offset !== undefined
+      const hasLength = opts.length !== undefined
+
+      if (hasOffset || hasLength) {
+        const offset = opts.offset !== undefined ? parseInt(opts.offset, 10) : 0
+        const length = opts.length !== undefined ? parseInt(opts.length, 10) : 65536
+
+        if (isNaN(offset) || offset < 0) {
+          const err = `Invalid offset: ${String(opts.offset)}`
+          if (opts.json) console.log(JSON.stringify({ error: err }))
+          else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          return 1
+        }
+        if (isNaN(length) || length <= 0) {
+          const err = `Invalid length: ${String(opts.length)}`
+          if (opts.json) console.log(JSON.stringify({ error: err }))
+          else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          return 1
+        }
+
+        const window = await core.artifacts.readWindow(artifactId as ArtifactId, offset, length)
+        const content = window.data.toString('utf-8')
+        if (opts.json) {
+          console.log(
+            JSON.stringify({
+              artifactId,
+              offset,
+              length,
+              totalBytes: window.totalBytes,
+              data: content,
+            }),
+          )
+        } else {
+          process.stdout.write(content)
+        }
+      } else {
+        const text = await core.artifacts.readArtifactText(artifactId as ArtifactId)
+        if (opts.json) {
+          console.log(JSON.stringify({ artifactId, sizeBytes: meta.sizeBytes, data: text }))
+        } else {
+          process.stdout.write(text)
+        }
+      }
+      return 0
+    }
+
+    const err = `Unknown artifacts action: ${action}`
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else {
+      console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+      console.error('Usage: forge artifacts [list] <runId> | forge artifacts cat <artifactId>')
+    }
+    return 1
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (opts.json) {
+      console.log(JSON.stringify({ error: msg }))
+    } else {
+      console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
     }
     return 1
   } finally {

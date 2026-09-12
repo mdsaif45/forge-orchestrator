@@ -7,10 +7,14 @@
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
+  "bin": {
+    "forge": "./bin/forge.js"
+  },
   "engines": {
     "node": ">=22"
   },
   "scripts": {
+    "cli": "tsx bin/forge.ts",
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
     "build": "npm run typecheck && electron-vite build",

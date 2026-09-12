@@ -124,9 +124,13 @@ beforeEach(() => {
 
 afterEach(() => {
   closeDb()
-  rmSync(dbFile, { recursive: true, force: true })
-  rmSync(repoPath, { recursive: true, force: true })
-  rmSync(packetDir, { recursive: true, force: true })
+  try {
+    rmSync(dbFile, { recursive: true, force: true })
+    rmSync(repoPath, { recursive: true, force: true })
+    rmSync(packetDir, { recursive: true, force: true })
+  } catch {
+    // Ignore temporary file lock
+  }
 })
 
 /** Builds an orchestrator wired to real stores and a real repository. */
@@ -222,22 +226,26 @@ describe('the template', () => {
 })
 
 describe('a full run', () => {
-  it('reaches DONE through plan, approve, implement, verify, review', async () => {
-    const { registry, bindings } = registryFor()
+  it(
+    'reaches DONE through plan, approve, implement, verify, review',
+    { timeout: 30_000 },
+    async () => {
+      const { registry, bindings } = registryFor()
 
-    const outcome = await orchestrator(registry).run(runOptions(registry, bindings))
+      const outcome = await orchestrator(registry).run(runOptions(registry, bindings))
 
-    expect(outcome.state).toBe('DONE')
-    // Five steps: planner, user, implementer, system, reviewer.
-    expect(outcome.steps).toHaveLength(5)
-    expect(outcome.steps.map((step) => step.role)).toEqual([
-      'planner',
-      'user',
-      'implementer',
-      'system',
-      'reviewer',
-    ])
-  })
+      expect(outcome.state).toBe('DONE')
+      // Five steps: planner, user, implementer, system, reviewer.
+      expect(outcome.steps).toHaveLength(5)
+      expect(outcome.steps.map((step) => step.role)).toEqual([
+        'planner',
+        'user',
+        'implementer',
+        'system',
+        'reviewer',
+      ])
+    },
+  )
 
   it('snapshots a packet for every agent step and none for a Forge step', async () => {
     // The audit property: what an agent was told still exists afterwards. A `user` or

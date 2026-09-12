@@ -1,5 +1,15 @@
 import { z } from 'zod'
-import { evidenceIdSchema, stepIdSchema, timestampSchema, workflowIdSchema } from './ids'
+import {
+  actorSchema,
+  evidenceIdSchema,
+  shaSchema,
+  stepIdSchema,
+  taskIdSchema,
+  timestampSchema,
+  workflowIdSchema,
+} from './ids'
+import { verdictSchema } from './enums'
+import { changeSetSchema, discrepancySchema } from './changeset'
 
 /**
  * Why a command run ended.
@@ -153,4 +163,50 @@ function lastLines(text: string, count: number): string {
   const lines = text.split('\n')
   if (lines.length <= count) return text
   return `... (${String(lines.length - count)} earlier lines omitted)\n${lines.slice(-count).join('\n')}`
+}
+
+/**
+ * Authoritative evidence record for an agent execution step or standalone task.
+ *
+ * Implements EVIDENCE-001: separating Creation, Persistence, Verification, and Presentation.
+ * Combines:
+ * 1. Physical git modifications (`changeSet`) measured against baseline git snapshot
+ * 2. Independent command execution records (`commandArtifacts`: build, test, lint)
+ * 3. Ground-truth reconciliation discrepancies (`discrepancies`)
+ * 4. Authoritative verification verdict and findings (`verdict`, `passed`, `findings`, `falseClaims`)
+ */
+export const stepEvidenceSchema = z.strictObject({
+  id: evidenceIdSchema,
+  taskId: taskIdSchema,
+  stepId: stepIdSchema,
+  workflowId: workflowIdSchema.nullable(),
+  actor: actorSchema,
+  baseSha: shaSchema,
+  headSha: shaSchema.nullable(),
+  changeSet: changeSetSchema.nullable(),
+  commandArtifacts: z.array(evidenceArtifactSchema).readonly(),
+  discrepancies: z.array(discrepancySchema).readonly(),
+  passed: z.boolean(),
+  verdict: verdictSchema,
+  findings: z.array(z.string()).readonly(),
+  falseClaims: z.array(z.string()).readonly(),
+  recordedAt: timestampSchema,
+})
+
+export type StepEvidence = z.infer<typeof stepEvidenceSchema>
+
+/** True when the step evidence demonstrates a clean pass with no discrepancies or test failures. */
+export function isStepEvidencePassing(evidence: StepEvidence): boolean {
+  return evidence.passed && evidence.verdict === 'pass' && evidence.discrepancies.length === 0
+}
+
+/** Summarises step evidence for human-readable logs and CLI reports. */
+export function summariseStepEvidence(evidence: StepEvidence): string {
+  const verdict = evidence.verdict.toUpperCase()
+  const filesCount = evidence.changeSet !== null ? evidence.changeSet.files.length : 0
+  const discCount = evidence.discrepancies.length
+  const discStr = discCount > 0 ? `, ${String(discCount)} discrepancy(ies)` : ''
+  const cmdsCount = evidence.commandArtifacts.length
+  const cmdsStr = cmdsCount > 0 ? `, ${String(cmdsCount)} command artifact(s)` : ''
+  return `[${verdict}] ${String(filesCount)} file(s) changed${discStr}${cmdsStr}`
 }

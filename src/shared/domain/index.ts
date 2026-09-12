@@ -144,11 +144,15 @@ export {
   evidenceArtifactSchema,
   evidenceFindings,
   evidencePassed,
+  isStepEvidencePassing,
   runOutcomeSchema,
+  stepEvidenceSchema,
   summariseEvidence,
+  summariseStepEvidence,
   testCountsSchema,
   type EvidenceArtifact,
   type RunOutcome,
+  type StepEvidence,
   type TestCounts,
 } from './evidence'
 

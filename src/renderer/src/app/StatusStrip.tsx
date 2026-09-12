@@ -69,9 +69,9 @@ export function StatusStrip({
         pre-alpha
       </Badge>
 
-      {/* Dev Kitchen Sink */}
+      {/* Dev Tools (Dev Mode Only) */}
       {import.meta.env.DEV && (
-        <div className="app-no-drag">
+        <div className="app-no-drag flex items-center gap-1.5">
           <Button
             size="sm"
             variant="ghost"

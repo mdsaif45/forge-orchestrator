@@ -1,17 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react'
-import {
-  Badge,
-  Button,
-  type CustomAgentConfig,
-  Input,
-  MarkdownRenderer,
-  ScrollArea,
-  Select,
-  useToast,
-} from '../ui'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { Button, Input, MarkdownRenderer, ScrollArea, useToast } from '../ui'
 import { cn } from '../ui'
+import { PanelRightIcon, ThinkingIcon } from './icons'
 import { useProjectStore } from './projectStore'
 import { unwrap } from '@renderer/ipc'
+import { DEFAULT_PROVIDERS, type StoredProviderConfig } from './Settings'
+import { useDevConsoleStore } from './devConsoleStore'
+import { RightOverviewPanel } from './RightOverviewPanel'
+import { useOverviewStore } from './overviewStore'
 
 export interface ChatMessage {
   readonly id: string
@@ -43,73 +39,8 @@ export interface ChatThread {
   readonly pinned?: boolean | undefined
   /** Archived threads are hidden from the list without being destroyed. */
   readonly archived?: boolean | undefined
-  readonly personaId: string
+  readonly personaId?: string | undefined
 }
-
-interface PersonaOption {
-  readonly id: string
-  readonly label: string
-  readonly icon: string
-  readonly description: string
-  readonly defaultRole: string
-}
-
-interface StoredProviderConfig {
-  readonly id: string
-  readonly name: string
-  readonly type: 'api_key' | 'local' | 'custom'
-  readonly description: string
-  readonly apiKey?: string | undefined
-  readonly envVarHint?: string | undefined
-  readonly localUrl?: string | undefined
-  readonly models?: readonly string[] | undefined
-  readonly activeModel?: string | undefined
-}
-
-const BUILTIN_PERSONAS: readonly PersonaOption[] = [
-  {
-    id: 'planner',
-    label: 'Implementation Planner',
-    icon: '🧠',
-    description: 'Specializes in architecture design, dependency analysis, and stage planning.',
-    defaultRole: 'planner',
-  },
-  {
-    id: 'coder',
-    label: 'Coding Agent',
-    icon: '💻',
-    description: 'Writes modular code, helper functions, refactors, and implementation patterns.',
-    defaultRole: 'implementer',
-  },
-  {
-    id: 'reviewer',
-    label: 'Code Reviewer',
-    icon: '🔍',
-    description: 'Audits code quality, security boundaries, edge cases, and performance.',
-    defaultRole: 'reviewer',
-  },
-  {
-    id: 'tester',
-    label: 'Test Designer',
-    icon: '🧪',
-    description: 'Designs unit test suites, integration tests, mocks, and edge case coverage.',
-    defaultRole: 'tester',
-  },
-  {
-    id: 'qa',
-    label: 'QA Approver',
-    icon: '🛡️',
-    description: 'Validates acceptance criteria, regression safeguards, and verification flows.',
-    defaultRole: 'qa',
-  },
-  {
-    id: 'debugger',
-    label: 'Debugger',
-    icon: '🐛',
-    description: 'Investigates root causes, error stack traces, and targeted fix recipes.',
-    defaultRole: 'debugger',
-  },
-]
 
 /**
  * The tool trail to append to an agent turn's reply, or null for a chat turn.
@@ -180,7 +111,12 @@ function ThinkingBlock({
         aria-expanded={open}
         className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-[11px] text-(--color-text-muted) hover:text-(--color-text)"
       >
-        <span className={streaming ? 'animate-pulse' : ''}>💭</span>
+        <ThinkingIcon
+          className={cn(
+            'size-3.5 text-(--color-text-muted)',
+            streaming && 'animate-pulse text-(--color-accent)',
+          )}
+        />
         <span className="font-semibold">Thinking</span>
         {streaming && <span className="italic">…</span>}
         <span className="ml-auto font-mono text-[10px] text-(--color-text-subtle)">
@@ -342,6 +278,295 @@ function PromptForkIcon({ className }: { readonly className?: string }): React.J
   )
 }
 
+function SendArrowIcon({ className }: { readonly className?: string }): React.JSX.Element {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className ?? 'size-4'}
+      aria-hidden="true"
+    >
+      <path d="M3 8h10M9 4l4 4-4 4" />
+    </svg>
+  )
+}
+
+function EngineSelectDropdown({
+  value,
+  onChange,
+  options,
+}: {
+  readonly value: string
+  readonly onChange: (value: string) => void
+  readonly options: readonly { readonly id: string; readonly label: string }[]
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  const selected = options.find((opt) => opt.id === value) ?? options[0]
+
+  useEffect(() => {
+    if (!open) return undefined
+    const handleOutsideClick = (e: MouseEvent): void => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open])
+
+  return (
+    <div ref={dropdownRef} className="relative">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((prev) => !prev)
+        }}
+        aria-expanded={open}
+        aria-label="Select Engine"
+        className="flex items-center gap-1.5 rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-2.5 py-1 text-[11.5px] font-medium text-(--color-text-muted) hover:text-(--color-text) hover:border-(--color-border-strong) transition-colors cursor-pointer"
+      >
+        <span className="truncate max-w-[150px] sm:max-w-[200px]">{selected?.label ?? value}</span>
+        <svg
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          className={cn(
+            'size-3 shrink-0 text-(--color-text-subtle) transition-transform duration-150',
+            open ? 'rotate-180' : '',
+          )}
+          aria-hidden="true"
+        >
+          <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute bottom-full left-0 mb-1.5 z-30 w-60 max-h-64 overflow-y-auto rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-1 shadow-xl">
+          <div className="px-2.5 py-1 text-[10px] font-semibold text-(--color-text-subtle) uppercase tracking-wider">
+            Agent Engine
+          </div>
+          <div className="space-y-0.5">
+            {options.map((opt) => {
+              const isSelected = opt.id === value
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => {
+                    onChange(opt.id)
+                    setOpen(false)
+                  }}
+                  className={cn(
+                    'flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[12px] transition-colors cursor-pointer',
+                    isSelected
+                      ? 'bg-(--color-accent)/10 font-semibold text-(--color-accent)'
+                      : 'text-(--color-text) hover:bg-(--color-surface-overlay)',
+                  )}
+                >
+                  <span className="truncate pr-2">{opt.label}</span>
+                  {isSelected && <span className="text-[11px] font-bold">✓</span>}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export interface CategorizedModelOption {
+  readonly id: string
+  readonly label: string
+  readonly category?: string | undefined
+}
+
+function ModelSelectDropdown({
+  value,
+  onChange,
+  options,
+}: {
+  readonly value: string
+  readonly onChange: (value: string) => void
+  readonly options: readonly CategorizedModelOption[]
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const dropdownRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  const closeDropdown = (): void => {
+    setOpen(false)
+    setSearch('')
+  }
+
+  const selected = options.find((opt) => opt.id === value || opt.label === value) ?? options[0]
+
+  useEffect(() => {
+    if (!open) return undefined
+
+    const timer = setTimeout(() => {
+      searchInputRef.current?.focus()
+    }, 50)
+
+    const handleOutsideClick = (e: MouseEvent): void => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        closeDropdown()
+      }
+    }
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') closeDropdown()
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('mousedown', handleOutsideClick)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open])
+
+  // Filter options based on search query
+  const filteredOptions = useMemo(() => {
+    if (!search.trim()) return options
+    const query = search.toLowerCase()
+    return options.filter(
+      (opt) =>
+        opt.label.toLowerCase().includes(query) ||
+        Boolean(opt.category?.toLowerCase().includes(query)),
+    )
+  }, [options, search])
+
+  // Group options by category
+  const groups = useMemo(() => {
+    const map = new Map<string, CategorizedModelOption[]>()
+    for (const opt of filteredOptions) {
+      const cat = opt.category ?? 'General'
+      const list = map.get(cat) ?? []
+      list.push(opt)
+      map.set(cat, list)
+    }
+    return Array.from(map.entries()).map(([category, items]) => ({
+      category,
+      items,
+    }))
+  }, [filteredOptions])
+
+  return (
+    <div ref={dropdownRef} className="relative">
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((prev) => {
+            if (prev) setSearch('')
+            return !prev
+          })
+        }}
+        aria-expanded={open}
+        aria-label="Select Model"
+        className="flex items-center gap-1.5 rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-2.5 py-1 text-[11.5px] font-medium text-(--color-text-muted) hover:text-(--color-text) hover:border-(--color-border-strong) transition-colors cursor-pointer"
+      >
+        <span className="truncate max-w-[130px] sm:max-w-[180px]">
+          {(selected?.label ?? value) || 'Select Model'}
+        </span>
+        <svg
+          viewBox="0 0 16 16"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          className={cn(
+            'size-3 shrink-0 text-(--color-text-subtle) transition-transform duration-150',
+            open ? 'rotate-180' : '',
+          )}
+          aria-hidden="true"
+        >
+          <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute bottom-full left-0 mb-1.5 z-30 w-72 max-h-80 overflow-y-auto rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-1.5 shadow-xl flex flex-col">
+          {/* Search box when 5 or more models */}
+          {options.length >= 5 && (
+            <div className="sticky top-0 z-10 -mx-1.5 -mt-1.5 mb-1.5 bg-(--color-surface-raised) p-1.5 border-b border-(--color-border)/60">
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value)
+                }}
+                placeholder="Search models..."
+                className="w-full rounded-md border border-(--color-border) bg-(--color-surface-inset) px-2.5 py-1 text-[11px] text-(--color-text) placeholder:text-(--color-text-subtle) focus:border-(--color-accent) focus:outline-none"
+              />
+            </div>
+          )}
+
+          {groups.length === 0 ? (
+            <div className="px-3 py-4 text-center text-[11px] text-(--color-text-subtle)">
+              No matching models found
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {groups.map((group, groupIdx) => (
+                <div key={group.category} className="space-y-0.5">
+                  <div className="flex items-center justify-between px-2 py-1 text-[10px] font-semibold text-(--color-text-subtle) uppercase tracking-wider">
+                    <span className="truncate">{group.category}</span>
+                    <span className="rounded-full bg-(--color-surface-overlay) px-1.5 py-0.2 text-[9px] font-normal text-(--color-text-muted)">
+                      {group.items.length}
+                    </span>
+                  </div>
+
+                  {group.items.map((opt) => {
+                    const isSelected = opt.id === value || opt.label === value
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => {
+                          onChange(opt.id)
+                          closeDropdown()
+                        }}
+                        className={cn(
+                          'flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-[11.5px] transition-colors cursor-pointer',
+                          isSelected
+                            ? 'bg-(--color-accent)/10 font-semibold text-(--color-accent)'
+                            : 'text-(--color-text) hover:bg-(--color-surface-overlay)',
+                        )}
+                      >
+                        <span className="truncate pr-2">{opt.label}</span>
+                        {isSelected && <span className="text-[11px] font-bold">✓</span>}
+                      </button>
+                    )
+                  })}
+
+                  {groupIdx < groups.length - 1 && (
+                    <div className="my-1 border-t border-(--color-border)/40" />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function AskPage(): React.JSX.Element {
   const detail = useProjectStore((state) => state.detail)
   const project = detail?.project ?? null
@@ -349,59 +574,88 @@ export function AskPage(): React.JSX.Element {
   const rules = detail?.rules ?? []
   const { show } = useToast()
 
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const isOverviewOpen = useOverviewStore((state) => state.isOpen)
+  const isOverviewExpanded = useOverviewStore((state) => state.isExpanded)
+  const toggleOverviewOpen = useOverviewStore((state) => state.toggleOpen)
+  const panelWidth = useOverviewStore((state) => state.panelWidth)
+  const setPanelWidth = useOverviewStore((state) => state.setPanelWidth)
+  const isDraggingSplitter = useOverviewStore((state) => state.isDraggingSplitter)
+  const setIsDraggingSplitter = useOverviewStore((state) => state.setIsDraggingSplitter)
 
-  // Custom agents from localStorage
-  const [customAgents] = useState<readonly CustomAgentConfig[]>(() => {
-    const saved = localStorage.getItem('forge.custom_agents')
-    if (saved) {
-      try {
-        return JSON.parse(saved) as CustomAgentConfig[]
-      } catch {
-        // fallback
-      }
+  const dragStartX = useRef(0)
+  const dragStartWidth = useRef(0)
+
+  useEffect(() => {
+    if (!isDraggingSplitter) return undefined
+
+    const handleMouseMove = (e: MouseEvent): void => {
+      const deltaX = dragStartX.current - e.clientX
+      const newWidth = Math.max(
+        280,
+        Math.min(window.innerWidth - 450, dragStartWidth.current + deltaX),
+      )
+      setPanelWidth(newWidth)
     }
-    return []
-  })
+
+    const handleMouseUp = (): void => {
+      setIsDraggingSplitter(false)
+    }
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDraggingSplitter, setIsDraggingSplitter, setPanelWidth])
+
+  const handleStartSplitterDrag = (e: React.MouseEvent): void => {
+    e.preventDefault()
+    setIsDraggingSplitter(true)
+    dragStartX.current = e.clientX
+    dragStartWidth.current = panelWidth
+  }
+
+  const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Providers & Active Model from localStorage
   const [providers, setProviders] = useState<readonly StoredProviderConfig[]>(() => {
     const saved = localStorage.getItem('forge.providers')
+    let baseList: readonly StoredProviderConfig[] = DEFAULT_PROVIDERS
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as StoredProviderConfig[]
-        return parsed.map((p) => {
-          if (
-            p.id === 'ollama' &&
-            p.models?.includes('llama3') &&
-            !p.models.some((m) => m.includes(':'))
-          ) {
-            return { ...p, models: [], activeModel: '' }
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const merged = [...parsed]
+          for (const def of DEFAULT_PROVIDERS) {
+            if (!merged.some((p) => p.id === def.id)) {
+              merged.push(def)
+            }
           }
-          if (p.id === 'lmstudio' && p.models?.includes('local-model')) {
-            return { ...p, models: [], activeModel: '' }
-          }
-          return p
-        })
+          baseList = merged
+        }
       } catch {
         // fallback
       }
     }
-    return [
-      {
-        id: 'ollama',
-        name: 'Ollama (Local)',
-        type: 'local',
-        description: 'Run open-weight models locally on your machine with Ollama.',
-        localUrl: 'http://localhost:11434',
-        models: [],
-        activeModel: '',
-      },
-    ]
+    return baseList.map((p) => {
+      if (
+        p.id === 'ollama' &&
+        p.models?.includes('llama3') &&
+        !p.models.some((m) => m.includes(':'))
+      ) {
+        return { ...p, models: [], activeModel: '' }
+      }
+      if (p.id === 'lmstudio' && p.models?.includes('local-model')) {
+        return { ...p, models: [], activeModel: '' }
+      }
+      return p
+    })
   })
 
-  // Auto-scan Ollama on mount
+  // Auto-scan Ollama and LM Studio on mount
   useEffect(() => {
+    // Scan Ollama
     window.forge.provider
       .scanModels('ollama', 'http://localhost:11434')
       .then((res) => {
@@ -428,9 +682,37 @@ export function AskPage(): React.JSX.Element {
       .catch(() => {
         // ignore
       })
+
+    // Scan LM Studio
+    window.forge.provider
+      .scanModels('lmstudio', 'http://localhost:1234/v1')
+      .then((res) => {
+        if (res.ok && res.value.ok && res.value.models.length > 0) {
+          const detected = res.value.models
+          setProviders((prev) => {
+            const updated = prev.map((p) =>
+              p.id === 'lmstudio'
+                ? {
+                    ...p,
+                    models: detected,
+                    activeModel:
+                      p.activeModel && detected.includes(p.activeModel)
+                        ? p.activeModel
+                        : (detected[0] ?? ''),
+                  }
+                : p,
+            )
+            localStorage.setItem('forge.providers', JSON.stringify(updated))
+            return updated
+          })
+        }
+      })
+      .catch(() => {
+        // ignore
+      })
   }, [])
 
-  const [activeProviderId] = useState<string>(() => {
+  const [activeProviderId, setActiveProviderId] = useState<string>(() => {
     return localStorage.getItem('forge.active_provider_id') ?? 'ollama'
   })
 
@@ -476,24 +758,11 @@ export function AskPage(): React.JSX.Element {
     })
   }
 
-  // Combine personas
-  const allPersonas: readonly PersonaOption[] = [
-    ...BUILTIN_PERSONAS,
-    ...customAgents.map((ca) => ({
-      id: ca.id,
-      label: ca.name,
-      icon: '🤖',
-      description: ca.instructions || 'Custom specialized agent persona',
-      defaultRole: ca.roleType,
-    })),
-  ]
-
-  const [selectedPersonaId, setSelectedPersonaId] = useState<string>('planner')
   const [selectedEngineId, setSelectedEngineId] = useState<string>('forge-native-agent')
   const [availableEngines, setAvailableEngines] = useState<
     readonly { id: string; label: string }[]
   >([
-    { id: 'forge-native-agent', label: 'Forge Native Agent (Built-in)' },
+    { id: 'forge-native-agent', label: 'Forge Agent' },
     { id: 'primary-engine', label: 'Primary Engine' },
     { id: 'secondary-engine', label: 'Secondary Engine' },
     { id: 'mock:default', label: 'mock:default (Simulated)' },
@@ -512,7 +781,7 @@ export function AskPage(): React.JSX.Element {
       .then((res) => {
         const data = unwrap(res)
         const list: { id: string; label: string }[] = [
-          { id: 'forge-native-agent', label: 'Forge Native Agent (Built-in)' },
+          { id: 'forge-native-agent', label: 'Forge Agent' },
         ]
         for (const role of data.roles) {
           for (const er of role.eligibleRuntimes) {
@@ -533,12 +802,197 @@ export function AskPage(): React.JSX.Element {
       })
   }, [project])
 
+  // Load detected CLIs and their supported models
+  const [detectedClis, setDetectedClis] = useState<
+    readonly {
+      readonly id: string
+      readonly name: string
+      readonly defaultModel?: string | undefined
+      readonly models?:
+        | readonly {
+            readonly id: string
+            readonly label: string
+            readonly category?: string | undefined
+          }[]
+        | undefined
+    }[]
+  >([])
+
+  useEffect(() => {
+    window.forge.runtime
+      .detectClis()
+      .then((res) => {
+        const data = unwrap(res)
+        setDetectedClis(data.clis)
+      })
+      .catch((err: unknown) => {
+        console.error('Failed to detect CLIs in AskPage:', err)
+      })
+  }, [])
+
+  // User selected model per engine, persisted across sessions
+  const [selectedEngineModels, setSelectedEngineModels] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem('forge.engine_selected_models')
+      if (saved) return JSON.parse(saved) as Record<string, string>
+    } catch {
+      // ignore
+    }
+    return {}
+  })
+
+  const saveEngineModel = (engineId: string, modelId: string): void => {
+    setSelectedEngineModels((prev) => {
+      const updated = { ...prev, [engineId]: modelId }
+      localStorage.setItem('forge.engine_selected_models', JSON.stringify(updated))
+      return updated
+    })
+  }
+
+  // Available models for currently selected engine, organized category-wise
+  const currentEngineModels: readonly CategorizedModelOption[] = useMemo(() => {
+    if (selectedEngineId === 'forge-native-agent') {
+      const list: CategorizedModelOption[] = []
+      // Gather models across all configured providers
+      for (const p of providers) {
+        if (p.models && p.models.length > 0) {
+          for (const m of p.models) {
+            list.push({
+              id: `${p.id}:::${m}`,
+              label: m,
+              category: p.name,
+            })
+          }
+        }
+      }
+      if (list.length === 0) {
+        if (currentModel) {
+          list.push({
+            id: `${currentProvider?.id ?? 'ollama'}:::${currentModel}`,
+            label: currentModel,
+            category: currentProvider?.name ?? 'Ollama (Local)',
+          })
+        } else {
+          list.push({
+            id: 'ollama:::llama3:latest',
+            label: 'llama3:latest (Default)',
+            category: 'Ollama (Local)',
+          })
+        }
+      }
+      return list
+    }
+    const cli = detectedClis.find((c) => c.id === selectedEngineId)
+    if (cli?.models && cli.models.length > 0) {
+      return cli.models
+    }
+    if (cli?.defaultModel) {
+      return [{ id: cli.defaultModel, label: cli.defaultModel, category: cli.name }]
+    }
+    return []
+  }, [selectedEngineId, providers, currentProvider, currentModel, detectedClis])
+
+  // Combine available engines from project bindings and detected CLIs
+  const engineOptions = useMemo(() => {
+    const list: { id: string; label: string }[] = [...availableEngines]
+    for (const cli of detectedClis) {
+      if (!list.some((e) => e.id === cli.id)) {
+        list.push({ id: cli.id, label: cli.name })
+      }
+    }
+    return list
+  }, [availableEngines, detectedClis])
+
+  // Active model ID for currently selected engine
+  const activeEngineModelId = useMemo(() => {
+    if (selectedEngineId === 'forge-native-agent') {
+      const currentCombinedId = `${currentProvider?.id ?? 'ollama'}:::${currentModel}`
+      const matchExact = currentEngineModels.find((m) => m.id === currentCombinedId)
+      if (matchExact) return matchExact.id
+      const matchLabel = currentEngineModels.find((m) => m.label === currentModel)
+      if (matchLabel) return matchLabel.id
+      return currentEngineModels[0]?.id ?? ''
+    }
+    const cli = detectedClis.find((c) => c.id === selectedEngineId)
+    const saved = selectedEngineModels[selectedEngineId]
+    if (saved && currentEngineModels.some((m) => m.id === saved || m.label === saved)) {
+      return saved
+    }
+    return (
+      (cli?.defaultModel && currentEngineModels.some((m) => m.id === cli.defaultModel)
+        ? cli.defaultModel
+        : currentEngineModels[0]?.id) ?? ''
+    )
+  }, [
+    selectedEngineId,
+    currentProvider,
+    currentModel,
+    detectedClis,
+    selectedEngineModels,
+    currentEngineModels,
+  ])
+
+  // Active model human-readable label
+  const activeEngineModelLabel = useMemo(() => {
+    if (selectedEngineId === 'forge-native-agent') {
+      return `${currentModel || 'Default'} (${currentProvider?.name ?? 'Forge Agent'})`
+    }
+    const matched = currentEngineModels.find((m) => m.id === activeEngineModelId)
+    if (matched) return matched.label
+    if (activeEngineModelId) return activeEngineModelId
+    return 'Default'
+  }, [selectedEngineId, currentProvider, currentModel, currentEngineModels, activeEngineModelId])
+
+  const handleSelectEngineModel = (newModel: string): void => {
+    if (selectedEngineId === 'forge-native-agent') {
+      if (newModel.includes(':::')) {
+        const [providerId, modelName] = newModel.split(':::')
+        const targetProvider = providers.find((p) => p.id === providerId)
+        if (targetProvider && modelName) {
+          setActiveProviderId(targetProvider.id)
+          localStorage.setItem('forge.active_provider_id', targetProvider.id)
+          const updated = providers.map((p) =>
+            p.id === targetProvider.id ? { ...p, activeModel: modelName } : p,
+          )
+          setProviders(updated)
+          localStorage.setItem('forge.providers', JSON.stringify(updated))
+          void window.forge.provider.setActiveModel({
+            providerId: targetProvider.id,
+            model: modelName,
+            ...(targetProvider.localUrl === undefined
+              ? {}
+              : { endpointUrl: targetProvider.localUrl }),
+            ...(targetProvider.apiKey === undefined ? {} : { apiKey: targetProvider.apiKey }),
+          })
+          show({
+            tone: 'success',
+            title: 'Model Selected',
+            description: `Active model set to ${modelName} (${targetProvider.name})`,
+          })
+          return
+        }
+      }
+      handleSelectModel(newModel)
+    } else {
+      saveEngineModel(selectedEngineId, newModel)
+      const found = currentEngineModels.find((m) => m.id === newModel)
+      show({
+        tone: 'neutral',
+        title: 'Model Selected',
+        description: `Active model set to ${found?.label ?? newModel}`,
+      })
+    }
+  }
+
   // Chat Threads
   const [threads, setThreads] = useState<readonly ChatThread[]>(() => {
     const saved = localStorage.getItem('forge.ask_threads')
     if (saved) {
       try {
-        return JSON.parse(saved) as ChatThread[]
+        const parsed = JSON.parse(saved) as ChatThread[]
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed
+        }
       } catch {
         // fallback
       }
@@ -547,21 +1001,9 @@ export function AskPage(): React.JSX.Element {
     return [
       {
         id: initThreadId,
-        title: 'New Conversation',
+        title: '',
         createdAt: 'Today',
-        personaId: 'planner',
-        messages: [
-          {
-            id: 'welcome',
-            role: 'assistant',
-            personaName: 'Implementation Planner',
-            personaIcon: '🧠',
-            engineId: 'forge-native-agent',
-            modelName: `${currentProvider?.name ?? 'Ollama'} / ${currentModel}`,
-            text: `Hello! I am your **Implementation Planner** for **${project?.name ?? 'this project'}**.\n\nPowered by **Forge Native Agent** using **${currentProvider?.name ?? 'Ollama'} (${currentModel})**.\n\nAsk me anything to explore repository architecture, inspect code workflows, plan features, or diagnose issues.`,
-            timestamp: '0:00:00',
-          },
-        ],
+        messages: [],
       },
     ]
   })
@@ -569,7 +1011,7 @@ export function AskPage(): React.JSX.Element {
   const [activeThreadId, setActiveThreadId] = useState<string>(threads[0]?.id ?? 'thread-1')
   const [input, setInput] = useState('')
   const [thinking, setThinking] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [copiedPromptId, setCopiedPromptId] = useState<string | null>(null)
   /**
    * The reply currently arriving, before it becomes a saved message.
@@ -585,14 +1027,9 @@ export function AskPage(): React.JSX.Element {
    * and asking the user to declare it meant they could enable tools on a model
    * that has none and get a broken turn instead of a refusal.
    */
+  const threadMenuRef = useRef<HTMLDivElement>(null)
   /** Seconds the running turn has taken, so a slow turn visibly progresses. */
   const [elapsed, setElapsed] = useState(0)
-  const [capabilities, setCapabilities] = useState<{
-    readonly tools: boolean
-    readonly vision: boolean
-    readonly thinking: boolean
-    readonly source: string
-  } | null>(null)
   const [menuThreadId, setMenuThreadId] = useState<string | null>(null)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
@@ -614,12 +1051,27 @@ export function AskPage(): React.JSX.Element {
   const activeThread = threads.find((t) => t.id === activeThreadId) ?? threads[0]
   const messages = activeThread?.messages ?? []
 
-  const activePersona = allPersonas.find((p) => p.id === selectedPersonaId) ?? allPersonas[0]
-
   // Auto-scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages.length, thinking])
+
+  // Auto-resize textarea dynamically up to 192px max height.
+  // When within max height, overflow is hidden so NO default scrollbar appears!
+  // When content exceeds 192px, overflow-y-auto activates so user can scroll within the field.
+  useEffect(() => {
+    const el = textareaRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    const scrollHeight = el.scrollHeight
+    if (scrollHeight > 192) {
+      el.style.height = '192px'
+      el.style.overflowY = 'auto'
+    } else {
+      el.style.height = `${String(Math.max(scrollHeight, 38))}px`
+      el.style.overflowY = 'hidden'
+    }
+  }, [input])
 
   const saveThreads = (updatedThreads: readonly ChatThread[]): void => {
     setThreads(updatedThreads)
@@ -629,58 +1081,45 @@ export function AskPage(): React.JSX.Element {
   const handleCreateThread = (): void => {
     const now = new Date()
     const newThreadId = `thread-${String(now.getTime())}`
-    const persona = allPersonas.find((p) => p.id === selectedPersonaId) ?? allPersonas[0]
-    const activeModelDesc =
-      selectedEngineId === 'forge-native-agent'
-        ? `${currentProvider?.name ?? 'Ollama'} / ${currentModel}`
-        : selectedEngineId
-
     const newThread: ChatThread = {
       id: newThreadId,
-      title: `Conversation ${String(threads.length + 1)}`,
+      title: '',
       createdAt: now.toLocaleDateString(),
-      personaId: selectedPersonaId,
-      messages: [
-        {
-          id: `welcome-${newThreadId}`,
-          role: 'assistant',
-          personaName: persona?.label ?? 'Assistant',
-          personaIcon: persona?.icon ?? '🤖',
-          engineId: selectedEngineId,
-          modelName: activeModelDesc,
-          text: `Started new thread with **${persona?.label ?? 'Assistant'}** (${activeModelDesc}).\n\nHow can I assist you with **${project?.name ?? 'your repository'}** today?`,
-          timestamp: now.toLocaleTimeString(),
-        },
-      ],
+      messages: [],
     }
 
     const updated = [newThread, ...threads]
     saveThreads(updated)
     setActiveThreadId(newThreadId)
-    show({ tone: 'neutral', title: 'New chat thread created' })
+    show({ tone: 'neutral', title: 'New chat created' })
   }
 
-  const handleDeleteThread = (threadId: string, e: React.MouseEvent): void => {
-    e.stopPropagation()
-    if (threads.length <= 1) return
-    const updated = threads.filter((t) => t.id !== threadId)
-    saveThreads(updated)
-    if (activeThreadId === threadId && updated[0]) {
-      setActiveThreadId(updated[0].id)
+  const handleDeleteThread = (threadId: string, e?: React.MouseEvent): void => {
+    e?.stopPropagation()
+    const remaining = threads.filter((t) => t.id !== threadId)
+    if (remaining.length === 0) {
+      const freshThread: ChatThread = {
+        id: `thread-${String(Date.now())}`,
+        title: '',
+        createdAt: 'Today',
+        messages: [],
+      }
+      saveThreads([freshThread])
+      setActiveThreadId(freshThread.id)
+    } else {
+      saveThreads(remaining)
+      if (activeThreadId === threadId && remaining[0]) {
+        setActiveThreadId(remaining[0].id)
+      }
     }
+    show({ tone: 'neutral', title: 'Chat deleted' })
   }
 
-  // A visible clock while a turn runs. An agent turn reads files and can take
-  // 30s or more, and the previous static "analyzing" line made that look like a
-  // hang — which is exactly how it was reported.
+  // A visible clock while a turn runs.
   useEffect(() => {
     if (!thinking) return undefined
 
     const started = Date.now()
-    // State is set only from the interval callback, never synchronously in the
-    // effect body — the latter triggers the cascading render the
-    // `react-hooks/set-state-in-effect` rule exists to prevent. The counter is
-    // reset when the next turn starts rather than when this one ends.
     const timer = setInterval(() => {
       setElapsed(Math.round((Date.now() - started) / 1000))
     }, 1000)
@@ -689,18 +1128,23 @@ export function AskPage(): React.JSX.Element {
     }
   }, [thinking])
 
-  // Dismissed on any outside click, so the menu cannot be left open over a row
-  // it no longer belongs to. Registered only while a menu is open.
+  // Dismissed on outside click (mousedown) or Escape key, without intercepting
+  // menu button clicks in capture phase.
   useEffect(() => {
     if (menuThreadId === null) return undefined
-    const close = (): void => {
-      setMenuThreadId(null)
+    const handleOutsideClick = (e: MouseEvent): void => {
+      if (threadMenuRef.current && !threadMenuRef.current.contains(e.target as Node)) {
+        setMenuThreadId(null)
+      }
     }
-    // Capture phase, so a click on another row's trigger still toggles that one
-    // rather than being swallowed by this listener.
-    window.addEventListener('click', close, { capture: true })
+    const handleKeyDown = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') setMenuThreadId(null)
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    document.addEventListener('keydown', handleKeyDown)
     return () => {
-      window.removeEventListener('click', close, { capture: true })
+      document.removeEventListener('mousedown', handleOutsideClick)
+      document.removeEventListener('keydown', handleKeyDown)
     }
   }, [menuThreadId])
 
@@ -710,26 +1154,28 @@ export function AskPage(): React.JSX.Element {
   }
 
   const handleTogglePin = (thread: ChatThread): void => {
-    updateThread(thread.id, { pinned: thread.pinned !== true })
+    const pinned = thread.pinned !== true
+    updateThread(thread.id, { pinned })
+    show({ tone: 'neutral', title: pinned ? 'Chat pinned to top' : 'Chat unpinned' })
   }
 
   const handleToggleArchive = (thread: ChatThread): void => {
     const archived = thread.archived !== true
     updateThread(thread.id, { archived, ...(archived ? { pinned: false } : {}) })
 
-    // Archiving the open thread would leave the transcript showing something the
-    // list no longer offers, so move to the first thread still visible.
     if (archived && activeThreadId === thread.id) {
       const next = threads.find((t) => t.id !== thread.id && t.archived !== true)
       if (next !== undefined) setActiveThreadId(next.id)
     }
+    show({ tone: 'neutral', title: archived ? 'Chat archived' : 'Chat unarchived' })
   }
 
   const handleRenameThread = (thread: ChatThread): void => {
     const title = renameDraft.trim()
-    // An empty title would leave an unidentifiable row; keeping the old one is
-    // the honest outcome of a cancelled rename.
-    if (title !== '') updateThread(thread.id, { title })
+    if (title !== '' && title !== thread.title) {
+      updateThread(thread.id, { title })
+      show({ tone: 'neutral', title: 'Chat renamed' })
+    }
     setRenamingId(null)
   }
 
@@ -750,7 +1196,7 @@ export function AskPage(): React.JSX.Element {
 
   const handleRetryPrompt = (promptText: string): void => {
     setInput(promptText)
-    inputRef.current?.focus()
+    textareaRef.current?.focus()
     show({ tone: 'neutral', title: 'Prompt restored to input' })
   }
 
@@ -791,9 +1237,17 @@ export function AskPage(): React.JSX.Element {
     }
 
     const updatedMessages = [...activeThread.messages, userMsg]
+    const firstLine = textToSend.trim().split('\n')[0] ?? ''
+    const cleanPromptTitle = firstLine
+      .replace(/^["'#*-]\s*/, '')
+      .slice(0, 36)
+      .trim()
     const updatedTitle =
-      activeThread.messages.length <= 1
-        ? textToSend.trim().slice(0, 30) + (textToSend.trim().length > 30 ? '...' : '')
+      !activeThread.title ||
+      activeThread.title.trim() === '' ||
+      activeThread.title === 'New Conversation' ||
+      activeThread.title.startsWith('Conversation ')
+        ? cleanPromptTitle + (textToSend.trim().length > 36 ? '...' : '')
         : activeThread.title
 
     const updatedThread: ChatThread = {
@@ -809,22 +1263,21 @@ export function AskPage(): React.JSX.Element {
     setElapsed(0)
 
     const startTime = Date.now()
+    const activeEngineLabel =
+      availableEngines.find((e) => e.id === selectedEngineId)?.label ?? selectedEngineId
     const isForgeNative = selectedEngineId === 'forge-native-agent'
     const activeModelLabel = isForgeNative
       ? `${currentProvider?.name ?? 'Ollama (Local)'} / ${currentModel}`
-      : selectedEngineId
+      : `${activeEngineLabel} · ${activeEngineModelLabel}`
 
-    // Construct system prompt with repository context & active persona
-    const systemPrompt = `You are ${activePersona?.label ?? 'an AI Assistant'}, an expert software engineering persona inside Forge Orchestrator.
+    // Construct direct, context-aware system prompt with repository context
+    const systemPrompt = `You are an expert AI software engineer assisting directly inside Forge Orchestrator.
 Project Context:
 - Name: ${project?.name ?? 'Unknown'}
 - Branch: ${probe?.branch ?? 'main'}
 - Head Commit: ${probe?.headSha?.slice(0, 8) ?? 'N/A'}
 - Tech Stack: ${project?.repository.tech.length ? project.repository.tech.join(', ') : 'TypeScript'}
 - Rules & Guardrails: ${rules.length > 0 ? rules.map((r) => `[${r.scope}] ${r.statement}`).join('; ') : 'None'}
-
-Persona Role:
-- ${activePersona?.description ?? 'Provide helpful code explanations and guidance.'}
 
 Instructions:
 - Provide clear, direct, accurate, and context-aware responses.
@@ -848,6 +1301,52 @@ Instructions:
     const streamId = `s-${Date.now().toString()}-${Math.random().toString(36).slice(2, 8)}`
     setLiveReply({ streamId, content: '', reasoning: '', timeline: [] })
 
+    const fullSystemPrompt = `${systemPrompt}
+
+You are operating on a real repository through tools, not describing work to
+someone else who will do it.
+
+RULE: a request to change, update, add, fix or remove something in a file is a
+request to EDIT IT NOW. Read what you need, then call edit_file. Replying with a
+plan, a proposal, or a description of what you would add is a failed turn — the
+file must actually change. Your final message reports what you changed.
+
+- edit_file replaces one exact snippet and is the tool to reach for; you supply
+  only the part that changes, so it works on large files.
+- write_file replaces a whole file, so use it only for a new one.
+- Never guess a file's contents. Read it, or list and search first.
+- If a write is refused as out of scope, say so plainly rather than working
+  around it.`
+
+    const txId = `tx-${streamId}`
+    useDevConsoleStore.getState().recordTransaction({
+      id: txId,
+      timestamp: startTime,
+      timeFormatted: new Date(startTime).toLocaleTimeString(),
+      type: 'agent_turn',
+      status: 'pending',
+      statusCode: 0,
+      model: currentModel || 'default',
+      providerId: currentProvider?.id ?? 'ollama',
+      endpointUrl: currentProvider?.localUrl ?? 'http://localhost:11434',
+      request: {
+        method: 'POST',
+        url: `${currentProvider?.localUrl ?? 'http://localhost:11434'}/api/chat`,
+        headers: {
+          'Content-Type': 'application/json',
+          ...(currentProvider?.apiKey ? { Authorization: 'Bearer ***' } : {}),
+        },
+        body: {
+          model: currentModel,
+          systemPrompt: fullSystemPrompt,
+          messages: historyPayload,
+        },
+        promptSummary: cleanPromptTitle,
+        systemPrompt: fullSystemPrompt,
+        messagesCount: historyPayload.length,
+      },
+    })
+
     const unsubscribe = window.forge.onProviderChunk((chunk) => {
       if (chunk.streamId !== streamId) return
       setLiveReply((current) => {
@@ -866,6 +1365,16 @@ Instructions:
           return { ...current, reasoning: current.reasoning + chunk.text, timeline }
         }
         if (chunk.kind === 'tool') {
+          useDevConsoleStore.getState().updateTransaction(txId, (prev) => {
+            const toolExecs = prev.toolExecutions ? [...prev.toolExecutions] : []
+            toolExecs.push({
+              name: chunk.text,
+              args: {},
+              ok: !chunk.text.startsWith('✗'),
+              output: chunk.text,
+            })
+            return { ...prev, toolExecutions: toolExecs }
+          })
           return {
             ...current,
             timeline: [...current.timeline, { kind: 'tool' as const, text: chunk.text }],
@@ -887,26 +1396,9 @@ Instructions:
         model: currentModel,
         endpointUrl: currentProvider?.localUrl,
         apiKey: currentProvider?.apiKey,
-        systemPrompt: `${systemPrompt}
-
-You are operating on a real repository through tools, not describing work to
-someone else who will do it.
-
-RULE: a request to change, update, add, fix or remove something in a file is a
-request to EDIT IT NOW. Read what you need, then call edit_file. Replying with a
-plan, a proposal, or a description of what you would add is a failed turn — the
-file must actually change. Your final message reports what you changed.
-
-- edit_file replaces one exact snippet and is the tool to reach for; you supply
-  only the part that changes, so it works on large files.
-- write_file replaces a whole file, so use it only for a new one.
-- Never guess a file's contents. Read it, or list and search first.
-- If a write is refused as out of scope, say so plainly rather than working
-  around it.`,
+        systemPrompt: fullSystemPrompt,
         messages: historyPayload,
       })
-
-      if (res.ok) setCapabilities(res.value.capabilities)
 
       if (res.ok) thinkingText = res.value.reasoning
 
@@ -924,9 +1416,49 @@ file must actually change. Your final message reports what you changed.
         const summary = toolSummary(res.value)
         if (summary !== null) toolTrail = summary
       }
+
+      const isSuccess = res.ok && res.value.ok
+      useDevConsoleStore.getState().updateTransaction(txId, (prev) => ({
+        ...prev,
+        status: isSuccess ? 'success' : 'error',
+        statusCode: isSuccess ? 200 : 500,
+        durationMs: Date.now() - startTime,
+        response: {
+          status: isSuccess ? 200 : 500,
+          statusText: isSuccess ? 'OK' : 'Agent Turn Ended',
+          durationMs: Date.now() - startTime,
+          content: answer,
+          reasoning: thinkingText,
+          toolCallsCount: res.ok ? res.value.toolsUsed.length : 0,
+          rawBody: res.ok ? res.value : null,
+          error: res.ok ? res.value.error : 'Connection error',
+        },
+        toolExecutions:
+          res.ok && res.value.toolsUsed.length > 0
+            ? res.value.toolsUsed.map((t, idx) => ({
+                round: idx + 1,
+                name: t.name,
+                args: {},
+                ok: t.ok,
+                output: t.ok ? 'Tool executed successfully' : 'Tool execution failed',
+              }))
+            : prev.toolExecutions,
+      }))
     } catch (err) {
       console.error('Chat error:', err)
       answer = `⚠️ **Connection Error**:\n\nCould not reach ${activeModelLabel}. Please verify that the provider service is running.`
+      useDevConsoleStore.getState().updateTransaction(txId, (prev) => ({
+        ...prev,
+        status: 'error',
+        statusCode: 500,
+        durationMs: Date.now() - startTime,
+        response: {
+          status: 500,
+          statusText: 'Connection Error',
+          durationMs: Date.now() - startTime,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      }))
     } finally {
       // Unsubscribed in `finally` so a thrown request cannot leave a listener
       // attached, accumulating a second copy of the next reply.
@@ -955,8 +1487,6 @@ ${toolTrail}`
     const assistantMsg: ChatMessage = {
       id: `ai-${responseTime.getTime().toString()}`,
       role: 'assistant',
-      personaName: activePersona?.label ?? 'Assistant',
-      personaIcon: activePersona?.icon ?? '🤖',
       engineId: selectedEngineId,
       modelName: activeModelLabel,
       text: answer,
@@ -1011,9 +1541,26 @@ ${toolTrail}`
   }
 
   return (
-    <div className="flex h-full overflow-hidden">
-      {/* ── Left Sidebar ── */}
-      <aside className="flex w-60 shrink-0 flex-col border-r border-(--color-border) bg-(--color-surface)">
+    <div className="relative flex h-full overflow-hidden">
+      {/* Fullscreen transparent drag overlay to prevent text selection / lost mouse during slider drag */}
+      {isDraggingSplitter && (
+        <div className="fixed inset-0 z-50 cursor-col-resize select-none" />
+      )}
+
+      {/* ── Left Workspace Container (Sidebar + Chat Area) ── */}
+      <div
+        className={cn(
+          'flex min-w-0 overflow-hidden',
+          isOverviewOpen && isOverviewExpanded
+            ? 'w-0 flex-none opacity-0 pointer-events-none'
+            : 'flex-1 opacity-100',
+          isDraggingSplitter
+            ? 'transition-none'
+            : 'transition-all duration-300 ease-in-out',
+        )}
+      >
+        {/* ── Left Sidebar ── */}
+        <aside className="flex w-60 shrink-0 flex-col border-r border-(--color-border) bg-(--color-surface)">
         {/* New Chat Button */}
         <div className="p-3">
           <Button
@@ -1098,30 +1645,25 @@ ${toolTrail}`
                         onClick={() => {
                           setActiveThreadId(thread.id)
                         }}
-                        className="min-w-0 flex-1 cursor-pointer truncate pr-1.5 text-left"
+                        className="min-w-0 flex-1 cursor-pointer truncate pr-1.5 text-left py-0.5"
                       >
                         <div
                           className={cn(
-                            'truncate text-[12px]',
+                            'truncate text-[12px] leading-snug',
                             isCurrent ? 'font-semibold' : 'font-medium',
                           )}
                         >
                           {thread.pinned === true && <span className="mr-1">📌</span>}
                           {thread.archived === true && <span className="mr-1">🗄️</span>}
-                          {thread.title}
-                        </div>
-                        <div className="mt-0.5 font-mono text-[10px] text-(--color-text-subtle)">
-                          {thread.messages.length > 1
-                            ? `${String(thread.messages.length)} msgs`
-                            : '1 msg'}{' '}
-                          · {thread.createdAt}
+                          {thread.title.trim() !== '' ? thread.title : 'New chat'}
                         </div>
                       </button>
 
                       <button
                         type="button"
                         aria-label="Thread actions"
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation()
                           setMenuThreadId((current) => (current === thread.id ? null : thread.id))
                         }}
                         className="shrink-0 cursor-pointer px-1 text-[13px] opacity-0 group-hover:opacity-100 hover:text-(--color-text)"
@@ -1132,7 +1674,13 @@ ${toolTrail}`
                   )}
 
                   {menuThreadId === thread.id && (
-                    <div className="absolute top-8 right-1 z-20 w-36 overflow-hidden rounded-lg border border-(--color-border) bg-(--color-surface-raised) shadow-lg">
+                    <div
+                      ref={threadMenuRef}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                      }}
+                      className="absolute top-8 right-1 z-30 w-36 overflow-hidden rounded-lg border border-(--color-border) bg-(--color-surface-raised) shadow-lg"
+                    >
                       <ThreadMenuItem
                         label={thread.pinned === true ? 'Unpin' : 'Pin'}
                         onSelect={() => {
@@ -1155,16 +1703,14 @@ ${toolTrail}`
                           setMenuThreadId(null)
                         }}
                       />
-                      {threads.length > 1 && (
-                        <ThreadMenuItem
-                          label="Delete"
-                          danger
-                          onSelect={(e) => {
-                            handleDeleteThread(thread.id, e)
-                            setMenuThreadId(null)
-                          }}
-                        />
-                      )}
+                      <ThreadMenuItem
+                        label="Delete"
+                        danger
+                        onSelect={(e) => {
+                          handleDeleteThread(thread.id, e)
+                          setMenuThreadId(null)
+                        }}
+                      />
                     </div>
                   )}
                 </div>
@@ -1184,252 +1730,182 @@ ${toolTrail}`
             </button>
           )}
         </ScrollArea>
-
-        {/* Bottom controls: Persona selector */}
-        <div className="border-t border-(--color-border) p-3">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-(--color-text-subtle) block mb-1.5">
-            Active Persona
-          </span>
-          {/* Persona selector (compact) — opens upward */}
-          <Select
-            aria-label="Active Persona"
-            value={selectedPersonaId}
-            direction="up"
-            onChange={(e: { target: { value: string } }) => {
-              setSelectedPersonaId(e.target.value)
-            }}
-            options={allPersonas.map((p) => ({
-              value: p.id,
-              label: p.label,
-            }))}
-          />
-        </div>
       </aside>
 
       {/* ── Main Chat Area ── */}
-      <div className="flex flex-1 flex-col min-w-0 bg-(--color-canvas)">
+      <div className="relative flex flex-1 flex-col min-w-0 bg-(--color-canvas) overflow-hidden">
         {/* Top Header Bar */}
-        <header className="flex items-center justify-between border-b border-(--color-border) px-6 py-2.5 bg-(--color-surface-raised)">
+        <header className="relative z-20 flex h-9 shrink-0 items-center justify-between border-b border-transparent pl-6 pr-2 bg-(--color-canvas)/85 backdrop-blur-md">
+          {/* Subtle downward blur feather under header */}
+          <div className="pointer-events-none absolute -bottom-5 left-0 right-0 h-5 bg-gradient-to-b from-(--color-canvas)/85 to-transparent" />
           <div className="min-w-0 flex items-center gap-3">
-            <h1 className="text-[14px] font-bold text-(--color-text) truncate">
-              {activeThread?.title ?? 'Chat'}
+            <h1 className="text-[13px] font-bold text-(--color-text) truncate">
+              {activeThread?.title && activeThread.title.trim() !== ''
+                ? activeThread.title
+                : 'New chat'}
             </h1>
-            <Badge tone="accent" size="sm" className="hidden sm:inline-flex font-mono text-[11px]">
-              {selectedEngineId === 'forge-native-agent'
-                ? `Forge Agent · ${currentProvider?.name ?? 'Ollama'} (${currentModel})`
-                : selectedEngineId}
-            </Badge>
-            {/* What the model reported it can do, once a turn has asked. Shown
-                rather than offered as a choice: capability belongs to the model,
-                and a toggle let tools be enabled on one that has none. */}
-            {capabilities !== null && (
-              <div className="hidden items-center gap-1 lg:flex">
-                {capabilities.tools ? (
-                  <Badge tone="success" size="sm" className="text-[10px]">
-                    tools
-                  </Badge>
-                ) : (
-                  <Badge tone="warning" size="sm" className="text-[10px]">
-                    no tools — chat only
-                  </Badge>
-                )}
-                {capabilities.thinking && (
-                  <Badge tone="neutral" size="sm" className="text-[10px]">
-                    thinking
-                  </Badge>
-                )}
-                {capabilities.vision && (
-                  <Badge tone="neutral" size="sm" className="text-[10px]">
-                    vision
-                  </Badge>
-                )}
-                {capabilities.source !== 'reported' && (
-                  <Badge
-                    tone="neutral"
-                    size="sm"
-                    className="text-[10px]"
-                    title="Assumed, not reported by the provider"
-                  >
-                    {capabilities.source}
-                  </Badge>
-                )}
-              </div>
-            )}
           </div>
 
-          <div className="flex items-center gap-2">
-            {/* If Forge Agent is selected, allow picking models directly */}
-            {selectedEngineId === 'forge-native-agent' &&
-              currentProvider?.models &&
-              currentProvider.models.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[11px] font-semibold text-(--color-text-subtle) hidden md:inline">
-                    Model:
-                  </span>
-                  <div className="w-44">
-                    <Select
-                      aria-label="Active Model"
-                      value={currentModel}
-                      onChange={(e: { target: { value: string } }) => {
-                        handleSelectModel(e.target.value)
-                      }}
-                      options={currentProvider.models.map((m) => ({
-                        value: m,
-                        label: m,
-                      }))}
-                    />
-                  </div>
-                </div>
-              )}
-          </div>
+          {/* Right Header: Right Window Expand Button (exact same position as collapse button when open) */}
+          {!isOverviewOpen && (
+            <button
+              type="button"
+              title="Expand right panel"
+              aria-label="Expand right panel"
+              onClick={toggleOverviewOpen}
+              className="flex size-6 items-center justify-center rounded hover:bg-(--color-surface-raised) text-(--color-text-subtle) hover:text-(--color-text) cursor-pointer"
+            >
+              <PanelRightIcon className="size-3.5" />
+            </button>
+          )}
         </header>
 
         {/* Messages Area */}
         <ScrollArea className="flex-1 min-h-0">
-          <div className="max-w-4xl mx-auto px-6 py-4 space-y-5">
-            {messages.map((msg) => (
-              <div key={msg.id}>
-                {msg.role === 'assistant' ? (
-                  /* Assistant message — full-width block with icon & metadata */
-                  <div className="flex gap-3">
-                    <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-(--color-accent-muted) text-[14px] mt-1">
-                      {msg.personaIcon ?? '🤖'}
-                    </div>
-                    <div className="min-w-0 flex-1 space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[12px] font-bold text-(--color-text)">
-                          {msg.personaName ?? 'Assistant'}
-                        </span>
-                        {msg.modelName && (
-                          <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
-                            {msg.modelName}
-                          </Badge>
-                        )}
-                        {msg.elapsed && (
-                          <span className="text-[10px] text-(--color-text-subtle)">
-                            {msg.elapsed}
-                          </span>
-                        )}
-                        {/* The whole reply, as its markdown source rather than the
-                            rendered text — pasting a table back as pipes is what
-                            makes it reusable somewhere else. */}
-                        <CopyTextButton text={msg.text} />
-                      </div>
+          <div className="max-w-4xl mx-auto px-6 pt-2 pb-6">
+            {/* Empty state matching Image 3 when conversation has no messages */}
+            {messages.length === 0 && (
+              <div className="flex flex-col items-center justify-center min-h-[48vh] text-center px-4">
+                <div className="flex items-center gap-2.5 mb-2">
+                  <span className="text-2xl text-(--color-accent)">✦</span>
+                  <h2 className="text-xl font-medium tracking-tight text-(--color-text)">
+                    What&apos;s up next{project.name ? `, ${project.name}` : ''}?
+                  </h2>
+                </div>
+                <p className="text-[13px] text-(--color-text-muted) max-w-md">
+                  Ask a question about the codebase, explore architecture, plan changes, or run
+                  tasks.
+                </p>
+              </div>
+            )}
+
+            {messages.map((msg, index) => {
+              const prevMsg = index > 0 ? messages[index - 1] : undefined
+              const isFollowUp = msg.role === 'assistant' && prevMsg?.role === 'user'
+              const isNewTurn = msg.role === 'user' && prevMsg?.role === 'assistant'
+              const spacingClass =
+                index === 0 ? '' : isFollowUp ? 'mt-2.5' : isNewTurn ? 'mt-6' : 'mt-3'
+
+              return (
+                <div key={msg.id} className={spacingClass}>
+                  {msg.role === 'assistant' ? (
+                    /* Assistant message — clean direct response stream (Claude Code style) */
+                    <div className="group relative space-y-2">
                       {msg.reasoning !== undefined && msg.reasoning !== '' && (
                         <ThinkingBlock text={msg.reasoning} />
                       )}
-                      <div className="prose-container text-[13px] leading-relaxed text-(--color-text)">
+                      <div
+                        className="prose-container text-[13.5px] leading-relaxed text-(--color-text) select-text"
+                        data-selectable
+                      >
                         <MarkdownRenderer content={msg.text} />
                       </div>
-                    </div>
-                  </div>
-                ) : (
-                  /* User message — right-aligned bubble with hover features */
-                  <div className="group flex flex-col items-end">
-                    <div className="max-w-xl rounded-2xl bg-(--color-surface) border border-(--color-border) px-5 py-3 text-[13.5px] leading-relaxed text-(--color-text) shadow-xs transition-colors">
-                      {/* Selectable for the same reason the reply is: the body sets
-                          `user-select: none`, so without this a user could not copy
-                          back what they themselves had typed. */}
-                      <div className="whitespace-pre-wrap select-text" data-selectable>
-                        {msg.text}
+                      {/* Subtle footer controls on hover: copy & elapsed */}
+                      <div className="flex items-center gap-3 pt-0.5 text-[11px] text-(--color-text-subtle) opacity-0 group-hover:opacity-100 transition-opacity select-none">
+                        <CopyTextButton text={msg.text} />
+                        {msg.elapsed && <span>· {msg.elapsed}</span>}
                       </div>
                     </div>
+                  ) : (
+                    /* User message — right-aligned bubble with hover features on the left */
+                    <div className="group flex items-center justify-end gap-2">
+                      {/* On hover show some features; no hover don't show any */}
+                      <div className="flex items-center gap-1.5 opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto select-none shrink-0">
+                        <span className="text-[11.5px] text-(--color-text-subtle)">
+                          {formatRelativeTime(msg.timestamp, msg.id)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleCopyPrompt(msg.text, msg.id)
+                          }}
+                          title="Copy prompt"
+                          aria-label="Copy prompt"
+                          className="flex size-5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
+                        >
+                          {copiedPromptId === msg.id ? (
+                            <PromptCheckIcon className="size-3.5 text-(--color-success)" />
+                          ) : (
+                            <PromptCopyIcon className="size-3.5" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleRetryPrompt(msg.text)
+                          }}
+                          title="Edit & retry prompt"
+                          aria-label="Edit & retry prompt"
+                          className="flex size-5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
+                        >
+                          <PromptRetryIcon className="size-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleForkFromPrompt(msg.id)
+                          }}
+                          title="Fork conversation from this prompt"
+                          aria-label="Fork conversation from this prompt"
+                          className="flex size-5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
+                        >
+                          <PromptForkIcon className="size-3.5" />
+                        </button>
+                      </div>
 
-                    {/* On hover show some features; no hover don't show any */}
-                    <div className="mt-1 flex items-center gap-2 pr-1 opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto select-none">
-                      <span className="text-[11.5px] text-(--color-text-subtle)">
-                        {formatRelativeTime(msg.timestamp, msg.id)}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleCopyPrompt(msg.text, msg.id)
-                        }}
-                        title="Copy prompt"
-                        aria-label="Copy prompt"
-                        className="flex size-6 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
-                      >
-                        {copiedPromptId === msg.id ? (
-                          <PromptCheckIcon className="size-3.5 text-(--color-success)" />
-                        ) : (
-                          <PromptCopyIcon className="size-3.5" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleRetryPrompt(msg.text)
-                        }}
-                        title="Edit & retry prompt"
-                        aria-label="Edit & retry prompt"
-                        className="flex size-6 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
-                      >
-                        <PromptRetryIcon className="size-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          handleForkFromPrompt(msg.id)
-                        }}
-                        title="Fork conversation from this prompt"
-                        aria-label="Fork conversation from this prompt"
-                        className="flex size-6 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
-                      >
-                        <PromptForkIcon className="size-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
-
-            {/* The reply as it arrives. The dots alone said only "something is
-                happening"; the text says what, and whether the model is making
-                progress or stuck. */}
-            {liveReply !== null && (
-              <div className="flex gap-3 px-10">
-                <div className="min-w-0 flex-1 space-y-1.5">
-                  {/* Reasoning and tool calls in the order they happened, so
-                      the thinking reads as the explanation for the calls that
-                      follow it. Live only: this is evidence about the turn, not
-                      part of the answer that gets saved. */}
-                  {liveReply.timeline.length > 0 && (
-                    <div
-                      className="space-y-1.5 rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-3 py-2"
-                      data-selectable
-                    >
-                      {liveReply.timeline.map((entry, index) =>
-                        entry.kind === 'reasoning' ? (
-                          <div
-                            key={`r-${String(index)}`}
-                            className="text-[11px] leading-relaxed whitespace-pre-wrap text-(--color-text-muted)"
-                          >
-                            <span className="mr-1">💭</span>
-                            {entry.text}
-                          </div>
-                        ) : (
-                          <div
-                            key={`t-${String(index)}`}
-                            className="font-mono text-[10px] leading-relaxed text-(--color-text-subtle)"
-                          >
-                            {entry.text}
-                          </div>
-                        ),
-                      )}
-                      {thinking && (
-                        <div className="font-mono text-[10px] text-(--color-text-subtle)">
-                          <span className="animate-pulse">working…</span>
-                          {elapsed > 0 ? ` ${String(elapsed)}s` : ''}
+                      <div className="max-w-xl rounded-2xl bg-(--color-surface) border border-(--color-border)/40 px-3.5 py-1.5 text-[13px] leading-normal text-(--color-text) shadow-xs transition-colors">
+                        {/* Selectable for the same reason the reply is: the body sets
+                            `user-select: none`, so without this a user could not copy
+                            back what they themselves had typed. */}
+                        <div className="whitespace-pre-wrap select-text" data-selectable>
+                          {msg.text}
                         </div>
-                      )}
-                    </div>
-                  )}
-                  {liveReply.content !== '' && (
-                    <div className="text-[13px] leading-relaxed text-(--color-text)">
-                      <MarkdownRenderer content={liveReply.content} />
+                      </div>
                     </div>
                   )}
                 </div>
+              )
+            })}
+
+            {/* The reply as it arrives */}
+            {liveReply !== null && (
+              <div className="mt-2.5 space-y-2">
+                {liveReply.timeline.length > 0 && (
+                  <div
+                    className="space-y-1.5 rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-3 py-2"
+                    data-selectable
+                  >
+                    {liveReply.timeline.map((entry, index) =>
+                      entry.kind === 'reasoning' ? (
+                        <div
+                          key={`r-${String(index)}`}
+                          className="text-[11px] leading-relaxed whitespace-pre-wrap text-(--color-text-muted)"
+                        >
+                          <span className="mr-1">💭</span>
+                          {entry.text}
+                        </div>
+                      ) : (
+                        <div
+                          key={`t-${String(index)}`}
+                          className="font-mono text-[10px] leading-relaxed text-(--color-text-subtle)"
+                        >
+                          {entry.text}
+                        </div>
+                      ),
+                    )}
+                    {thinking && (
+                      <div className="font-mono text-[10px] text-(--color-text-subtle)">
+                        <span className="animate-pulse">working…</span>
+                        {elapsed > 0 ? ` ${String(elapsed)}s` : ''}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {liveReply.content !== '' && (
+                  <div className="prose-container text-[13.5px] leading-relaxed text-(--color-text)">
+                    <MarkdownRenderer content={liveReply.content} />
+                  </div>
+                )}
               </div>
             )}
 
@@ -1437,14 +1913,14 @@ ${toolTrail}`
               liveReply?.content === '' &&
               liveReply.reasoning === '' &&
               liveReply.timeline.length === 0 && (
-                <div className="flex items-center gap-2 px-10 text-[12px] italic text-(--color-text-muted)">
+                <div className="mt-2.5 flex items-center gap-2 py-1 text-[12px] italic text-(--color-text-muted)">
                   <span className="inline-flex gap-1">
                     <span className="animate-bounce [animation-delay:0ms]">·</span>
                     <span className="animate-bounce [animation-delay:150ms]">·</span>
                     <span className="animate-bounce [animation-delay:300ms]">·</span>
                   </span>
                   <span>
-                    {activePersona?.label} is working ({currentModel})
+                    Thinking...
                     {elapsed > 0 ? ` · ${String(elapsed)}s` : ''}
                   </span>
                 </div>
@@ -1454,80 +1930,113 @@ ${toolTrail}`
           </div>
         </ScrollArea>
 
-        {/* Bottom Input Bar */}
-        <div className="border-t border-(--color-border) bg-(--color-surface-raised) px-6 py-3">
+        {/* Bottom Input Bar with Image 1-style blur feel */}
+        <div className="relative z-20 bg-gradient-to-t from-(--color-canvas) via-(--color-canvas)/90 to-transparent px-6 pb-4 pt-4 backdrop-blur-md">
+          {/* Top blur feather overlay fading into the message scroll area */}
+          <div className="pointer-events-none absolute -top-8 left-0 right-0 h-8 bg-gradient-to-t from-(--color-canvas)/90 to-transparent backdrop-blur-[2px]" />
           <form
             onSubmit={(e) => {
               e.preventDefault()
               void handleSend()
             }}
-            className="flex items-center gap-3 max-w-4xl mx-auto"
+            className="mx-auto max-w-4xl"
           >
-            <div className="flex-1 relative">
-              <Input
-                ref={inputRef}
-                placeholder={
-                  currentModel
-                    ? `Ask Forge Agent (${currentModel}) about ${project.name}...`
-                    : `Ask about ${project.name}...`
-                }
+            <div className="relative flex flex-col rounded-2xl border border-(--color-border) bg-(--color-surface-raised) shadow-xs transition-colors focus-within:border-(--color-border-focus)/80 focus-within:ring-2 focus-within:ring-(--color-border-focus)/15">
+              <textarea
+                ref={textareaRef}
+                rows={1}
                 value={input}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
                   setInput(e.target.value)
                 }}
+                onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    void handleSend()
+                  }
+                }}
                 disabled={thinking}
-                className="h-10 text-[13px] pr-10 rounded-xl bg-(--color-surface) border-(--color-border)"
+                placeholder="Describe a task or ask a question... (Shift+Enter for newline)"
+                className="w-full resize-none border-0 bg-transparent px-4 pt-3 pb-1.5 text-[13.5px] leading-relaxed text-(--color-text) placeholder:text-(--color-text-subtle) focus:outline-none"
                 autoFocus
               />
-            </div>
 
-            {/* Engine selector (compact) */}
-            <div className="w-48 shrink-0">
-              <Select
-                aria-label="Engine"
-                value={selectedEngineId}
-                direction="up"
-                onChange={(e: { target: { value: string } }) => {
-                  setSelectedEngineId(e.target.value)
-                }}
-                options={availableEngines.map((eng) => ({
-                  value: eng.id,
-                  label: eng.label,
-                }))}
-              />
-            </div>
-
-            {/* Model selector if Forge Native Agent is active */}
-            {selectedEngineId === 'forge-native-agent' &&
-              currentProvider?.models &&
-              currentProvider.models.length > 0 && (
-                <div className="w-44 shrink-0">
-                  <Select
-                    aria-label="Model"
-                    value={currentModel}
-                    direction="up"
-                    onChange={(e: { target: { value: string } }) => {
-                      handleSelectModel(e.target.value)
+              {/* Bottom Card Controls Strip */}
+              <div className="flex items-center justify-between px-3 pb-2.5 pt-1">
+                <div className="flex items-center gap-2">
+                  {/* Custom UI-matched Engine Selector Dropdown */}
+                  <EngineSelectDropdown
+                    value={selectedEngineId}
+                    onChange={(newEngineId) => {
+                      setSelectedEngineId(newEngineId)
                     }}
-                    options={currentProvider.models.map((m) => ({
-                      value: m,
-                      label: m,
-                    }))}
+                    options={engineOptions}
                   />
-                </div>
-              )}
 
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={input.trim() === '' || thinking}
-              className="h-9 px-5 text-[12px] font-semibold rounded-lg shrink-0"
-            >
-              Send
-            </Button>
+                  {/* Custom UI-matched Model Selector Dropdown (Image 2 style) */}
+                  {currentEngineModels.length > 0 && (
+                    <ModelSelectDropdown
+                      value={activeEngineModelId}
+                      onChange={(newModel) => {
+                        handleSelectEngineModel(newModel)
+                      }}
+                      options={currentEngineModels}
+                    />
+                  )}
+                </div>
+
+                {/* Circular Send Button inside input card (Image 4) */}
+                <button
+                  type="submit"
+                  disabled={input.trim() === '' || thinking}
+                  title="Send message"
+                  aria-label="Send message"
+                  className="flex size-8 items-center justify-center rounded-full bg-(--color-accent) text-white shadow-xs transition-all hover:bg-(--color-accent-hover) disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer shrink-0"
+                >
+                  <SendArrowIcon className="size-4" />
+                </button>
+              </div>
+            </div>
           </form>
         </div>
       </div>
+      </div>
+
+      {/* ── Resizable Splitter Slider between Chat and Right Panel (Image 1: thin separator, only hover shows highlight & pill) ── */}
+      {isOverviewOpen && !isOverviewExpanded && (
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize right panel"
+          onMouseDown={handleStartSplitterDrag}
+          onDoubleClick={() => {
+            setPanelWidth(440)
+          }}
+          title="Drag to resize panel, double-click to reset"
+          className="group relative w-1.5 -mr-1.5 cursor-col-resize z-20 select-none flex items-center justify-center shrink-0"
+        >
+          {/* Thin separator line: transparent normally, glowing accent on hover or drag */}
+          <div
+            className={cn(
+              'w-0.5 h-full transition-colors duration-150',
+              isDraggingSplitter
+                ? 'bg-(--color-accent)'
+                : 'bg-transparent group-hover:bg-(--color-accent)',
+            )}
+          />
+
+          {/* Grip pill: ONLY visible on hover or active dragging */}
+          <div
+            className={cn(
+              'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-8 w-1 rounded-full bg-(--color-accent) shadow-xs transition-opacity duration-150 pointer-events-none',
+              isDraggingSplitter ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+            )}
+          />
+        </div>
+      )}
+
+      {/* ── Right Overview Panel (Antigravity Image 2 style) ── */}
+      <RightOverviewPanel />
     </div>
   )
 }

@@ -23,6 +23,7 @@ import {
 } from './runtimes/cliDetector'
 import { GenericCliAgentRuntime } from './runtimes/genericCliRuntime'
 import { ActiveModelStore } from './providers/activeModel'
+import { devModelTracker } from './providers/devModelTracker'
 import { AgentSessionRegistry } from './terminal/sessionRegistry'
 import { TerminalService } from './terminal/terminalService'
 import { BindingService } from './bindings/bindingService'
@@ -351,6 +352,14 @@ if (!claimSingleInstance()) {
           }
         }
       },
+    })
+
+    devModelTracker.subscribe((record) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) {
+          win.webContents.send('dev:modelCall', record)
+        }
+      }
     })
 
     registerIpcHandlers(

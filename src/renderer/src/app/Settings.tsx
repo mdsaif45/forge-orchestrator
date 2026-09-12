@@ -44,7 +44,7 @@ interface SettingsSelection {
   readonly projectId?: string
 }
 
-interface StoredProviderConfig {
+export interface StoredProviderConfig {
   readonly id: string
   readonly name: string
   readonly type: 'api_key' | 'local' | 'custom'
@@ -57,7 +57,7 @@ interface StoredProviderConfig {
   readonly isCustom?: boolean | undefined
 }
 
-const DEFAULT_PROVIDERS: readonly StoredProviderConfig[] = [
+export const DEFAULT_PROVIDERS: readonly StoredProviderConfig[] = [
   {
     id: 'openai',
     name: 'OpenAI',
@@ -1820,8 +1820,8 @@ function AIProvidersSettings({
         <div>
           <h1 className="text-[18px] font-bold text-(--color-text)">LLM Providers</h1>
           <p className="mt-1 text-[12px] text-(--color-text-muted)">
-            Manage API credentials and model endpoints. These power the Forge Native Agent as well
-            as direct completions.
+            Manage API credentials and model endpoints. These power Forge Agent as well as direct
+            completions.
           </p>
         </div>
 

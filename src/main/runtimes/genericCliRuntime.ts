@@ -82,7 +82,7 @@ export class GenericCliAgentRuntime implements IAgentRuntime {
     if (this.processes !== null) {
       processHandle = await this.processes.spawn({
         command: this.executable,
-        args: [...this.defaultArgs],
+        args: [...this.defaultArgs, ...(options.model ? [`--model=${options.model}`] : [])],
         cwd: options.repositoryPath,
         cols: 120,
         rows: 30,

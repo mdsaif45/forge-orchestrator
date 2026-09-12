@@ -7,6 +7,7 @@ import type {
   ChangeSetView,
   CreateProjectRequest,
   DecisionView,
+  DevModelCallView,
   IpcResult,
   OpenQuestionView,
   ProjectDetail,
@@ -93,6 +94,13 @@ export interface ForgeApi {
           readonly resolvedPath?: string | undefined
           readonly isCustom?: boolean | undefined
           readonly defaultModel?: string | undefined
+          readonly models?:
+            | readonly {
+                readonly id: string
+                readonly label: string
+                readonly category?: string | undefined
+              }[]
+            | undefined
         }[]
       }>
     >
@@ -456,4 +464,13 @@ export interface ForgeApi {
   readonly onTerminalExit: (
     listener: (payload: { readonly terminalId: string; readonly exitCode: number | null }) => void,
   ) => () => void
+  readonly dev?:
+    | {
+        readonly getModelCalls: () => Promise<
+          IpcResult<{ readonly calls: readonly DevModelCallView[] }>
+        >
+        readonly clearModelCalls: () => Promise<IpcResult<{ readonly ok: true }>>
+      }
+    | undefined
+  readonly onDevModelCall?: (listener: (call: DevModelCallView) => void) => () => void
 }

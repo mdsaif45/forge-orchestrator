@@ -294,6 +294,8 @@ export interface SessionOptions {
    * to the session rather than to the runtime.
    */
   readonly accountId?: string | undefined
+  /** Model to use for this session, when the runtime supports choosing one. */
+  readonly model?: string | undefined
   /**
    * How much the agent may do without stopping to ask.
    *

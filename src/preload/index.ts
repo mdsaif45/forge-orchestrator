@@ -86,6 +86,11 @@ const api: ForgeApi = {
     list: (projectId) => call('changeset:list', { projectId }),
     get: (changeSetId) => call('changeset:get', { changeSetId }),
   },
+  artifacts: {
+    listForRun: (runId) => call('artifacts:listForRun', { runId }),
+    getMetadata: (artifactId) => call('artifacts:getMetadata', { artifactId }),
+    readWindow: (request) => call('artifacts:readWindow', request),
+  },
   account: {
     list: (provider) => call('account:list', { provider }),
     register: (request) => call('account:register', request),

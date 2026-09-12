@@ -153,6 +153,7 @@ if (!claimSingleInstance()) {
         bindings: activeCore.bindings,
         enrollment: activeCore.enrollment,
         terminal: activeCore.terminal,
+        artifactService: activeCore.artifacts,
         // Broadcast provider chunks to all windows
         emitProviderChunk: (payload) => {
           for (const win of BrowserWindow.getAllWindows()) {

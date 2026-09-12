@@ -2,7 +2,7 @@ import { writeFile } from 'node:fs/promises'
 import { app, clipboard, dialog, BrowserWindow } from 'electron'
 import { APP_NAME } from '@shared/app'
 import type { ProviderChunkPayload } from '@shared/ipc'
-import { TEMPLATES } from '@shared/domain'
+import { artifactIdSchema, runIdSchema, TEMPLATES } from '@shared/domain'
 import { generateWorkflowReportMarkdown } from '../audit/workflowReportGenerator'
 import type { ProjectService } from '../projects/projectService'
 import { validateRepository } from '../projects/validateRepository'
@@ -23,6 +23,7 @@ import { openTerminal } from '../accounts/terminalLauncher'
 import type { TerminalService } from '../terminal/terminalService'
 import { TemplateV2Store } from '../templates/templateV2Store'
 import { ArtifactStore } from '../artifacts/artifactStore'
+import type { ArtifactService } from '../artifacts/artifactService'
 import {
   detectInstalledClis,
   loadAgentDefaults,
@@ -44,6 +45,7 @@ export interface IpcDependencies {
   readonly terminal: TerminalService
   readonly templatesV2?: TemplateV2Store
   readonly artifacts?: ArtifactStore
+  readonly artifactService?: ArtifactService
   /**
    * Broadcasts one chunk of a streamed model reply.
    *
@@ -85,6 +87,7 @@ export function createIpcHandlers({
   terminal,
   templatesV2,
   artifacts,
+  artifactService,
   emitProviderChunk,
   setActiveModel,
   registerCustomCli,
@@ -329,6 +332,31 @@ export function createIpcHandlers({
     }),
 
     'changeset:get': ({ changeSetId }) => changeSets.get(changeSetId),
+
+    'artifacts:listForRun': ({ runId }) => ({
+      artifacts: artifactService ? artifactService.listArtifacts(runIdSchema.parse(runId)) : [],
+    }),
+
+    'artifacts:getMetadata': ({ artifactId }) => ({
+      artifact: artifactService
+        ? artifactService.getMetadata(artifactIdSchema.parse(artifactId))
+        : null,
+    }),
+
+    'artifacts:readWindow': async ({ artifactId, offsetBytes, lengthBytes }) => {
+      if (!artifactService) {
+        return { data: '', totalBytes: 0 }
+      }
+      const res = await artifactService.readWindow(
+        artifactIdSchema.parse(artifactId),
+        offsetBytes,
+        lengthBytes,
+      )
+      return {
+        data: res.data.toString('utf-8'),
+        totalBytes: res.totalBytes,
+      }
+    },
 
     'git:getWorkingDiff': (request) => changeSets.getWorkingDiff(request.projectId),
 

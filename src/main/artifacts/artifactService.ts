@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, open, readFile, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { mkdir, open, readFile, rm, writeFile } from 'node:fs/promises'
+import { isAbsolute, join, relative, resolve } from 'node:path'
 import {
   artifactIdSchema,
   type ArtifactId,
@@ -38,6 +38,10 @@ function sanitizeFileName(name: string): string {
  * Enforces Axiom A1 (single source of truth) & Axiom A3 (physical evidence beats claims):
  * Raw bytes reside on disk under `<artifactsDir>/<run-id>/<artifact-id>-<safe-name>`,
  * while structured metadata and SHA-256 hashes reside in SQLite.
+ *
+ * Note: writeArtifact buffers input payloads in memory for STATE-001;
+ * streaming write ingestion (writeArtifactStream) is introduced in AGENT-002 for
+ * high-throughput tool spills (>50 KB).
  */
 export class ArtifactService {
   constructor(
@@ -47,17 +51,28 @@ export class ArtifactService {
 
   /**
    * Resolves the absolute path on disk for a given relative path or metadata.
+   * Enforces containment within the base directory to prevent path traversal.
    */
   resolvePath(relativePathOrMetadata: string | ArtifactMetadata): string {
     const rel =
       typeof relativePathOrMetadata === 'string'
         ? relativePathOrMetadata
         : relativePathOrMetadata.relativePath
-    return resolve(this.baseDir, ...rel.split('/'))
+
+    const normalizedBase = resolve(this.baseDir)
+    const resolved = resolve(normalizedBase, ...rel.split(/[\\/]/))
+    const relDiff = relative(normalizedBase, resolved)
+
+    if (relDiff.startsWith('..') || isAbsolute(relDiff)) {
+      throw new Error(`Path traversal detected: artifact path escapes base directory: ${rel}`)
+    }
+
+    return resolved
   }
 
   /**
    * Writes artifact content to disk and records metadata in SQLite.
+   * If database metadata recording fails, physical file is rolled back to prevent orphans.
    */
   async writeArtifact(options: WriteArtifactOptions): Promise<ArtifactMetadata> {
     const id = options.id ?? artifactIdSchema.parse(randomUUID())
@@ -98,7 +113,16 @@ export class ArtifactService {
       createdAt,
     }
 
-    return this.store.record(metadata)
+    try {
+      return this.store.record(metadata)
+    } catch (err) {
+      try {
+        await rm(absolutePath, { force: true })
+      } catch {
+        // Non-fatal cleanup error during rollback
+      }
+      throw err
+    }
   }
 
   /**

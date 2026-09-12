@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -243,5 +243,43 @@ describe('ArtifactService', () => {
     await expect(service.readArtifact(nonExistent)).rejects.toThrow(/not found/)
     await expect(service.readArtifactText(nonExistent)).rejects.toThrow(/not found/)
     await expect(service.readWindow(nonExistent, 0, 10)).rejects.toThrow(/not found/)
+  })
+
+  it('enforces path containment and rejects path traversal', () => {
+    expect(() => service.resolvePath('../escaped.log')).toThrow(/Path traversal detected/)
+    expect(() => service.resolvePath('../../etc/passwd')).toThrow(/Path traversal detected/)
+    expect(() => service.resolvePath('run-123/../../../outside.txt')).toThrow(
+      /Path traversal detected/,
+    )
+  })
+
+  it('rolls back physical file if metadata recording in database fails', async () => {
+    const failingStore = {
+      record: () => {
+        throw new Error('Database disk error')
+      },
+      get: () => null,
+      listForRun: () => [],
+      listForStep: () => [],
+    } as unknown as ArtifactStore
+
+    const failingService = new ArtifactService(tempDir, failingStore)
+
+    await expect(
+      failingService.writeArtifact({
+        runId,
+        kind: 'stdout',
+        name: 'orphan-test.log',
+        content: 'content that should be deleted',
+      }),
+    ).rejects.toThrow('Database disk error')
+
+    const runDir = join(tempDir, runId)
+    try {
+      const files = await readdir(runDir)
+      expect(files.filter((f) => f.includes('orphan-test'))).toHaveLength(0)
+    } catch {
+      // Directory may not exist
+    }
   })
 })

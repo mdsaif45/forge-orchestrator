@@ -372,16 +372,12 @@ export async function executeDirectTask(
   })
 
   const emitRunEvent = (type: string, payload: Record<string, unknown> = {}): void => {
-    try {
-      core.runs.appendEvent(runId, {
-        stepId,
-        type,
-        payload,
-        occurredAt: new Date().toISOString(),
-      })
-    } catch {
-      // Non-fatal event logging error
-    }
+    core.runs.appendEvent(runId, {
+      stepId,
+      type,
+      payload,
+      occurredAt: new Date().toISOString(),
+    })
   }
 
   emitRunEvent('run.started', { task: options.task, model: model.model })

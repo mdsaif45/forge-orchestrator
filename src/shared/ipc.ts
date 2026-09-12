@@ -371,6 +371,32 @@ export const workflowArtifactViewSchema = z.strictObject({
 })
 export type WorkflowArtifactView = z.infer<typeof workflowArtifactViewSchema>
 
+export const artifactKindViewSchema = z.enum([
+  'stdout',
+  'stderr',
+  'tool-input',
+  'tool-output',
+  'diff',
+  'prompt-packet',
+  'agent-raw',
+  'custom',
+])
+
+export const artifactMetadataViewSchema = z.strictObject({
+  id: z.string().min(1),
+  runId: z.string().min(1),
+  stepId: z.string().nullable(),
+  kind: artifactKindViewSchema,
+  name: z.string().min(1),
+  mimeType: z.string().min(1),
+  sizeBytes: z.number().int().nonnegative(),
+  sha256: z.string().min(1),
+  relativePath: z.string().min(1),
+  createdAt: z.string().min(1),
+})
+
+export type ArtifactMetadataView = z.infer<typeof artifactMetadataViewSchema>
+
 export const promptPacketViewSchema = z.strictObject({
   role: z.string(),
   objective: z.string(),
@@ -878,6 +904,25 @@ export const IPC_CONTRACT = {
   'changeset:get': {
     request: z.strictObject({ changeSetId: z.string() }),
     response: changeSetViewSchema.nullable(),
+  },
+  'artifacts:listForRun': {
+    request: z.strictObject({ runId: z.string().min(1) }),
+    response: z.strictObject({ artifacts: z.array(artifactMetadataViewSchema).readonly() }),
+  },
+  'artifacts:getMetadata': {
+    request: z.strictObject({ artifactId: z.string().min(1) }),
+    response: z.strictObject({ artifact: artifactMetadataViewSchema.nullable() }),
+  },
+  'artifacts:readWindow': {
+    request: z.strictObject({
+      artifactId: z.string().min(1),
+      offsetBytes: z.number().int().nonnegative(),
+      lengthBytes: z.number().int().positive(),
+    }),
+    response: z.strictObject({
+      data: z.string(),
+      totalBytes: z.number().int().nonnegative(),
+    }),
   },
   'git:getWorkingDiff': {
     request: z.strictObject({ projectId: z.string() }),

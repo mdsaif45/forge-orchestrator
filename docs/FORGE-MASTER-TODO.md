@@ -49,8 +49,9 @@ Status Legend:
 | CLI-001 | #201 | cli | P0 | DONE | AGENT-001 | Build `bin/forge.ts` CLI entrypoint | `bin/forge.ts`, `bin/forge.js`, `src/main/cli.ts` passing all tests |
 | CLI-002 | #201 | cli | P1 | DONE | CLI-001 | Headless NDJSON event streaming mode | `--json` flag emits machine-readable events in `cli.ts` |
 | CLI-003 | #201 | cli | P1 | DONE | CLI-001 | Clean exit code contract (0=OK, 1=Fail, 2=Halt)| Verified in `taskRunner.test.ts` & `cli.test.ts` |
-| CLI-004 | NEW | cli | P2 | READY | CLI-001 | Interactive React Ink terminal TUI | Multi-pane status & diff stream |
+| CLI-004 | NEW | cli | P1 | DONE | CLI-001 | Run & Event Inspection CLI | `forge runs [list\|inspect\|events]`, `RunStore.listRuns` |
 | CLI-005 | #155 | cli/ui | P2 | READY | CLI-004 | Live tool-call timeline | Timeline rendering in terminal |
+| CLI-006 | NEW | cli | P2 | READY | CLI-001 | Interactive React Ink terminal TUI | Multi-pane status & diff stream |
 
 ---
 
@@ -58,8 +59,8 @@ Status Legend:
 
 | ID | Issue | Area | Priority | Status | Depends On | Description | Evidence / Target |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| STATE-001| NEW | state | P1 | READY | CORE-002 | Structured artifact directory store | `.forge/artifacts/<run-id>/` |
-| ARTIFACT-1| NEW | state | P1 | READY | STATE-001 | Byte-offset artifact reader | Windowed preview of huge logs |
+| STATE-001| #203 | state | P0 | DONE | CORE-002 | Execution State Persistence & Artifact Store | `RunStore`, `ArtifactStore`, `ArtifactService` (PR #203, commit `1dfb444`) |
+| ARTIFACT-1| NEW | state | P1 | DONE | STATE-001 | Artifact Inspection CLI & Windowed IPC | `forge artifacts [list\|cat]`, `artifacts:*` IPC channels |
 | EVIDENCE-1| #202 | evidence| P0 | DONE | CORE-001 | Authoritative Evidence Model & Domain Contract | Physical diff reconciliation, `taskRunner.ts` ChangeSet persistence |
 | IPC-001 | #153 | ipc | P2 | READY | CORE-001 | Push runtime events over typed IPC | Event streaming tests |
 | EVENT-001| #149 | engine | P1 | READY | CORE-001 | Live agent channel event subscription | Event log audit trail |
@@ -70,6 +71,7 @@ Status Legend:
 
 | ID | Issue | Area | Priority | Status | Depends On | Description | Evidence / Target |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| CRIT-001 | NEW | criteria| P0 | DONE | STATE-001 | Durable Completion Criteria Evaluation & Persistence | `criterionResultSchema`, `StepEvidence.criteria`, `verifyStep` & CLI report |
 | VERIFY-001| NEW | evidence| P0 | BLOCKED | EVIDENCE-1 | Physical diff reconciliation enhancements | Catches untracked/renamed files |
 | VERIFY-002| NEW | evidence| P1 | BLOCKED | VERIFY-001 | Independent test & build execution runner | Exit code verified against claims |
 | VERIFY-003| NEW | evidence| P2 | BLOCKED | VERIFY-001 | Adversarial edge-case verifier agent | Probes boundary regressions |

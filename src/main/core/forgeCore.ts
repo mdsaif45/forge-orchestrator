@@ -2,7 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import type { ProviderChunkPayload, WorkflowEventPayload, WorkflowLogPayload } from '@shared/ipc'
-import { initialiseDatabase } from '../db'
+import { initialiseDatabase, RunStore, ArtifactStore } from '../db'
 import type { ForgeDatabase, OpenDatabaseResult } from '../db'
 import type { ChangeSetStore } from '../db/changeSetStore'
 import { OrphanTracker, ProcessManager } from '../process'
@@ -11,6 +11,7 @@ import { AccountStore } from '../db/accountStore'
 import { EventStore } from '../db/eventStore'
 import { ChangeSetService } from '../changesets/changeSetService'
 import { DecisionService } from '../decisions/decisionService'
+import { ArtifactService } from '../artifacts/artifactService'
 import { ProjectService } from '../projects/projectService'
 import { QuestionService } from '../questions/questionService'
 import { WorkflowService } from '../workflows/workflowService'
@@ -97,6 +98,9 @@ export interface ForgeCore {
   readonly terminal: TerminalService
   readonly bindings: BindingService
   readonly enrollment: EnrollmentService
+  readonly runs: RunStore
+  readonly artifacts: ArtifactService
+  readonly artifactStore: ArtifactStore
   readonly appliedMigrations: number
 
   /** Closes database connection, terminates child processes, and flushes storage. */
@@ -124,6 +128,7 @@ export function createForgeCore(options: ForgeCoreOptions = {}): ForgeCore {
   mkdirSync(join(dataDir, 'worktrees'), { recursive: true })
   mkdirSync(join(dataDir, 'accounts'), { recursive: true })
   mkdirSync(join(dataDir, 'hooks'), { recursive: true })
+  mkdirSync(join(dataDir, 'artifacts'), { recursive: true })
 
   const dbFile = join(dataDir, 'forge.db')
   const {
@@ -207,6 +212,10 @@ export function createForgeCore(options: ForgeCoreOptions = {}): ForgeCore {
   const bindingService = new BindingService(bindingStore, registry)
   const enrollmentService = new EnrollmentService(accountHomes, registry, runtimeExecutable)
 
+  const runStore = new RunStore(db)
+  const artifactStore = new ArtifactStore(db)
+  const artifactService = new ArtifactService(join(dataDir, 'artifacts'), artifactStore)
+
   const close = async (): Promise<void> => {
     try {
       await processes.killAll('Forge core is shutting down')
@@ -237,6 +246,9 @@ export function createForgeCore(options: ForgeCoreOptions = {}): ForgeCore {
     terminal: terminalService,
     bindings: bindingService,
     enrollment: enrollmentService,
+    runs: runStore,
+    artifacts: artifactService,
+    artifactStore,
     appliedMigrations,
     close,
   }

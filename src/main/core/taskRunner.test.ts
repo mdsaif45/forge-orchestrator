@@ -104,6 +104,36 @@ describe('executeDirectTask', () => {
       // Events were streamed
       expect(events.some((e) => e.kind === 'status')).toBe(true)
       expect(events.some((e) => e.kind === 'tool_start')).toBe(true)
+
+      // Check durable RunRecord and StepRecord were recorded (STATE-001)
+      expect(result.runId).toBeDefined()
+      const runRecord = core.runs.getRun(result.runId)
+      expect(runRecord).not.toBeNull()
+      expect(runRecord?.status).toBe('completed')
+      expect(runRecord?.exitCode).toBe(0)
+
+      const steps = core.runs.listStepsForRun(result.runId)
+      expect(steps.length).toBe(1)
+      expect(steps[0]?.role).toBe('implementer')
+      expect(steps[0]?.status).toBe('completed')
+      expect(steps[0]?.changeSetId).toBe(changesets[0]!.id)
+
+      // Check run events were logged sequentially (STATE-001)
+      const runEvents = core.runs.listEventsForRun(result.runId)
+      expect(runEvents.length).toBeGreaterThan(0)
+      expect(runEvents[0]?.seq).toBe(1)
+      expect(runEvents.some((e) => e.type === 'run.started')).toBe(true)
+      expect(runEvents.some((e) => e.type === 'run.finished')).toBe(true)
+
+      // Check physical file artifacts were stored on disk and recorded in SQLite (STATE-001)
+      const artifacts = core.artifacts.listArtifacts(result.runId)
+      expect(artifacts.length).toBeGreaterThan(0)
+      expect(artifacts.some((a) => a.kind === 'prompt-packet')).toBe(true)
+      expect(artifacts.some((a) => a.kind === 'diff')).toBe(true)
+
+      const diffArtifact = artifacts.find((a) => a.kind === 'diff')!
+      const patchContent = await core.artifacts.readArtifactText(diffArtifact.id)
+      expect(patchContent).toContain('Updated by Forge Agent!')
     },
   )
 

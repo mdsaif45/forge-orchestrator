@@ -9,6 +9,7 @@ import {
   renderPromptPacket,
   repositoryIdSchema,
   resolveEffectivePolicy,
+  runIdSchema,
   runtimeIdSchema,
   sessionIdSchema,
   stepEvidenceSchema,
@@ -20,6 +21,7 @@ import {
   type IAgentRuntime,
   type PromptPacket,
   type RuleScope,
+  type RunId,
   type RuntimeEvent,
   type RuntimeStatus,
   type SessionHandle,
@@ -98,6 +100,7 @@ export interface DirectTaskOptions {
 
 export interface TaskExecutionResult {
   readonly ok: boolean
+  readonly runId: RunId
   readonly task: string
   readonly summary: string
   readonly baseSha: Sha
@@ -345,189 +348,359 @@ export async function executeDirectTask(
   ])
 
   const taskId = taskIdSchema.parse(randomUUID())
-  const compiled = compileContext({
-    role: 'implementer',
-    task: {
-      id: taskId,
-      objective: options.task,
-      constraints: [],
-      completionCriteria: [
-        { kind: 'no-assumptions', description: 'No unverified assumptions', params: {} },
-        ...(projectDetail.project.repository.buildCommand !== null
-          ? [{ kind: 'build' as const, description: 'Build passes', params: {} }]
-          : []),
-        ...(projectDetail.project.repository.testCommand !== null
-          ? [{ kind: 'tests' as const, description: 'Tests pass', params: {} }]
-          : []),
-      ],
+  const runId = runIdSchema.parse(randomUUID())
+  const stepId = stepIdSchema.parse(randomUUID())
+
+  // Persist execution Run in SQLite
+  core.runs.createRun({
+    id: runId,
+    projectId: projectIdSchema.parse(projectDetail.project.id),
+    taskId,
+    type: 'direct-task',
+    status: 'running',
+    startedAt: new Date(startTime).toISOString(),
+    finishedAt: null,
+    exitCode: null,
+    summary: null,
+    error: null,
+    metadata: {
+      task: options.task,
+      model: model.model,
+      providerId: model.providerId,
+      workspacePath,
+    },
+  })
+
+  const emitRunEvent = (type: string, payload: Record<string, unknown> = {}): void => {
+    try {
+      core.runs.appendEvent(runId, {
+        stepId,
+        type,
+        payload,
+        occurredAt: new Date().toISOString(),
+      })
+    } catch {
+      // Non-fatal event logging error
+    }
+  }
+
+  emitRunEvent('run.started', { task: options.task, model: model.model })
+
+  try {
+    const compiled = compileContext({
+      role: 'implementer',
+      task: {
+        id: taskId,
+        objective: options.task,
+        constraints: [],
+        completionCriteria: [
+          { kind: 'no-assumptions', description: 'No unverified assumptions', params: {} },
+          ...(projectDetail.project.repository.buildCommand !== null
+            ? [{ kind: 'build' as const, description: 'Build passes', params: {} }]
+            : []),
+          ...(projectDetail.project.repository.testCommand !== null
+            ? [{ kind: 'tests' as const, description: 'Tests pass', params: {} }]
+            : []),
+        ],
+        scope: {
+          allowedPaths: options.allowedPaths ? [...options.allowedPaths] : [],
+          forbiddenPaths: options.forbiddenPaths ? [...options.forbiddenPaths] : [],
+        },
+        lockedDecisionIds: [],
+        correctsTaskId: null,
+        createdAt: new Date().toISOString(),
+      },
+      rules: effectiveRules,
+      lockedDecisions: [],
+      files: [],
+      previousAttempt: null,
+      reviewFindings: [],
+      answeredQuestions: [],
+      repositoryInstructions,
+    })
+
+    // Resolve agent runtime via IAgentRuntime abstraction (AGENT-001)
+    const runtime: IAgentRuntime =
+      options.runtime ??
+      (options.runTurn !== undefined
+        ? createTurnAdapter(options.runTurn, model, workspacePath)
+        : core.runtimes.resolve('forge-native-agent'))
+
+    // Persist execution Step in SQLite
+    core.runs.createStep({
+      id: stepId,
+      runId,
+      index: 0,
+      role: 'implementer',
+      runtimeId: runtime.id,
+      status: 'running',
+      startedAt: new Date().toISOString(),
+      finishedAt: null,
+      summary: null,
+      changeSetId: null,
+      evidenceId: null,
+    })
+
+    options.onEvent?.({ kind: 'status', text: `Starting session with runtime "${runtime.id}"...` })
+    emitRunEvent('step.started', { role: 'implementer', runtimeId: runtime.id })
+
+    // Persist prompt packet as physical artifact
+    await core.artifacts.writeArtifact({
+      runId,
+      stepId,
+      kind: 'prompt-packet',
+      name: 'prompt-packet.json',
+      content: JSON.stringify(compiled.packet, null, 2),
+      mimeType: 'application/json',
+    })
+
+    const session = await runtime.start({
+      repositoryPath: workspacePath,
+      role: 'implementer',
+      timeoutMs: (options.maxRounds ?? 15) * 60_000,
+    })
+
+    let rawContent = ''
+    try {
+      await runtime.send(session, compiled.packet)
+
+      for await (const event of runtime.events(session)) {
+        if (event.type === 'tool') {
+          emitRunEvent('tool.call', { name: event.name, detail: event.detail })
+          options.onEvent?.({ kind: 'tool_start', name: event.name, detail: event.detail })
+        } else if (event.type === 'chunk') {
+          rawContent += event.text
+          options.onEvent?.({ kind: 'content', text: event.text })
+        }
+      }
+    } finally {
+      await runtime.dispose(session)
+    }
+
+    if (rawContent.length > 0) {
+      await core.artifacts.writeArtifact({
+        runId,
+        stepId,
+        kind: 'agent-raw',
+        name: 'agent-response.txt',
+        content: rawContent,
+        mimeType: 'text/plain; charset=utf-8',
+      })
+    }
+
+    options.onEvent?.({ kind: 'status', text: 'Reconciling physical git diff with agent claim...' })
+
+    // Measure physical git diff directly from repository
+    const diff = await git.diffWorktree(baseSha)
+    const physicalPaths = diff.files.map((f) => f.path)
+
+    if (diff.patch && diff.patch.length > 0) {
+      await core.artifacts.writeArtifact({
+        runId,
+        stepId,
+        kind: 'diff',
+        name: 'physical.patch',
+        content: diff.patch,
+        mimeType: 'text/x-diff',
+      })
+    }
+
+    const report = extractReport(rawContent, physicalPaths)
+    const now = new Date().toISOString()
+
+    // Authoritative physical reconciliation
+    const built = await buildChangeSet(git, {
+      baseSha,
+      report,
       scope: {
         allowedPaths: options.allowedPaths ? [...options.allowedPaths] : [],
         forbiddenPaths: options.forbiddenPaths ? [...options.forbiddenPaths] : [],
       },
-      lockedDecisionIds: [],
-      correctsTaskId: null,
-      createdAt: new Date().toISOString(),
-    },
-    rules: effectiveRules,
-    lockedDecisions: [],
-    files: [],
-    previousAttempt: null,
-    reviewFindings: [],
-    answeredQuestions: [],
-    repositoryInstructions,
-  })
-
-  // Resolve agent runtime via IAgentRuntime abstraction (AGENT-001)
-  const runtime: IAgentRuntime =
-    options.runtime ??
-    (options.runTurn !== undefined
-      ? createTurnAdapter(options.runTurn, model, workspacePath)
-      : core.runtimes.resolve('forge-native-agent'))
-
-  options.onEvent?.({ kind: 'status', text: `Starting session with runtime "${runtime.id}"...` })
-
-  const session = await runtime.start({
-    repositoryPath: workspacePath,
-    role: 'implementer',
-    timeoutMs: (options.maxRounds ?? 15) * 60_000,
-  })
-
-  let rawContent = ''
-  try {
-    await runtime.send(session, compiled.packet)
-
-    for await (const event of runtime.events(session)) {
-      if (event.type === 'tool') {
-        options.onEvent?.({ kind: 'tool_start', name: event.name, detail: event.detail })
-      } else if (event.type === 'chunk') {
-        rawContent += event.text
-        options.onEvent?.({ kind: 'content', text: event.text })
-      }
-    }
-  } finally {
-    await runtime.dispose(session)
-  }
-
-  options.onEvent?.({ kind: 'status', text: 'Reconciling physical git diff with agent claim...' })
-
-  // Measure physical git diff directly from repository
-  const diff = await git.diffWorktree(baseSha)
-  const physicalPaths = diff.files.map((f) => f.path)
-
-  const report = extractReport(rawContent, physicalPaths)
-  const now = new Date().toISOString()
-  const stepId = stepIdSchema.parse(randomUUID())
-
-  // Authoritative physical reconciliation
-  const built = await buildChangeSet(git, {
-    baseSha,
-    report,
-    scope: {
-      allowedPaths: options.allowedPaths ? [...options.allowedPaths] : [],
-      forbiddenPaths: options.forbiddenPaths ? [...options.forbiddenPaths] : [],
-    },
-    authorActor: 'agent:implementer',
-    stepId,
-    taskId,
-    capturedAt: now,
-  })
-
-  // Persist authoritative ChangeSet in database
-  core.changeSetStore.record(
-    built.changeSet,
-    projectIdSchema.parse(projectDetail.project.id),
-    'agent:implementer',
-    now,
-  )
-
-  for (const discrepancy of built.reconciliation.discrepancies) {
-    options.onEvent?.({
-      kind: 'discrepancy',
-      detail: `[${discrepancy.kind}] ${discrepancy.path}: ${discrepancy.detail}`,
-    })
-  }
-
-  // Run independent verification if build/test commands are defined
-  let vResult: VerifyResult | undefined
-  let verification: { passed: boolean; verdict: string; findings: readonly string[] } | undefined
-  if (
-    projectDetail.project.repository.buildCommand !== null ||
-    projectDetail.project.repository.testCommand !== null
-  ) {
-    options.onEvent?.({ kind: 'status', text: 'Running independent verification...' })
-    vResult = await verifyStep({
-      repository: {
-        ...projectDetail.project.repository,
-        id: repositoryIdSchema.parse(projectDetail.project.repository.id),
-      },
-      workflowId: workflowIdSchema.parse(randomUUID()),
+      authorActor: 'agent:implementer',
       stepId,
-      report,
-      reconciliation: built.reconciliation,
+      taskId,
+      capturedAt: now,
     })
 
-    verification = {
-      passed: vResult.passed,
-      verdict: vResult.verdict,
-      findings: vResult.findings,
+    // Persist authoritative ChangeSet in database
+    core.changeSetStore.record(
+      built.changeSet,
+      projectIdSchema.parse(projectDetail.project.id),
+      'agent:implementer',
+      now,
+    )
+
+    for (const discrepancy of built.reconciliation.discrepancies) {
+      emitRunEvent('discrepancy', {
+        kind: discrepancy.kind,
+        path: discrepancy.path,
+        detail: discrepancy.detail,
+      })
+      options.onEvent?.({
+        kind: 'discrepancy',
+        detail: `[${discrepancy.kind}] ${discrepancy.path}: ${discrepancy.detail}`,
+      })
     }
 
-    options.onEvent?.({
-      kind: 'verification',
-      verdict: vResult.verdict,
-      detail: vResult.detail,
+    // Run independent verification if build/test commands are defined
+    let vResult: VerifyResult | undefined
+    let verification: { passed: boolean; verdict: string; findings: readonly string[] } | undefined
+    if (
+      projectDetail.project.repository.buildCommand !== null ||
+      projectDetail.project.repository.testCommand !== null
+    ) {
+      options.onEvent?.({ kind: 'status', text: 'Running independent verification...' })
+      vResult = await verifyStep({
+        repository: {
+          ...projectDetail.project.repository,
+          id: repositoryIdSchema.parse(projectDetail.project.repository.id),
+        },
+        workflowId: workflowIdSchema.parse(randomUUID()),
+        stepId,
+        report,
+        reconciliation: built.reconciliation,
+      })
+
+      verification = {
+        passed: vResult.passed,
+        verdict: vResult.verdict,
+        findings: vResult.findings,
+      }
+
+      // Persist verification stdout / stderr artifacts
+      for (const cmdArt of vResult.artifacts) {
+        if (cmdArt.stdout) {
+          await core.artifacts.writeArtifact({
+            runId,
+            stepId,
+            kind: 'stdout',
+            name: `verify-${cmdArt.kind}-stdout.log`,
+            content: cmdArt.stdout,
+            mimeType: 'text/plain; charset=utf-8',
+          })
+        }
+        if (cmdArt.stderr) {
+          await core.artifacts.writeArtifact({
+            runId,
+            stepId,
+            kind: 'stderr',
+            name: `verify-${cmdArt.kind}-stderr.log`,
+            content: cmdArt.stderr,
+            mimeType: 'text/plain; charset=utf-8',
+          })
+        }
+      }
+
+      emitRunEvent('verification', {
+        verdict: vResult.verdict,
+        passed: vResult.passed,
+        detail: vResult.detail,
+      })
+
+      options.onEvent?.({
+        kind: 'verification',
+        verdict: vResult.verdict,
+        detail: vResult.detail,
+      })
+    }
+
+    // Determine clean exit code contract (0=OK, 1=Fail, 2=Halt/Policy)
+    let exitCode = 0
+    if (built.reconciliation.outOfScope.length > 0) {
+      exitCode = 2 // Policy violation (out of scope edits)
+    } else if (
+      report.status === 'blocked' ||
+      (verification !== undefined && !verification.passed)
+    ) {
+      exitCode = 1 // Execution or test failure
+    }
+
+    // Authoritative EVIDENCE-001 domain contract
+    const evidence: StepEvidence = stepEvidenceSchema.parse({
+      id: evidenceIdSchema.parse(randomUUID()),
+      taskId,
+      stepId,
+      workflowId: null,
+      actor: 'agent:implementer',
+      baseSha,
+      headSha: null,
+      changeSet: built.changeSet,
+      commandArtifacts: vResult ? vResult.artifacts : [],
+      discrepancies: built.reconciliation.discrepancies,
+      passed: exitCode === 0,
+      verdict: exitCode === 0 ? 'pass' : 'fail',
+      findings: vResult ? vResult.findings : [],
+      falseClaims: vResult ? vResult.falseClaims : [],
+      recordedAt: now,
     })
-  }
 
-  // Determine clean exit code contract (0=OK, 1=Fail, 2=Halt/Policy)
-  let exitCode = 0
-  if (built.reconciliation.outOfScope.length > 0) {
-    exitCode = 2 // Policy violation (out of scope edits)
-  } else if (report.status === 'blocked' || (verification !== undefined && !verification.passed)) {
-    exitCode = 1 // Execution or test failure
-  }
+    const durationMs = Date.now() - startTime
 
-  // Authoritative EVIDENCE-001 domain contract
-  const evidence: StepEvidence = stepEvidenceSchema.parse({
-    id: evidenceIdSchema.parse(randomUUID()),
-    taskId,
-    stepId,
-    workflowId: null,
-    actor: 'agent:implementer',
-    baseSha,
-    headSha: null,
-    changeSet: built.changeSet,
-    commandArtifacts: vResult ? vResult.artifacts : [],
-    discrepancies: built.reconciliation.discrepancies,
-    passed: exitCode === 0,
-    verdict: exitCode === 0 ? 'pass' : 'fail',
-    findings: vResult ? vResult.findings : [],
-    falseClaims: vResult ? vResult.falseClaims : [],
-    recordedAt: now,
-  })
+    // Finish step in durable store
+    core.runs.finishStep(stepId, {
+      status: exitCode === 0 ? 'completed' : 'failed',
+      finishedAt: new Date().toISOString(),
+      summary: report.summary,
+      changeSetId: built.changeSet.id,
+      evidenceId: evidence.id,
+    })
 
-  const durationMs = Date.now() - startTime
+    // Finish run in durable store
+    core.runs.finishRun(runId, {
+      status: exitCode === 0 ? 'completed' : 'failed',
+      finishedAt: new Date().toISOString(),
+      exitCode,
+      summary: report.summary,
+      error: exitCode !== 0 ? (verification?.verdict ?? 'Task failed') : null,
+    })
 
-  return {
-    ok: exitCode === 0,
-    task: options.task,
-    summary: report.summary,
-    baseSha,
-    filesChanged: physicalPaths,
-    physicalDiff: {
-      files: diff.files.map((f) => ({
-        path: f.path,
-        insertions: f.insertions,
-        deletions: f.deletions,
-      })),
-      patch: diff.patch,
-    },
-    discrepancies: built.reconciliation.discrepancies,
-    outOfScopeFiles: built.reconciliation.outOfScope,
-    verification,
-    evidence,
-    exitCode,
-    rounds: 1,
-    durationMs,
+    emitRunEvent('run.finished', { exitCode, passed: exitCode === 0 })
+
+    return {
+      ok: exitCode === 0,
+      runId,
+      task: options.task,
+      summary: report.summary,
+      baseSha,
+      filesChanged: physicalPaths,
+      physicalDiff: {
+        files: diff.files.map((f) => ({
+          path: f.path,
+          insertions: f.insertions,
+          deletions: f.deletions,
+        })),
+        patch: diff.patch,
+      },
+      discrepancies: built.reconciliation.discrepancies,
+      outOfScopeFiles: built.reconciliation.outOfScope,
+      verification,
+      evidence,
+      exitCode,
+      rounds: 1,
+      durationMs,
+    }
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err)
+    try {
+      core.runs.finishStep(stepId, {
+        status: 'failed',
+        finishedAt: new Date().toISOString(),
+        summary: 'Step failed with error',
+      })
+    } catch {
+      // Step may not have been created yet
+    }
+    try {
+      core.runs.finishRun(runId, {
+        status: 'failed',
+        finishedAt: new Date().toISOString(),
+        exitCode: 1,
+        summary: 'Task execution failed',
+        error: errorMsg,
+      })
+    } catch {
+      // Run record may fail
+    }
+    throw err
   }
 }

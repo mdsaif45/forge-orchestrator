@@ -63,6 +63,9 @@ describe('createForgeCore', () => {
     expect(core.accounts).toBeDefined()
     expect(core.terminal).toBeDefined()
     expect(core.registry).toBeDefined()
+    expect(core.runs).toBeDefined()
+    expect(core.artifacts).toBeDefined()
+    expect(core.artifactStore).toBeDefined()
 
     // Native agent runtime is registered
     expect(core.registry.has('forge-native-agent')).toBe(true)

@@ -339,6 +339,7 @@ async function handleRun(opts: {
     console.log(
       `  Status:       ${result.ok ? ANSI.green + 'SUCCESS' : ANSI.red + 'FAILED'}${ANSI.reset}`,
     )
+    console.log(`  Run ID:       ${ANSI.dim}${result.runId}${ANSI.reset}`)
     console.log(`  Evidence ID:  ${ANSI.dim}${result.evidence.id}${ANSI.reset}`)
     console.log(`  Exit Code:    ${String(result.exitCode)}`)
     console.log(`  Rounds Used:  ${String(result.rounds)}`)

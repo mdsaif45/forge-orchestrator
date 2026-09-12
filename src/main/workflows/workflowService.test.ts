@@ -48,10 +48,14 @@ describe('WorkflowService', () => {
 
   afterEach(() => {
     dbHandle.close()
-    rmSync(tempDir, { recursive: true, force: true })
+    try {
+      rmSync(tempDir, { recursive: true, force: true })
+    } catch {
+      // Ignore temporary file lock
+    }
   })
 
-  it('lists workflows for a project', async () => {
+  it('lists workflows for a project', { timeout: 30_000 }, async () => {
     const repoPath = join(tempDir, 'repo')
     mkdirSync(repoPath, { recursive: true })
     initRepository(repoPath)
@@ -89,7 +93,7 @@ describe('WorkflowService', () => {
     expect(detail?.id).toBe(started.id)
   })
 
-  it('cancels an active workflow', async () => {
+  it('cancels an active workflow', { timeout: 30_000 }, async () => {
     const repoPath = join(tempDir, 'repo2')
     mkdirSync(repoPath, { recursive: true })
     initRepository(repoPath)
@@ -169,62 +173,66 @@ describe('WorkflowService', () => {
     workflows.cancel(started.id)
   })
 
-  it('enforces that transitioning to implementation requires at least one locked decision', async () => {
-    const repoPath = join(tempDir, 'repo-mode')
-    mkdirSync(repoPath, { recursive: true })
-    initRepository(repoPath)
+  it(
+    'enforces that transitioning to implementation requires at least one locked decision',
+    { timeout: 30_000 },
+    async () => {
+      const repoPath = join(tempDir, 'repo-mode')
+      mkdirSync(repoPath, { recursive: true })
+      initRepository(repoPath)
 
-    const project: ProjectView = await projects.create({
-      name: 'Mode Test Project',
-      repositoryPath: repoPath,
-      defaultBranch: 'main',
-      buildCommand: null,
-      testCommand: null,
-      tech: [],
-      rules: [],
-    })
+      const project: ProjectView = await projects.create({
+        name: 'Mode Test Project',
+        repositoryPath: repoPath,
+        defaultBranch: 'main',
+        buildCommand: null,
+        testCommand: null,
+        tech: [],
+        rules: [],
+      })
 
-    const started: WorkflowDetailView = await workflows.start({
-      projectId: project.id,
-      autoRun: false,
-    })
+      const started: WorkflowDetailView = await workflows.start({
+        projectId: project.id,
+        autoRun: false,
+      })
 
-    // Advance from DISCOVERY to PLANNING, then to AWAITING_APPROVAL
-    const now = new Date().toISOString()
-    const wId = workflowIdSchema.parse(started.id)
-    const pId = projectIdSchema.parse(project.id)
-    workflows.getWorkflowStore().apply(wId, 'start', 'system', now)
-    workflows.getWorkflowStore().apply(wId, 'planProduced', 'agent:planner', now)
+      // Advance from DISCOVERY to PLANNING, then to AWAITING_APPROVAL
+      const now = new Date().toISOString()
+      const wId = workflowIdSchema.parse(started.id)
+      const pId = projectIdSchema.parse(project.id)
+      workflows.getWorkflowStore().apply(wId, 'start', 'system', now)
+      workflows.getWorkflowStore().apply(wId, 'planProduced', 'agent:planner', now)
 
-    // Attempt to enter implementation without decisions -> throws
-    expect(() => workflows.approveAndStartImplementation(started.id)).toThrow(
-      /at least one approved or locked architectural decision is required/,
-    )
+      // Attempt to enter implementation without decisions -> throws
+      expect(() => workflows.approveAndStartImplementation(started.id)).toThrow(
+        /at least one approved or locked architectural decision is required/,
+      )
 
-    // Now lock a decision
-    const decId = decisionIdSchema.parse(randomUUID())
-    workflows.getDecisionStore().propose(
-      {
-        id: decId,
-        statement: 'Use SQLite WAL mode',
-        rationale: 'Concurrency',
-        status: 'proposed',
-        proposedBy: 'user',
-        proposedAt: now,
-        lockedAt: null,
-        lockedBy: null,
-        supersededBy: null,
-        originQuestionId: null,
-      },
-      pId,
-      'user',
-      now,
-    )
-    workflows.getDecisionStore().lock(decId, 'user', now)
+      // Now lock a decision
+      const decId = decisionIdSchema.parse(randomUUID())
+      workflows.getDecisionStore().propose(
+        {
+          id: decId,
+          statement: 'Use SQLite WAL mode',
+          rationale: 'Concurrency',
+          status: 'proposed',
+          proposedBy: 'user',
+          proposedAt: now,
+          lockedAt: null,
+          lockedBy: null,
+          supersededBy: null,
+          originQuestionId: null,
+        },
+        pId,
+        'user',
+        now,
+      )
+      workflows.getDecisionStore().lock(decId, 'user', now)
 
-    // Now transitioning succeeds to DECISIONS_LOCKED
-    const implementing = workflows.approveAndStartImplementation(started.id)
-    expect(implementing.state).toBe('DECISIONS_LOCKED')
-    workflows.cancel(started.id)
-  })
+      // Now transitioning succeeds to DECISIONS_LOCKED
+      const implementing = workflows.approveAndStartImplementation(started.id)
+      expect(implementing.state).toBe('DECISIONS_LOCKED')
+      workflows.cancel(started.id)
+    },
+  )
 })

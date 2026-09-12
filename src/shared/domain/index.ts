@@ -31,6 +31,8 @@ export {
   timestampSchema,
   workflowIdSchema,
   accountIdSchema,
+  runIdSchema,
+  artifactIdSchema,
   type Actor,
   type AgentBindingId,
   type ChangeSetId,
@@ -48,6 +50,8 @@ export {
   type Timestamp,
   type WorkflowId,
   type AccountId,
+  type RunId,
+  type ArtifactId,
 } from './ids'
 
 export {
@@ -381,3 +385,25 @@ export {
   type WorkflowNode,
   type WorkflowTemplateV2,
 } from './workflowGraph'
+
+export {
+  runRecordSchema,
+  runStatusSchema,
+  runTypeSchema,
+  stepRecordSchema,
+  type RunRecord,
+  type RunStatus,
+  type RunType,
+  type StepRecord,
+} from './run'
+
+export {
+  artifactKindSchema,
+  artifactMetadataSchema,
+  artifactUri,
+  parseArtifactUri,
+  type ArtifactKind,
+  type ArtifactMetadata,
+} from './artifact'
+
+export { runEventSchema, type RunEvent, type RunEventInput } from './runEvents'

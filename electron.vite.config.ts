@@ -23,6 +23,8 @@ export default defineConfig({
           // Emitted separately so the smoke check can apply and assert the real
           // policy instead of reimplementing it.
           security: resolve('src/main/security.ts'),
+          // Standalone CLI entrypoint emitted for headless command-line execution.
+          cli: resolve('src/main/cli.ts'),
         },
       },
     },

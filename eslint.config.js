@@ -177,12 +177,11 @@ export default tseslint.config(
     },
   },
   {
-    // The verification scripts are plain JS, run outside the app, and print to
-    // stdout by design.
-    files: ['scripts/**/*.{cjs,mjs,js}', 'eslint.config.js'],
+    // The verification scripts and standalone CLI are run outside the app,
+    // and print to stdout by design.
+    files: ['scripts/**/*.{cjs,mjs,js}', 'eslint.config.js', 'src/main/cli.ts', 'bin/**/*.{ts,js}'],
     languageOptions: {
       globals: globals.node,
-      sourceType: 'commonjs',
     },
     rules: {
       'no-console': 'off',

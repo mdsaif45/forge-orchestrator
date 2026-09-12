@@ -17,6 +17,8 @@ export {
   type ResumePlan,
   type StartWorkflowInput,
 } from './workflowStore'
+export { RunStore } from './runStore'
+export { ArtifactStore } from './artifactStore'
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'
 

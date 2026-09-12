@@ -292,6 +292,106 @@ export const accounts = sqliteTable('accounts', {
 })
 
 /**
+ * Execution runs (direct tasks or workflows).
+ */
+export const runs = sqliteTable(
+  'runs',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    taskId: text('task_id').notNull(),
+    type: text('type').notNull(),
+    status: text('status').notNull(),
+    startedAt: text('started_at').notNull(),
+    finishedAt: text('finished_at'),
+    exitCode: integer('exit_code'),
+    summary: text('summary'),
+    error: text('error'),
+    /** JSON metadata (model, provider, options, etc.). */
+    metadata: text('metadata').notNull(),
+  },
+  (table) => [
+    index('runs_project').on(table.projectId, table.startedAt),
+    index('runs_task').on(table.taskId),
+  ],
+)
+
+/**
+ * Steps within an execution run.
+ */
+export const runSteps = sqliteTable(
+  'run_steps',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => runs.id, { onDelete: 'cascade' }),
+    index: integer('step_index').notNull(),
+    role: text('role').notNull(),
+    runtimeId: text('runtime_id'),
+    status: text('status').notNull(),
+    startedAt: text('started_at').notNull(),
+    finishedAt: text('finished_at'),
+    summary: text('summary'),
+    changeSetId: text('change_set_id'),
+    evidenceId: text('evidence_id'),
+  },
+  (table) => [
+    unique('run_steps_order').on(table.runId, table.index),
+    index('run_steps_run').on(table.runId),
+  ],
+)
+
+/**
+ * Physical file artifacts metadata (stdout/stderr logs, tool spills, patches).
+ */
+export const artifacts = sqliteTable(
+  'artifacts',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => runs.id, { onDelete: 'cascade' }),
+    stepId: text('step_id'),
+    kind: text('kind').notNull(),
+    name: text('name').notNull(),
+    mimeType: text('mime_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    sha256: text('sha256').notNull(),
+    relativePath: text('relative_path').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [
+    index('artifacts_run').on(table.runId, table.createdAt),
+    index('artifacts_step').on(table.stepId),
+  ],
+)
+
+/**
+ * Append-only run events log.
+ */
+export const runEvents = sqliteTable(
+  'run_events',
+  {
+    id: text('id').notNull().unique(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => runs.id, { onDelete: 'cascade' }),
+    seq: integer('seq').notNull(),
+    stepId: text('step_id'),
+    type: text('type').notNull(),
+    payload: text('payload').notNull(),
+    occurredAt: text('occurred_at').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.runId, table.seq] }),
+    index('run_events_run_type').on(table.runId, table.type),
+  ],
+)
+
+/**
  * `schema_meta` is deliberately absent from this schema.
  *
  * It tracks which migrations have been applied, so it must exist *before* the

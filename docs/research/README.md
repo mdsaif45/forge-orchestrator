@@ -29,6 +29,7 @@ DECISION (docs/decisions/, docs/architecture/)
 | Document | Scope / Subject | Date | Primary Finding |
 | :--- | :--- | :--- | :--- |
 | [**CLI Field Guide**](cli-field-guide.md) | Empirical measurements of Claude Code, Antigravity, OpenCode, ConPTY, and Windows terminal shims. | 2026-08-31 | Direct executable spawning required; trust dialogs block fresh worktrees; raw PTY streams required for responsive terminal panes. |
+| [**Agent Capability Benchmark**](agent-capability-benchmark.md) | Comparative agent-architecture review of Forge vs Claude Code, Cline, Kilo Code, OpenCode; plus a documentation-architecture comparison against Noto. | 2026-09-11 → 2026-09-21 | Benchmark was never executed; earlier numeric scores were predictions, not measurements. Stale README claims caused an external reviewer to judge Forge far less capable than `main` actually is. |
 
 ---
 

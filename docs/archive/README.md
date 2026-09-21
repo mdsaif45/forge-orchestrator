@@ -10,6 +10,14 @@ This directory contains superseded, historical, and non-normative records preser
 
 Documents in this directory must not be cited as current specifications, contracts, or active roadmaps. They are preserved to record how Forge evolved and to maintain a permanent record of past planning iterations.
 
+### Known link rot
+
+`antigravity-plan-task-record.md` contains 142 links written as absolute
+`file:///d:/...` URIs by the tool that produced it. They do not resolve for anyone else
+and are **left as-is on purpose**: rewriting them would edit a historical record to look
+like something it never was. Any link checker run against this repository should exclude
+`docs/archive/`.
+
 ---
 
 ## Archive Inventory

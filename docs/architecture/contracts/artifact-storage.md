@@ -36,8 +36,8 @@ Every artifact file created on disk must have a corresponding indexed record in 
 
 ```typescript
 export interface ArtifactRecord {
-  readonly id: string;           // ULID primary key
-  readonly runId: string;        // Owning Run ULID
+  readonly id: string;           // UUID primary key
+  readonly runId: string;        // Owning run UUID
   readonly stepId: string;       // Owning Step ID
   readonly type: 'prompt_packet' | 'raw_output' | 'patch' | 'tool_result';
   readonly relativePath: string; // Relative to <dataDir>/artifacts/<runId>/
@@ -59,7 +59,7 @@ export interface ArtifactRecord {
 
 ## 5. Windowed Byte-Offset Reader
 
-To prevent Node.js Out-Of-Memory (OOM) crashes when reading large terminal logs or compilation streams, `ArtifactService.readArtifactWindow()` implements windowed reading:
+To prevent Node.js Out-Of-Memory (OOM) crashes when reading large terminal logs or compilation streams, `ArtifactService.readWindow()` implements windowed reading:
 
 ```typescript
 export interface ReadWindowOptions {

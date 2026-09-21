@@ -2,7 +2,7 @@
 
 **Status:** FROZEN  
 **Authority:** Canonical Documentation Policy  
-**Last Updated:** 2026-09-21  
+**Last Updated:** 2026-09-22  
 **Baseline:** `main` @ `1dfb444`  
 **Applies to:** All files within `docs/` and root documentation  
 
@@ -95,7 +95,31 @@ When statements conflict across repository artifacts, authority is resolved in s
 
 ---
 
-## 5. Standard Metadata Schema
+## 5. Statement Classification in Contracts
+
+Document *status* (section 3) describes a whole document's lifecycle. Inside a contract,
+individual statements differ in where their authority comes from, so each normative
+statement carries one of four classifications:
+
+| Classification | Meaning | May implementation rely on it? |
+| :--- | :--- | :--- |
+| **`SPECIFIED`** | Stated directly by an accepted contract, ADR, or product requirement. The authority is the document itself. | Yes |
+| **`DERIVED`** | Logically follows from something `SPECIFIED`, or was read out of the implementation and is recorded as the current behaviour. The authority is upstream, not this line. | Yes, but it changes when its source changes |
+| **`APPROVED`** | Was `PROPOSED` and has since been explicitly accepted by the owner. Carries the same force as `SPECIFIED`, with the approval recorded. | Yes |
+| **`UNKNOWN`** | Genuinely undetermined. No decision exists and none may be inferred. | **No** |
+
+Two rules govern `UNKNOWN`, and they are the point of the whole scheme:
+
+1. **Never silently convert `UNKNOWN` into an assumption.** An `UNKNOWN` may become
+   `SPECIFIED` or `APPROVED` only through an explicit decision by the owner, recorded in
+   an ADR or in the contract's amendment history. Rewriting it as prose because the
+   answer seems obvious is the failure mode this classification exists to prevent.
+2. **An `UNKNOWN` must be accompanied by an open question** carrying an identifier, so
+   it is discoverable and can be closed deliberately rather than forgotten.
+
+---
+
+## 6. Standard Metadata Schema
 
 All normative documents in `docs/architecture/`, `docs/architecture/contracts/`, `docs/specifications/`, and `docs/decisions/` must begin with the following metadata header:
 

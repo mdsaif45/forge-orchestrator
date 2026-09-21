@@ -1,7 +1,7 @@
 # Forge Documentation Forensic Audit Report
 
 **Status:** ACCEPTED  
-**Date:** 2026-09-21  
+**Date:** 2026-09-21; second-pass verification 2026-09-22  
 **Target Repository:** `mdsaif45/forge-orchestrator`  
 **Baseline Commit:** `1dfb444` (`main`, PR #203 merged)  
 **Scope:** Complete repository documentation inventory, authority analysis, contradiction detection, and classification.
@@ -155,12 +155,12 @@ Based on this forensic audit, the documentation architecture rework proceeds as 
 | Original Document | New Canonical Location | Action Taken | Rationale |
 | :--- | :--- | :--- | :--- |
 | `docs/ARCHITECTURE.md` | `docs/architecture/*.md` & `docs/ARCHITECTURE.md` | Decomposed & Bridged | Monolithic 1,128-line file split into 10 modular docs; top-level kept as navigation hub. |
-| `docs/NORTH-STAR.md` | `docs/product/north-star.md` | Promoted & Pointers Added | Canonical vision promoted to `product/`; top-level kept as pointer. |
-| `docs/PLAN.md` | `docs/archive/legacy-plan.md` & `docs/roadmap/milestones.md` | Archived & Superseded | Legacy M0–M6 plan archived; modern M0–M9 roadmap established. |
-| `docs/FORGE-MASTER-TODO.md` | `docs/archive/legacy-master-todo.md` & `docs/roadmap/` | Archived & Superseded | Monolithic TODO replaced by `roadmap/milestones.md` and `project/current-state.md`. |
-| `docs/CLI-FIELD-GUIDE.md` | `docs/research/cli-field-guide.md` | Re-indexed | High-value empirical research housed under `docs/research/`. |
-| `docs/RELEASE.md` | `docs/operations/release.md` | Re-indexed | Operational runbook housed under `docs/operations/`. |
-| `docs/MVP_ACCEPTANCE.md` | `docs/project/mvp-acceptance.md` | Re-indexed | Historical acceptance evidence cataloged under `docs/project/`. |
+| `docs/NORTH-STAR.md` | `docs/product/north-star.md` | Promoted; original reduced to a pointer | Canonical vision promoted to `product/`. The top-level file is now a 16-line pointer, not a second copy (see C-05). |
+| `docs/PLAN.md` | `docs/archive/legacy-plan.md` & `docs/roadmap/` | Archived; original reduced to a pointer | Legacy M0–M6 plan archived. Top-level kept as a pointer because `src/main/db/connection.ts` cites the path in a comment. |
+| `docs/FORGE-MASTER-TODO.md` | `docs/archive/legacy-master-todo.md` & `docs/roadmap/` | Archived; original reduced to a pointer | Monolithic TODO replaced; duplicate task tables removed from the top-level file (C-05). |
+| `docs/CLI-FIELD-GUIDE.md` | `docs/research/cli-field-guide.md` | Moved; original reduced to a pointer | Empirical research housed under `docs/research/`; top-level duplicate body removed (C-05). |
+| `docs/RELEASE.md` | `docs/operations/release.md` | Moved; original reduced to a pointer | Runbook housed under `docs/operations/`; top-level duplicate body removed (C-05). |
+| `docs/MVP_ACCEPTANCE.md` | `docs/project/mvp-acceptance.md` | Moved; original reduced to a pointer | Acceptance evidence under `docs/project/`; top-level duplicate body removed (C-05). |
 | `docs/ANTIGRAVITY-PLAN-TASK-RECORD.md` | `docs/archive/antigravity-plan-task-record.md` | Archived | 1,663 lines (102 KB) of agent transcripts removed from normative docs. |
 | `docs/decisions/ADR-001-TASKS.md` | `docs/archive/ADR-001-TASKS.md` | Archived & Redirected | Task list removed from decision directory to preserve ADR integrity. |
 | `docs/DOMAIN.md` | `docs/DOMAIN.md` | Preserved In Place | Script and build invariant maintained. Linked to `architecture/domain-model.md`. |
@@ -187,3 +187,117 @@ Based on this forensic audit, the documentation architecture rework proceeds as 
 | **Roadmap & Milestones** | `docs/roadmap/roadmap.md` & `milestones.md` | Planning Truth (Non-normative) |
 | **Empirical Research** | `docs/research/` & `docs/spikes/` | Informative (Non-normative) |
 | **Historical Records** | `docs/archive/` | Historical (Non-normative) |
+
+
+---
+
+## 10. Second-pass verification (2026-09-22)
+
+The first pass produced the structure in section 6. A second pass re-derived every
+factual claim from the repository rather than from the preceding documents. It found
+that the new structure was sound but that **several of its contents were not supported
+by evidence**. Those are recorded below as contradictions C-05 through C-09, and all
+were corrected in the same branch.
+
+### Method
+
+| Check | Command / source |
+| :--- | :--- |
+| Test totals and per-file counts | `npx vitest run`, `vitest run --reporter=json` |
+| Gate results | `npm run format:check`, `npm run lint`, `npm run typecheck` |
+| File and symbol existence | direct reads of `src/`, `bin/`, `package.json` |
+| Schema, enums, interfaces | `src/main/db/schema.ts`, `src/shared/domain/` |
+| CI topology | `.github/workflows/ci.yml` |
+| PR and branch state | `gh pr list`, `gh pr view 204` |
+| Internal link integrity | link checker over all tracked markdown files |
+
+### Contradiction C-05: Duplicated authoritative content
+
+- **Statement A:** `docs/NORTH-STAR.md`, `docs/CLI-FIELD-GUIDE.md`, `docs/RELEASE.md`
+  and `docs/MVP_ACCEPTANCE.md` each declared a canonical copy elsewhere.
+- **Statement B:** each also still contained the **full body text**, differing from the
+  canonical copy by only a few lines.
+- **Why it matters:** this is precisely rule 12 of the documentation policy - *do not
+  duplicate normative statements across multiple documents*. Two near-identical copies
+  drift, and then neither can be trusted.
+- **Resolution:** all four reduced to genuine pointers. The same treatment was applied
+  to `docs/PLAN.md` and `docs/FORGE-MASTER-TODO.md`, which still carried full axiom
+  lists and task tables beneath a `SUPERSEDED` banner.
+
+### Contradiction C-06: Documented code paths that do not exist
+
+`docs/project/current-state.md` cited implementation and test paths absent from the
+repository:
+
+| Claimed | Actual |
+| :--- | :--- |
+| `src/main/processManager.ts` | `src/main/process/processManager.ts` |
+| `src/main/runtimes/claudeTrustStore.ts` | `src/main/runtimes/claudeTrust.ts` |
+| `src/main/runtimes/terminalSession.ts` | `src/main/runtimes/ptyProcessRunner.ts` + `src/main/terminal/` |
+| `src/shared/domain/criteria.ts` | `src/shared/domain/completion.ts` |
+| `src/main/tui/` | does not exist |
+
+**Resolution:** every row of the capability matrix re-derived from the source tree, with
+each correction annotated in place so the error stays traceable rather than erased.
+
+### Contradiction C-07: Unsupported implementation claims
+
+- A **React Ink terminal TUI** was described as PARTIAL and as delivered by PR #204.
+  The repository has no Ink dependency, and PR #204's 17-file diff contains no TUI.
+- **Windowed artifact reading** was attributed to unmerged PR #204. `readWindow()` is
+  on `main` and covered by `artifactService.test.ts`.
+- Several **per-file test counts** were overstated: `forgeCore.test.ts` claimed 10,
+  measured 4; `cli.test.ts` claimed 14, measured 5; `runStore.test.ts` claimed 12,
+  measured 3.
+
+**Resolution:** counts re-measured from the JSON reporter; the TUI reclassified as
+PLANNED; `ARTIFACT-001` moved to DONE against PR #203.
+
+### Contradiction C-08: Architecture documents contradicting the code
+
+| Document | Claim | Repository |
+| :--- | :--- | :--- |
+| `agent-runtime.md` | `IAgentRuntime` has `executeTask()` | `start` / `send` / `events` / `status` / `cancel` / `dispose`, plus five readonly fields |
+| `agent-runtime.md`, `security-and-trust.md` | Tools `readFile`, `writeFile`, `listFiles`, `bashRun` | `read_file`, `list_dir`, `search_files`, `write_file`, `edit_file`, `run_command` |
+| several | Role named `builder` | Role is `implementer` |
+| `state-and-storage.md`, contracts | ULID primary keys | UUID strings |
+| `state-and-storage.md` | Six-member run status enum | `running`, `completed`, `failed`, `halted` |
+| `state-and-storage.md` | `events` table with `actor` / `timestamp` | `run_events` with composite primary key `(run_id, seq)` |
+| `state-and-storage.md` | Replay-on-boot crash recovery | No such implementation found |
+| `security-and-trust.md` | Denylist of `mkfs`, `diskpart`, fork bombs | Seven patterns, none of those; includes git force-push, package publish, curl-pipe-shell |
+| `architecture-overview.md` | Artifacts at `.forge/artifacts/<runId>/` | `<dataDir>/artifacts/<run-id>/<artifact-id>-<safe-name>` |
+
+**Resolution:** each transcribed from source. Where a behaviour was asserted but no
+implementation exists (crash recovery), it is now marked `UNKNOWN` with an open question
+rather than silently removed.
+
+### Contradiction C-09: Verification baseline did not match CI
+
+- **Statement A:** `verification-baseline.md` described five mandatory status checks
+  across a five-job matrix, on Node v22.20.0.
+- **Statement B:** `.github/workflows/ci.yml` defines **three** jobs (`static`, `app`,
+  `windows`); `gh pr view 204` confirms three checks. The local measurement host runs
+  Node v24.20.0.
+- **Resolution:** the CI section was rewritten from the workflow file, the measurement
+  environment separated from the CI environment, and gates not actually executed in this
+  pass marked `NOT RUN` instead of reported green.
+
+### Contradictions recorded but deliberately NOT resolved
+
+- **Q-IL-01 - PR #204 title versus contents.** The branch is titled
+  `CLI-004 + ARTIFACT-001 + CRIT-001`, but its diff delivers the criterion evaluator
+  only: no TUI, and `ARTIFACT-001` already shipped in PR #203. Resolving this needs the
+  author's intent, not a documentation edit. Recorded in
+  [implementation-log.md](../project/implementation-log.md#3-open-questions).
+- **Q-CS-01 - issue numbers #178, #183 and #180** are inherited from planning documents
+  and were not re-checked against the tracker. They are labelled unverified pointers
+  rather than deleted or asserted.
+- **Q-ST-03 - the legacy `events` table and the newer `run_events` table coexist** in
+  the schema. Which is authoritative long-term is undetermined and needs an owner
+  decision.
+
+### Documents added in the second pass
+
+| Document | Reason |
+| :--- | :--- |
+| [`docs/research/agent-capability-benchmark.md`](../research/agent-capability-benchmark.md) | Preserves an external agent-capability benchmark session as research. Records that its scores were **predictions, not measurements**, and that stale README claims led an external reviewer to assess Forge as far less capable than `main` is - the same defect as C-01, observed from outside. Explicitly marked NOT A DECISION. |

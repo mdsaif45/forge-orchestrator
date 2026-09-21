@@ -188,13 +188,13 @@ npm run setup
 | **M0 Baseline** | Quality gates, CI matrix, process boundaries | **DONE** |
 | **M1 Headless Core** | `createForgeCore` decoupled from Electron, custom `--data-dir` | **DONE** |
 | **M2 Native Agent** | Native in-process tool loop (`taskRunner.ts`), LLM chat bindings | **DONE** |
-| **M3 Forge CLI** | Standalone `forge run` CLI, NDJSON streaming, exit codes | **DONE** |
+| **M3 Forge CLI** | Standalone CLI, NDJSON streaming, exit codes | **IN PROGRESS** — CLI-001..003 done; terminal TUI not started |
 | **M4 State & Storage** | SQLite `RunStore`/`EventStore`, filesystem `ArtifactService` | **DONE** |
-| **M5 Verification** | Physical diff reconciliation, 7-criteria evaluator engine | **IN PROGRESS** (PR #204) |
-| **M6 Workflow Graph** | Generic DAG execution engine, modular visual nodes | **READY** |
-| **M7 Human Control** | Live terminal PTY steering, interactive mid-flight interjection | **BLOCKED** |
-| **M8 Provider Ecosystem** | Extensible external CLI adapter catalog (Claude, Antigravity) | **READY** |
-| **M9 Polish & Scale** | Multi-repository orchestration, production distribution | **DEFERRED** |
+| **M5 Verification** | Physical diff reconciliation, independent build/test runner, completion criteria | **IN PROGRESS** — criterion evaluator open in PR #204 |
+| **M6 Workflow Graph** | Generic DAG execution engine, modular visual nodes | **NOT STARTED** — domain types only |
+| **M7 Human Control** | Live terminal PTY steering, interactive mid-flight interjection | **NOT STARTED** — PTY runner exists; UI attachment pending |
+| **M8 Provider Ecosystem** | Extensible external CLI adapter catalog (Claude, Antigravity) | **NOT STARTED** — adapters exist; data-driven config pending |
+| **M9 Polish & Scale** | Multi-repository orchestration, production distribution | **NOT STARTED** |
 
 Program roadmap and task breakdown are tracked in [`docs/roadmap/milestones.md`](docs/roadmap/milestones.md).
 
@@ -202,7 +202,11 @@ Program roadmap and task breakdown are tracked in [`docs/roadmap/milestones.md`]
 
 Forge has completed its headless core transition. Headless Core (`createForgeCore`), Native Agent execution (`taskRunner.ts`), standalone CLI (`forge run`), and dual-tier SQLite persistence (`RunStore`, `ArtifactStore`, `EventStore`, `ArtifactService`) are merged into `main` and verified across 1,125 tests.
 
-Active development is in Phase 2: Observability & Criteria Verification (PR #204).
+Active development is in Phase 2: observability and criteria verification (PR #204, open).
+
+Milestone statuses above summarise [`docs/project/current-state.md`](docs/project/current-state.md),
+which is the authoritative record of what is implemented and carries the test evidence for
+each capability. If this table and that document ever disagree, that document is correct.
 
 ## Documentation
 

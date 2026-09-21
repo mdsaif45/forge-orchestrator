@@ -40,7 +40,7 @@ A **Run** represents a single complete execution attempt of a Task or Workflow.
 ### Run Invariants
 1. **Terminal Immutability**: Once a Run reaches `completed`, `failed`, `halted`, or `cancelled`, its state cannot be updated. Any subsequent mutation throws `InvalidStateTransitionError`.
 2. **Write-Ahead Status**: Transitioning to `running` must be persisted in SQLite before child processes or worktrees are initialized.
-3. **Run ID Format**: All Run IDs must be valid ULIDs (26 uppercase alphanumeric characters).
+3. **Run ID Format**: Run IDs are UUID strings, branded via `runIdSchema` in `src/shared/domain/ids.ts` and used directly as the SQLite primary key.
 
 ---
 

@@ -5,7 +5,7 @@
 **Last Updated:** 2026-09-21  
 **Baseline:** `main` @ `1dfb444`  
 **Related Architecture:** [evidence-and-verification.md](../evidence-and-verification.md)  
-**Related Implementation:** `src/shared/domain/criteria.ts`, `src/main/evidence/verifier.ts`  
+**Related Implementation:** `src/shared/domain/completion.ts`, `src/main/evidence/verifier.ts`  
 
 ---
 
@@ -95,4 +95,7 @@ When aggregating criteria into an overall step verdict:
 ## 4. Verification Evidence
 
 - `src/main/evidence/verifier.test.ts`: Verifies build/test runner execution, exit code assertions, and output logging.
-- `src/shared/domain/criteria.test.ts`: Unit tests verifying the aggregation logic, ordering precedence, and optional criterion handling.
+- `src/shared/domain/completion.test.ts`: Unit tests verifying the aggregation logic, ordering precedence, and optional criterion handling (25 tests on `main`).
+
+> A dedicated `criterion.ts` evaluator is proposed in PR #204 and is **not on `main`**.
+> This contract describes only what the baseline commit implements.

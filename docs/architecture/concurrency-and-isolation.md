@@ -2,17 +2,17 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Normative Concurrency Architecture  
-**Last Updated:** 2026-09-21  
+**Last Updated:** 2026-09-22  
 **Baseline:** `main` @ `1dfb444`  
 **Related Architecture:** [agent-runtime.md](agent-runtime.md), [security-and-trust.md](security-and-trust.md)  
 **Related Research:** [cli-field-guide.md](../research/cli-field-guide.md)  
-**Related Implementation:** `src/main/processManager.ts`, `src/main/runtimes/terminalSession.ts`  
+**Related Implementation:** `src/main/process/processManager.ts`, `src/main/process/orphans.ts`, `src/main/terminal/sessionRegistry.ts`  
 
 ---
 
 ## 1. Process Management (`ProcessManager`)
 
-All external execution—whether interactive CLI agents, build commands, test runners, or git probes—is managed through a central `ProcessManager` (`src/main/processManager.ts`).
+All external execution—whether interactive CLI agents, build commands, test runners, or git probes—is managed through a central `ProcessManager` (`src/main/process/processManager.ts`).
 
 `ProcessManager` enforces:
 - **Concurrency Bounds**: Caps the maximum number of concurrent child processes to prevent host resource starvation.

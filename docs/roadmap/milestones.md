@@ -43,7 +43,7 @@
 | ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **AGENT-001** | #200 | P0 | **DONE** | CORE-001 | In-process native agent task loop and tool calling engine. | `executeDirectTask` in `src/main/core/taskRunner.ts`. | PR #198 (`26ac6e3`) |
-| **AGENT-002** | NEW | P1 | **READY** | AGENT-001 | Tool output disk spill (>50KB) to `.forge/cache` to protect context. | Large diff does not exceed token limit. | — |
+| **AGENT-002** | NEW | P1 | **READY** | AGENT-001 | Streaming artifact ingestion (`writeArtifactStream`) for large tool output; `writeArtifact` currently buffers in memory. | Large tool output stored without buffering the whole payload. | — |
 | **AGENT-003** | NEW | P1 | **READY** | AGENT-001 | Eager concurrent tool execution via `Promise.all`. | Benchmarked reduction in step wall-clock time. | — |
 | **AGENT-004** | NEW | P1 | **READY** | AGENT-001 | Local Ollama auto-discovery and capability probing. | Offline execution on Qwen 2.5 coder models. | — |
 
@@ -56,7 +56,7 @@
 | **CLI-001** | #201 | P0 | **DONE** | AGENT-001 | Build standalone `bin/forge.ts` and `bin/forge.js` CLI entrypoints. | CLI runs tasks with zero Electron dependency. | PR #198 (`26ac6e3`) |
 | **CLI-002** | #201 | P1 | **DONE** | CLI-001 | Headless NDJSON event streaming mode (`--json`). | Emits parseable line-delimited events to stdout. | PR #198 (`26ac6e3`) |
 | **CLI-003** | #201 | P1 | **DONE** | CLI-001 | Clean exit code contract (0=Success, 1=Fail, 2=Halt). | Verified in `cli.test.ts`. | PR #198 (`26ac6e3`) |
-| **CLI-004** | NEW | P1 | **IN-PROGRESS** | CLI-001 | Interactive React Ink terminal TUI for live CLI monitoring. | Multi-pane status and diff display. | PR #204 (Open) |
+| **CLI-004** | NEW | P1 | **NOT STARTED** | CLI-001 | Interactive terminal TUI for live CLI monitoring. | Multi-pane status and diff display. | — (see note below) |
 | **CLI-005** | #155 | P2 | **READY** | CLI-004 | Live tool-call timeline rendering in terminal. | Tool invocation visual timeline. | — |
 
 ---
@@ -65,8 +65,8 @@
 
 | ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **STATE-001** | NEW | P0 | **DONE** | CORE-002 | Dual-tier SQLite store (`RunStore`, `EventStore`, `ArtifactStore`) + disk. | `.forge/artifacts/<runId>` + SQLite tables. | PR #203 (`1dfb444`) |
-| **ARTIFACT-001** | NEW | P1 | **IN-PROGRESS** | STATE-001 | Windowed byte-offset artifact reader for large terminal logs. | Windowed reader tests passing without OOM. | PR #204 (Open) |
+| **STATE-001** | NEW | P0 | **DONE** | CORE-002 | Dual-tier SQLite store (`RunStore`, `EventStore`, `ArtifactStore`) + disk. | `<dataDir>/artifacts/<run-id>/` + SQLite tables. | PR #203 (`1dfb444`) |
+| **ARTIFACT-001** | NEW | P1 | **DONE** | STATE-001 | Windowed byte-offset artifact reader for large terminal logs. | `ArtifactService.readWindow()` covered by `artifactService.test.ts`. | PR #203 (`1dfb444`) |
 | **EVIDENCE-001** | #202 | P0 | **DONE** | CORE-001 | Authoritative evidence model & git diff reconciliation. | `ChangeSet` snapshotting in `taskRunner.ts`. | PR #198 (`26ac6e3`) |
 | **IPC-001** | #153 | P2 | **READY** | CORE-001 | Push runtime events over typed IPC channels to Renderer. | Real-time event streaming tests. | — |
 | **EVENT-001** | #149 | P1 | **READY** | CORE-001 | Live agent channel subscription and event log replay. | Deterministic replay from event log. | — |
@@ -77,9 +77,9 @@
 
 | ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **CRIT-001** | NEW | P0 | **IN-PROGRESS** | EVIDENCE-001 | Full 7-criteria evaluator engine (`src/shared/domain/criteria.ts`). | Evaluator passes/fails with precedence tests. | PR #204 (Open) |
+| **CRIT-001** | NEW | P0 | **IN-PROGRESS** | EVIDENCE-001 | Criterion evaluator engine (`criterion.ts` on the PR branch), extending `completion.ts`. | Evaluator passes/fails with precedence tests. | PR #204 (open, CI green) |
 | **VERIFY-001** | NEW | P0 | **READY** | EVIDENCE-001 | Physical diff reconciliation enhancements (untracked & binary). | Catches untracked files outside scope. | — |
-| **VERIFY-002** | NEW | P1 | **BLOCKED** | VERIFY-001 | Independent test & build child process execution runner. | Clean exit code verification against agent claims. | — |
+| **VERIFY-002** | NEW | P1 | **DONE** | EVIDENCE-001 | Independent test & build child process execution runner. | `src/main/evidence/verifier.ts`, 14 tests in `verifier.test.ts`. | merged before this baseline |
 | **VERIFY-003** | NEW | P2 | **BLOCKED** | VERIFY-001 | Adversarial edge-case verifier agent for boundary regressions. | Fails on intentional edge-case corruptions. | — |
 
 ---
@@ -122,3 +122,20 @@
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **POLISH-001** | — | P2 | **DEFERRED** | M7 | Multi-repository workspace management. | Multiple git checkouts in one workspace. | See `deferred.md` |
 | **POLISH-002** | — | P2 | **DEFERRED** | M6 | Cloud synchronization and team backplanes. | Remote state replication. | See `deferred.md` |
+
+
+---
+
+## Notes on status corrections
+
+Statuses here are set from repository evidence, not from branch titles or issue
+existence. Three were corrected during the 2026-09-22 documentation audit:
+
+- **`ARTIFACT-001` was marked IN-PROGRESS against PR #204.** `ArtifactService.readWindow()`
+  is present on `main` and covered by `artifactService.test.ts`. It shipped with PR #203.
+- **`VERIFY-002` was marked BLOCKED.** `src/main/evidence/verifier.ts` exists on `main`
+  with 14 passing tests. It is done, and it was never blocked by `VERIFY-001`.
+- **`CLI-004` was marked IN-PROGRESS against PR #204.** PR #204's diff contains no TUI
+  and the repository has no Ink dependency. The branch title names `CLI-004` but does not
+  deliver it. The contradiction is recorded, not silently resolved — see
+  [Q-IL-01](../project/implementation-log.md#3-open-questions).

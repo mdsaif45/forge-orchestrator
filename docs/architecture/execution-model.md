@@ -45,7 +45,7 @@ A **Task** is the declaration of *what* needs to be accomplished.
 
 ### 2. Run
 A **Run** is a single, concrete execution instance of a Task.
-- Identified by a globally unique ULID (`runId`).
+- Identified by a UUID (`runId`), branded by `runIdSchema` in `src/shared/domain/ids.ts`.
 - Possesses lifecycle states: `pending` → `running` → `completed` | `failed` | `halted` | `cancelled`.
 - Bounded by maximum duration (wall-clock timeout) and iteration limits.
 - Associated with dedicated workspace storage (`.forge/artifacts/<runId>/`).

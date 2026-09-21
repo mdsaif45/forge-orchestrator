@@ -65,7 +65,7 @@ Forge executes user-configured build and test commands via dedicated evidence ru
 
 ---
 
-## 4. Completion Criteria (`src/shared/domain/criteria.ts`)
+## 4. Completion Criteria (`src/shared/domain/completion.ts`)
 
 A step or task defines explicit criteria that must be satisfied. Forge evaluates seven distinct criteria kinds:
 

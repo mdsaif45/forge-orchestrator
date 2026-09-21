@@ -16,7 +16,11 @@ Intermittent `EBUSY: resource busy or locked` errors when deleting temporary tes
 On Windows, file handles held briefly by search indexers (Windows Search), anti-virus scanners, or background git processes prevent immediate directory deletion via `fs.rmSync`.
 
 ### Solution
-- Test helpers in `src/test/gitHelpers.ts` include retry loops with exponential backoff (`rimraf` with retry).
+- `removeTempDir()` in `src/test/tempDir.ts` polls `rmSync` up to 50 times at 40 ms
+  intervals. It polls rather than sleeping a fixed duration, so a normal run clears on
+  the first attempt while a directory that genuinely cannot be removed still fails the
+  test. The final attempt is deliberately unguarded so a real lock surfaces as an error
+  instead of being swallowed.
 - If manual cleanup fails in developer workspaces:
   ```powershell
   # Kill lingering git child processes

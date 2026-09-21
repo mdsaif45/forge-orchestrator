@@ -2,7 +2,7 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Normative Execution Architecture  
-**Last Updated:** 2026-09-21  
+**Last Updated:** 2026-09-22  
 **Baseline:** `main` @ `1dfb444`  
 **Related Architecture:** [architecture-overview.md](architecture-overview.md), [state-and-storage.md](state-and-storage.md), [evidence-and-verification.md](evidence-and-verification.md)  
 **Related Contracts:** [execution-protocol.md](contracts/execution-protocol.md), [run-and-step-lifecycle.md](contracts/run-and-step-lifecycle.md)  
@@ -53,7 +53,7 @@ A **Run** is a single, concrete execution instance of a Task.
 ### 3. Step
 A **Step** is a discrete, atomic phase of work within a Run.
 - Identified by `stepId` (`<runId>-<index>`).
-- Bound to a specific **Role** (e.g., `planner`, `builder`, `reviewer`, `verifier`).
+- Bound to a specific **Role** from `roleSchema`: `planner`, `implementer`, `reviewer`, `tester` or `security-reviewer`.
 - Bound to an **Agent Runtime** (`IAgentRuntime`).
 - Receives a compiled, content-addressed **Context Packet**.
 - Emits a structured step result, an optional physical changeset, and a verification verdict.

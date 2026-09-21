@@ -2,7 +2,7 @@
 
 **Status:** IMPLEMENTED (Linear Pipeline) / PROPOSED (Generic Graph Engine)  
 **Authority:** Normative Workflow Architecture  
-**Last Updated:** 2026-09-21  
+**Last Updated:** 2026-09-22  
 **Baseline:** `main` @ `1dfb444`  
 **Related Architecture:** [execution-model.md](execution-model.md), [evidence-and-verification.md](evidence-and-verification.md)  
 **Related Specifications:** `docs/DOMAIN.md`  
@@ -14,7 +14,7 @@
 
 Forge's workflow engine manages how multi-agent engineering workflows progress from an initial goal to completed code. The architecture is split across two evolutionary phases:
 
-1. **Current Implementation (Linear Multi-Stage Loop)**: A battle-tested, state-machine-driven pipeline enforcing strict sequential roles (Planner → Gate → Builder → Verifier → Reviewer).
+1. **Current Implementation (Linear Multi-Stage Loop)**: A battle-tested, state-machine-driven pipeline enforcing strict sequential roles (planner → decision gate → implementer → verification → reviewer).
 2. **Target Roadmap (Generic DAG Graph Engine)**: A visual, modular graph platform allowing arbitrary execution nodes, parallel branches, and dynamic conditional edges.
 
 ---

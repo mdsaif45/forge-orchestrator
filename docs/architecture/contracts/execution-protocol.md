@@ -2,7 +2,7 @@
 
 **Status:** FROZEN  
 **Authority:** Canonical Protocol Specification  
-**Last Updated:** 2026-09-21  
+**Last Updated:** 2026-09-22  
 **Baseline:** `main` @ `1dfb444`  
 **Related Architecture:** [agent-runtime.md](../agent-runtime.md), [execution-model.md](../execution-model.md)  
 **Related Specifications:** `docs/FORGE_RULES.md`  
@@ -33,7 +33,7 @@ export interface AgentTaskInput {
   readonly taskId: string;
   readonly runId: string;
   readonly stepId: string;
-  readonly role: 'planner' | 'builder' | 'reviewer' | 'verifier';
+  readonly role: 'planner' | 'implementer' | 'reviewer' | 'tester' | 'security-reviewer' | 'system' | 'user';
   readonly prompt: string;
   readonly allowedPaths: string[];
   readonly workspaceRoot: string;

@@ -2,7 +2,7 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Normative Evidence Architecture  
-**Last Updated:** 2026-09-21  
+**Last Updated:** 2026-09-22  
 **Baseline:** `main` @ `1dfb444`  
 **Related Architecture:** [execution-model.md](execution-model.md), [agent-runtime.md](agent-runtime.md)  
 **Related Implementation:** `src/main/evidence/verifier.ts`, `src/shared/domain/reconcile.ts`, `src/main/git/gitService.ts`  
@@ -90,4 +90,4 @@ After self-verification succeeds, Forge routes the changeset to an independent `
 - **Strict Read-Only Remit**: The reviewer cannot execute file-modifying tools.
 - **Evidence-Backed Prompt**: The reviewer receives the unified diff and the physical test runner logs.
 - **Structured Findings**: If the reviewer awards a `fail`, it must provide structured findings pointing to concrete `file:line` locations and explanation.
-- **Immutable Corrections**: A correction prompt generated for the builder cannot widen its scope; it must address only the findings identified by the reviewer.
+- **Immutable Corrections**: A correction prompt generated for the implementer cannot widen its scope; it must address only the findings identified by the reviewer.

@@ -2,7 +2,7 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Normative Domain Architecture  
-**Last Updated:** 2026-09-21  
+**Last Updated:** 2026-09-22  
 **Baseline:** `main` @ `1dfb444`  
 **Related Specifications:** `docs/DOMAIN.md`, `docs/FORGE_RULES.md`  
 **Related Contracts:** [run-and-step-lifecycle.md](contracts/run-and-step-lifecycle.md), [execution-protocol.md](contracts/execution-protocol.md)  
@@ -53,7 +53,7 @@ Forge reconciles these two entities; it never assumes they are identical (Axiom 
 
 ### 4. Account vs. Agent vs. Session
 - **Account**: An authentication credential or API key for an LLM provider.
-- **Agent**: A logical worker bound to a specific functional role (`planner`, `builder`, `reviewer`).
+- **Agent**: A logical worker bound to a role from `roleSchema` in `src/shared/domain/enums.ts`: `planner`, `implementer`, `reviewer`, `tester`, `security-reviewer`, plus `system` and `user`, which Forge performs itself with no runtime involved.
 - **Session**: One active, ephemeral PTY process or conversation instance.
 Switching accounts changes only credentials—it never alters project state, locked decisions, or workflow progress.
 

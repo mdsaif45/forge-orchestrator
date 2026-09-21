@@ -1,10 +1,7 @@
 # Forge — Build Plan
 
-> **Status:** SUPERSEDED & ARCHIVED  
-> **Notice:** This document represents the legacy M0–M6 milestone build plan from August 2026.  
-> - For the current active roadmap and tasks, see [`docs/roadmap/milestones.md`](roadmap/milestones.md).  
-> - For the archived original document, see [`docs/archive/legacy-plan.md`](archive/legacy-plan.md).  
-> - For core axioms, see [`docs/product/principles.md`](product/principles.md).  
+> **AI Engineering Control Plane.** Multiple coding agents collaborate on one repo
+> under a shared execution protocol. Forge owns state; agents are replaceable workers.
 
 ## Axioms (never violate)
 

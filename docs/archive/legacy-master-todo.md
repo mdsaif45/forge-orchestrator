@@ -1,10 +1,6 @@
 # FORGE — MASTER PROJECT TRACKER (TODO)
 
-> **Status:** SUPERSEDED  
-> **Notice:** The monolithic TODO tracker has been replaced by the structured roadmap and project truth architecture:  
-> - For current implementation state and test evidence, see [`docs/project/current-state.md`](project/current-state.md).  
-> - For active milestone tasks and dependency ordering, see [`docs/roadmap/milestones.md`](roadmap/milestones.md).  
-> - For the archived original checklist, see [`docs/archive/legacy-master-todo.md`](archive/legacy-master-todo.md).  
+This document is the single canonical cross-phase project tracking map for Forge. Every implementation task maps to a Milestone and a GitHub Issue.
 
 Status Legend:
 - `DONE` : Completed, verified with tests and physical evidence

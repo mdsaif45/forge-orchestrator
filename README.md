@@ -3,8 +3,8 @@
 **An AI engineering control plane.**
 
 Multiple coding agents collaborate on the same software project under a shared
-execution protocol — planning, implementing, verifying, and reviewing — while you
-stay out of the message bus.
+execution protocol — planning, implementing, verifying, and reviewing.
+The user stays in the loop as the decision maker; they just stop being the transport.
 
 ---
 
@@ -182,39 +182,43 @@ npm run setup
 `npm rebuild electron` does **not** fetch it.
 
 ## Roadmap
+ 
+| Milestone | Focus & Capabilities | Status |
+|-----------|----------------------|--------|
+| **M0 Baseline** | Quality gates, CI matrix, process boundaries | **DONE** |
+| **M1 Headless Core** | `createForgeCore` decoupled from Electron, custom `--data-dir` | **DONE** |
+| **M2 Native Agent** | Native in-process tool loop (`taskRunner.ts`), LLM chat bindings | **DONE** |
+| **M3 Forge CLI** | Standalone `forge run` CLI, NDJSON streaming, exit codes | **DONE** |
+| **M4 State & Storage** | SQLite `RunStore`/`EventStore`, filesystem `ArtifactService` | **DONE** |
+| **M5 Verification** | Physical diff reconciliation, 7-criteria evaluator engine | **IN PROGRESS** (PR #204) |
+| **M6 Workflow Graph** | Generic DAG execution engine, modular visual nodes | **READY** |
+| **M7 Human Control** | Live terminal PTY steering, interactive mid-flight interjection | **BLOCKED** |
+| **M8 Provider Ecosystem** | Extensible external CLI adapter catalog (Claude, Antigravity) | **READY** |
+| **M9 Polish & Scale** | Multi-repository orchestration, production distribution | **DEFERRED** |
 
-| Milestone | Proves |
-|-----------|--------|
-| **M0** Foundation | app boots, hardened IPC, CI green, design system seeded |
-| **M1** State Core | project + repo + SQLite + event log + git service |
-| **M2** Runtime Adapters | `IAgentRuntime`, mock runtime, real CLI adapters |
-| **M3** Workflow Engine | state machine, checkpoints, resume, loop guards, context engine |
-| **M4** Evidence & Review | build/test runners, diff scope, computed verdicts |
-| **M5** Human Control Plane | question queue, decision lock, changes UI — **MVP** |
-| **M6** Polish & Scale | multi-account, templates, settings UI, packaging |
-
-MVP = M0 → M5. Progress is tracked in
-[issues](https://github.com/mdsaif45/forge-orchestrator/issues) and
-[milestones](https://github.com/mdsaif45/forge-orchestrator/milestones).
+Program roadmap and task breakdown are tracked in [`docs/roadmap/milestones.md`](docs/roadmap/milestones.md).
 
 ## Status
 
-Pre-alpha, in **M0**. The app boots with a hardened process boundary, a reusable
-design system, a routed shell, and a verification gate wired into CI on Linux and
-Windows. No agent orchestration exists yet — that begins at M2.
+Forge has completed its headless core transition. Headless Core (`createForgeCore`), Native Agent execution (`taskRunner.ts`), standalone CLI (`forge run`), and dual-tier SQLite persistence (`RunStore`, `ArtifactStore`, `EventStore`, `ArtifactService`) are merged into `main` and verified across 1,125 tests.
+
+Active development is in Phase 2: Observability & Criteria Verification (PR #204).
 
 ## Documentation
 
-| Document | Contents |
-|----------|----------|
-| [`docs/NORTH-STAR.md`](docs/NORTH-STAR.md) | what Forge is aiming at, the workflow it serves, and the measured gap |
-| [`docs/CLI-FIELD-GUIDE.md`](docs/CLI-FIELD-GUIDE.md) | every measured fact about the agent CLIs — flags, payloads, traps |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | processes, IPC contract, security posture, verification layers |
-| [`docs/DOMAIN.md`](docs/DOMAIN.md) | entities and the workflow state machine (specification) |
-| [`docs/PLAN.md`](docs/PLAN.md) | milestones, and the toolchain traps found along the way |
-| [`docs/FORGE_RULES.md`](docs/FORGE_RULES.md) | the policy set Forge enforces on its agents |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | branch flow and the lint-enforced boundaries |
-| [`CLAUDE.md`](CLAUDE.md) | conventions for coding agents working on Forge |
+The canonical documentation architecture is indexed in [**`docs/README.md`**](docs/README.md):
+
+| Domain | Canonical Documents |
+|--------|---------------------|
+| **Master Index** | [`docs/README.md`](docs/README.md) — central documentation catalog |
+| **Product Intent** | [`docs/product/vision.md`](docs/product/vision.md) · [`docs/product/north-star.md`](docs/product/north-star.md) · [`docs/product/principles.md`](docs/product/principles.md) |
+| **Architecture** | [`docs/architecture/architecture-overview.md`](docs/architecture/architecture-overview.md) · [`execution-model.md`](docs/architecture/execution-model.md) · [`evidence-and-verification.md`](docs/architecture/evidence-and-verification.md) |
+| **Contracts** | [`docs/architecture/contracts/execution-protocol.md`](docs/architecture/contracts/execution-protocol.md) · [`run-and-step-lifecycle.md`](docs/architecture/contracts/run-and-step-lifecycle.md) |
+| **Decisions** | [`docs/decisions/README.md`](docs/decisions/README.md) (ADRs 001–003) |
+| **Project Truth** | [`docs/project/current-state.md`](docs/project/current-state.md) · [`docs/project/progress.md`](docs/project/progress.md) · [`verification-baseline.md`](docs/project/verification-baseline.md) |
+| **Specifications** | [`docs/DOMAIN.md`](docs/DOMAIN.md) (state machine) · [`docs/FORGE_RULES.md`](docs/FORGE_RULES.md) (agent rules R1–R8) |
+| **Operations** | [`docs/operations/development.md`](docs/operations/development.md) · [`docs/operations/testing.md`](docs/operations/testing.md) · [`docs/operations/release.md`](docs/operations/release.md) |
+| **Contributing** | [`CONTRIBUTING.md`](CONTRIBUTING.md) · [`CLAUDE.md`](CLAUDE.md) |
 
 ## Non-goals (for the MVP)
 

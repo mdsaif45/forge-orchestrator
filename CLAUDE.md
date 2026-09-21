@@ -7,12 +7,12 @@ building it.
 ## Read first
 
 ```
-README.md              what Forge is · the seven axioms
+docs/README.md         master documentation catalog
+docs/meta/documentation-policy.md  documentation governance & 12 canonical rules
 docs/NORTH-STAR.md     what Forge is aiming at, and the measured gap  ** READ FIRST **
 docs/CLI-FIELD-GUIDE.md  every measured fact about the CLIs  ** BEFORE TOUCHING AN ADAPTER **
 docs/ARCHITECTURE.md   processes · IPC contract · verification layers
-docs/DOMAIN.md         entities · state machine  (specification, not yet code)
-docs/PLAN.md           milestones · known toolchain traps
+docs/DOMAIN.md         entities · state machine  (specification)
 docs/FORGE_RULES.md    the agent policy set Forge itself enforces
 CONTRIBUTING.md        branch flow · commands · lint-enforced boundaries
 ```

@@ -1,6 +1,14 @@
-# North star — what Forge is aiming at
+# North Star — What Forge Is Aiming At
 
-> **Canonical Location:** This document is maintained as part of the product architecture suite at [`docs/product/north-star.md`](product/north-star.md).
+**Status:** ACCEPTED  
+**Authority:** Canonical North Star Vision  
+**Last Updated:** 2026-09-21  
+**Baseline:** `main` @ `1dfb444`  
+**Related Decisions:** [ADR-002](../decisions/ADR-002-interactive-orchestration.md), [ADR-003](../decisions/ADR-003-host-the-real-cli.md)  
+**Related Architecture:** [architecture-overview.md](../architecture/architecture-overview.md), [evidence-and-verification.md](../architecture/evidence-and-verification.md)  
+**Supersedes:** `docs/NORTH-STAR.md` (legacy location)  
+
+---
 
 Why this exists: the target below was learned by studying a mature, working
 orchestrator alongside the owner's own manual workflow, and by measuring Forge
@@ -8,23 +16,23 @@ against both. Without it written down, the same wrong turns get taken again —
 this project already took one, and rebuilt a worse copy of something that already
 existed.
 
-Read this before planning a milestone. It is the destination; `docs/PLAN.md` and
-the milestones are the route.
+Read this before planning a milestone. It is the destination; roadmap documents
+and the milestones are the route.
 
 ---
 
-## The one sentence
+## The One Sentence
 
 > **The user stays in the loop. They just stop being the transport.**
 
-Forge's README originally said the opposite — "you stay out of the message bus" —
+Forge's original README said the opposite — "you stay out of the message bus" —
 and that framing produced a product that was slower and less capable than doing
 the work by hand. Automating the *judgement* was never the win. Automating the
 copy-paste, the context loss, and the window-switching is.
 
 ---
 
-## The workflow being served
+## The Workflow Being Served
 
 The owner's actual loop, in their own words, is the specification:
 
@@ -43,7 +51,7 @@ The owner's actual loop, in their own words, is the specification:
 Every step involves **watching and steering**. Any design that removes the human
 from steps 3 and 7 is solving a different problem than the one that exists.
 
-### The measured gap
+### The Measured Gap
 
 ```
                     manual        Forge (measured)
@@ -58,7 +66,7 @@ replace. That is the number to beat, and it is the honest baseline.
 
 ---
 
-## The architecture that works
+## The Architecture That Works
 
 Learned from a mature orchestrator handling the same problem. The single
 inversion that matters:
@@ -88,7 +96,7 @@ extensibility  a provider is a launch command plus a hook map. A mature
                implementation of this carries 20+ agent adapters
 ```
 
-### What such a system has that Forge does not, yet
+### What Such a System Has That Forge Does Not, Yet
 
 ```
 20+ agent adapters       claude · agy · codex · cursor · aider · cline ·
@@ -99,7 +107,7 @@ hook-driven state        activity / blocked-on-permission / idle, REPORTED by
                          the CLI rather than inferred from its output
 pre-launch trust         records folder trust so a fresh worktree cannot hang
                          on the dialog (Forge now does this — 5f5396b)
-worktree per session      Forge has this and got it right
+worktree per session     Forge has this and got it right
 board view               Idle · Working · Needs You · In Review · Ready to merge
 ```
 
@@ -111,7 +119,7 @@ difference between a pane that feels like a terminal and one that does not.
 
 ---
 
-## Where Forge stands
+## Where Forge Stands
 
 ```
 done and verified
@@ -121,6 +129,8 @@ done and verified
   session identity             derived, stable across restarts, resumable
   process exposure             a step's process is reachable for attaching
   evidence layer               Forge runs the commands itself (A3 intact)
+  headless core                createForgeCore decoupled from UI (PR #198)
+  durable state                SQLite RunStore, EventStore, ArtifactStore (PR #203)
 
 built then superseded
   NDJSON stdout parsers        two of them; to be deleted once hooks and the
@@ -131,17 +141,18 @@ not built yet
   hosted pane                  attach to the real process, not a re-render
   hooks for state              the reporting channel --safe-mode disabled
   interjection                 typing into a live session
-  warm sessions across steps    the identity exists; reuse does not
+  warm sessions across steps   the identity exists; reuse does not
 ```
 
 ---
 
-## Principles that survived contact
+## Principles That Survived Contact
 
 These held up under measurement and should not be traded away for speed:
 
 ```
 A1  Forge owns truth        the event log is the record, not chat history
+A2  Unknown != Assume       never guess; verify or raise an open question
 A3  evidence over claims    a rendered screen is not evidence; run the commands
 A4  decisions lock          a locked decision changes only by approved request
 A5  bounded loops           caps and terminal states, always
@@ -157,7 +168,7 @@ never collapse into one.
 
 ---
 
-## How to tell if we are winning
+## How to Tell If We Are Winning
 
 Not "does it work" — it worked before and was still unusable. The tests are:
 
@@ -174,7 +185,7 @@ log is not a terminal and no amount of styling will make it one.
 
 ---
 
-## The mistake worth remembering
+## The Mistake Worth Remembering
 
 Forge passed `--safe-mode` to the CLI. That flag strips the CLI's own
 customisations — **including its hooks**, which are the mechanism by which a CLI

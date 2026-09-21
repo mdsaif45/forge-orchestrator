@@ -1,7 +1,5 @@
 # Release & Distribution Runbook
 
-> **Canonical Location:** This document is maintained as part of the operations suite at [`docs/operations/release.md`](operations/release.md).
-
 This document describes the packaging, release pipeline, code signing, and auto-update processes for **Forge**.
 
 ---

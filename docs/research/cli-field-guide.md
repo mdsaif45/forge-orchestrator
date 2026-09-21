@@ -1,7 +1,5 @@
 # CLI field guide
 
-> **Canonical Location:** This document is maintained as part of the research suite at [`docs/research/cli-field-guide.md`](research/cli-field-guide.md).
-
 Everything Forge knows about the agent CLIs it drives, **measured on a real
 machine** rather than read from documentation. Every line here cost a failing
 run to learn.

@@ -1,7 +1,5 @@
 # MVP Acceptance Report: Multi-Agent Closed Loop (#43)
 
-> **Canonical Location:** This document is maintained as part of the project acceptance history at [`docs/project/mvp-acceptance.md`](project/mvp-acceptance.md).
-
 > **Hypothesis Proven**: A multi-agent software engineering workflow can plan, implement, self-verify, and review changes on a real git repository with **zero manual copy-paste** from the user.
 
 ---

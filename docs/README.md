@@ -74,6 +74,7 @@ Managed in [**`docs/decisions/`**](decisions/README.md):
 
 - [**`research/README.md`**](research/README.md): Empirical research standards.
   - [**CLI Field Guide**](research/cli-field-guide.md): Empirical facts regarding Claude Code, Antigravity, ConPTY, and Windows terminal shims.
+  - [**Agent Capability Benchmark**](research/agent-capability-benchmark.md): Comparative agent-architecture review and documentation-architecture comparison. Informative only — explicitly NOT A DECISION.
 - [**`spikes/README.md`**](spikes/README.md): Timeboxed exploratory spikes.
   - [**Agent CLI Capability**](spikes/agent-cli-capability.md): Headless CLI driving feasibility.
   - [**Interactive CLI PTY**](spikes/interactive-cli-pty.md): ConPTY terminal hosting feasibility.
@@ -93,7 +94,7 @@ Managed in [**`docs/decisions/`**](decisions/README.md):
 
 - [**`project/current-state.md`**](project/current-state.md): Authoritative capability matrix backed by physical test evidence.
 - [**`project/progress.md`**](project/progress.md): Milestone progress line and merged PR history.
-- [**`project/verification-baseline.md`**](project/verification-baseline.md): Test metrics (1,125 passing tests), toolchain gates, and CI status.
+- [**`project/verification-baseline.md`**](project/verification-baseline.md): Measured test metrics (1,125 passing across 96 files), gate results, and the three-job CI topology.
 - [**`project/implementation-log.md`**](project/implementation-log.md): Reverse chronological engineering ledger.
 
 ---
@@ -119,5 +120,5 @@ Managed in [**`docs/decisions/`**](decisions/README.md):
 ## 9. Archive & Governance
 
 - [**`meta/documentation-policy.md`**](meta/documentation-policy.md): The Twelve Canonical Rules of documentation governance.
-- [**`meta/forensic-audit-report.md`**](meta/forensic-audit-report.md): Phase 0 audit report and contradiction analysis.
+- [**`meta/forensic-audit-report.md`**](meta/forensic-audit-report.md): Document inventory, contradiction ledger (C-01…C-09), consistency matrix, migration map and authority map.
 - [**`archive/`**](archive/README.md): Preserved historical records, legacy plans, and past agent task records.

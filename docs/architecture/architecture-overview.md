@@ -62,7 +62,7 @@ A critical design error in early agent orchestrators is delegating state trackin
 | **Truth & State** | Authoritative. Owns git commit history, SQLite event logs, artifact hashes, and step runs. | Ephemeral. Maintains internal reasoning context only during its active turn. |
 | **Verification** | Authoritative. Spawns compilers and test suites, computes exit codes, and reconciles physical git diffs. | Claims only. May report what it attempted, but its statements have zero normative weight (A3). |
 | **Permissions** | Enforces least-privilege role boundaries (e.g. a `planner` lacks `file-write`; an `implementer` may not touch out-of-scope paths). | Complies with boundaries or faces immediate termination (`HALTED_POLICY`). |
-| **Execution** | Manages child process trees, timeouts, crash recovery, and terminal PTY multiplexing. | Executes assigned instructions within assigned constraints. |
+| **Execution** | Manages child process trees, timeouts, orphaned process reaping after crash, and terminal PTY multiplexing. | Executes assigned instructions within assigned constraints. |
 
 ---
 

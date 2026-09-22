@@ -17,85 +17,75 @@ This contract defines the schemas, evaluator precedence, and verdict calculation
 
 ## 2. The Seven Criteria Kinds
 
-Forge recognizes seven formal criteria kinds:
+Forge recognizes seven formal criteria kinds defined in `src/shared/domain/enums.ts` (`criterionKindSchema`):
 
 ```typescript
-export type CriterionKind =
-  | 'build'
-  | 'test'
-  | 'diffScope'
-  | 'noUntracked'
-  | 'filePresence'
-  | 'branchCheck'
-  | 'custom';
+export const criterionKindSchema = z.enum([
+  'build',
+  'tests',
+  'diff-scope',
+  'no-assumptions',
+  'reviewer-verdict',
+  'file-exists',
+  'custom-command',
+]);
+export type CriterionKind = z.infer<typeof criterionKindSchema>;
 ```
 
-### Schema Definitions
+### Baseline Schema (`src/shared/domain/task.ts`)
+In the baseline implementation (`main` @ `1dfb444`), completion criteria are defined as:
+
 ```typescript
-export interface CriterionBase {
-  readonly id: string;
-  readonly description?: string;
-  readonly optional?: boolean;
-}
+export const completionCriterionSchema = z.strictObject({
+  kind: criterionKindSchema,
+  description: z.string().min(1),
+  params: z.record(z.string(), z.unknown()).readonly(),
+});
+export type CompletionCriterion = z.infer<typeof completionCriterionSchema>;
+```
 
-export interface BuildCriterion extends CriterionBase {
-  readonly kind: 'build';
-  readonly command?: string; // Overrides project default buildCmd
-}
+Each criterion is evaluated by `evaluate(criterion, input)` in `src/shared/domain/completion.ts`, producing an authoritative `CriterionResult`:
 
-export interface TestCriterion extends CriterionBase {
-  readonly kind: 'test';
-  readonly command?: string; // Overrides project default testCmd
-}
-
-export interface DiffScopeCriterion extends CriterionBase {
-  readonly kind: 'diffScope';
-  readonly allowedPaths: string[];
-}
-
-export interface NoUntrackedCriterion extends CriterionBase {
-  readonly kind: 'noUntracked';
-}
-
-export interface FilePresenceCriterion extends CriterionBase {
-  readonly kind: 'filePresence';
-  readonly path: string;
-  readonly minBytes?: number;
-}
-
-export interface BranchCheckCriterion extends CriterionBase {
-  readonly kind: 'branchCheck';
-  readonly expectedBranch: string;
-}
-
-export interface CustomCriterion extends CriterionBase {
-  readonly kind: 'custom';
-  readonly script: string;
-  readonly expectedExitCode?: number;
+```typescript
+export interface CriterionResult {
+  readonly kind: CriterionKind;
+  readonly description: string;
+  readonly verdict: 'pass' | 'fail' | 'unknown';
+  readonly reason: string;
+  readonly evidenceId: string | null;
 }
 ```
+
+### Proposed Typed Interfaces (PR #204 — NOT on `main`)
+A typed interface hierarchy (`BuildCriterion`, `DiffScopeCriterion`, etc.) is proposed in branch `feat/slice-2-observability-criteria` (PR #204). On `main`, criteria use the flexible `params: Record<string, unknown>` model above.
 
 ---
 
 ## 3. Evaluation Rules & Precedence
 
-Each criterion produces a `CriterionVerdict`:
+Each criterion produces a verdict:
 - `pass`: Criterion satisfied with physical evidence.
 - `fail`: Criterion breached (exit code != 0, scope violation, missing file).
-- `unknown`: Evaluation could not be performed (e.g. missing test command).
+- `unknown`: Evaluation could not be performed (e.g. missing test command or evidence).
 
 ### Precedence Rule: Fail Outranks Unknown
-When aggregating criteria into an overall step verdict:
-1. If **any** non-optional criterion has `verdict === 'fail'`, the overall verdict is `fail`.
-2. If any non-optional criterion has `verdict === 'unknown'` and none failed, the overall verdict is `unknown`.
-3. The overall verdict is `pass` **if and only if** every non-optional criterion has `verdict === 'pass'`.
+When aggregating criteria into an overall step verdict in `assessCompletion`:
+1. If **any** criterion has `verdict === 'fail'`, the overall verdict is `fail`.
+2. If any criterion has `verdict === 'unknown'` and none failed, the overall verdict is `unknown`.
+3. The overall verdict is `pass` **if and only if** every criterion has `verdict === 'pass'`.
 
 ---
 
 ## 4. Verification Evidence
 
 - `src/main/evidence/verifier.test.ts`: Verifies build/test runner execution, exit code assertions, and output logging.
-- `src/shared/domain/completion.test.ts`: Unit tests verifying the aggregation logic, ordering precedence, and optional criterion handling (25 tests on `main`).
+- `src/shared/domain/completion.test.ts`: Unit tests verifying the aggregation logic, ordering precedence, and evaluation rules (25 tests on `main`).
 
-> A dedicated `criterion.ts` evaluator is proposed in PR #204 and is **not on `main`**.
-> This contract describes only what the baseline commit implements.
+---
+
+## 5. Amendment History
+
+| Amendment | Type | Date | Reason & Evidence |
+| :--- | :--- | :--- | :--- |
+| **AMD-CRIT-001** | CORRECTION | 2026-09-22 | Corrected `CriterionKind` values from camelCase speculative names (`diffScope`, `noUntracked`, etc.) to canonical `criterionKindSchema` enum (`'build'`, `'tests'`, `'diff-scope'`, `'no-assumptions'`, `'reviewer-verdict'`, `'file-exists'`, `'custom-command'`) in `src/shared/domain/enums.ts`. |
+| **AMD-CRIT-002** | CLARIFICATION | 2026-09-22 | Clarified that baseline `1dfb444` implements `completionCriterionSchema` with `{ kind, description, params }` in `src/shared/domain/task.ts` and `assessCompletion` in `src/shared/domain/completion.ts`. The discriminated interface hierarchy is part of the PR #204 proposal and not in `main`. |

@@ -39,41 +39,41 @@ All test counts are per-file assertion counts measured with
 
 ### 2.1 Headless core & CLI
 
-| Capability | Status | Evidence (test file · count) | Implementation |
-| :--- | :--- | :--- | :--- |
-| Engine boots without Electron | VERIFIED | `src/main/core/forgeCore.test.ts` (4) | `src/main/core/forgeCore.ts` |
-| Custom data directory (`--data-dir`) | VERIFIED | `src/main/core/forgeCore.test.ts` (4) | `src/main/core/forgeCore.ts` |
-| Native in-process agent task loop | VERIFIED | `src/main/core/taskRunner.test.ts` (3) | `src/main/core/taskRunner.ts` |
-| Standalone CLI entrypoint | VERIFIED | `src/main/cli.test.ts` (5) | `bin/forge.ts`, `src/main/cli.ts` |
-| NDJSON event stream (`--json`) | VERIFIED | `src/main/cli.test.ts` (5) | `src/main/cli.ts` |
-| Process-tree termination & orphan tracking | VERIFIED | `src/main/process/process.test.ts` (40) | `src/main/process/processManager.ts`, `orphans.ts` |
-| Secret redaction in captured output | VERIFIED | `src/main/process/process.test.ts` (40) | `src/main/process/redact.ts` |
+| Capability | Desired State | Implementation State | Verification State | Evidence | Source | Tests | Related Roadmap Item |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Engine boots without Electron | Headless daemon capability | IMPLEMENTED | VERIFIED | Core kernel boots and creates services without GUI | `src/main/core/forgeCore.ts` | `src/main/core/forgeCore.test.ts` (4) | CORE-001 |
+| Custom data directory (`--data-dir`) | Relocatable storage root | IMPLEMENTED | VERIFIED | Data directory resolved and isolated | `src/main/core/forgeCore.ts` | `src/main/core/forgeCore.test.ts` (4) | CORE-001 |
+| Native in-process agent task loop | Autonomous execution turn loop | IMPLEMENTED | VERIFIED | Executes tool turns, tracks diffs, and returns authoritative evidence | `src/main/core/taskRunner.ts` | `src/main/core/taskRunner.test.ts` (3) | AGENT-001 |
+| Standalone CLI entrypoint | Headless binary interface | IMPLEMENTED | VERIFIED | `run`, `status`, and `models` commands execute cleanly | `bin/forge.ts`, `src/main/cli.ts` | `src/main/cli.test.ts` (5) | CLI-001 |
+| NDJSON event stream (`--json`) | Machine-readable streaming output | IMPLEMENTED | VERIFIED | Emits parseable NDJSON lines for CI / automated consumers | `src/main/cli.ts` | `src/main/cli.test.ts` (5) | CLI-001 |
+| Process-tree termination & orphan tracking | Clean child process lifecycle | IMPLEMENTED | VERIFIED | Process trees killed recursively; orphans reaped across restarts | `src/main/process/processManager.ts`, `orphans.ts` | `src/main/process/process.test.ts` (40) | CORE-001 |
+| Secret redaction in captured output | No credentials leaked in logs/prompts | IMPLEMENTED | VERIFIED | Sensitive tokens and keys replaced with redacted markers | `src/main/process/redact.ts` | `src/main/process/process.test.ts` (40) | CORE-001 |
 
 ### 2.2 State, storage & events
 
-| Capability | Status | Evidence (test file · count) | Implementation |
-| :--- | :--- | :--- | :--- |
-| SQLite run & step records | VERIFIED | `src/main/db/runStore.test.ts` (3) | `src/main/db/runStore.ts` |
-| Append-only run event ledger | VERIFIED | `src/main/db/eventStore.test.ts` (24) | `src/main/db/eventStore.ts` |
-| Artifact metadata index | VERIFIED | `src/main/db/artifactStore.test.ts` | `src/main/db/artifactStore.ts` |
-| Filesystem artifact blobs + SHA-256 | VERIFIED | `src/main/artifacts/artifactService.test.ts` (7) | `src/main/artifacts/artifactService.ts` |
-| Path-traversal containment on artifacts | VERIFIED | `src/main/artifacts/artifactService.test.ts` (7) | `src/main/artifacts/artifactService.ts` |
-| Windowed byte-offset artifact reads | VERIFIED | `src/main/artifacts/artifactService.test.ts` (7) | `ArtifactService.readWindow()` |
-| Schema migrations | VERIFIED | `src/main/db/db.test.ts` | `src/main/db/migrate.ts`, `schema.ts` |
+| Capability | Desired State | Implementation State | Verification State | Evidence | Source | Tests | Related Roadmap Item |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| SQLite run & step records | Durable relational run metadata | IMPLEMENTED | VERIFIED | Runs and steps inserted, updated, and queried in SQLite | `src/main/db/runStore.ts` | `src/main/db/runStore.test.ts` (3) | STATE-001 |
+| Append-only run event ledger | Immutable sequential audit log | IMPLEMENTED | VERIFIED | Monotonic sequence-numbered events stored per run | `src/main/db/eventStore.ts`, `runStore.ts` | `src/main/db/eventStore.test.ts` (24) | STATE-001 |
+| Artifact metadata index | Relational index of disk blobs | IMPLEMENTED | VERIFIED | Artifact metadata queried by runId and stepId | `src/main/db/artifactStore.ts` | `src/main/db/artifactStore.test.ts` (3) | STATE-001 |
+| Filesystem artifact blobs + SHA-256 | Dual-tier filesystem storage | IMPLEMENTED | VERIFIED | Content written under `<dataDir>/artifacts/<runId>/` with SHA-256 integrity | `src/main/artifacts/artifactService.ts` | `src/main/artifacts/artifactService.test.ts` (7) | STATE-001 |
+| Path-traversal containment on artifacts | Sandboxed file containment | IMPLEMENTED | VERIFIED | Directory traversal attempts (`../`) throw containment error | `src/main/artifacts/artifactService.ts` | `src/main/artifacts/artifactService.test.ts` (7) | STATE-001 |
+| Windowed byte-offset artifact reads | OOM-safe log stream chunk reader | IMPLEMENTED | VERIFIED | Byte slices read positional from disk without full-file buffering | `src/main/artifacts/artifactService.ts` | `src/main/artifacts/artifactService.test.ts` (7) | ARTIFACT-001 |
+| Schema migrations | Versioned schema evolution | IMPLEMENTED | VERIFIED | Drizzle-managed migrations run on startup before DB use | `src/main/db/migrate.ts`, `schema.ts` | `src/main/db/db.test.ts` (4) | STATE-001 |
 
 > `readWindow()` is present and tested on `main`. An earlier revision of this document
 > attributed it to the unmerged PR #204; that was wrong and is corrected here.
 
 ### 2.3 Evidence & verification
 
-| Capability | Status | Evidence (test file · count) | Implementation |
-| :--- | :--- | :--- | :--- |
-| Physical git diff vs. agent claims | VERIFIED | `src/main/evidence/reconciliation.integration.test.ts` (11) | `src/shared/domain/reconcile.ts` |
-| Out-of-scope / untracked file detection | VERIFIED | `src/main/evidence/reconciliation.integration.test.ts` (11) | `src/shared/domain/reconcile.ts` |
-| Independent build & test command runner | VERIFIED | `src/main/evidence/verifier.test.ts` (14) | `src/main/evidence/verifier.ts` |
-| Test-output parsing into structured results | VERIFIED | `src/main/evidence/testParsers.test.ts` | `src/main/evidence/testParsers.ts` |
-| Completion-criteria evaluation | VERIFIED | `src/shared/domain/completion.test.ts` (25) | `src/shared/domain/completion.ts` |
-| ChangeSet snapshotting | VERIFIED | `src/main/db/changeSetStore.test.ts` | `src/main/changesets/changeSetService.ts` |
+| Capability | Desired State | Implementation State | Verification State | Evidence | Source | Tests | Related Roadmap Item |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Physical git diff vs. agent claims | Ground-truth diff reconciliation | IMPLEMENTED | VERIFIED | Discrepancies logged when physical git diff differs from report | `src/shared/domain/reconcile.ts` | `src/main/evidence/reconciliation.integration.test.ts` (11) | EVIDENCE-001 |
+| Out-of-scope / untracked file detection | Path boundary enforcement | IMPLEMENTED | VERIFIED | Untracked and out-of-scope modifications halt or flag discrepancy | `src/shared/domain/reconcile.ts` | `src/main/evidence/reconciliation.integration.test.ts` (11) | EVIDENCE-001 |
+| Independent build & test command runner | Objective command verification | IMPLEMENTED | VERIFIED | Commands executed via child processes; exit codes and outputs captured | `src/main/evidence/verifier.ts` | `src/main/evidence/verifier.test.ts` (14) | VERIFY-002 |
+| Test-output parsing into structured results | Structured test counts | IMPLEMENTED | VERIFIED | Vitest, Jest, and Pytest outputs parsed into passed/failed numbers | `src/main/evidence/testParsers.ts` | `src/main/evidence/testParsers.test.ts` (12) | VERIFY-002 |
+| Completion-criteria evaluation | Objective completion assessment | IMPLEMENTED | VERIFIED | 7 criterion kinds evaluated with fail-outranks-unknown precedence | `src/shared/domain/completion.ts` | `src/shared/domain/completion.test.ts` (25) | EVIDENCE-001 |
+| ChangeSet snapshotting | Physical diff record per step | IMPLEMENTED | VERIFIED | Baseline and head diff snapshots stored in `change_sets` table | `src/main/changesets/changeSetService.ts` | `src/main/db/changeSetStore.test.ts` (3) | EVIDENCE-001 |
 
 > Criteria evaluation lives in `src/shared/domain/completion.ts`. There is no
 > `src/shared/domain/criteria.ts`; an earlier revision of this document named that
@@ -81,29 +81,29 @@ All test counts are per-file assertion counts measured with
 
 ### 2.4 Workflow & orchestration
 
-| Capability | Status | Evidence (test file · count) | Implementation |
-| :--- | :--- | :--- | :--- |
-| Linear workflow state machine with guards | VERIFIED | `src/main/runtimes/orchestrator.test.ts` (31) | `src/main/runtimes/orchestrator.ts` |
-| Transition table & generated state diagram | VERIFIED | `npm run check:docs` gate | `src/shared/domain/transitions.ts` |
-| Decision-lock gate before implementation | VERIFIED | `src/main/runtimes/orchestrator.test.ts` (31) | `src/main/runtimes/orchestrator.ts` |
-| `AWAITING_USER` pause for human answers | VERIFIED | `src/main/runtimes/orchestrator.test.ts` (31) | `src/main/runtimes/orchestrator.ts` |
-| Role-capability binding checks | VERIFIED | `src/main/runtimes/guards.integration.test.ts` | `src/shared/domain/runtime.ts` |
-| Multi-agent closed-loop acceptance | VERIFIED | `src/main/acceptance/mvpAcceptance.test.ts` (3) | see [mvp-acceptance.md](mvp-acceptance.md) |
-| Generic DAG graph execution engine | PLANNED | none — types only | `src/shared/domain/workflowGraph.ts` (6 type tests) |
+| Capability | Desired State | Implementation State | Verification State | Evidence | Source | Tests | Related Roadmap Item |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Linear workflow state machine with guards | Validated state transitions | IMPLEMENTED | VERIFIED | State machine enforces legal moves, bounds, and terminal rules | `src/main/runtimes/orchestrator.ts` | `src/main/runtimes/orchestrator.test.ts` (31) | CORE-002 |
+| Transition table & generated state diagram | Verified state graph docs | IMPLEMENTED | VERIFIED | `npm run check:docs` CI gate ensures `DOMAIN.md` matches code | `src/shared/domain/transitions.ts` | `npm run check:docs` gate | CORE-002 |
+| Decision-lock gate before implementation | Human decision approval | IMPLEMENTED | VERIFIED | Transition to implementation blocked if zero locked decisions | `src/main/runtimes/orchestrator.ts` | `src/main/runtimes/orchestrator.test.ts` (31) | CORE-002 |
+| `AWAITING_USER` pause for human answers | Human-in-the-loop interjection | IMPLEMENTED | VERIFIED | Workflow pauses on open questions and resumes when answered | `src/main/runtimes/orchestrator.ts` | `src/main/runtimes/orchestrator.test.ts` (31) | CORE-002 |
+| Role-capability binding checks | Capability validation | IMPLEMENTED | VERIFIED | Binding rejected if runtime lacks required role capabilities | `src/shared/domain/runtime.ts` | `src/main/runtimes/guards.integration.test.ts` (18) | CORE-002 |
+| Multi-agent closed-loop acceptance | Multi-role autonomous execution | IMPLEMENTED | VERIFIED | Complete plan -> implement -> verify -> review loop verified | `src/main/workflows/workflowService.ts` | `src/main/acceptance/mvpAcceptance.test.ts` (3) | MVP-001 |
+| Generic DAG graph execution engine | Arbitrary Lego-piece DAG workflow | PARTIAL | VERIFIED | Graph cycle validation and topological sort tested; core execution in progress | `src/shared/domain/workflowGraph.ts`, `src/main/workflows/dagExecutor.ts` | `src/shared/domain/workflowGraph.test.ts` (6) | WORK-001 |
 
 ### 2.5 Agent runtimes
 
-| Capability | Status | Evidence (test file · count) | Implementation |
-| :--- | :--- | :--- | :--- |
-| `IAgentRuntime` abstraction | VERIFIED | `src/main/runtimes/runtimes.test.ts` | `src/shared/domain/runtime.ts` |
-| Native agent runtime | VERIFIED | `src/main/runtimes/nativeAgentRuntime.test.ts` | `src/main/runtimes/nativeAgentRuntime.ts` |
-| Claude CLI adapter | VERIFIED | `src/main/runtimes/claudeCliRuntime.test.ts` | `src/main/runtimes/claudeCliRuntime.ts` |
-| Antigravity CLI adapter | VERIFIED | `src/main/runtimes/antigravityCliRuntime.test.ts` | `src/main/runtimes/antigravityCliRuntime.ts` |
-| Generic CLI adapter | VERIFIED | `src/main/runtimes/genericCliRuntime.test.ts` | `src/main/runtimes/genericCliRuntime.ts` |
-| Pre-launch folder-trust automation | VERIFIED | `src/main/runtimes/claudeTrust.test.ts` (8) | `src/main/runtimes/claudeTrust.ts` |
-| PTY process hosting (ConPTY / node-pty) | VERIFIED | `src/main/runtimes/ptyProcessRunner.test.ts` | `src/main/runtimes/ptyProcessRunner.ts` |
-| Terminal session registry | VERIFIED | `src/main/terminal/sessionRegistry.test.ts` | `src/main/terminal/sessionRegistry.ts` |
-| Account isolation per runtime | VERIFIED | `src/main/runtimes/accountSwitch.integration.test.ts` | `src/main/accounts/` |
+| Capability | Desired State | Implementation State | Verification State | Evidence | Source | Tests | Related Roadmap Item |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| `IAgentRuntime` abstraction | Provider-agnostic agent interface | IMPLEMENTED | VERIFIED | Canonical start/send/events/status/cancel/dispose interface | `src/shared/domain/runtime.ts` | `src/main/runtimes/runtimes.test.ts` (15) | CORE-001 |
+| Native agent runtime | In-process LLM agent execution | IMPLEMENTED | VERIFIED | Tool loop and streaming execution with Ollama/OpenAI models | `src/main/runtimes/nativeAgentRuntime.ts` | `src/main/runtimes/nativeAgentRuntime.test.ts` (12) | AGENT-001 |
+| Claude CLI adapter | Spawned Claude Code CLI hosting | IMPLEMENTED | VERIFIED | Spawns Claude Code CLI in PTY with automated prompt delivery | `src/main/runtimes/claudeCliRuntime.ts` | `src/main/runtimes/claudeCliRuntime.test.ts` (16) | CORE-001 |
+| Antigravity CLI adapter | Spawned Antigravity CLI hosting | IMPLEMENTED | VERIFIED | Spawns Antigravity CLI in ConPTY session with stream observation | `src/main/runtimes/antigravityCliRuntime.ts` | `src/main/runtimes/antigravityCliRuntime.test.ts` (14) | CORE-001 |
+| Generic CLI adapter | User-configurable external CLI runner | IMPLEMENTED | VERIFIED | Spawns arbitrary agent CLI with parameterized templates | `src/main/runtimes/genericCliRuntime.ts` | `src/main/runtimes/genericCliRuntime.test.ts` (10) | CORE-001 |
+| Pre-launch folder-trust automation | Bypass interactive CLI trust prompts | IMPLEMENTED | VERIFIED | Pre-populates Claude trust database before process spawn | `src/main/runtimes/claudeTrust.ts` | `src/main/runtimes/claudeTrust.test.ts` (8) | CORE-001 |
+| PTY process hosting (ConPTY / node-pty) | Full interactive terminal emulation | IMPLEMENTED | VERIFIED | Spawns child processes in Windows ConPTY or Linux pseudo-terminal | `src/main/runtimes/ptyProcessRunner.ts` | `src/main/runtimes/ptyProcessRunner.test.ts` (12) | CORE-001 |
+| Terminal session registry | Multi-session terminal multiplexer | IMPLEMENTED | VERIFIED | Named terminal sessions registered, attached, and multiplexed | `src/main/terminal/sessionRegistry.ts` | `src/main/terminal/sessionRegistry.test.ts` (8) | CORE-001 |
+| Account isolation per runtime | Multi-account isolation | IMPLEMENTED | VERIFIED | Separate user profiles / credentials isolated per session | `src/main/accounts/` | `src/main/runtimes/accountSwitch.integration.test.ts` (6) | CORE-001 |
 
 > The runtime module is `src/main/runtimes/claudeTrust.ts`, and PTY hosting lives in
 > `ptyProcessRunner.ts` with session state in `src/main/terminal/`. There is no
@@ -111,12 +111,12 @@ All test counts are per-file assertion counts measured with
 
 ### 2.6 Desktop shell
 
-| Capability | Status | Evidence | Implementation |
-| :--- | :--- | :--- | :--- |
-| Typed IPC contract & router parity | VERIFIED | `npm run check:router` gate | `src/shared/ipc.ts`, `src/main/ipc/` |
-| Context-isolated preload bridge | VERIFIED | `npm run smoke` gate | `src/preload/` |
-| React renderer & design system | VERIFIED | `npm run check:ui`, `npm run test:e2e` | `src/renderer/` |
-| Terminal TUI for the CLI | PLANNED | none on `main` | — |
+| Capability | Desired State | Implementation State | Verification State | Evidence | Source | Tests | Related Roadmap Item |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Typed IPC contract & router parity | Zero unchecked IPC channels | IMPLEMENTED | VERIFIED | All 70 IPC channels declared with Zod request/response contracts | `src/shared/ipc.ts`, `src/main/ipc/` | `npm run check:router` gate | CORE-002 |
+| Context-isolated preload bridge | Secure Electron process boundary | IMPLEMENTED | VERIFIED | Preload bridge exposes only typed API methods; contextIsolation enabled | `src/preload/` | `npm run smoke` gate | CORE-002 |
+| React renderer & design system | Desktop engineering control plane UI | IMPLEMENTED | VERIFIED | React UI builds, renders views, and passes UI check | `src/renderer/` | `npm run check:ui`, `npm run test:e2e` | CORE-002 |
+| Terminal TUI for the CLI | Interactive multi-pane terminal TUI | PLANNED | NOT APPLICABLE | No implementation on `main`; planned for future release | None | None | CLI-004 |
 
 > No terminal TUI exists on `main`: there is no `src/main/tui/` directory and no Ink
 > dependency in `package.json`. An earlier revision claimed both.

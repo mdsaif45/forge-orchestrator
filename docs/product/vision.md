@@ -46,7 +46,7 @@ Forge is an **AI engineering control plane** where multiple coding agents collab
                         └──────┬───────┘
                ┌────────────────┼────────────────┐
           ┌────▼────┐      ┌────▼────┐      ┌────▼────┐
-          │ PLANNER │      │ BUILDER │      │REVIEWER │
+          │ PLANNER │      │IMPLEMENTER│    │REVIEWER │
           └────┬────┘      └────┬────┘      └────┬────┘
                └────────────────┼────────────────┘
                         ┌──────▼───────┐
@@ -58,7 +58,7 @@ Forge is an **AI engineering control plane** where multiple coding agents collab
 
 Forge decouples **execution** from **state**:
 - **Forge owns the state**: Git repositories, worktrees, SQLite event logs, structured artifacts, and physical diffs.
-- **Agents are workers**: Ephemeral, replaceable runtime processes bound to specific roles (Planner, Builder, Reviewer).
+- **Agents are workers**: Ephemeral, replaceable runtime processes bound to specific roles (Planner, Implementer, Reviewer).
 - **The Developer owns decisions**: Architectural direction, high-level approvals, and answers to ambiguous blockers.
 
 ---

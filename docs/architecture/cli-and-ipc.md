@@ -23,16 +23,29 @@ The CLI provides headless execution without booting Electron or Chromium.
 
 ### Command Catalog
 
+Implemented commands on `main` (`src/main/cli.ts`):
+
 ```bash
 # Execute an autonomous engineering task
 forge run "Implement user authentication with bcrypt" \
   --data-dir .forge \
+  --model qwen2.5-coder:7b \
   --json
 
-# List recent runs and statuses
+# Display repository status and Forge control plane state
+forge status --cwd . --json
+
+# Inspect or configure active AI model and provider
+forge models list
+forge models set ollama qwen2.5-coder:7b
+```
+
+Planned commands (future milestones):
+```bash
+# List recent runs and statuses (Planned)
 forge runs --data-dir .forge
 
-# Inspect stored artifacts for a run
+# Inspect stored artifacts for a run (Planned)
 forge artifacts <run-id>
 ```
 

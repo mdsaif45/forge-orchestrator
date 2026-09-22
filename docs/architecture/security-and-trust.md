@@ -32,7 +32,7 @@ Permissions are enforced structurally by Forge, not politely requested through p
 └──────────────┘
 
 ┌──────────────┐     Writes outside allowedPaths
-│   BUILDER    │ ────────────────────────────► HALTED_POLICY (Worktree reverted)
+│ IMPLEMENTER  │ ────────────────────────────► HALTED_POLICY (Worktree reverted)
 └──────────────┘
 
 ┌──────────────┐     Attempts git write / branch move

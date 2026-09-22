@@ -36,7 +36,7 @@ Forge is designed around the empirical reality of how experienced software engin
                                         ▼
 ┌───────────────────────────────────────────────────────────────────────────────┐
 │                           3. IMPLEMENTATION PHASE                             │
-│  • Agent 'builder' authorized to modify declared paths in isolated worktree   │
+│  • Agent 'implementer' authorized to modify declared paths in isolated worktree│
 │  • Checkpoint written to SQLite before side effects (Crash Resilient)         │
 │  • User sees live terminal output; can interject or steer mid-flight          │
 │  • Changes measured against base commit SHA                                   │
@@ -83,7 +83,7 @@ Forge is designed around the empirical reality of how experienced software engin
 - Progression to implementation requires at least one locked decision, ensuring work cannot start without human alignment.
 
 ### Stage 3: Implementation & Live Steering
-- The `builder` agent is spawned against an isolated git worktree (`.forge/worktrees/<run-id>`).
+- The `implementer` agent is spawned against an isolated git worktree (`.forge/worktrees/<run-id>`).
 - The developer has real-time visibility into tool calls, bash invocations, and thinking.
 - Rather than waiting for the entire stage to end, the developer can send steering interjections into the running process.
 

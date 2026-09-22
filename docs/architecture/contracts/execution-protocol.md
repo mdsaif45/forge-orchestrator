@@ -69,29 +69,30 @@ export interface AgentTaskOutput {
 ```
 
 ### 3. Canonical `FORGE_REPORT` Wire Block
-When driving an external CLI agent, the agent is instructed to conclude its final turn with a formatted markdown block:
+When driving an external CLI agent, the agent is instructed to conclude its final turn with a formatted block delimited by sentinels:
 
 ```markdown
-```FORGE_REPORT
-status: completed | blocked | question
-summary: concise description of changes made
-filesChanged:
-  - path/to/file1.ts
-  - path/to/file2.ts
-commandsRun:
-  - npm test
-testsRun: true
-openQuestions: []
-assumptions: []
+FORGE_REPORT_BEGIN
+{
+  "status": "completed",
+  "summary": "concise description of changes made",
+  "filesChanged": ["path/to/file1.ts", "path/to/file2.ts"],
+  "commandsRun": ["npm test"],
+  "testsRun": true,
+  "openQuestions": [],
+  "assumptions": []
+}
+FORGE_REPORT_END
 ```
-```
+
+`taskRunner.ts` also accepts YAML-style ````FORGE_REPORT ... ```` blocks via regex fallback for human/agent convenience.
 
 ---
 
 ## 4. Invariants & Failure Semantics
 
 1. **Assumptions Disqualification**: The `assumptions` array **must be empty**. If an agent admits to making an assumption, Forge rejects the report and halts the run with `HALTED_POLICY` (enforcing Rule R1 and Axiom A2).
-2. **Missing Fences**: If an agent replies with prose and fails to emit a valid `FORGE_REPORT` block after two consecutive turns, the step fails with `failure: 'protocol'`. Forge never synthesizes a fake success report.
+2. **Missing Fences**: If an agent replies with prose and fails to emit a valid report block after two consecutive turns, the step fails with `failure: 'protocol'`. Forge never synthesizes a fake success report.
 3. **Physical Reconciliation**: The `filesChanged` array is treated as a claim. Forge runs `git diff` to measure the physical change set. Any path modified on disk but omitted from `filesChanged` is logged as a discrepancy. Any modified path outside `allowedPaths` halts the run with `HALTED_POLICY`.
 
 ---
@@ -101,3 +102,12 @@ assumptions: []
 - `src/main/core/taskRunner.test.ts`: Verifies `executeDirectTask` produces conforming outputs and handles discrepancies.
 - `src/shared/domain/protocol.test.ts`: Tests `FORGE_REPORT` parser edge cases, invalid schemas, and assumption disqualification.
 - `src/main/runtimes/exchange.test.ts`: Tests rejection of synthesized reports and malformed replies.
+
+---
+
+## 6. Amendment History
+
+| Amendment | Type | Date | Reason & Evidence |
+| :--- | :--- | :--- | :--- |
+| **AMD-PROTO-001** | CLARIFICATION | 2026-09-22 | Documented the canonical `FORGE_REPORT_BEGIN` / `FORGE_REPORT_END` wire sentinels from `src/shared/domain/protocol.ts` lines 39-40, clarifying that markdown fences are a convenience fallback supported by `taskRunner.ts`. |
+| **AMD-PROTO-002** | CORRECTION | 2026-09-22 | Verified that `AgentTaskInput.role` uses canonical `roleSchema` (`'planner' \| 'implementer' \| 'reviewer' \| 'tester' \| 'security-reviewer' \| 'system' \| 'user'`). |

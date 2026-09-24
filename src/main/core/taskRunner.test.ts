@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -171,6 +171,164 @@ describe('executeDirectTask', () => {
       expect(result.evidence.passed).toBe(false)
       expect(result.evidence.verdict).toBe('fail')
       expect(result.evidence.discrepancies.some((d) => d.kind === 'outside-scope')).toBe(true)
+
+      // Ensure durable store records 'halted' status on policy violation (Axiom A7 / lifecycle contract)
+      const runRecord = core.runs.getRun(result.runId)
+      expect(runRecord?.status).toBe('halted')
+      expect(runRecord?.exitCode).toBe(2)
+      expect(runRecord?.error).toContain('Policy violation')
+      const steps = core.runs.listStepsForRun(result.runId)
+      expect(steps[0]?.status).toBe('halted')
+    },
+  )
+
+  it(
+    'halts with exitCode 2 and status halted when untracked files in nested directories violate declared scope',
+    { timeout: 30_000 },
+    async () => {
+      const result = await executeDirectTask(core, {
+        workspacePath: repoPath,
+        task: 'Add nested documentation',
+        allowedPaths: ['docs/**'],
+        runTurn: async () => {
+          await Promise.resolve()
+          // Agent creates untracked file in a nested directory outside docs/**
+          mkdirSync(join(repoPath, 'src', 'forbidden'), { recursive: true })
+          writeFileSync(join(repoPath, 'src', 'forbidden', 'stray.ts'), 'export const secret = 1\n')
+          return {
+            ok: true,
+            content: 'Created file',
+            reasoning: 'None',
+            toolsUsed: [{ name: 'write_file', ok: true }],
+            rounds: 1,
+            error: null,
+            stoppedAtLimit: false,
+            plan: {
+              capabilities: { tools: true, vision: false, thinking: false, source: 'reported' },
+              usedTools: true,
+            },
+          }
+        },
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.exitCode).toBe(2)
+      expect(result.outOfScopeFiles).toContain('src/forbidden/stray.ts')
+      expect(result.evidence.passed).toBe(false)
+      expect(result.evidence.verdict).toBe('fail')
+      expect(
+        result.evidence.discrepancies.some(
+          (d) => d.kind === 'outside-scope' && d.path === 'src/forbidden/stray.ts',
+        ),
+      ).toBe(true)
+
+      const runRecord = core.runs.getRun(result.runId)
+      expect(runRecord?.status).toBe('halted')
+      expect(runRecord?.exitCode).toBe(2)
+      expect(runRecord?.error).toContain('src/forbidden/stray.ts')
+    },
+  )
+
+  it(
+    'halts with exitCode 2 and status halted when untracked binary files violate declared scope',
+    { timeout: 30_000 },
+    async () => {
+      const result = await executeDirectTask(core, {
+        workspacePath: repoPath,
+        task: 'Add binary asset',
+        allowedPaths: ['assets/**'],
+        runTurn: async () => {
+          await Promise.resolve()
+          // Agent creates binary file outside allowed scope
+          mkdirSync(join(repoPath, 'src', 'binary'), { recursive: true })
+          writeFileSync(join(repoPath, 'src', 'binary', 'blob.dat'), Buffer.from([0, 1, 2, 3, 255]))
+          return {
+            ok: true,
+            content: 'Added binary asset',
+            reasoning: 'None',
+            toolsUsed: [{ name: 'write_file', ok: true }],
+            rounds: 1,
+            error: null,
+            stoppedAtLimit: false,
+            plan: {
+              capabilities: { tools: true, vision: false, thinking: false, source: 'reported' },
+              usedTools: true,
+            },
+          }
+        },
+      })
+
+      expect(result.ok).toBe(false)
+      expect(result.exitCode).toBe(2)
+      expect(result.outOfScopeFiles).toContain('src/binary/blob.dat')
+      expect(result.evidence.passed).toBe(false)
+      expect(
+        result.evidence.discrepancies.some(
+          (d) => d.kind === 'outside-scope' && d.path === 'src/binary/blob.dat',
+        ),
+      ).toBe(true)
+
+      const runRecord = core.runs.getRun(result.runId)
+      expect(runRecord?.status).toBe('halted')
+      expect(runRecord?.exitCode).toBe(2)
+    },
+  )
+
+  it(
+    'accepts untracked files within declared scope and records changed-but-unclaimed when unreported',
+    { timeout: 30_000 },
+    async () => {
+      const result = await executeDirectTask(core, {
+        workspacePath: repoPath,
+        task: 'Create doc file',
+        allowedPaths: ['docs/**'],
+        runTurn: async () => {
+          await Promise.resolve()
+          // Agent creates an untracked file within allowed scope, but doesn't report it in filesChanged
+          mkdirSync(join(repoPath, 'docs'), { recursive: true })
+          writeFileSync(join(repoPath, 'docs', 'guide.md'), '# Guide\n')
+          return {
+            ok: true,
+            content: `I worked on docs.
+FORGE_REPORT_BEGIN
+{
+  "status": "completed",
+  "summary": "I worked on docs",
+  "filesChanged": [],
+  "commandsRun": [],
+  "testsRun": false,
+  "openQuestions": [],
+  "assumptions": []
+}
+FORGE_REPORT_END`,
+            reasoning: 'None',
+            toolsUsed: [{ name: 'write_file', ok: true }],
+            rounds: 1,
+            error: null,
+            stoppedAtLimit: false,
+            plan: {
+              capabilities: { tools: true, vision: false, thinking: false, source: 'reported' },
+              usedTools: true,
+            },
+          }
+        },
+      })
+
+      // In-scope changes do not halt
+      expect(result.ok).toBe(true)
+      expect(result.exitCode).toBe(0)
+      expect(result.filesChanged).toContain('docs/guide.md')
+      expect(result.outOfScopeFiles).toHaveLength(0)
+
+      // An unreported change is recorded as changed-but-unclaimed
+      expect(
+        result.evidence.discrepancies.some(
+          (d) => d.kind === 'changed-but-unclaimed' && d.path === 'docs/guide.md',
+        ),
+      ).toBe(true)
+
+      const runRecord = core.runs.getRun(result.runId)
+      expect(runRecord?.status).toBe('completed')
     },
   )
 

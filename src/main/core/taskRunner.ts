@@ -632,9 +632,9 @@ export async function executeDirectTask(
 
     const durationMs = Date.now() - startTime
 
-    // Finish step in durable store
+    // Finish step in durable store (completed on success, halted on policy violation, failed on error)
     core.runs.finishStep(stepId, {
-      status: exitCode === 0 ? 'completed' : 'failed',
+      status: exitCode === 0 ? 'completed' : exitCode === 2 ? 'halted' : 'failed',
       finishedAt: new Date().toISOString(),
       summary: report.summary,
       changeSetId: built.changeSet.id,
@@ -643,11 +643,16 @@ export async function executeDirectTask(
 
     // Finish run in durable store
     core.runs.finishRun(runId, {
-      status: exitCode === 0 ? 'completed' : 'failed',
+      status: exitCode === 0 ? 'completed' : exitCode === 2 ? 'halted' : 'failed',
       finishedAt: new Date().toISOString(),
       exitCode,
       summary: report.summary,
-      error: exitCode !== 0 ? (verification?.verdict ?? 'Task failed') : null,
+      error:
+        exitCode !== 0
+          ? exitCode === 2
+            ? `Policy violation: ${String(built.reconciliation.outOfScope.length)} file(s) modified outside scope (${built.reconciliation.outOfScope.join(', ')})`
+            : (verification?.verdict ?? 'Task failed')
+          : null,
     })
 
     emitRunEvent('run.finished', { exitCode, passed: exitCode === 0 })

@@ -328,7 +328,7 @@ export class GitService {
   async status(): Promise<StatusResult> {
     await this.assertRepo()
     const { stdout } = await runGit(
-      ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=normal'],
+      ['status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'],
       this.exec,
     )
     return parseStatus(splitNul(stdout))
@@ -426,7 +426,9 @@ export class GitService {
     const untracked = await this.collectUntracked(status.untracked)
 
     return {
-      files: [...tracked.files, ...untracked.files],
+      files: [...tracked.files, ...untracked.files].sort((a, b) =>
+        a.path < b.path ? -1 : a.path > b.path ? 1 : 0,
+      ),
       patch: [tracked.patch, untracked.patch].filter((part) => part.trim() !== '').join(''),
     }
   }
@@ -443,7 +445,8 @@ export class GitService {
     const nullDevice = process.platform === 'win32' ? 'NUL' : '/dev/null'
 
     const diffs = await Promise.all(
-      paths.map(async (path) => {
+      paths.map(async (rawPath) => {
+        const path = rawPath.split('\\').join('/')
         const args = ['diff', '--no-index', '--no-color']
 
         const [numstat, patch] = await Promise.all([

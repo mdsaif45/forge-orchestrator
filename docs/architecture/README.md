@@ -7,6 +7,7 @@ This directory contains the authoritative, modular technical architecture specif
 | Document | Subsystem / Responsibility | Authority |
 | :--- | :--- | :--- |
 | [`architecture-overview.md`](architecture-overview.md) | High-level system topology, process boundaries, Headless Core vs UI, and engine-vs-agent separation. | **Canonical Architecture** |
+| [`agent-concept-model.md`](agent-concept-model.md) | Canonical concept model distinguishing Agent, Persona, Skill, Tool, Runtime, Provider, Model, Workflow, Step, and Task. | **Proposed Concept Gate** |
 | [`execution-model.md`](execution-model.md) | The lifecycle and domain hierarchy: Task → Run → Step → Event → Artifact → Verification. | **Normative** |
 | [`evidence-and-verification.md`](evidence-and-verification.md) | Physical diff reconciliation, criteria evaluators, independent test runners, and authoritative verdicts (Axiom A3). | **Normative** |
 | [`agent-runtime.md`](agent-runtime.md) | `IAgentRuntime` abstraction, Native Agent task loop, external CLI adapters, PTY session lifecycle, and provider isolation. | **Normative** |

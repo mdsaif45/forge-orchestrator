@@ -7,14 +7,24 @@ building it.
 ## Read first
 
 ```
-README.md              what Forge is · the seven axioms
-docs/NORTH-STAR.md     what Forge is aiming at, and the measured gap  ** READ FIRST **
-docs/CLI-FIELD-GUIDE.md  every measured fact about the CLIs  ** BEFORE TOUCHING AN ADAPTER **
-docs/ARCHITECTURE.md   processes · IPC contract · verification layers
-docs/DOMAIN.md         entities · state machine  (specification, not yet code)
-docs/PLAN.md           milestones · known toolchain traps
+docs/README.md         master documentation catalog
+docs/meta/documentation-policy.md  documentation governance & 12 canonical rules
+docs/product/north-star.md         what Forge is aiming at, and the measured gap  ** READ FIRST **
+docs/research/cli-field-guide.md   every measured fact about the CLIs  ** BEFORE TOUCHING AN ADAPTER **
+docs/architecture/architecture-overview.md  processes · boundaries · subsystems
+docs/architecture/cli-and-ipc.md   the IPC contract
+docs/project/current-state.md      what is actually implemented, with evidence
+docs/DOMAIN.md         entities · state machine  (generated section — see below)
 docs/FORGE_RULES.md    the agent policy set Forge itself enforces
 CONTRIBUTING.md        branch flow · commands · lint-enforced boundaries
+```
+
+Two documents are pinned to their paths by code and must not be moved:
+
+```
+docs/DOMAIN.md       its state diagram is generated and gated by `npm run check:docs`
+                     (scripts/generate-state-diagram.mjs)
+docs/FORGE_RULES.md  its headings are asserted by src/main/projects/projects.test.ts
 ```
 
 ## The rules that will fail your work

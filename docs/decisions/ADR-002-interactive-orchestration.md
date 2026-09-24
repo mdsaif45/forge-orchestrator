@@ -1,6 +1,11 @@
 # ADR-002 — Forge is an interactive control plane, not a batch runner
 
-Status: **proposed** · Date: 2026-08-31 · Supersedes the "stay out of the message bus" framing in `README.md`
+**Status:** IMPLEMENTED  
+**Authority:** Architectural Decision Record  
+**Date:** 2026-08-31  
+**Supersedes:** The "stay out of the message bus" framing in `README.md`  
+**Related Decisions:** [ADR-003](ADR-003-host-the-real-cli.md)  
+**Related Architecture:** [architecture-overview.md](../architecture/architecture-overview.md)  
 
 ---
 

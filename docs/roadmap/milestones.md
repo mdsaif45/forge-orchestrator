@@ -78,9 +78,9 @@
 | ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **CRIT-001** | NEW | P0 | **IN-PROGRESS** | EVIDENCE-001 | Criterion evaluator engine (`criterion.ts` on the PR branch), extending `completion.ts`. | Evaluator passes/fails with precedence tests. | PR #204 (open, CI green) |
-| **VERIFY-001** | NEW | P0 | **READY** | EVIDENCE-001 | Physical diff reconciliation enhancements (untracked & binary). | Catches untracked files outside scope. | — |
+| **VERIFY-001** | NEW | P0 | **DONE** | EVIDENCE-001 | Physical diff reconciliation enhancements (untracked & binary). | `--untracked-files=all` collection, path codepoint sorting, nested & binary scope halts with status `halted`. | PR #206 |
 | **VERIFY-002** | NEW | P1 | **DONE** | EVIDENCE-001 | Independent test & build child process execution runner. | `src/main/evidence/verifier.ts`, 14 tests in `verifier.test.ts`. | merged before this baseline |
-| **VERIFY-003** | NEW | P2 | **BLOCKED** | VERIFY-001 | Adversarial edge-case verifier agent for boundary regressions. | Fails on intentional edge-case corruptions. | — |
+| **VERIFY-003** | NEW | P2 | **READY** | VERIFY-001 | Adversarial edge-case verifier agent for boundary regressions. | Fails on intentional edge-case corruptions. | — |
 
 ---
 

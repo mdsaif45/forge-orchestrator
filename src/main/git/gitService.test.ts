@@ -427,6 +427,45 @@ describe('diff', () => {
     expect(blob).toMatchObject({ changeType: 'added', insertions: 0, deletions: 0, binary: true })
   })
 
+  it('includes untracked files in nested subdirectories in diffWorktree', async () => {
+    mkdirSync(join(repoPath, 'deep', 'nested', 'dir'), { recursive: true })
+    write('deep/nested/dir/untracked.txt', 'first line\nsecond line\n')
+
+    const result = await service().diffWorktree(baseSha)
+    const file = result.files.find((f) => f.path === 'deep/nested/dir/untracked.txt')
+
+    expect(file).toBeDefined()
+    expect(file).toMatchObject({
+      path: 'deep/nested/dir/untracked.txt',
+      changeType: 'added',
+      insertions: 2,
+      deletions: 0,
+    })
+    expect(result.patch).toContain('+++ b/deep/nested/dir/untracked.txt')
+    expect(result.patch).toContain('+first line')
+    expect(result.patch).toContain('+second line')
+  })
+
+  it('reports untracked binary files in nested subdirectories without inventing line counts', async () => {
+    mkdirSync(join(repoPath, 'deep', 'assets'), { recursive: true })
+    writeFileSync(
+      join(repoPath, 'deep', 'assets', 'image.png'),
+      Buffer.from([137, 80, 78, 71, 0, 1]),
+    )
+
+    const result = await service().diffWorktree(baseSha)
+    const blob = result.files.find((f) => f.path === 'deep/assets/image.png')
+
+    expect(blob).toBeDefined()
+    expect(blob).toMatchObject({
+      path: 'deep/assets/image.png',
+      changeType: 'added',
+      insertions: 0,
+      deletions: 0,
+      binary: true,
+    })
+  })
+
   it('does not stage anything while reporting untracked files', async () => {
     // `git add -N` would make the diff work but writes to the index, which would
     // corrupt the state of a repository an agent is mid-way through editing.

@@ -374,6 +374,42 @@ describe('the scope-creep scenario', () => {
     // planner, user, implementer — and nothing after.
     expect(outcome.steps.map((step) => step.role)).toEqual(['planner', 'user', 'implementer'])
   })
+
+  it('halts with HALTED_POLICY when an untracked file in a nested directory violates scope', async () => {
+    const untrackedCreepScenario = {
+      name: 'untrackedScopeCreep',
+      description: 'Creates an untracked nested file outside allowed scope',
+      capabilities: ['repo-read', 'file-write', 'test', 'plan', 'review'] as const,
+      steps: [
+        {
+          narration: ['Creating an untracked file in forbidden directory'],
+          tools: [],
+          edits: [
+            { path: 'src/math.ts', contents: 'export const answer = 42\n' },
+            { path: 'config/deep/forbidden.txt', contents: 'secret=true\n' },
+          ],
+          report: {
+            status: 'completed' as const,
+            summary: 'Added forbidden nested file',
+            filesChanged: ['src/math.ts', 'config/deep/forbidden.txt'],
+            commandsRun: [],
+            testsRun: false,
+            openQuestions: [],
+            assumptions: [],
+          },
+          ending: 'report' as const,
+          replyText: null,
+        },
+      ],
+    }
+
+    const { registry, bindings } = registryFor(untrackedCreepScenario)
+    const outcome = await orchestrator(registry).run(runOptions(bindings))
+
+    expect(outcome.state).toBe('HALTED_POLICY')
+    expect(outcome.haltCode).toBe('unexpected-file-modification')
+    expect(outcome.haltReason).toContain('config/deep/forbidden.txt')
+  })
 })
 
 describe('the liar scenario', () => {

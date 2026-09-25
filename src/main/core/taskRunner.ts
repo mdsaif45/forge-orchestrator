@@ -660,7 +660,7 @@ export async function executeDirectTask(
         exitCode !== 0
           ? exitCode === 2
             ? `Policy violation: ${String(built.reconciliation.outOfScope.length)} file(s) modified outside scope (${built.reconciliation.outOfScope.join(', ')})`
-            : (verification.verdict ?? 'Task failed')
+            : verification.verdict
           : null,
     })
 

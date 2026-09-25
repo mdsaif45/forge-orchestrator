@@ -56,8 +56,8 @@ export interface CriterionResult {
 }
 ```
 
-### Proposed Typed Interfaces (PR #204 — NOT on `main`)
-A typed interface hierarchy (`BuildCriterion`, `DiffScopeCriterion`, etc.) is proposed in branch `feat/slice-2-observability-criteria` (PR #204). On `main`, criteria use the flexible `params: Record<string, unknown>` model above.
+### Schema Consistency & Clarification
+Both `main` and branch `feat/slice-2-observability-criteria` (PR #204) use the canonical `completionCriterionSchema` with `{ kind, description, params: Record<string, unknown> }`. Speculative typed interface hierarchies (`BuildCriterion`, `DiffScopeCriterion`, etc.) from early documentation drafts are not implemented.
 
 ---
 
@@ -88,4 +88,5 @@ When aggregating criteria into an overall step verdict in `assessCompletion`:
 | Amendment | Type | Date | Reason & Evidence |
 | :--- | :--- | :--- | :--- |
 | **AMD-CRIT-001** | CORRECTION | 2026-09-22 | Corrected `CriterionKind` values from camelCase speculative names (`diffScope`, `noUntracked`, etc.) to canonical `criterionKindSchema` enum (`'build'`, `'tests'`, `'diff-scope'`, `'no-assumptions'`, `'reviewer-verdict'`, `'file-exists'`, `'custom-command'`) in `src/shared/domain/enums.ts`. |
-| **AMD-CRIT-002** | CLARIFICATION | 2026-09-22 | Clarified that baseline `1dfb444` implements `completionCriterionSchema` with `{ kind, description, params }` in `src/shared/domain/task.ts` and `assessCompletion` in `src/shared/domain/completion.ts`. The discriminated interface hierarchy is part of the PR #204 proposal and not in `main`. |
+| **AMD-CRIT-002** | CLARIFICATION | 2026-09-22 | Clarified that baseline `1dfb444` implements `completionCriterionSchema` with `{ kind, description, params }` in `src/shared/domain/task.ts` and `assessCompletion` in `src/shared/domain/completion.ts`. |
+| **AMD-CRIT-003** | CORRECTION | 2026-09-25 | Corrected erratum attributing a speculative discriminated interface hierarchy (`BuildCriterion`, `DiffScopeCriterion`, etc.) to PR #204. Verified that PR #204 retains canonical `{ kind, description, params }` schema. |

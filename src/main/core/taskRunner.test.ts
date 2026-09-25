@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   runtimeIdSchema,
   sessionIdSchema,
+  type CriterionResult,
   type IAgentRuntime,
   type RuntimeEvent,
   type RuntimeStatus,
@@ -459,6 +460,91 @@ FORGE_REPORT_END`,
       expect(
         result.evidence.criteria.some((c) => c.kind === 'no-assumptions' && c.verdict === 'fail'),
       ).toBe(true)
+    },
+  )
+
+  it(
+    'halts with exitCode 2 and status halted on out-of-scope modification, recording policy violation error (not pass) while persisting criteria',
+    { timeout: 30_000 },
+    async () => {
+      const events: DirectTaskEvent[] = []
+      const result = await executeDirectTask(core, {
+        workspacePath: repoPath,
+        task: 'Refactor components',
+        allowedPaths: ['src/**'],
+        onEvent: (event) => events.push(event),
+        runTurn: async () => {
+          await Promise.resolve()
+          mkdirSync(join(repoPath, 'docs'), { recursive: true })
+          writeFileSync(join(repoPath, 'docs', 'forbidden.md'), '# Unauthorized edit\n')
+          return {
+            ok: true,
+            content: JSON.stringify({
+              status: 'completed',
+              summary: 'Modified out-of-scope docs file',
+              filesChanged: ['docs/forbidden.md'],
+              assumptions: [],
+            }),
+            reasoning: 'I changed docs/forbidden.md outside allowed scope',
+            toolsUsed: [{ name: 'edit_file', ok: true }],
+            rounds: 1,
+            error: null,
+            stoppedAtLimit: false,
+            plan: {
+              capabilities: { tools: true, vision: false, thinking: false, source: 'reported' },
+              usedTools: true,
+            },
+          }
+        },
+      })
+
+      // 1. Task result assertions
+      expect(result.ok).toBe(false)
+      expect(result.exitCode).toBe(2)
+      expect(result.outOfScopeFiles).toContain('docs/forbidden.md')
+
+      // 2. Evidence assertions (CRIT-001 + VERIFY-001)
+      expect(result.evidence.passed).toBe(false)
+      expect(result.evidence.verdict).toBe('fail')
+      expect(result.evidence.criteria.length).toBeGreaterThan(0)
+      expect(
+        result.evidence.criteria.some((c) => c.kind === 'no-assumptions' && c.verdict === 'pass'),
+      ).toBe(true)
+      expect(
+        result.evidence.discrepancies.some(
+          (d) => d.kind === 'outside-scope' && d.path === 'docs/forbidden.md',
+        ),
+      ).toBe(true)
+
+      // 3. Run and Step durable status assertions
+      const runRecord = core.runs.getRun(result.runId)
+      expect(runRecord?.status).toBe('halted')
+      expect(runRecord?.exitCode).toBe(2)
+      expect(runRecord?.error).not.toBe('pass')
+      expect(runRecord?.error).toContain('Policy violation')
+      expect(runRecord?.error).toContain('docs/forbidden.md')
+
+      const steps = core.runs.listStepsForRun(result.runId)
+      expect(steps.length).toBeGreaterThan(0)
+      expect(steps[0]?.status).toBe('halted')
+      expect(steps[0]?.evidenceId).toBe(result.evidence.id)
+
+      // 4. Verification event assertions
+      const verificationEvent = events.find(
+        (e): e is Extract<DirectTaskEvent, { kind: 'verification' }> => e.kind === 'verification',
+      )
+      expect(verificationEvent).toBeDefined()
+      expect(verificationEvent?.criteria).toBeDefined()
+      expect(verificationEvent?.criteria?.some((c) => c.kind === 'no-assumptions')).toBe(true)
+
+      // 5. Durable run events in store
+      const storedEvents = core.runs.listEventsForRun(result.runId)
+      const storedVerification = storedEvents.find((e) => e.type === 'verification')
+      expect(storedVerification).toBeDefined()
+      const storedPayload = storedVerification?.payload as
+        { criteria?: readonly CriterionResult[] } | undefined
+      expect(storedPayload?.criteria).toBeDefined()
+      expect(storedPayload?.criteria?.some((c) => c.kind === 'no-assumptions')).toBe(true)
     },
   )
 })

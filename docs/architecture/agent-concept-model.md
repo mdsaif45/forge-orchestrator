@@ -1,12 +1,25 @@
 # Forge Architectural Concept Model: Agent, Persona, Skill, Tool, and Runtime
 
 **Status:** PROPOSED  
-**Authority:** Architectural Concept Gate & Design Specification  
+**Authority:** Architectural Concept Gate & Design Specification (Non-normative)  
 **Date:** 2026-09-24  
-**Baseline:** `main` @ `1dfb444` (PR #203 merged)  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Architecture:** [agent-runtime.md](agent-runtime.md), [domain-model.md](domain-model.md), [execution-model.md](execution-model.md), [workflow-engine.md](workflow-engine.md), [security-and-trust.md](security-and-trust.md)  
 **Related Decisions:** [ADR-001](../decisions/ADR-001-agents-runtimes-accounts.md), [ADR-002](../decisions/ADR-002-interactive-orchestration.md), [ADR-003](../decisions/ADR-003-host-the-real-cli.md)  
 **Related Contracts:** [execution-protocol.md](contracts/execution-protocol.md), [run-and-step-lifecycle.md](contracts/run-and-step-lifecycle.md)  
+
+---
+
+> [!WARNING]
+> ### DESIGN GATE — NOT IMPLEMENTED
+>
+> **This document describes PROPOSED architecture.**
+> - It is **NOT** current implementation.
+> - It is **NOT** a normative implementation contract.
+> - It **MUST NOT** be implemented without an explicit, ratified Architectural Decision Record (ADR).
+> - **Zero production code** (no `AgentManager`, `PersonaManager`, `SkillManager`, `ProviderManager`, or `WorkflowManager`) should be created merely because this document describes those concepts.
+> - Existing runtime abstractions (`IAgentRuntime`, `Role`, `Capability`, `agentBindingSchema`) must **NOT** be retrofitted to this model without an accepted decision.
+> - Questions **Q-CAM-01 through Q-CAM-04** remain unresolved unless explicitly ratified by an ADR.
 
 ---
 

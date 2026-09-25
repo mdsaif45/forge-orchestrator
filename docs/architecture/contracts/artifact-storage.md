@@ -2,8 +2,8 @@
 
 **Status:** FROZEN  
 **Authority:** Canonical Storage Contract  
-**Last Updated:** 2026-09-21  
-**Baseline:** `main` @ `1dfb444`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Architecture:** [state-and-storage.md](../state-and-storage.md)  
 **Related Implementation:** `src/main/artifacts/artifactService.ts`, `src/main/db/artifactStore.ts`  
 
@@ -94,7 +94,7 @@ Consumers decoding `data` obtain the exact byte-identical buffer (`Buffer.from(d
 
 ## 6. Verification Evidence
 
-- `src/main/artifacts/artifactService.test.ts`: Verifies path containment, SHA-256 calculation, binary vs text handling, write rollback, and windowed chunk reading (7 tests on `main`).
+- `src/main/artifacts/artifactService.test.ts`: Verifies path containment, SHA-256 calculation, binary vs text handling, write rollback, and windowed chunk reading (8 tests on `main`).
 - `src/main/db/artifactStore.test.ts`: Verifies SQLite indexing and metadata retrieval.
 
 ---
@@ -106,3 +106,4 @@ Consumers decoding `data` obtain the exact byte-identical buffer (`Buffer.from(d
 | **AMD-ART-001** | CORRECTION | 2026-09-22 | Corrected metadata schema from `ArtifactRecord` (with `type`) to canonical `ArtifactMetadata` (with `kind: ArtifactKind` matching `src/shared/domain/artifact.ts`). Updated directory layout and relativePath format to `<runId>/<artifactId>-<safeName>`. |
 | **AMD-ART-002** | CORRECTION | 2026-09-22 | Corrected `readWindow` signature to positional `(id, offsetBytes, lengthBytes)` returning `ReadWindowResult { data: Buffer, totalBytes: number }` matching `src/main/artifacts/artifactService.ts` lines 170-191. |
 | **AMD-ART-003** | CLARIFICATION | 2026-09-25 | Clarified IPC transport encoding for `artifacts:readWindow`. Buffers are serialized as base64 (`ArtifactWindowView`) across IPC to guarantee byte preservation for arbitrary binary and tool-spill artifacts without UTF-8 corruption. |
+| **AMD-ART-004** | STABILIZATION | 2026-09-25 | Re-baselined contract to `main @ 5987501` (PR #204 merged), confirming binary window preservation and 8 tests in `src/main/artifacts/artifactService.test.ts`. |

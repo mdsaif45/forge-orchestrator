@@ -3,7 +3,7 @@
 **Status:** PROPOSED  
 **Authority:** Planning Truth  
 **Last Updated:** 2026-09-21  
-**Baseline:** `main` @ `1dfb444`  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Milestones:** [milestones.md](milestones.md)  
 
 ---

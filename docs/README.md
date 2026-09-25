@@ -94,7 +94,7 @@ Managed in [**`docs/decisions/`**](decisions/README.md):
 
 - [**`project/current-state.md`**](project/current-state.md): Authoritative capability matrix backed by physical test evidence.
 - [**`project/progress.md`**](project/progress.md): Milestone progress line and merged PR history.
-- [**`project/verification-baseline.md`**](project/verification-baseline.md): Measured test metrics (1,125 passing across 96 files), gate results, and the three-job CI topology.
+- [**`project/verification-baseline.md`**](project/verification-baseline.md): Measured test metrics (1,142 passing across 97 test files; 2 manual suites and 3 tests skipped), gate results, and the three-job CI topology.
 - [**`project/implementation-log.md`**](project/implementation-log.md): Reverse chronological engineering ledger.
 
 ---

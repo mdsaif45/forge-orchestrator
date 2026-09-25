@@ -2,10 +2,10 @@
 
 **Status:** FROZEN  
 **Authority:** Canonical Verification Contract  
-**Last Updated:** 2026-09-21  
-**Baseline:** `main` @ `1dfb444`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Architecture:** [evidence-and-verification.md](../evidence-and-verification.md)  
-**Related Implementation:** `src/shared/domain/completion.ts`, `src/main/evidence/verifier.ts`  
+**Related Implementation:** `src/shared/domain/completion.ts`, `src/shared/domain/criterion.ts`, `src/main/evidence/verifier.ts`  
 
 ---
 
@@ -33,7 +33,7 @@ export type CriterionKind = z.infer<typeof criterionKindSchema>;
 ```
 
 ### Baseline Schema (`src/shared/domain/task.ts`)
-In the baseline implementation (`main` @ `1dfb444`), completion criteria are defined as:
+In the current implementation (`main` @ `5987501`), completion criteria are defined as:
 
 ```typescript
 export const completionCriterionSchema = z.strictObject({
@@ -80,6 +80,7 @@ When aggregating criteria into an overall step verdict in `assessCompletion`:
 
 - `src/main/evidence/verifier.test.ts`: Verifies build/test runner execution, exit code assertions, and output logging.
 - `src/shared/domain/completion.test.ts`: Unit tests verifying the aggregation logic, ordering precedence, and evaluation rules (25 tests on `main`).
+- `src/shared/domain/criterion.test.ts`: Unit tests verifying the `criterionResultSchema` contract and terminal formatting (3 tests on `main`).
 
 ---
 
@@ -90,3 +91,4 @@ When aggregating criteria into an overall step verdict in `assessCompletion`:
 | **AMD-CRIT-001** | CORRECTION | 2026-09-22 | Corrected `CriterionKind` values from camelCase speculative names (`diffScope`, `noUntracked`, etc.) to canonical `criterionKindSchema` enum (`'build'`, `'tests'`, `'diff-scope'`, `'no-assumptions'`, `'reviewer-verdict'`, `'file-exists'`, `'custom-command'`) in `src/shared/domain/enums.ts`. |
 | **AMD-CRIT-002** | CLARIFICATION | 2026-09-22 | Clarified that baseline `1dfb444` implements `completionCriterionSchema` with `{ kind, description, params }` in `src/shared/domain/task.ts` and `assessCompletion` in `src/shared/domain/completion.ts`. |
 | **AMD-CRIT-003** | CORRECTION | 2026-09-25 | Corrected erratum attributing a speculative discriminated interface hierarchy (`BuildCriterion`, `DiffScopeCriterion`, etc.) to PR #204. Verified that PR #204 retains canonical `{ kind, description, params }` schema. |
+| **AMD-CRIT-004** | STABILIZATION | 2026-09-25 | Re-baselined contract to `main @ 5987501` (PR #204 merged), confirming CRIT-001 evidence schema and formatting contract in `src/shared/domain/criterion.ts`. |

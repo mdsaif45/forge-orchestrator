@@ -2,8 +2,8 @@
 
 **Status:** FROZEN  
 **Authority:** Canonical Lifecycle Contract  
-**Last Updated:** 2026-09-21  
-**Baseline:** `main` @ `1dfb444`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Architecture:** [execution-model.md](../execution-model.md), [workflow-engine.md](../workflow-engine.md)  
 **Related Specifications:** `docs/DOMAIN.md`  
 **Related Implementation:** `src/main/db/runStore.ts`, `src/shared/domain/transitions.ts`  
@@ -88,3 +88,4 @@ A **Step** represents one unit of work within a Run bound to a specific agent ro
 | :--- | :--- | :--- | :--- |
 | **AMD-RUN-001** | CORRECTION | 2026-09-22 | Corrected Run and Step lifecycle states from 6-state speculative diagram to canonical 4-state `runStatusSchema` (`'running' \| 'completed' \| 'failed' \| 'halted'`) defined in `src/shared/domain/run.ts` lines 14-15 and stored in `runs.status` / `run_steps.status`. Clarified that `CANCELLED` is a `WorkflowState` (`src/shared/domain/enums.ts`), not a `RunStatus`. |
 | **AMD-RUN-002** | CORRECTION | 2026-09-22 | Corrected Step Invariant 1: Step IDs are nominal UUID strings (`stepIdSchema` in `src/shared/domain/ids.ts`), not composite `<runId>-<index>` strings. Integer sequence is tracked by `index` (`run_steps.step_index`). |
+| **AMD-RUN-003** | STABILIZATION | 2026-09-25 | Re-baselined contract to `main @ 5987501` (PR #204 merged). Confirmed 4-state run status lifecycle and SQLite invariants. |

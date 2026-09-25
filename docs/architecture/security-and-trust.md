@@ -2,8 +2,8 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Normative Security Architecture  
-**Last Updated:** 2026-09-22  
-**Baseline:** `main` @ `1dfb444`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Architecture:** [architecture-overview.md](architecture-overview.md), [concurrency-and-isolation.md](concurrency-and-isolation.md)  
 **Related Specifications:** `docs/FORGE_RULES.md`, [rules-and-policy.md](../specifications/rules-and-policy.md)  
 **Related Implementation:** `src/main/security.ts`, `src/shared/domain/policyEngine.ts`  

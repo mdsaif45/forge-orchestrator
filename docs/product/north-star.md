@@ -2,8 +2,8 @@
 
 **Status:** ACCEPTED  
 **Authority:** Canonical North Star Vision  
-**Last Updated:** 2026-09-21  
-**Baseline:** `main` @ `1dfb444`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Decisions:** [ADR-002](../decisions/ADR-002-interactive-orchestration.md), [ADR-003](../decisions/ADR-003-host-the-real-cli.md)  
 **Related Architecture:** [architecture-overview.md](../architecture/architecture-overview.md), [evidence-and-verification.md](../architecture/evidence-and-verification.md)  
 **Supersedes:** `docs/NORTH-STAR.md` (legacy location)  

@@ -2,12 +2,23 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Physical Implementation Truth  
-**Last Updated:** 2026-09-22  
-**Baseline:** `main` @ `1dfb444`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 
 ---
 
 ## 1. Merged Pull Requests (Reverse Chronological)
+
+### PR #204: `feat(criteria, cli): implement CRIT-001 criteria evaluation & runs/artifacts inspection CLI`
+- **Merged:** 2026-09-25T13:36:09Z
+- **Commit:** `5987501`
+- **Summary:** Implemented CRIT-001 completion criteria evaluation in direct task loop; added `forge runs` and `forge artifacts` inspection CLI with project scoping, UUID boundary validation, and byte-preserving base64 IPC windowed reading. CLI-004 remains NOT STARTED.
+- **Tests:** 97 passed test files, 1,142 passing tests (2 manual test files skipped; 3 tests skipped).
+
+### PR #206: `feat(verify): VERIFY-001 untracked & binary file reconciliation`
+- **Merged:** 2026-09-25T07:14:22Z
+- **Commit:** `92e4e95`
+- **Summary:** Enhanced `GitService.diffWorktree()` to capture untracked files via `--untracked-files=all` and handle binary files with zero line counts; enforced policy violation halt (exit code 2) in `taskRunner.ts`.
 
 ### PR #203: `feat(state): implement STATE-001 durable run, step, artifact, and event store`
 - **Merged:** 2026-09-12T16:00:17Z
@@ -54,15 +65,13 @@
 - **Merged:** 2026-09-09T02:59:30Z
 - **Summary:** Version bump and release preparation.
 
-### PR #204: `feat(criteria, cli): implement CRIT-001 criteria evaluation & runs/artifacts inspection CLI`
-- **Merged:** 2026-09-25T13:36:09Z (`5987501`)
-- **Summary:** Implemented CRIT-001 completion criteria evaluation in direct task loop; added `forge runs` and `forge artifacts` inspection CLI with project scoping, UUID boundary validation, and byte-preserving base64 IPC windowed reading. CLI-004 remains NOT STARTED.
-
 ---
 
 ## 2. Active Unmerged PRs Under Review
 
-*(None)*
+| PR | Branch | State | Scope |
+| :--- | :--- | :--- | :--- |
+| [#207](https://github.com/mdsaif45/forge-orchestrator/pull/207) | `docs/crit-001-post-merge-bookkeeping` | OPEN | Post-merge documentation bookkeeping and stabilization |
 
 ---
 

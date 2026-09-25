@@ -2,10 +2,11 @@
 
 ```
 Project:            Forge — AI Engineering Control Plane
-Current milestone:  Phase 2: Observability & Criteria (PR #204)
-Overall status:     Headless Core, Native Loop, CLI, and SQLite persistence merged.
-Last updated:       2026-09-22
-Evidence baseline:  main @ 1dfb444 (PR #203 merged) — 1,125 tests passing
+Current milestone:  Milestone M5 Verification & Criteria COMPLETE on main
+Overall status:     Headless Core, Native Loop, CLI, SQLite persistence, and Criteria Evaluation merged.
+Last updated:       2026-09-25
+Evidence baseline:  main @ 5987501 (PR #204 merged) — 1,142 tests passing
+Active branch:      docs/crit-001-post-merge-bookkeeping @ 9719092
 ```
 
 ---

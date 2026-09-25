@@ -2,8 +2,8 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Canonical System Architecture  
-**Last Updated:** 2026-09-22  
-**Baseline:** `main` @ `1dfb444`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Decisions:** [ADR-001](../decisions/ADR-001-agents-runtimes-accounts.md), [ADR-002](../decisions/ADR-002-interactive-orchestration.md), [ADR-003](../decisions/ADR-003-host-the-real-cli.md)  
 **Related Implementation:** `src/main/core/forgeCore.ts`, `src/main/cli.ts`, `src/main/index.ts`  
 

@@ -2,8 +2,8 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Operational Guide  
-**Last Updated:** 2026-09-21  
-**Baseline:** `main` @ `1dfb444`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 
 ---
 
@@ -75,5 +75,5 @@ npm run lint           # Run ESLint across main, preload, renderer
 npm run typecheck      # Typecheck node, web, and test tsconfigs
 npm run check:docs     # Verify docs/DOMAIN.md state diagram matches transitions.ts
 npm run check:router   # Verify IPC router exhaustiveness
-npm run test           # Run 1,125+ unit and integration tests
+npm run test           # Run 1,142+ unit and integration tests
 ```

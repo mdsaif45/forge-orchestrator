@@ -3,7 +3,7 @@
 **Status:** PROPOSED  
 **Authority:** Planning Truth  
 **Last Updated:** 2026-09-21  
-**Baseline:** `main` @ `1dfb444`  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Milestones:** [milestones.md](milestones.md)  
 **Related Dependencies:** [dependency-map.md](dependency-map.md)  
 
@@ -17,7 +17,7 @@ The program is organized into four major phases:
 
 ```
 PHASE 1: Core Decoupling & Storage (M0–M4)   ██████████  COMPLETE (on main)
-PHASE 2: Observability & Verification (M5)   ████████░░  IN PROGRESS (PR #204)
+PHASE 2: Observability & Verification (M5)   ██████████  COMPLETE (on main)
 PHASE 3: Modular DAG & Steering (M6–M7)      ░░░░░░░░░░  NEXT
 PHASE 4: Provider Ecosystem & Scale (M8–M9)  ░░░░░░░░░░  FUTURE
 ```
@@ -36,10 +36,11 @@ PHASE 4: Provider Ecosystem & Scale (M8–M9)  ░░░░░░░░░░  F
 
 ### Phase 2: Observability, Verification & Criteria (Milestone M5)
 *Goal: Independent objective verification and full criteria enforcement.*
-- **Criteria Hardening**: Implement the 7 criteria evaluators (`CRIT-001`).
-- **Terminal Observability**: Interactive multi-pane TUI for CLI runs (`CLI-004`).
-- **Windowed Artifact Inspection**: Streaming reader for large logs (`ARTIFACT-001`, merged in PR #203).
-*(CRIT-001 merged in PR #204; CLI-004 planned).*
+- **Criteria Hardening**: Implemented the 7 criteria evaluators in the task loop (`CRIT-001`, merged in PR #204).
+- **Physical Reconciliation**: Diff reconciliation enhancements for untracked and binary files (`VERIFY-001`, merged in PR #206).
+- **Verification Runner**: Independent child-process test/build runner (`VERIFY-002`, merged).
+- **Windowed Artifact Inspection**: Streaming reader for large logs (`ARTIFACT-001`, merged in PR #203; windowed consumer read in PR #204).
+*(Core M5 verification and criteria milestone is COMPLETE on main via PR #204. Interactive terminal TUI CLI-004 remains NOT STARTED as future work).*
 
 ### Phase 3: Modular DAG Workflows & Interactive Steering (Milestones M6 – M7)
 *Goal: Evolve from sequential stage pipelines to flexible DAG execution with mid-flight human intervention.*

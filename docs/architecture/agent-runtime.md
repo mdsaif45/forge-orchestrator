@@ -2,8 +2,8 @@
 
 **Status:** IMPLEMENTED
 **Authority:** Normative runtime architecture
-**Last Updated:** 2026-09-22
-**Baseline:** `main` @ `1dfb444`
+**Last Updated:** 2026-09-25
+**Baseline:** `main` @ `5987501` (PR #204 merged)
 **Related Architecture:** [architecture-overview.md](architecture-overview.md), [cli-and-ipc.md](cli-and-ipc.md)
 **Related Decisions:** [ADR-001](../decisions/ADR-001-agents-runtimes-accounts.md), [ADR-003](../decisions/ADR-003-host-the-real-cli.md)
 **Related Research:** [cli-field-guide.md](../research/cli-field-guide.md)

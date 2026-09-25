@@ -2,8 +2,8 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Normative Specification  
-**Last Updated:** 2026-09-21  
-**Baseline:** `main` @ `1dfb444`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Architecture:** [security-and-trust.md](../architecture/security-and-trust.md)  
 **Canonical Ruleset:** [`docs/FORGE_RULES.md`](../FORGE_RULES.md)  
 **Related Implementation:** `src/shared/domain/policyEngine.ts`, `src/shared/domain/forgeRules.ts`  

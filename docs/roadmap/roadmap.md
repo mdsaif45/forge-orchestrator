@@ -38,8 +38,8 @@ PHASE 4: Provider Ecosystem & Scale (M8–M9)  ░░░░░░░░░░  F
 *Goal: Independent objective verification and full criteria enforcement.*
 - **Criteria Hardening**: Implement the 7 criteria evaluators (`CRIT-001`).
 - **Terminal Observability**: Interactive multi-pane TUI for CLI runs (`CLI-004`).
-- **Windowed Artifact Inspection**: Streaming reader for large logs (`ARTIFACT-001`).
-*(Actively implemented in PR #204, pending merge).*
+- **Windowed Artifact Inspection**: Streaming reader for large logs (`ARTIFACT-001`, merged in PR #203).
+*(CRIT-001 merged in PR #204; CLI-004 planned).*
 
 ### Phase 3: Modular DAG Workflows & Interactive Steering (Milestones M6 – M7)
 *Goal: Evolve from sequential stage pipelines to flexible DAG execution with mid-flight human intervention.*

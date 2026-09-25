@@ -54,34 +54,18 @@
 - **Merged:** 2026-09-09T02:59:30Z
 - **Summary:** Version bump and release preparation.
 
+### PR #204: `feat(criteria, cli): implement CRIT-001 criteria evaluation & runs/artifacts inspection CLI`
+- **Merged:** 2026-09-25T13:36:09Z (`5987501`)
+- **Summary:** Implemented CRIT-001 completion criteria evaluation in direct task loop; added `forge runs` and `forge artifacts` inspection CLI with project scoping, UUID boundary validation, and byte-preserving base64 IPC windowed reading. CLI-004 remains NOT STARTED.
+
 ---
 
 ## 2. Active Unmerged PRs Under Review
 
-### PR #204: `feat: Vertical Slice #2 - Observability & Criteria Integrity (CLI-004 + ARTIFACT-001 + CRIT-001)`
-- **Branch:** `feat/slice-2-observability-criteria`
-- **Status:** OPEN, mergeable; all three CI jobs green (checked 2026-09-22).
-- **Size:** 17 files, +1,099 / −130.
-- **Files touched (on the branch, not on `main`):** `src/shared/domain/criterion.ts` (new) and `criterion.test.ts`,
-  `completion.ts`, `evidence.ts`, `src/main/cli.ts`, `taskRunner.ts`, `runStore.ts`,
-  the IPC surface (`src/shared/ipc.ts`, `src/main/ipc/handlers.ts`, `src/preload/`),
-  and `docs/FORGE-MASTER-TODO.md`.
-
-> The branch title names `CLI-004` (terminal TUI), but the diff contains no TUI and no
-> Ink dependency. The substance of the change is the criterion evaluator and its IPC
-> exposure. Earlier revisions of this log described a "React Ink Terminal TUI" being
-> delivered here; that was not measured and is not in the diff. The discrepancy between
-> the branch title and its contents is left recorded rather than silently reconciled —
-> see [Q-IL-01](#3-open-questions).
-
-Test counts for this branch were not re-measured as part of this documentation pass.
-
+*(None)*
 
 ---
 
 ## 3. Open questions
 
-- **Q-IL-01:** PR #204's title advertises `CLI-004` (an interactive terminal TUI), but
-  its diff delivers the criterion evaluator instead. Either the title or the task
-  mapping is wrong. This needs the author's answer before the roadmap status for
-  `CLI-004` can be trusted.
+- **[RESOLVED] Q-IL-01:** PR #204's title and scope were remediated to `feat(criteria, cli): implement CRIT-001 criteria evaluation & runs/artifacts inspection CLI` prior to merge, explicitly decoupling it from `CLI-004`. `CLI-004` (React Ink TUI) remains NOT STARTED.

@@ -72,7 +72,7 @@ All test counts are per-file assertion counts measured with
 | Out-of-scope / untracked file detection | Path boundary enforcement | IMPLEMENTED | VERIFIED | Untracked and out-of-scope modifications halt with `halted` status or flag discrepancy | `src/shared/domain/reconcile.ts`, `src/main/git/gitService.ts` | `src/main/evidence/reconciliation.integration.test.ts` (12), `src/main/core/taskRunner.test.ts` (6) | EVIDENCE-001, VERIFY-001 |
 | Independent build & test command runner | Objective command verification | IMPLEMENTED | VERIFIED | Commands executed via child processes; exit codes and outputs captured | `src/main/evidence/verifier.ts` | `src/main/evidence/verifier.test.ts` (14) | VERIFY-002 |
 | Test-output parsing into structured results | Structured test counts | IMPLEMENTED | VERIFIED | Vitest, Jest, and Pytest outputs parsed into passed/failed numbers | `src/main/evidence/testParsers.ts` | `src/main/evidence/testParsers.test.ts` (12) | VERIFY-002 |
-| Completion-criteria evaluation | Objective completion assessment | IMPLEMENTED | VERIFIED | 7 criterion kinds evaluated with fail-outranks-unknown precedence | `src/shared/domain/completion.ts` | `src/shared/domain/completion.test.ts` (25) | EVIDENCE-001 |
+| Completion-criteria evaluation | Objective completion assessment | IMPLEMENTED | VERIFIED | 7 criterion kinds evaluated with fail-outranks-unknown precedence in direct task loop | `src/shared/domain/completion.ts`, `src/main/core/taskRunner.ts` | `src/shared/domain/completion.test.ts` (25), `src/main/core/taskRunner.test.ts` (6) | CRIT-001 |
 | ChangeSet snapshotting | Physical diff record per step | IMPLEMENTED | VERIFIED | Baseline and head diff snapshots stored in `change_sets` table | `src/main/changesets/changeSetService.ts` | `src/main/db/changeSetStore.test.ts` (3) | EVIDENCE-001 |
 
 > Criteria evaluation lives in `src/shared/domain/completion.ts`. There is no
@@ -127,8 +127,6 @@ All test counts are per-file assertion counts measured with
 
 | PR | Branch | State | Scope |
 | :--- | :--- | :--- | :--- |
-| [#204](https://github.com/mdsaif45/forge-orchestrator/pull/204) | `feat/slice-2-observability-criteria` | OPEN | Observability & criteria integrity slice |
-| [#205](https://github.com/mdsaif45/forge-orchestrator/pull/205) | `docs/restructure-architecture` | OPEN | This documentation restructure |
 | [#197](https://github.com/mdsaif45/forge-orchestrator/pull/197) | `fix/user-message-padding` | OPEN | Ask-mode bubble padding fix |
 
 Nothing on these branches is counted as implemented in §2.

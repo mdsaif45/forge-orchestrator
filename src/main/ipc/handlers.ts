@@ -333,19 +333,27 @@ export function createIpcHandlers({
 
     'changeset:get': ({ changeSetId }) => changeSets.get(changeSetId),
 
-    'artifacts:listForRun': ({ runId }) => ({
-      artifacts: artifactService ? artifactService.listArtifacts(runIdSchema.parse(runId)) : [],
-    }),
+    'artifacts:listForRun': ({ runId }) => {
+      if (!artifactService) {
+        throw new Error('ArtifactService is not configured')
+      }
+      return {
+        artifacts: artifactService.listArtifacts(runIdSchema.parse(runId)),
+      }
+    },
 
-    'artifacts:getMetadata': ({ artifactId }) => ({
-      artifact: artifactService
-        ? artifactService.getMetadata(artifactIdSchema.parse(artifactId))
-        : null,
-    }),
+    'artifacts:getMetadata': ({ artifactId }) => {
+      if (!artifactService) {
+        throw new Error('ArtifactService is not configured')
+      }
+      return {
+        artifact: artifactService.getMetadata(artifactIdSchema.parse(artifactId)),
+      }
+    },
 
     'artifacts:readWindow': async ({ artifactId, offsetBytes, lengthBytes }) => {
       if (!artifactService) {
-        return { data: '', totalBytes: 0 }
+        throw new Error('ArtifactService is not configured')
       }
       const res = await artifactService.readWindow(
         artifactIdSchema.parse(artifactId),

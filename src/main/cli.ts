@@ -1,10 +1,11 @@
 import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import {
+  artifactIdSchema,
+  projectIdSchema,
+  runIdSchema,
   runStatusSchema,
-  type ArtifactId,
   type ProjectId,
-  type RunId,
   type RunStatus,
 } from '@shared/domain'
 import { createForgeCore, resolveDataDir } from './core/forgeCore'
@@ -60,7 +61,7 @@ ${ANSI.bold}OPTIONS${ANSI.reset}
   --from <seq>         Starting event sequence number for events inspection
   --offset <n>         Byte offset for reading artifact window
   --length <n>         Byte length for reading artifact window
-  --json               Output machine-readable NDJSON events (ideal for CI and subagents)
+  --json               Output machine-readable JSON (NDJSON stream for 'run', JSON document for inspection commands)
   -y, --yes            Unattended mode (auto-confirm operations)
 
 ${ANSI.bold}EXAMPLES${ANSI.reset}
@@ -531,13 +532,23 @@ async function handleRuns(opts: {
       if (!opts.all) {
         try {
           const projects = core.projects.list()
-          const normCwd = resolve(opts.cwd)
-          const match = projects.find((p) => resolve(p.repository.absolutePath) === normCwd)
-          if (match) {
-            projectId = match.id as ProjectId
+          const normCwd = resolve(opts.cwd).toLowerCase()
+          const match = projects.find(
+            (p) => resolve(p.repository.absolutePath).toLowerCase() === normCwd,
+          )
+          if (!match) {
+            const err = `Current directory "${opts.cwd}" is not a registered Forge project. Use --all to list runs across all projects.`
+            if (opts.json) console.log(JSON.stringify({ error: err }))
+            else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+            return 1
           }
-        } catch {
-          // If project resolution fails, list runs unconstrained
+          projectId = projectIdSchema.parse(match.id)
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error)
+          const err = `Failed to resolve current Forge project: ${msg}. Use --all to list runs across all projects.`
+          if (opts.json) console.log(JSON.stringify({ error: err }))
+          else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          return 1
         }
       }
 
@@ -580,8 +591,8 @@ async function handleRuns(opts: {
     }
 
     if (action === 'inspect') {
-      const runId = targetId
-      if (!runId) {
+      const rawRunId = targetId
+      if (!rawRunId) {
         const err = 'No run ID provided.'
         if (opts.json) console.log(JSON.stringify({ error: err }))
         else {
@@ -591,7 +602,16 @@ async function handleRuns(opts: {
         return 1
       }
 
-      const run = core.runs.getRun(runId as RunId)
+      const parsedRunId = runIdSchema.safeParse(rawRunId)
+      if (!parsedRunId.success) {
+        const err = `Invalid run ID "${rawRunId}". Expected a valid UUID.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const runId = parsedRunId.data
+
+      const run = core.runs.getRun(runId)
       if (!run) {
         const err = `Run "${runId}" not found.`
         if (opts.json) console.log(JSON.stringify({ error: err }))
@@ -599,8 +619,8 @@ async function handleRuns(opts: {
         return 1
       }
 
-      const steps = core.runs.listStepsForRun(runId as RunId)
-      const artifacts = core.artifacts.listArtifacts(runId as RunId)
+      const steps = core.runs.listStepsForRun(runId)
+      const artifacts = core.artifacts.listArtifacts(runId)
 
       if (opts.json) {
         console.log(JSON.stringify({ run, steps, artifacts }))
@@ -657,8 +677,8 @@ async function handleRuns(opts: {
     }
 
     if (action === 'events') {
-      const runId = targetId
-      if (!runId) {
+      const rawRunId = targetId
+      if (!rawRunId) {
         const err = 'No run ID provided.'
         if (opts.json) console.log(JSON.stringify({ error: err }))
         else {
@@ -667,6 +687,15 @@ async function handleRuns(opts: {
         }
         return 1
       }
+
+      const parsedRunId = runIdSchema.safeParse(rawRunId)
+      if (!parsedRunId.success) {
+        const err = `Invalid run ID "${rawRunId}". Expected a valid UUID.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const runId = parsedRunId.data
 
       let fromSeq: number | undefined
       if (opts.from !== undefined) {
@@ -679,7 +708,7 @@ async function handleRuns(opts: {
         }
       }
 
-      const events = core.runs.listEventsForRun(runId as RunId, fromSeq)
+      const events = core.runs.listEventsForRun(runId, fromSeq)
 
       if (opts.json) {
         console.log(JSON.stringify({ events }))
@@ -759,8 +788,8 @@ async function handleArtifacts(opts: {
     }
 
     if (action === 'list') {
-      const runId = id
-      if (!runId) {
+      const rawRunId = id
+      if (!rawRunId) {
         const err = 'No run ID provided.'
         if (opts.json) console.log(JSON.stringify({ error: err }))
         else {
@@ -770,7 +799,16 @@ async function handleArtifacts(opts: {
         return 1
       }
 
-      const artifacts = core.artifacts.listArtifacts(runId as RunId)
+      const parsedRunId = runIdSchema.safeParse(rawRunId)
+      if (!parsedRunId.success) {
+        const err = `Invalid run ID "${rawRunId}". Expected a valid UUID.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const runId = parsedRunId.data
+
+      const artifacts = core.artifacts.listArtifacts(runId)
 
       if (opts.json) {
         console.log(JSON.stringify({ artifacts }))
@@ -797,8 +835,8 @@ async function handleArtifacts(opts: {
     }
 
     if (action === 'cat') {
-      const artifactId = id
-      if (!artifactId) {
+      const rawArtifactId = id
+      if (!rawArtifactId) {
         const err = 'No artifact ID provided.'
         if (opts.json) console.log(JSON.stringify({ error: err }))
         else {
@@ -808,7 +846,16 @@ async function handleArtifacts(opts: {
         return 1
       }
 
-      const meta = core.artifacts.getMetadata(artifactId as ArtifactId)
+      const parsedArtifactId = artifactIdSchema.safeParse(rawArtifactId)
+      if (!parsedArtifactId.success) {
+        const err = `Invalid artifact ID "${rawArtifactId}". Expected a valid UUID.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const artifactId = parsedArtifactId.data
+
+      const meta = core.artifacts.getMetadata(artifactId)
       if (!meta) {
         const err = `Artifact "${artifactId}" not found.`
         if (opts.json) console.log(JSON.stringify({ error: err }))
@@ -836,7 +883,7 @@ async function handleArtifacts(opts: {
           return 1
         }
 
-        const window = await core.artifacts.readWindow(artifactId as ArtifactId, offset, length)
+        const window = await core.artifacts.readWindow(artifactId, offset, length)
         const content = window.data.toString('utf-8')
         if (opts.json) {
           console.log(
@@ -852,7 +899,7 @@ async function handleArtifacts(opts: {
           process.stdout.write(content)
         }
       } else {
-        const text = await core.artifacts.readArtifactText(artifactId as ArtifactId)
+        const text = await core.artifacts.readArtifactText(artifactId)
         if (opts.json) {
           console.log(JSON.stringify({ artifactId, sizeBytes: meta.sizeBytes, data: text }))
         } else {

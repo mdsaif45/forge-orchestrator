@@ -15,6 +15,8 @@ import type {
   PromptPacketView,
   RepositoryProbe,
   WorkflowArtifactView,
+  ArtifactMetadataView,
+  ArtifactWindowView,
   WorkflowDetailView,
   WorkflowEventPayload,
   WorkflowLogPayload,
@@ -252,6 +254,19 @@ export interface ForgeApi {
       projectId: string,
     ) => Promise<IpcResult<{ readonly changeSets: readonly ChangeSetView[] }>>
     get: (changeSetId: string) => Promise<IpcResult<ChangeSetView | null>>
+  }
+  readonly artifacts: {
+    readonly listForRun: (
+      runId: string,
+    ) => Promise<IpcResult<{ readonly artifacts: readonly ArtifactMetadataView[] }>>
+    readonly getMetadata: (
+      artifactId: string,
+    ) => Promise<IpcResult<{ readonly artifact: ArtifactMetadataView | null }>>
+    readonly readWindow: (request: {
+      readonly artifactId: string
+      readonly offsetBytes: number
+      readonly lengthBytes: number
+    }) => Promise<IpcResult<ArtifactWindowView>>
   }
   readonly account: {
     list: (provider?: string) => Promise<IpcResult<{ readonly accounts: readonly AccountView[] }>>

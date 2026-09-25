@@ -13,6 +13,7 @@ import {
   type RunId,
   type StepId,
 } from '@shared/domain'
+import { artifactWindowViewSchema } from '@shared/ipc'
 import { openDatabase, type ForgeDatabase } from '../db/connection'
 import { runMigrations } from '../db/migrate'
 import { MIGRATIONS } from '../db/migrations.generated'
@@ -183,6 +184,47 @@ describe('ArtifactService', () => {
 
     // Negative offset
     await expect(service.readWindow(meta.id, -1, 5)).rejects.toThrow('Invalid offsetBytes')
+  })
+
+  it('preserves exact byte fidelity for arbitrary non-UTF-8 binary data during windowed reading', async () => {
+    // Non-UTF-8 byte sequence with illegal lead bytes, lone continuation bytes, and nulls
+    const nonUtf8Bytes = Buffer.from([
+      0x00, 0xff, 0xfe, 0x80, 0xc0, 0xc1, 0xed, 0xa0, 0x80, 0xf4, 0x90, 0x80, 0x80,
+    ])
+
+    const meta = await service.writeArtifact({
+      runId,
+      kind: 'tool-output',
+      name: 'binary-payload.bin',
+      content: nonUtf8Bytes,
+      mimeType: 'application/octet-stream',
+    })
+
+    const window = await service.readWindow(meta.id, 0, nonUtf8Bytes.length)
+
+    // Original bytes === readWindow bytes
+    expect(window.data.equals(nonUtf8Bytes)).toBe(true)
+    expect(window.totalBytes).toBe(nonUtf8Bytes.length)
+
+    // Proving naive UTF-8 decoding corrupts the data:
+    const naiveDecoded = window.data.toString('utf-8')
+    const naiveReencoded = Buffer.from(naiveDecoded, 'utf-8')
+    expect(naiveReencoded.equals(nonUtf8Bytes)).toBe(false)
+    expect(naiveDecoded).toContain('\uFFFD')
+
+    // IPC schema serialization & base64 transport guarantee:
+    const ipcPayload = {
+      data: window.data.toString('base64'),
+      encoding: 'base64' as const,
+      totalBytes: window.totalBytes,
+    }
+    const validatedIpc = artifactWindowViewSchema.parse(ipcPayload)
+    const decodedFromIpc = Buffer.from(validatedIpc.data, 'base64')
+
+    // Assert: original bytes === readWindow bytes === decoded IPC payload bytes
+    expect(nonUtf8Bytes.equals(window.data)).toBe(true)
+    expect(window.data.equals(decodedFromIpc)).toBe(true)
+    expect(decodedFromIpc.equals(nonUtf8Bytes)).toBe(true)
   })
 
   it('lists artifacts for a run and for a step', async () => {

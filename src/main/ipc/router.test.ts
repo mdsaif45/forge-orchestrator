@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { IPC_CHANNELS } from '@shared/ipc'
+import { IPC_CHANNELS, artifactWindowViewSchema } from '@shared/ipc'
 import { invokeChannel, type IpcHandlerMap } from './router'
 
 const validInfo = {
@@ -141,5 +141,39 @@ describe('invokeChannel', () => {
         {},
       ),
     ).resolves.toBeDefined()
+  })
+
+  it('validates artifacts:readWindow request and response preserving binary base64 payload', async () => {
+    const rawBytes = Buffer.from([0x00, 0xff, 0xfe, 0x80, 0xc0, 0xc1, 0xed, 0xa0, 0x80])
+    const base64Data = rawBytes.toString('base64')
+    const handler = vi.fn().mockResolvedValue({
+      data: base64Data,
+      encoding: 'base64',
+      totalBytes: rawBytes.length,
+    })
+
+    const result = await invokeChannel(
+      handlerMap({ 'artifacts:readWindow': handler }),
+      'artifacts:readWindow',
+      {
+        artifactId: '11111111-1111-1111-1111-111111111111',
+        offsetBytes: 0,
+        lengthBytes: rawBytes.length,
+      },
+    )
+
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        data: base64Data,
+        encoding: 'base64',
+        totalBytes: rawBytes.length,
+      },
+    })
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      const view = artifactWindowViewSchema.parse(result.value)
+      expect(Buffer.from(view.data, 'base64').equals(rawBytes)).toBe(true)
+    }
   })
 })

@@ -76,6 +76,20 @@ export interface ReadWindowResult {
 - If `offsetBytes >= totalBytes || lengthBytes <= 0`, returns `{ data: Buffer.alloc(0), totalBytes }`.
 - File reads use `node:fs/promises` file handles with positional `handle.read(buffer, 0, toRead, offsetBytes)`.
 
+### 5.1 IPC Serialization & Byte Preservation Guarantee
+
+When transferring windowed artifact slices across the Electron IPC boundary (`artifacts:readWindow`), arbitrary binary data MUST NOT be decoded as UTF-8. The IPC response schema encodes the byte window using base64:
+
+```typescript
+export interface ArtifactWindowView {
+  readonly data: string; // Base64-encoded bytes
+  readonly encoding: 'base64'; // Explicit transport encoding indicator
+  readonly totalBytes: number; // Total byte size of artifact on disk
+}
+```
+
+Consumers decoding `data` obtain the exact byte-identical buffer (`Buffer.from(data, 'base64')`).
+
 ---
 
 ## 6. Verification Evidence
@@ -91,3 +105,4 @@ export interface ReadWindowResult {
 | :--- | :--- | :--- | :--- |
 | **AMD-ART-001** | CORRECTION | 2026-09-22 | Corrected metadata schema from `ArtifactRecord` (with `type`) to canonical `ArtifactMetadata` (with `kind: ArtifactKind` matching `src/shared/domain/artifact.ts`). Updated directory layout and relativePath format to `<runId>/<artifactId>-<safeName>`. |
 | **AMD-ART-002** | CORRECTION | 2026-09-22 | Corrected `readWindow` signature to positional `(id, offsetBytes, lengthBytes)` returning `ReadWindowResult { data: Buffer, totalBytes: number }` matching `src/main/artifacts/artifactService.ts` lines 170-191. |
+| **AMD-ART-003** | CLARIFICATION | 2026-09-25 | Clarified IPC transport encoding for `artifacts:readWindow`. Buffers are serialized as base64 (`ArtifactWindowView`) across IPC to guarantee byte preservation for arbitrary binary and tool-spill artifacts without UTF-8 corruption. |

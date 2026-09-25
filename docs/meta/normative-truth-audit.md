@@ -156,7 +156,7 @@ During this audit, the following inaccurate statements across the documentation 
 | `docs/architecture/contracts/artifact-storage.md` | 42 | Schema field `type` | Field is `kind: ArtifactKind` (`artifact.ts` line 36) | Corrected schema to `ArtifactMetadata`; added AMD-ART-001. |
 | `docs/architecture/contracts/artifact-storage.md` | 64–79 | `readWindow(options: ReadWindowOptions)` returning string | `readWindow(id, offset, length)` returning `Buffer` | Corrected method signature and types; added AMD-ART-002. |
 | `docs/architecture/contracts/verification-criteria.md` | 23–31 | Speculative camelCase kinds (`diffScope`, `noUntracked`) | `criterionKindSchema` has kebab-case names (`diff-scope`, etc.) | Corrected enum to `criterionKindSchema`; added AMD-CRIT-001. |
-| `docs/architecture/contracts/verification-criteria.md` | 35–76 | Discriminated interface hierarchy presented as baseline | Baseline uses `completionCriterionSchema` `{ kind, description, params }` | Demarcated proposed PR #204 hierarchy from baseline; added AMD-CRIT-002. |
+| `docs/architecture/contracts/verification-criteria.md` | 35–76 | Discriminated interface hierarchy presented as baseline | Baseline uses `completionCriterionSchema` `{ kind, description, params }` | Corrected to canonical `{ kind, description, params }` schema; added AMD-CRIT-002/003. |
 | `docs/architecture/contracts/execution-protocol.md` | 75–87 | ```FORGE_REPORT wire block only | Canonical sentinels are `FORGE_REPORT_BEGIN`/`END` with JSON | Clarified sentinels vs. fallback format; added AMD-PROTO-001/002. |
 | `docs/project/current-state.md` | 40–125 | Capability tables had only 4 columns | Phase 6 mandates 8 columns | Expanded all tables to 8 required columns. |
 
@@ -168,8 +168,8 @@ During this audit, the following inaccurate statements across the documentation 
    - *Previous state in some informal notes*: Described as in-progress or delivered by PR #204.
    - *Downgraded to*: `PLANNED` / `NOT STARTED` on `main`. The codebase has no React Ink dependency and no terminal rendering framework.
 2. **Discriminated Criterion Interfaces (`BuildCriterion`, etc.)**:
-   - *Previous state in `verification-criteria.md`*: Described as canonical baseline contract.
-   - *Downgraded to*: `PROPOSED (PR #204)`. The `main` baseline implements `completionCriterionSchema` with flexible `params: Record<string, unknown>`.
+   - *Previous state in `verification-criteria.md`*: Described as canonical baseline contract or proposed by PR #204.
+   - *Corrected to*: `REJECTED SPECULATION`. Both `main` and PR #204 implement `completionCriterionSchema` with `{ kind, description, params: Record<string, unknown> }`.
 3. **Automatic Run Replay & Crash Recovery**:
    - *Previous state in `architecture-overview.md`*: Listed as an active engine management capability.
    - *Downgraded to*: `PARTIAL` (orphan child process reaping and worktree reclamation on startup only). Full run execution resumption across crashes is not implemented on `main`.
@@ -197,6 +197,7 @@ In compliance with Phase 4, changes to documents marked `FROZEN` were formally r
 ### 8.2 `docs/architecture/contracts/artifact-storage.md`
 - **AMD-ART-001 (CORRECTION, 2026-09-22)**: Corrected metadata schema from speculative `ArtifactRecord` (with `type`) to canonical `ArtifactMetadata` (with `kind: ArtifactKind` matching `src/shared/domain/artifact.ts`). Updated directory layout and relativePath format to `<runId>/<artifactId>-<safeName>`.
 - **AMD-ART-002 (CORRECTION, 2026-09-22)**: Corrected `readWindow` signature to positional `(id, offsetBytes, lengthBytes)` returning `ReadWindowResult { data: Buffer, totalBytes: number }` matching `src/main/artifacts/artifactService.ts` lines 170–191.
+- **AMD-ART-003 (CLARIFICATION, 2026-09-25)**: Clarified IPC transport encoding for `artifacts:readWindow`. Buffers are serialized as base64 (`ArtifactWindowView`) across the IPC boundary to guarantee byte preservation for arbitrary binary and tool-spill artifacts without UTF-8 corruption.
 
 ### 8.3 `docs/architecture/contracts/verification-criteria.md`
 - **AMD-CRIT-001 (CORRECTION, 2026-09-22)**: Corrected `CriterionKind` values from camelCase speculative names (`diffScope`, `noUntracked`, etc.) to canonical `criterionKindSchema` enum (`'build'`, `'tests'`, `'diff-scope'`, `'no-assumptions'`, `'reviewer-verdict'`, `'file-exists'`, `'custom-command'`) in `src/shared/domain/enums.ts`.

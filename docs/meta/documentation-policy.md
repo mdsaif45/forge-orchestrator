@@ -77,39 +77,69 @@ Applies to rows in the capability matrix (`docs/project/current-state.md`):
 
 ---
 
-## 4. Authority, Reality, and Evidence Precedence
+## 4. Operational Governance: Authority, Evidence, Reporting & Planning
 
-The Forge governance model distinguishes three distinct categories:
-1. **Authority**: What determines what Forge **should** mean.
-2. **Reality**: What the repository source code currently **does**.
-3. **Evidence**: What **proves** the reality claim.
-
-### The Epistemic Flow:
+Forge rejects a naive linear precedence list that collapses authority and evidence into a single rank. Authority and evidence are orthogonal dimensions:
 
 ```
-Product Intent & Axioms (docs/product/)
-         ↓
-Accepted System Architecture (docs/architecture/)
-         ↓
-Frozen Contracts (docs/architecture/contracts/) & Accepted ADRs (docs/decisions/)
-         ↓
-Physical Implementation Reality (src/)
-         ↓
-Verification Evidence (Vitest tests, git diffs, exit codes, CI)
-         ↓
-Current-State Claims (docs/project/current-state.md)
+┌────────────────────────────────────────────────────────────────────────┐
+│                              AUTHORITY                                 │
+│  • Product Intent & Principles (docs/product/)                         │
+│  • Accepted Architecture (docs/architecture/)                          │
+│  • Architectural Decision Records (docs/decisions/)                   │
+│  • Frozen Contracts (docs/architecture/contracts/)                    │
+│                                                                        │
+│  Role: Constrains implementation. Defines what Forge SHOULD be.        │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                         constrains │ evaluates against
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                              EVIDENCE                                  │
+│  • Physical Source Code (src/)                                         │
+│  • Automated Tests (Vitest suites)                                     │
+│  • Runtime & Physical Inspection (exit codes, ConPTY logs)             │
+│  • Git History & Measurements (real git diffs, commits)                │
+│                                                                        │
+│  Role: Establishes what is actually IMPLEMENTED and VERIFIED.          │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    │ informs
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                              REPORTING                                 │
+│  • Current-State Documentation (docs/project/current-state.md)         │
+│  • Verification Baseline (docs/project/verification-baseline.md)       │
+│                                                                        │
+│  Role: Reports measured implementation reality. Cannot override        │
+│        architecture or contracts.                                      │
+└────────────────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────────────┐
+│                              PLANNING                                  │
+│  • Program Roadmap (docs/roadmap/roadmap.md)                           │
+│  • Milestones & Tasks (docs/roadmap/milestones.md)                     │
+│                                                                        │
+│  Role: Describes intended future work. Does NOT authorize architecture.│
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Precedence & Reconciliation Rules:
-- **Frozen contracts constrain implementation**: Contracts are binding specifications across subsystem boundaries. Implementation code cannot unilaterally violate or redefine a frozen contract.
-- **ADRs record accepted decisions**: Architectural decisions define why subsystems are shaped the way they are. Modifying an ADR requires an explicit superseding ADR.
-- **Source code is physical implementation reality**: The code in `src/` represents what is built, but code alone does not constitute architectural authority.
-- **Evidence substantiates reality**: Per Axiom A3 (*Evidence > Claims*), tests, independent git diffs, and compiler exit codes substantiate whether implementation reality satisfies the architecture.
-- **Current-state documentation summarizes verified reality**: `docs/project/current-state.md` and `docs/project/verification-baseline.md` must cite physical source files, test suites, and commit SHAs.
-- **Roadmap does not override implementation reality**: `docs/roadmap/` records planning intent only. The existence of a task ID or milestone does not prove that code exists.
-- **Research does not override architecture or contracts**: Research documents (`docs/research/`, `docs/spikes/`) gather empirical findings. They are informative and carry zero normative force until ratified by an ADR or contract.
-- **Archive has zero current authority**: `docs/archive/` contains historical provenance only.
-- **Discrepancy Rule**: If implementation contradicts a frozen contract, **the discrepancy must be recorded as a defect**; the implementation must not silently redefine the contract, nor may the contract be silently weakened to match accidental code behavior.
+### The Cardinal Invariant
+
+> **Evidence does not outrank authority, and authority does not substitute for evidence.**
+
+- **Authority without evidence is unverified intent**: A contract, ADR, or architecture document defines what must be built, but does not prove that code exists or works.
+- **Evidence without authority is unverified code**: Running code or passing tests prove that software executes, but do not make that behavior architectural truth.
+
+### Operational Governance Rules
+
+1. **Frozen contracts constrain implementation**: Contracts are binding specifications across subsystem boundaries. A contract conflict with code is an **implementation defect** unless the contract is formally amended via an approved Architectural Change Request (ACR).
+2. **Tests cannot silently redefine architecture or contracts**: A passing test proves current execution behavior; it cannot silently redefine an architecture, contract, or domain invariant. If a test asserts behavior contradicting a contract, the test or implementation is defective.
+3. **Current-state cannot promote architecture**: Current-state documentation (`docs/project/current-state.md`) reports measured implementation reality. It cannot promote planned or proposed architecture to accepted architecture.
+4. **Roadmap cannot authorize architecture**: Roadmap documents (`docs/roadmap/`) describe intended sequencing and delivery targets. A roadmap entry or issue ID does not authorize architectural implementation.
+5. **Research cannot authorize architecture**: Research documents (`docs/research/`, `docs/spikes/`) gather empirical findings. They are informative and cannot authorize architecture or alter contracts until ratified by an accepted ADR.
+6. **Discrepancy Rule**: When implementation contradicts a frozen contract, the discrepancy must be recorded as a defect; implementation must not silently redefine the contract, nor may the contract be silently weakened to match accidental code behavior.
+7. **Archive has zero current authority**: `docs/archive/` contains historical provenance only.
 
 ---
 

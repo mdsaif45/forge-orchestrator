@@ -52,36 +52,28 @@ When any conflict or ambiguity arises, the **Canonical Document** designated bel
 
 ---
 
-## 3. Precedence Hierarchy
+## 3. Operational Governance: Authority, Evidence, Reporting & Planning
 
-Authority in Forge does not operate as a naive flat priority list. It separates three distinct categories:
-- **Authority**: What determines what Forge **should** mean.
-- **Reality**: What the repository code currently **does**.
-- **Evidence**: What **proves** the reality claim.
+Forge separates system governance into four distinct operational dimensions rather than a naive linear precedence list:
 
-### The Epistemic Flow:
+- **AUTHORITY** ([`docs/product/`](../product/), [`docs/architecture/`](../architecture/), [`docs/decisions/`](../decisions/), [`docs/architecture/contracts/`](../architecture/contracts/)): Constrains implementation. Defines what Forge should be.
+- **EVIDENCE** (`src/`, automated tests, git diffs, child process exit codes, CI logs): Establishes what is actually implemented and verified.
+- **REPORTING** ([`docs/project/current-state.md`](../project/current-state.md), [`docs/project/verification-baseline.md`](../project/verification-baseline.md)): Reports measured implementation reality. Does not override architecture or contracts.
+- **PLANNING** ([`docs/roadmap/roadmap.md`](../roadmap/roadmap.md), [`docs/roadmap/milestones.md`](../roadmap/milestones.md)): Describes intended future work. Does not authorize architecture.
 
-```
-1. Product Intent & Vision (`docs/product/`)
-         ↓
-2. Accepted System Architecture (`docs/architecture/`)
-         ↓
-3. Frozen Contracts (`docs/architecture/contracts/`) & Accepted ADRs (`docs/decisions/`)
-         ↓
-4. Physical Implementation Reality (`src/`)
-         ↓
-5. Verification Evidence (automated tests, git diffs, child process exit codes, CI logs)
-         ↓
-6. Current-State Claims (`docs/project/current-state.md`)
-```
+### The Cardinal Invariant
 
-### Governing Rules:
-1. **Frozen contracts constrain implementation**: Contracts are binding specifications across subsystem boundaries. Implementation code cannot unilaterally violate or redefine a frozen contract.
-2. **ADRs record accepted decisions**: Architectural decisions define why subsystems are shaped the way they are. Modifying an ADR requires an explicit superseding ADR.
-3. **Source code is physical implementation reality**: Code represents what exists today, but code alone does not constitute architectural authority.
-4. **Evidence substantiates reality**: Per Axiom A3 (*Evidence > Claims*), automated tests, independent git diffs, and exit codes substantiate whether implementation reality satisfies the architecture.
-5. **Current-state documentation summarizes verified reality**: `docs/project/current-state.md` and `docs/project/verification-baseline.md` must cite physical source files, test suites, and commit SHAs.
-6. **Roadmap does not override implementation reality**: `docs/roadmap/` records planning intent only. The existence of a task ID or milestone does not prove that code exists.
-7. **Research does not override architecture or contracts**: Research documents (`docs/research/`, `docs/spikes/`) gather empirical findings. They are informative and carry zero normative force until ratified by an ADR or contract.
-8. **Archive has zero current authority**: `docs/archive/` contains historical provenance only.
-9. **Discrepancy Rule**: If implementation contradicts a frozen contract, **the discrepancy must be recorded as a defect**; the implementation must not silently redefine the contract, nor may the contract be silently weakened to match accidental code behavior.
+> **Evidence does not outrank authority, and authority does not substitute for evidence.**
+
+- **Authority without evidence is unverified intent**: A contract, ADR, or architecture document defines what must be built, but does not prove that code exists or works.
+- **Evidence without authority is unverified code**: Running code or passing tests prove that software executes, but do not make that behavior architectural truth.
+
+### Operational Governance Rules
+
+1. **Contracts constrain implementation**: Contracts are binding specifications across subsystem boundaries. A contract conflict with code is an **implementation defect** unless the contract is formally amended via an approved Architectural Change Request (ACR).
+2. **Tests cannot silently redefine architecture or contracts**: A passing test proves current execution behavior; it cannot silently redefine an architecture, contract, or domain invariant.
+3. **Current-state cannot promote architecture**: Current-state documentation reports measured implementation reality. It cannot promote planned or proposed architecture to accepted architecture.
+4. **Roadmap cannot authorize architecture**: Roadmap entries describe planned delivery targets; they do not authorize architectural implementation.
+5. **Research cannot authorize architecture**: Spikes and field research gather empirical data; they carry zero normative force until ratified by an accepted ADR.
+6. **Discrepancy Rule**: When implementation contradicts a frozen contract, the discrepancy must be recorded as a defect; implementation must not silently redefine the contract, nor may the contract be silently weakened to match accidental code behavior.
+7. **Archive has zero current authority**: [`docs/archive/`](../archive/) contains historical records for provenance only.

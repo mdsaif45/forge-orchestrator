@@ -2,8 +2,8 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Informative Architecture Diagram  
-**Last Updated:** 2026-09-21  
-**Baseline:** `main` @ `1dfb444`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Architecture:** [architecture-overview.md](../architecture-overview.md)  
 
 ---

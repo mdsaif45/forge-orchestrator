@@ -2,8 +2,8 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Operational Testing Guide  
-**Last Updated:** 2026-09-21  
-**Baseline:** `main` @ `1dfb444` (1,125 passing tests)  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged, 1,142 passing tests; 2 manual suites and 3 tests skipped)  
 
 ---
 
@@ -12,7 +12,7 @@
 Forge enforces an evidence-based testing philosophy:
 1. **Physical Git Invariants**: Tests create real, temporary git repositories on disk, initialize commits, create worktrees, and run real `git diff` commands. We do not mock git.
 2. **Deterministic Timeouts**: Process termination tests assert that child process trees are killed cleanly within configured timeout windows.
-3. **Zero Test Regressions**: All 1,125 tests must report green in CI. No tests may be weakened, commented out, or skipped without an approved ADR.
+3. **Zero Test Regressions**: All 1,142 automated tests must report green in CI (2 manual test files and 3 tests skipped). No tests may be weakened, commented out, or skipped without an approved ADR.
 
 ---
 
@@ -20,7 +20,7 @@ Forge enforces an evidence-based testing philosophy:
 
 ### Running Tests with Vitest
 ```bash
-# Run all 96 test files once
+# Run all 97 automated test files once (2 manual suites skipped by default)
 npm test
 
 # Run tests in watch mode during development

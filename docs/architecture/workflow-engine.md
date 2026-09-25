@@ -2,26 +2,18 @@
 
 **Status:** IMPLEMENTED (Linear Pipeline) / PROPOSED (Generic Graph Engine)  
 **Authority:** Normative Workflow Architecture  
-**Last Updated:** 2026-09-22  
-**Baseline:** `main` @ `1dfb444`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Architecture:** [execution-model.md](execution-model.md), [evidence-and-verification.md](evidence-and-verification.md)  
 **Related Specifications:** `docs/DOMAIN.md`  
 **Related Implementation:** `src/main/runtimes/orchestrator.ts`, `src/shared/domain/transitions.ts`  
 
 ---
 
-## 1. The Dual-Phase Engine Architecture
+## 1. CURRENT IMPLEMENTATION
 
-Forge's workflow engine manages how multi-agent engineering workflows progress from an initial goal to completed code. The architecture is split across two evolutionary phases:
-
-1. **Current Implementation (Linear Multi-Stage Loop)**: A battle-tested, state-machine-driven pipeline enforcing strict sequential roles (planner → decision gate → implementer → verification → reviewer).
-2. **Target Roadmap (Generic DAG Graph Engine)**: A visual, modular graph platform allowing arbitrary execution nodes, parallel branches, and dynamic conditional edges.
-
----
-
-## 2. Current Implementation: The State Machine Pipeline
-
-The current engine implements the state machine formally defined in `src/shared/domain/transitions.ts` and `docs/DOMAIN.md`:
+### 1.1 The State Machine Pipeline
+The current workflow engine implements a deterministic, sequential state machine formally defined in `src/shared/domain/transitions.ts` and generated in `docs/DOMAIN.md`:
 
 ```
                     DISCOVERY
@@ -49,54 +41,49 @@ The current engine implements the state machine formally defined in `src/shared/
    any state ──(policy violation)─> HALTED_POLICY
 ```
 
-### Invariants of the Linear Machine
+### 1.2 Invariants of the Linear Machine
 - **Transitions are Data**: Defined as a static lookup table in `src/shared/domain/transitions.ts`. Illegal transitions throw immediately.
-- **Write-Ahead Transitions**: An event recording the transition is committed to SQLite **before** triggering child processes.
-- **Terminal Guarantees**: Any workflow ends deterministically in one of four terminal states: `DONE`, `HALTED_LIMIT`, `HALTED_POLICY`, or `CANCELLED`.
+- **Write-Ahead Transitions**: An event recording the state transition is committed to SQLite `workflow_events` **before** triggering child processes.
+- **Terminal Guarantees & State Mapping**:
+  - `WorkflowState` ends deterministically in one of four terminal states: `DONE`, `HALTED_LIMIT`, `HALTED_POLICY`, or `CANCELLED`.
+  - The enclosing `RunStatus` (`src/shared/domain/run.ts`) maps these terminal states: `DONE` maps to `completed` (exit code 0); `HALTED_LIMIT` and `HALTED_POLICY` map to `halted` (exit code 2); unrecoverable system or verification failures map to `failed` (exit code 1).
+
+### 1.3 Loop Guards & Termination Guarantees (Axiom A5)
+1. **Iteration Caps**: Each workflow instance declares `maxIterations` (default: 3). The counter increments on each `correctionStarted` transition. If an agent fails verification or review after reaching the cap, the engine transitions to `HALTED_LIMIT`.
+2. **No-Progress Diff Detection**: To prevent ping-pong cycling between identical patches, Forge computes the SHA-256 hash of the unified git diff at each iteration:
+   ```typescript
+   if (currentDiffHash === priorDiffHash) {
+     haltWorkflow('NO_PROGRESS', 'Identical patch produced across consecutive correction loops');
+   }
+   ```
+3. **Wall-Clock & Process Timeouts**: Every tool execution, child process, and overall stage is bounded by configurable timeouts. If an agent stalls or enters an infinite loop, `ProcessManager` terminates the entire child process tree.
+
+### 1.4 Human Control Gates
+1. **Decision Lock Gate (`DECISIONS_LOCKED`, Axiom A4)**: An agent cannot transition from planning to implementation on its own authority. Transition requires that the planner emits proposed decisions, the human reviews and locks at least one decision in SQLite, and the engine verifies the locked decision before allowing the state transition.
+2. **Ambiguity Pause Gate (`AWAITING_USER`, Axiom A2)**: When an agent encounters ambiguous requirements, it raises an `OpenQuestion`. The engine captures the current state in `workflow.resumeState`, transitions to `AWAITING_USER`, and pauses execution until the human provides a structured response.
 
 ---
 
-## 3. Loop Guards & Termination Guarantees (Axiom A5)
+## 2. PLANNED / ROADMAP DIRECTION (Milestone M6 — NOT IMPLEMENTED)
 
-Unbounded agent loops consume infinite resources without converging. Forge implements four defense layers:
-
-### 1. Iteration Caps
-Each workflow instance declares `maxIterations` (default: 3). The counter increments on each `correctionStarted` transition. If an agent fails verification or review after reaching the cap, the engine transitions to `HALTED_LIMIT`.
-
-### 2. No-Progress Diff Detection
-A capped loop is insufficient defense against cycling agents. If two agents ping-pong between identical implementations (e.g. adding and removing the same comment), they burn through the iteration cap without making progress.
-Forge computes the SHA-256 hash of the unified git diff at each iteration:
-```typescript
-if (currentDiffHash === priorDiffHash) {
-  haltWorkflow('NO_PROGRESS', 'Identical patch produced across consecutive correction loops');
-}
-```
-
-### 3. Wall-Clock & Process Timeouts
-Every tool execution, child process, and overall stage is bounded by configurable timeouts. If an agent stalls or enters an infinite loop, `ProcessManager` terminates the entire process tree.
+The following concepts represent roadmap planning targets from `docs/roadmap/milestones.md` (M6: Generic DAG Workflow Engine). **There is no accepted ADR or frozen contract authorizing DAG execution.** These items are roadmap intent only and do not authorize architectural implementation:
+- **Declarative Graph Schemas (M6 Planned)**: Proposed future workflow templates defining directed acyclic graphs (DAGs) using declarative node schemas (`workflowGraph.ts`) with cycle detection and topological sorting.
+- **Role-Based Step Dispatch (M6 Planned)**: Proposed binding of graph nodes to abstract roles (`planner`, `implementer`, `verifier`, `reviewer`), preserving the decoupled `IAgentRuntime` boundary.
+- **Preserved Safety Invariants (Binding Constraint)**: If a DAG engine is formally accepted via an ADR in the future, loop bounds (Axiom A5), human decision gates (Axiom A4), and physical evidence verification (Axiom A3) must remain strictly binding across any graph topology.
 
 ---
 
-## 4. Human Control Gates
+## 3. PROPOSED / NOT IMPLEMENTED
 
-### 1. Decision Lock Gate (`DECISIONS_LOCKED`)
-An agent cannot transition from planning to implementation on its own authority. Transitioning requires that:
-1. The planner emits proposed decisions.
-2. The human user reviews and explicitly **locks** at least one decision in SQLite.
-3. The engine verifies the existence of a locked decision before allowing the state transition.
-
-### 2. Ambiguity Pause Gate (`AWAITING_USER`)
-When an agent encounters underspecified requirements, it cannot guess (Axiom A2). It raises an `OpenQuestion` and triggers the `questionRaised` event:
-- The engine captures the current state into `workflow.resumeState`.
-- The run enters `AWAITING_USER` and halts active execution.
-- When the human submits an answer, the engine resumes exactly into `resumeState`.
+The following capabilities are proposed future targets and **are NOT implemented**:
+- **Generic DAG Execution Engine**: Dynamic execution of arbitrary branch topologies (`dagExecutor.ts` was an early exploratory prototype, not active in production workflows).
+- **Parallel Worktree Branching**: Spawning concurrent agent tasks in isolated git worktrees with automated branch joins.
+- **Dynamic Graph Mutation**: Allowing running workflows to insert or bypass graph nodes mid-flight.
+- **Visual Node Graph Editor**: An interactive visual canvas in the desktop UI for building arbitrary graphs.
 
 ---
 
-## 5. Evolution to Generic DAG Workflows (Roadmap M6)
+## 4. UNKNOWN / DESIGN QUESTIONS
 
-As specified in Epic #164 and Milestone M6, Forge is evolving toward a modular DAG workflow engine:
-- **Node Primitives**: Individual steps become modular nodes (`AgentNode`, `CommandNode`, `GateNode`, `ScriptNode`).
-- **Graph Topology**: Defined by declarative JSON/YAML schemas supporting acyclic directed graphs.
-- **Parallelism**: Independent branches (such as concurrent test runners or multi-perspective reviewers) execute in parallel worktrees.
-- **Preserved Safety**: The loop guards, scope boundaries, and human gates developed for the linear machine remain binding across graph topologies.
+- **Q-WF-01 (Parallel Worktree Merges)**: How should parallel branch executions resolve concurrent file edits before joining a verification node?
+- **Q-WF-02 (Graph Checkpointing)**: What is the minimal SQLite schema required to pause and resume arbitrary graph states without storing unbounded JSON blobs?

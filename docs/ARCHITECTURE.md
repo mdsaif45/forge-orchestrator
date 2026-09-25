@@ -2,13 +2,16 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Architectural Hub & Navigation Bridge  
-**Last Updated:** 2026-09-21  
-**Baseline:** `main` @ `1dfb444`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Modular Architecture Root:** [`docs/architecture/`](architecture/README.md)  
 
 ---
 
 ## 1. Overview & Modular Documentation Structure
+
+> [!NOTE]
+> This root document serves solely as an entry point, high-level orientation, and navigation bridge. It contains no independent normative authority. If any statement in this document conflicts with a modular document in [`docs/architecture/`](architecture/README.md) (such as [`architecture-overview.md`](architecture/architecture-overview.md) or the formal contracts in [`contracts/`](architecture/contracts/)), the dedicated modular document is the sole canonical authority.
 
 Forge's architecture documentation has been refactored from a monolithic document into a modular, authoritative architecture suite located in [`docs/architecture/`](architecture/README.md).
 

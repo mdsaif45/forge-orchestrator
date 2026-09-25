@@ -2,8 +2,8 @@
 
 **Status:** ACCEPTED  
 **Authority:** Canonical Workflow Specification  
-**Last Updated:** 2026-09-21  
-**Baseline:** `main` @ `1dfb444`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Architecture:** [execution-model.md](../architecture/execution-model.md), [workflow-engine.md](../architecture/workflow-engine.md)  
 **Related Product Documents:** [north-star.md](north-star.md), [vision.md](vision.md)  
 

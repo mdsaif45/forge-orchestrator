@@ -2,8 +2,8 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Normative Concurrency Architecture  
-**Last Updated:** 2026-09-22  
-**Baseline:** `main` @ `1dfb444`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Architecture:** [agent-runtime.md](agent-runtime.md), [security-and-trust.md](security-and-trust.md)  
 **Related Research:** [cli-field-guide.md](../research/cli-field-guide.md)  
 **Related Implementation:** `src/main/process/processManager.ts`, `src/main/process/orphans.ts`, `src/main/terminal/sessionRegistry.ts`  

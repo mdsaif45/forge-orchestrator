@@ -2,10 +2,11 @@
 
 ```
 Project:            Forge — AI Engineering Control Plane
-Current milestone:  Phase 2: Observability & Criteria (PR #204)
-Overall status:     Headless Core, Native Loop, CLI, and SQLite persistence merged.
-Last updated:       2026-09-22
-Evidence baseline:  main @ 1dfb444 (PR #203 merged) — 1,125 tests passing
+Current milestone:  Milestone M5 Verification & Criteria COMPLETE on main
+Overall status:     Headless Core, Native Loop, CLI, SQLite persistence, and Criteria Evaluation merged.
+Last updated:       2026-09-25
+Evidence baseline:  main @ 5987501 (PR #204 merged) — 1,142 tests passing
+Active branch:      docs/crit-001-post-merge-bookkeeping @ 9719092
 ```
 
 ---
@@ -23,7 +24,7 @@ M3  Forge CLI 1.0                 ███████░░░  IN PROGRESS PR
         ↓
 M4  State, Events & Persistence   ██████████  DONE        PR #203 merged (STATE-001)
         ↓
-M5  Verification & Criteria       ███████░░░  IN PROGRESS PR #204 (CRIT-001) open
+M5  Verification & Criteria       ██████████  DONE        PR #204 (CRIT-001) & PR #206 (VERIFY-001) merged
         ↓
 M6  Generic Workflow Graph        ░░░░░░░░░░  NOT STARTED Types defined; engine blocked on M5
         ↓
@@ -45,7 +46,7 @@ M9  Production Polish & Scale     ░░░░░░░░░░  NOT STARTED
 | **M2 Native Agent** | **DONE** | Native in-process tool loop (`taskRunner.ts`, `agentLoop.ts`), six tools in `providers/tools.ts`. | — | Streaming artifact ingestion for large tool output (`AGENT-002`). |
 | **M3 Forge CLI** | **IN PROGRESS** | Standalone `bin/forge.ts`, NDJSON stream, exit codes 0/1/2. | — no TUI work is in flight; see Q-IL-01. | Terminal TUI (`CLI-004`) not started. |
 | **M4 State & Storage** | **DONE** | SQLite `RunStore`, `EventStore`, `ArtifactStore`, `ArtifactService` including `readWindow()` (PR #203). | — | Typed IPC event streaming. |
-| **M5 Verification** | **IN PROGRESS** | Physical diff reconciliation, `ChangeSet` snapshotting, completion-criteria evaluation, independent build/test runner (`verifier.ts`). | Criterion evaluator (PR #204, open). | — |
+| **M5 Verification** | **DONE** | Physical diff reconciliation, `ChangeSet` snapshotting, completion-criteria evaluation & task loop integration, independent build/test runner (`verifier.ts`), untracked/binary reconciliation. | — | Adversarial edge-case verifier (`VERIFY-003`). |
 | **M6 Workflow Graph** | **NOT STARTED** | Domain types declared. | — | DAG execution engine. |
 | **M7 Human Control** | **NOT STARTED** | ConPTY terminal session spawner validated in spikes. | — | Attach UI pane to running session. |
 | **M8 Provider Ecosystem**| **NOT STARTED** | Claude/Antigravity adapters prototyped. | — | Data-driven provider config. |
@@ -54,6 +55,11 @@ M9  Production Polish & Scale     ░░░░░░░░░░  NOT STARTED
 ---
 
 ## 3. Major Slice History & Merged PRs
+
+### 2026-09-25: PR #204 (CRIT-001) merged (`5987501`)
+- **Title:** `feat(criteria, cli): implement CRIT-001 criteria evaluation & runs/artifacts inspection CLI`
+- **Delivered:** CRIT-001 criteria evaluator engine and `taskRunner` execution loop integration; `forge runs` and `forge artifacts` inspection CLI with project scoping, UUID boundary validation, and byte-preserving base64 IPC windowed reading.
+- **Tests:** 97 test files passed, 1,142 tests passed, 3 skipped.
 
 ### 2026-09-12: PR #203 (STATE-001) merged (`1dfb444`)
 - **Title:** `feat(state): implement STATE-001 durable run, step, artifact, and event store`

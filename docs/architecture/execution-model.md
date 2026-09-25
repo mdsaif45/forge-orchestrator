@@ -2,8 +2,8 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Normative Execution Architecture  
-**Last Updated:** 2026-09-22  
-**Baseline:** `main` @ `1dfb444`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Architecture:** [architecture-overview.md](architecture-overview.md), [state-and-storage.md](state-and-storage.md), [evidence-and-verification.md](evidence-and-verification.md)  
 **Related Contracts:** [execution-protocol.md](contracts/execution-protocol.md), [run-and-step-lifecycle.md](contracts/run-and-step-lifecycle.md)  
 

@@ -3,7 +3,7 @@
 **Status:** PROPOSED  
 **Authority:** Planning Truth  
 **Last Updated:** 2026-09-21  
-**Baseline:** `main` @ `1dfb444`  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Architecture:** [architecture-overview.md](../architecture/architecture-overview.md)  
 **Related Progress:** [current-state.md](../project/current-state.md)  
 
@@ -77,7 +77,7 @@
 
 | ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **CRIT-001** | NEW | P0 | **IN-PROGRESS** | EVIDENCE-001 | Criterion evaluator engine (`criterion.ts` on the PR branch), extending `completion.ts`. | Evaluator passes/fails with precedence tests. | PR #204 (open, CI green) |
+| **CRIT-001** | NEW | P0 | **DONE** | EVIDENCE-001 | Durable completion criteria evaluation & task loop integration. | Criterion evaluator engine, task loop evaluation, UNKNOWN!=PASS, evidence persistence, policy-halt preservation. | PR #204 (`5987501`) |
 | **VERIFY-001** | NEW | P0 | **DONE** | EVIDENCE-001 | Physical diff reconciliation enhancements (untracked & binary). | `--untracked-files=all` collection, path codepoint sorting, nested & binary scope halts with status `halted`. | PR #206 |
 | **VERIFY-002** | NEW | P1 | **DONE** | EVIDENCE-001 | Independent test & build child process execution runner. | `src/main/evidence/verifier.ts`, 14 tests in `verifier.test.ts`. | merged before this baseline |
 | **VERIFY-003** | NEW | P2 | **READY** | VERIFY-001 | Adversarial edge-case verifier agent for boundary regressions. | Fails on intentional edge-case corruptions. | — |

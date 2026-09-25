@@ -2,10 +2,10 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Normative Interface Architecture  
-**Last Updated:** 2026-09-21  
-**Baseline:** `main` @ `1dfb444`  
-**Related Architecture:** [architecture-overview.md](architecture-overview.md), [execution-model.md](execution-model.md)  
-**Related Implementation:** `bin/forge.ts`, `src/main/cli.ts`, `src/shared/ipc.ts`, `src/main/ipc/router.ts`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
+**Related Architecture:** [architecture-overview.md](architecture-overview.md), [execution-model.md](execution-model.md), [contracts/artifact-storage.md](contracts/artifact-storage.md)  
+**Related Implementation:** `bin/forge.ts`, `src/main/cli.ts`, `src/shared/ipc.ts`, `src/main/ipc/router.ts`, `src/main/ipc/handlers.ts`  
 
 ---
 
@@ -38,16 +38,27 @@ forge status --cwd . --json
 # Inspect or configure active AI model and provider
 forge models list
 forge models set ollama qwen2.5-coder:7b
+
+# List and inspect runs (project-scoped by default)
+forge runs [--status <sfc>] [--limit <n>] [--all] [--json]
+forge runs inspect <runId> [--json]
+forge runs events <runId> [--from <seq>] [--json]
+
+# Inspect stored artifacts and stream byte windows
+forge artifacts [list] <runId> [--json]
+forge artifacts cat <artifactId> [--offset <n>] [--length <n>]
 ```
 
-Planned commands (future milestones):
-```bash
-# List recent runs and statuses (Planned)
-forge runs --data-dir .forge
+#### Strict Project Scoping for `forge runs`
+`forge runs` is strictly project-scoped by default:
+- Without `--all`, `forge runs` resolves the current repository against registered Forge projects. If no project matches, it exits with an explicit error and code `1`. It never silently broadens to an unconstrained global query.
+- With `--all`, `forge runs` explicitly queries runs across all registered projects.
+- `runId` arguments are validated at the CLI boundary via `runIdSchema.parse()` before querying storage.
 
-# Inspect stored artifacts for a run (Planned)
-forge artifacts <run-id>
-```
+#### Raw Byte Preservation for `forge artifacts`
+- Storage holds raw bytes (`Buffer`) via `ArtifactService.readWindow()`.
+- When outputting to an interactive terminal, `forge artifacts cat` safely displays readable text or provides piping hints.
+- When piped (e.g. `forge artifacts cat <id> > output.bin`), raw binary bytes are written directly to stdout without UTF-8 corruption.
 
 ### Clean Exit Code Contract
 The CLI adheres to a deterministic, POSIX-compliant exit code contract:
@@ -87,6 +98,19 @@ Electron's `contextBridge` serializes thrown exceptions structurally:
 - If a custom error class (e.g. `ForgeIpcError`) is thrown, `contextBridge` strips custom properties (such as `.code` and `.details`) and resets the constructor name to generic `"Error"`.
 - If a plain result envelope `{ ok: false, error: { code, message } }` is returned, **all properties survive intact**.
 - Therefore, handlers return an `IpcResult<T>` envelope. `src/renderer/src/ipc.ts` unwraps the envelope and reconstructs the typed error on the renderer side, preserving stack traces at the calling UI component.
+
+### Artifact Streaming Channels (`artifacts:*`)
+
+The IPC router exposes windowed streaming for stored artifacts:
+- `artifacts:listForRun`: Returns metadata views (`ArtifactMetadataView[]`) for all artifacts belonging to a run.
+- `artifacts:getMetadata`: Returns metadata for a single artifact.
+- `artifacts:readWindow`: Reads a window of bytes `[offsetBytes, offsetBytes + lengthBytes)`.
+
+#### Binary Transfer Across ContextBridge
+To prevent lossy UTF-8 conversion across Electron's `contextBridge`:
+- The service layer (`ArtifactService.readWindow()`) returns raw `Buffer` and total file byte count.
+- The IPC handler base64-encodes the byte window: `{ data: string, encoding: 'base64', totalBytes: number }`.
+- The renderer decodes the base64 payload as needed for visualization, ensuring that arbitrary binary artifacts (e.g. SQLite snapshots, images, compiled binaries) are preserved with zero corruption.
 
 ### The Capability Checklist
 Adding an IPC capability requires four coordinated steps:

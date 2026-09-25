@@ -2,8 +2,8 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Normative Specification  
-**Last Updated:** 2026-09-21  
-**Baseline:** `main` @ `1dfb444`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Contract:** [execution-protocol.md](../architecture/contracts/execution-protocol.md)  
 **Related Implementation:** `src/shared/domain/protocol.ts`, `src/main/runtimes/exchange.ts`  
 

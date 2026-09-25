@@ -2,8 +2,8 @@
 
 **Status:** FROZEN  
 **Authority:** Canonical Protocol Specification  
-**Last Updated:** 2026-09-22  
-**Baseline:** `main` @ `1dfb444`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Architecture:** [agent-runtime.md](../agent-runtime.md), [execution-model.md](../execution-model.md)  
 **Related Specifications:** `docs/FORGE_RULES.md`  
 **Related Implementation:** `src/shared/domain/protocol.ts`, `src/main/core/taskRunner.ts`  
@@ -111,3 +111,4 @@ FORGE_REPORT_END
 | :--- | :--- | :--- | :--- |
 | **AMD-PROTO-001** | CLARIFICATION | 2026-09-22 | Documented the canonical `FORGE_REPORT_BEGIN` / `FORGE_REPORT_END` wire sentinels from `src/shared/domain/protocol.ts` lines 39-40, clarifying that markdown fences are a convenience fallback supported by `taskRunner.ts`. |
 | **AMD-PROTO-002** | CORRECTION | 2026-09-22 | Verified that `AgentTaskInput.role` uses canonical `roleSchema` (`'planner' \| 'implementer' \| 'reviewer' \| 'tester' \| 'security-reviewer' \| 'system' \| 'user'`). |
+| **AMD-PROTO-003** | STABILIZATION | 2026-09-25 | Re-baselined contract to `main @ 5987501` (PR #204 merged). Confirmed execution protocol contracts remain unchanged. |

@@ -2,10 +2,10 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Normative Evidence Architecture  
-**Last Updated:** 2026-09-22  
-**Baseline:** `main` @ `1dfb444`  
-**Related Architecture:** [execution-model.md](execution-model.md), [agent-runtime.md](agent-runtime.md)  
-**Related Implementation:** `src/main/evidence/verifier.ts`, `src/shared/domain/reconcile.ts`, `src/main/git/gitService.ts`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
+**Related Architecture:** [execution-model.md](execution-model.md), [agent-runtime.md](agent-runtime.md), [contracts/verification-criteria.md](contracts/verification-criteria.md)  
+**Related Implementation:** `src/main/evidence/verifier.ts`, `src/shared/domain/reconcile.ts`, `src/shared/domain/completion.ts`, `src/shared/domain/criterion.ts`, `src/main/git/gitService.ts`  
 
 ---
 
@@ -47,8 +47,9 @@ Forge executes the `git` binary directly using `child_process.execFile` with no 
 
 ### Physical Reconciliation (`src/shared/domain/reconcile.ts`)
 After an agent completes an implementation step, Forge runs `GitService.diff()` against the base commit SHA. The output is reconciled against the agent's report:
-- **Scope Enforcement**: If the diff touches any file outside `allowedPaths`, the engine halts immediately with `HALTED_POLICY`. A scope breach cannot be corrected by an agent; it indicates an unauthorized access attempt.
-- **Untracked File Detection**: Standard diffs often ignore untracked files. Forge checks `git status --porcelain` to ensure new files created by the agent are caught and evaluated against `allowedPaths`.
+- **Scope Enforcement**: If the diff touches any file outside `allowedPaths` or matches `forbiddenPaths`, the engine halts immediately with `HALTED_POLICY`. A scope breach cannot be corrected by an agent; it indicates an unauthorized access attempt.
+- **Untracked File Detection (`VERIFY-001`)**: Standard diffs often ignore untracked files. Forge queries `git status --porcelain` to ensure new files created by the agent are caught and evaluated against `allowedPaths`. Untracked files outside scope trigger an immediate policy halt.
+- **Binary File Handling (`VERIFY-001`)**: Binary additions and modifications are detected via status and diff headers without attempting lossy UTF-8 text reconciliation. Their presence is tracked and checked against the scope policy.
 - **The "Liar Scenario"**: If an agent claims it changed 3 files but git shows zero changes, or claims tests pass when they failed, Forge logs a `DISCREPANCY` event. A lie does not halt the workflow — it routes back into `CORRECTION_REQUIRED` with physical proof of the omission.
 
 ---
@@ -65,22 +66,70 @@ Forge executes user-configured build and test commands via dedicated evidence ru
 
 ---
 
-## 4. Completion Criteria (`src/shared/domain/completion.ts`)
+## 4. Completion Criteria (`src/shared/domain/criterion.ts`, `completion.ts`)
 
-A step or task defines explicit criteria that must be satisfied. Forge evaluates seven distinct criteria kinds:
+A step or task defines explicit criteria that must be satisfied before work can be declared complete. Forge evaluates seven canonical criteria kinds (`criterionKindSchema` in `src/shared/domain/enums.ts`):
 
-| Kind | Target Verified | Evaluator Logic |
+| Kind | Target Verified | Evaluator Logic (`assessCompletion`) |
 | :--- | :--- | :--- |
-| `build` | Build command execution | Exit code === 0 |
-| `test` | Test suite execution | Exit code === 0 (and no failures in test log) |
-| `diffScope` | Physical file paths changed | All modified files match `allowedPaths` |
-| `noUntracked` | Repository clean state | No unexpected untracked files left on disk |
-| `filePresence` | Mandatory file creation | Target path exists on disk and is non-empty |
-| `branchCheck` | Target git branch | Current HEAD matches expected worktree branch |
-| `custom` | Custom script verification | User script exits with 0 |
+| `build` | Build command execution | Verified from `EvidenceArtifact` of kind `'build'`; exit code === 0 |
+| `tests` | Test suite execution | Verified from `EvidenceArtifact` of kind `'tests'`; exit code === 0 |
+| `diff-scope` | Physical file paths changed | Verified from `reconciliation.inScope` (`allowedPaths` / `forbiddenPaths`) |
+| `no-assumptions` | Agent unverified assumptions | Verified from `input.report.assumptions.length === 0` |
+| `reviewer-verdict` | Independent review step | Verified from `input.reviewVerdict === 'pass'` |
+| `file-exists` | Mandatory file presence | Verified from `existingPaths` containing all paths in `params.paths` |
+| `custom-command` | Custom script verification | Verified from `EvidenceArtifact` matching `params.command`; exit code === 0 |
 
-### Evaluator Ordering
-Evaluation follows a strict precedence: **fail outranks unknown**. If any criterion fails, the overall verdict is `fail`. A verdict of `pass` is strictly awarded if and only if `every criterion === 'pass'`.
+### Evidence Evaluation Flow
+
+The end-to-end evaluation pipeline operates as follows:
+
+```
+┌──────────────┐     1. Criteria declared
+│     Task     │─────────────────────────────────────────────────────────────┐
+└──────────────┘                                                             │
+                                                                             ▼
+┌──────────────┐     2. Commands executed, git diff measured    ┌─────────────────────────┐
+│ System/Agent │───────────────────────────────────────────────▶│ Physical Evidence /     │
+└──────────────┘                                                │ ReconcileResult         │
+                                                                └────────────┬────────────┘
+                                                                             │
+                                                                ┌────────────▼────────────┐
+                                                                │   assessCompletion()    │
+                                                                │ (src/shared/domain/     │
+                                                                │  completion.ts)         │
+                                                                └────────────┬────────────┘
+                                                                             │
+                                                                ┌────────────▼────────────┐
+                                                                │   CriterionResult[]     │
+                                                                │ • verdict, reason,      │
+                                                                │   evidenceId            │
+                                                                └────────────┬────────────┘
+                                                                             │
+                                                                ┌────────────▼────────────┐
+                                                                │      StepEvidence       │
+                                                                │ • Persisted in SQLite   │
+                                                                │ • Emitted in step event │
+                                                                └─────────────────────────┘
+```
+
+1. **Criteria Declaration**: The task defines `completionCriteria: CompletionCriterion[]` on `Task` (`src/shared/domain/task.ts`).
+2. **Physical Execution**: Forge executes build/test commands via `Verifier` (`src/main/evidence/verifier.ts`) and performs git reconciliation via `reconcile()` (`src/shared/domain/reconcile.ts`).
+3. **Pure Evaluation**: `assessCompletion()` in `src/shared/domain/completion.ts` compares physical evidence artifacts and reconciliation results against the criteria.
+4. **Structured Verdicts**: Each criterion produces a `CriterionResult` (`src/shared/domain/criterion.ts`) containing:
+   - `kind`: Criterion kind enum
+   - `description`: Human-readable description
+   - `verdict`: `'pass' | 'fail' | 'unknown'`
+   - `reason`: Authoritative explanation citing exit codes, missing files, or reconciliation status
+   - `evidenceId`: Identifier of the backing `EvidenceArtifact`, if applicable
+5. **Step Evidence Persistence**: Results are packaged into `StepEvidence` (`src/shared/domain/evidence.ts`) and persisted in SQLite via `evidenceStore`.
+6. **Workflow Routing**: If any criterion fails or remains unknown, the workflow routes to `CORRECTION_REQUIRED` or halts per policy.
+
+### Evaluator Precedence: Fail Outranks Unknown
+Evaluation follows a strict precedence: **fail outranks unknown, and unknown outranks pass**:
+1. If **any** criterion has `verdict === 'fail'`, the overall verdict is `fail`.
+2. If any criterion has `verdict === 'unknown'` and none failed, the overall verdict is `unknown`. An unverified criterion is never assumed to pass (Axiom A3).
+3. The overall verdict is `pass` **if and only if** every criterion has `verdict === 'pass'`.
 
 ---
 

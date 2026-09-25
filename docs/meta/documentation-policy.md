@@ -3,7 +3,7 @@
 **Status:** FROZEN  
 **Authority:** Canonical Documentation Policy  
 **Last Updated:** 2026-09-22  
-**Baseline:** `main` @ `1dfb444`  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Applies to:** All files within `docs/` and root documentation  
 
 ---
@@ -37,65 +37,123 @@ Every contributor and agent modifying Forge documentation must adhere to these t
 
 ---
 
-## 3. Status Vocabulary
+## 3. Multi-Dimensional Status Vocabulary
 
-Every normative document (Architecture, Specifications, Contracts, ADRs, Milestones) must declare exactly one status from this lifecycle:
+To eliminate ambiguity, Forge documentation strictly separates three orthogonal status dimensions. A document or task must never use an overloaded single status field to mean three different things.
+
+### Dimension 1: Document Lifecycle Status
+Applies to entire documentation files in metadata headers:
 
 | Status | Definition | Normative Force |
 | :--- | :--- | :--- |
 | **`DRAFT`** | Under active composition. May contain incomplete sections, open questions, and unverified hypotheses. | Non-binding |
-| **`PROPOSED`** | Fully drafted and internally consistent. Submitted for architectural review or team consideration. | Non-binding |
-| **`ACCEPTED`** | Formally decided and approved. Serves as the binding specification for subsequent implementation. | **Binding** |
+| **`PROPOSED`** | Fully drafted and internally consistent. Submitted for architectural review. Must carry a `DESIGN GATE` warning banner; **not permission to implement**. | Non-binding |
+| **`ACCEPTED`** | Formally decided and approved by the project owner. Serves as normative architecture for subsequent work. | **Binding** |
 | **`FROZEN`** | Sealed contract or specification. Invariants and interfaces are immutable; changes require an approved ACR. | **Binding** |
-| **`IMPLEMENTED`** | Normative architecture or ADR whose implementation is fully merged into `main` and verified by tests. | **Binding** |
+| **`IMPLEMENTED`** | Normative architecture or ADR whose core specification is fully merged into `main` and verified by tests. | **Binding** |
 | **`SUPERSEDED`** | Previously accepted or implemented, but replaced by a newer decision or contract. Must link to replacement. | Non-binding (Historical) |
 | **`DEPRECATED`** | Scheduled for removal. Retained only for temporary backward compatibility during migrations. | Non-binding (Transitional) |
 | **`ARCHIVED`** | Non-normative historical record preserved solely for provenance, forensic audits, or reference. | Non-binding (Archival) |
 
----
+### Dimension 2: Project & Milestone State
+Applies to roadmap issues and task items (`docs/roadmap/`):
+- **`DONE`**: Merged to `main` and proven by passing automated tests and physical evidence.
+- **`IN-PROGRESS`**: Actively under development in an open PR branch.
+- **`READY`**: Fully specified, all upstream dependencies satisfied, ready for implementation.
+- **`BLOCKED`**: Waiting on an incomplete upstream dependency or architectural gate.
+- **`NOT STARTED`**: Planned work for future milestones, not yet under active development.
+- **`DEFERRED`**: Formally postponed with documented technical rationale.
 
-## 4. Authority & Precedence Hierarchy
+### Dimension 3: Implementation Capability State
+Applies to rows in the capability matrix (`docs/project/current-state.md`):
+- **`VERIFIED`**: Implemented on `main` and demonstrated by passing automated tests named in the Evidence column.
+- **`IMPLEMENTED`**: Code exists on `main`, but no automated test pins the specific behavior claimed.
+- **`PARTIAL`**: Some part exists on `main`; the rest is open. The gap is stated explicitly.
+- **`PLANNED`**: No implementation on `main`. Types or scaffolding may exist.
+- **`UNKNOWN`**: Genuinely undetermined state; must be investigated before claiming completion.
+- **`SUPERSEDED`**: Replaced by a different implementation approach.
 
-When statements conflict across repository artifacts, authority is resolved in strict hierarchical order:
-
-```
-                  ┌──────────────────────────────┐
-                  │ 1. Product Intent & Vision   │  docs/product/
-                  └──────────────┬───────────────┘
-                                 │
-                  ┌──────────────▼───────────────┐
-                  │ 2. System Architecture       │  docs/architecture/
-                  └──────────────┬───────────────┘
-                                 │
-                  ┌──────────────▼───────────────┐
-                  │ 3. Specifications & Contracts│  docs/specifications/ , contracts/
-                  └──────────────┬───────────────┘
-                                 │
-                  ┌──────────────▼───────────────┐
-                  │ 4. ADR Decisions             │  docs/decisions/
-                  └──────────────┬───────────────┘
-                                 │
-                  ┌──────────────▼───────────────┐
-                  │ 5. Physical Implementation   │  src/
-                  └──────────────┬───────────────┘
-                                 │
-                  ┌──────────────▼───────────────┐
-                  │ 6. Verification & Evidence   │  vitest, git diffs, test logs
-                  └──────────────┬───────────────┘
-                                 │
-                  ┌──────────────▼───────────────┐
-                  │ 7. Project Progress & State  │  docs/project/
-                  └──────────────────────────────┘
-```
-
-### Interpretation Rules:
-- **Research & Spikes (`docs/research/`, `docs/spikes/`)**: Informative only. Cannot override architecture or specifications.
-- **Roadmap (`docs/roadmap/`)**: Tracks planning intent. Cannot override architecture, contracts, or verified project state.
-- **Archive (`docs/archive/`)**: Preserved history. Has zero normative authority over current behavior.
+> **Key Rule on Dimensions**: A document being `ACCEPTED` or `IMPLEMENTED` does not mean every future capability mentioned within it is implemented. A roadmap item being `DONE` means its milestone criteria were satisfied, not that speculative future work is finished.
 
 ---
 
-## 5. Statement Classification in Contracts
+## 4. Operational Governance: Authority, Evidence, Reporting & Planning
+
+Forge rejects a naive linear precedence list that collapses authority and evidence into a single rank. Authority and evidence are orthogonal dimensions:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                              AUTHORITY                                 │
+│  • Product Intent & Principles (docs/product/)                         │
+│  • Accepted Architecture (docs/architecture/)                          │
+│  • Architectural Decision Records (docs/decisions/)                   │
+│  • Frozen Contracts (docs/architecture/contracts/)                    │
+│                                                                        │
+│  Role: Constrains implementation. Defines what Forge SHOULD be.        │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                         constrains │ evaluates against
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                              EVIDENCE                                  │
+│  • Physical Source Code (src/)                                         │
+│  • Automated Tests (Vitest suites)                                     │
+│  • Runtime & Physical Inspection (exit codes, ConPTY logs)             │
+│  • Git History & Measurements (real git diffs, commits)                │
+│                                                                        │
+│  Role: Establishes what is actually IMPLEMENTED and VERIFIED.          │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    │ informs
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                              REPORTING                                 │
+│  • Current-State Documentation (docs/project/current-state.md)         │
+│  • Verification Baseline (docs/project/verification-baseline.md)       │
+│                                                                        │
+│  Role: Reports measured implementation reality. Cannot override        │
+│        architecture or contracts.                                      │
+└────────────────────────────────────────────────────────────────────────┘
+
+┌────────────────────────────────────────────────────────────────────────┐
+│                              PLANNING                                  │
+│  • Program Roadmap (docs/roadmap/roadmap.md)                           │
+│  • Milestones & Tasks (docs/roadmap/milestones.md)                     │
+│                                                                        │
+│  Role: Describes intended future work. Does NOT authorize architecture.│
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+### The Cardinal Invariant
+
+> **Evidence does not outrank authority, and authority does not substitute for evidence.**
+
+- **Authority without evidence is unverified intent**: A contract, ADR, or architecture document defines what must be built, but does not prove that code exists or works.
+- **Evidence without authority is unverified code**: Running code or passing tests prove that software executes, but do not make that behavior architectural truth.
+
+### Operational Governance Rules
+
+1. **Frozen contracts constrain implementation**: Contracts are binding specifications across subsystem boundaries. A contract conflict with code is an **implementation defect** unless the contract is formally amended via an approved Architectural Change Request (ACR).
+2. **Tests cannot silently redefine architecture or contracts**: A passing test proves current execution behavior; it cannot silently redefine an architecture, contract, or domain invariant. If a test asserts behavior contradicting a contract, the test or implementation is defective.
+3. **Current-state cannot promote architecture**: Current-state documentation (`docs/project/current-state.md`) reports measured implementation reality. It cannot promote planned or proposed architecture to accepted architecture.
+4. **Roadmap cannot authorize architecture**: Roadmap documents (`docs/roadmap/`) describe intended sequencing and delivery targets. A roadmap entry or issue ID does not authorize architectural implementation.
+5. **Research cannot authorize architecture**: Research documents (`docs/research/`, `docs/spikes/`) gather empirical findings. They are informative and cannot authorize architecture or alter contracts until ratified by an accepted ADR.
+6. **Discrepancy Rule**: When implementation contradicts a frozen contract, the discrepancy must be recorded as a defect; implementation must not silently redefine the contract, nor may the contract be silently weakened to match accidental code behavior.
+7. **Archive has zero current authority**: `docs/archive/` contains historical provenance only.
+
+---
+
+## 5. Domain State Models in Forge
+
+Forge explicitly separates three distinct state models across the system to prevent conflating execution layers:
+
+1. **`WorkflowState` (Domain Workflow Machine)**: Formally defined in `src/shared/domain/enums.ts` and `src/shared/domain/transitions.ts`. Governs the high-level multi-stage engineering workflow. Contains 13 states: `DISCOVERY`, `PLANNING`, `PLAN_READY`, `DECISIONS_LOCKED`, `IMPLEMENTING`, `VERIFYING`, `REVIEWING`, `CORRECTION_REQUIRED`, `AWAITING_USER`, and four terminal states: `DONE`, `HALTED_LIMIT`, `HALTED_POLICY`, `CANCELLED`.
+2. **`RunStatus` (Execution & Storage Lifecycle)**: Formally defined in `src/shared/domain/run.ts` and SQLite schema `src/main/db/schema.ts`. Governs discrete Task Runs and Steps. Contains exactly 4 states: `running`, `completed`, `failed`, `halted`. Mapped directly to CLI exit codes (0 = completed, 1 = failed, 2 = halted).
+3. **`ReportStatus` (Agent Wire Protocol)**: Formally defined in `src/shared/domain/enums.ts`. Governs the status emitted in an agent's `FORGE_REPORT` block: `completed`, `blocked`, `question`.
+
+---
+
+## 6. Statement Classification in Contracts
 
 Document *status* (section 3) describes a whole document's lifecycle. Inside a contract,
 individual statements differ in where their authority comes from, so each normative
@@ -119,7 +177,7 @@ Two rules govern `UNKNOWN`, and they are the point of the whole scheme:
 
 ---
 
-## 6. Standard Metadata Schema
+## 7. Standard Metadata Schema
 
 All normative documents in `docs/architecture/`, `docs/architecture/contracts/`, `docs/specifications/`, and `docs/decisions/` must begin with the following metadata header:
 
@@ -129,7 +187,7 @@ All normative documents in `docs/architecture/`, `docs/architecture/contracts/`,
 **Status:** [DRAFT | PROPOSED | ACCEPTED | FROZEN | IMPLEMENTED | SUPERSEDED | DEPRECATED | ARCHIVED]
 **Authority:** [Canonical | Component | Informative]
 **Last Updated:** YYYY-MM-DD
-**Baseline:** [e.g. main @ 1dfb444]
+**Baseline:** [e.g. main @ 5987501]
 **Related Decisions:** [e.g. ADR-001, ADR-003]
 **Related Roadmap Items:** [e.g. CORE-001, STATE-001]
 **Related Implementation:** [e.g. src/main/core/taskRunner.ts]

@@ -2,8 +2,8 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Normative Domain Architecture  
-**Last Updated:** 2026-09-22  
-**Baseline:** `main` @ `1dfb444`  
+**Last Updated:** 2026-09-25  
+**Baseline:** `main` @ `5987501` (PR #204 merged)  
 **Related Specifications:** `docs/DOMAIN.md`, `docs/FORGE_RULES.md`  
 **Related Contracts:** [run-and-step-lifecycle.md](contracts/run-and-step-lifecycle.md), [execution-protocol.md](contracts/execution-protocol.md)  
 **Related Implementation:** `src/shared/domain/`  

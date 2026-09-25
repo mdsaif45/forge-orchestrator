@@ -2,8 +2,8 @@
 
 **Status:** IMPLEMENTED
 **Authority:** Normative storage architecture
-**Last Updated:** 2026-09-22
-**Baseline:** `main` @ `1dfb444`
+**Last Updated:** 2026-09-25
+**Baseline:** `main` @ `5987501` (PR #204 merged)
 **Related Architecture:** [architecture-overview.md](architecture-overview.md), [execution-model.md](execution-model.md)
 **Related Contracts:** [artifact-storage.md](contracts/artifact-storage.md)
 **Related Implementation:** `src/main/db/`, `src/main/artifacts/artifactService.ts`

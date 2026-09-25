@@ -417,6 +417,107 @@ describe('Forge CLI (runCli)', () => {
     expect(catWindowParsed.length).toBe(5)
     expect(catWindowParsed.data).toBe('Hello')
 
+    // 5b. Binary artifact cat with byte preservation and safe TTY handling
+    const nonUtf8Bytes = Buffer.from([
+      0x00, 0xff, 0xfe, 0x80, 0xc0, 0xc1, 0xed, 0xa0, 0x80, 0xf4, 0x90, 0x80, 0x80,
+    ])
+    const helperCore = createForgeCore({ dataDir })
+    const binaryArtifact = await helperCore.artifacts.writeArtifact({
+      runId,
+      kind: 'tool-output',
+      name: 'spill.bin',
+      content: nonUtf8Bytes,
+      mimeType: 'application/octet-stream',
+    })
+    await helperCore.close()
+
+    // Prove naive UTF-8 alters the raw bytes
+    const naiveDecoded = nonUtf8Bytes.toString('utf-8')
+    const naiveReencoded = Buffer.from(naiveDecoded, 'utf-8')
+    expect(naiveReencoded.equals(nonUtf8Bytes)).toBe(false)
+    expect(naiveDecoded).toContain('\uFFFD')
+
+    // Read full binary artifact via --json (base64 encoded)
+    const binCatJsonCode = await runCli([
+      'artifacts',
+      'cat',
+      binaryArtifact.id,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(binCatJsonCode).toBe(0)
+    const binCatParsed = JSON.parse(scopedLogs[scopedLogs.length - 1] ?? '{}') as {
+      artifactId: string
+      sizeBytes: number
+      encoding: string
+      data: string
+    }
+    expect(binCatParsed.artifactId).toBe(binaryArtifact.id)
+    expect(binCatParsed.encoding).toBe('base64')
+    expect(Buffer.from(binCatParsed.data, 'base64').equals(nonUtf8Bytes)).toBe(true)
+
+    // Read windowed binary artifact via --json
+    const binCatWindowCode = await runCli([
+      'artifacts',
+      'cat',
+      binaryArtifact.id,
+      '--offset',
+      '2',
+      '--length',
+      '6',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(binCatWindowCode).toBe(0)
+    const binCatWindowParsed = JSON.parse(scopedLogs[scopedLogs.length - 1] ?? '{}') as {
+      artifactId: string
+      offset: number
+      length: number
+      totalBytes: number
+      encoding: string
+      data: string
+    }
+    expect(binCatWindowParsed.artifactId).toBe(binaryArtifact.id)
+    expect(binCatWindowParsed.offset).toBe(2)
+    expect(binCatWindowParsed.length).toBe(6)
+    expect(binCatWindowParsed.encoding).toBe('base64')
+    expect(Buffer.from(binCatWindowParsed.data, 'base64').equals(nonUtf8Bytes.subarray(2, 8))).toBe(
+      true,
+    )
+
+    // Streaming non-TTY (piped) preserves exact raw bytes
+    stdoutWrite.mockClear()
+    const binPipedCode = await runCli([
+      'artifacts',
+      'cat',
+      binaryArtifact.id,
+      '--data-dir',
+      dataDir,
+    ])
+    expect(binPipedCode).toBe(0)
+    expect(stdoutWrite).toHaveBeenCalledWith(nonUtf8Bytes)
+
+    // TTY mode suppresses raw binary and emits safe warning to stderr
+    stdoutWrite.mockClear()
+    const origIsTTY = process.stdout.isTTY
+    try {
+      process.stdout.isTTY = true
+      const binTtyCode = await runCli([
+        'artifacts',
+        'cat',
+        binaryArtifact.id,
+        '--data-dir',
+        dataDir,
+      ])
+      expect(binTtyCode).toBe(0)
+      expect(stdoutWrite).not.toHaveBeenCalled()
+      expect(malformedRunLogs.some((l) => l.includes('Binary artifact detected'))).toBe(true)
+    } finally {
+      process.stdout.isTTY = origIsTTY
+    }
+
     // Malformed artifact ID
     const catMalformed = await runCli(['artifacts', 'cat', 'not-a-uuid', '--data-dir', dataDir])
     expect(catMalformed).toBe(1)

@@ -397,6 +397,17 @@ export const artifactMetadataViewSchema = z.strictObject({
 
 export type ArtifactMetadataView = z.infer<typeof artifactMetadataViewSchema>
 
+export const artifactWindowViewSchema = z.strictObject({
+  /** Base64-encoded bytes of the read window. Preserves arbitrary binary without UTF-8 corruption. */
+  data: z.string(),
+  /** The transport encoding of `data`. Always 'base64'. */
+  encoding: z.literal('base64'),
+  /** Total byte length of the artifact on disk. */
+  totalBytes: z.number().int().nonnegative(),
+})
+
+export type ArtifactWindowView = z.infer<typeof artifactWindowViewSchema>
+
 export const promptPacketViewSchema = z.strictObject({
   role: z.string(),
   objective: z.string(),
@@ -919,10 +930,7 @@ export const IPC_CONTRACT = {
       offsetBytes: z.number().int().nonnegative(),
       lengthBytes: z.number().int().positive(),
     }),
-    response: z.strictObject({
-      data: z.string(),
-      totalBytes: z.number().int().nonnegative(),
-    }),
+    response: artifactWindowViewSchema,
   },
   'git:getWorkingDiff': {
     request: z.strictObject({ projectId: z.string() }),

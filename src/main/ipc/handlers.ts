@@ -361,7 +361,8 @@ export function createIpcHandlers({
         lengthBytes,
       )
       return {
-        data: res.data.toString('utf-8'),
+        data: res.data.toString('base64'),
+        encoding: 'base64' as const,
         totalBytes: res.totalBytes,
       }
     },

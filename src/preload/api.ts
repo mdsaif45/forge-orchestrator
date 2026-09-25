@@ -16,6 +16,7 @@ import type {
   RepositoryProbe,
   WorkflowArtifactView,
   ArtifactMetadataView,
+  ArtifactWindowView,
   WorkflowDetailView,
   WorkflowEventPayload,
   WorkflowLogPayload,
@@ -265,7 +266,7 @@ export interface ForgeApi {
       readonly artifactId: string
       readonly offsetBytes: number
       readonly lengthBytes: number
-    }) => Promise<IpcResult<{ readonly data: string; readonly totalBytes: number }>>
+    }) => Promise<IpcResult<ArtifactWindowView>>
   }
   readonly account: {
     list: (provider?: string) => Promise<IpcResult<{ readonly accounts: readonly AccountView[] }>>

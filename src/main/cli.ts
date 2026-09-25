@@ -756,6 +756,69 @@ async function handleRuns(opts: {
   }
 }
 
+function isTextArtifact(meta: { mimeType: string; name: string }, sample: Buffer): boolean {
+  const mime = meta.mimeType.toLowerCase()
+  if (
+    mime.startsWith('image/') ||
+    mime.startsWith('audio/') ||
+    mime.startsWith('video/') ||
+    mime.startsWith('font/') ||
+    mime === 'application/pdf' ||
+    mime === 'application/zip' ||
+    mime === 'application/gzip' ||
+    mime === 'application/x-tar' ||
+    mime === 'application/octet-stream'
+  ) {
+    return false
+  }
+
+  const binaryExtensions = new Set([
+    'bin',
+    'exe',
+    'dll',
+    'so',
+    'dylib',
+    'iso',
+    'zip',
+    'tar',
+    'gz',
+    'bz2',
+    '7z',
+    'png',
+    'jpg',
+    'jpeg',
+    'gif',
+    'bmp',
+    'ico',
+    'webp',
+    'mp3',
+    'wav',
+    'ogg',
+    'mp4',
+    'avi',
+    'mov',
+    'pdf',
+    'wasm',
+  ])
+  const ext = meta.name.includes('.') ? meta.name.split('.').pop()?.toLowerCase() : undefined
+  if (ext && binaryExtensions.has(ext)) {
+    return false
+  }
+
+  // Null bytes are an immediate indicator of binary data
+  if (sample.includes(0)) {
+    return false
+  }
+
+  // Verify valid UTF-8 text encoding
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(sample, { stream: true })
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function handleArtifacts(opts: {
   subcommandOrId?: string | undefined
   targetId?: string | undefined
@@ -884,7 +947,8 @@ async function handleArtifacts(opts: {
         }
 
         const window = await core.artifacts.readWindow(artifactId, offset, length)
-        const content = window.data.toString('utf-8')
+        const isText = isTextArtifact(meta, window.data)
+
         if (opts.json) {
           console.log(
             JSON.stringify({
@@ -892,18 +956,48 @@ async function handleArtifacts(opts: {
               offset,
               length,
               totalBytes: window.totalBytes,
-              data: content,
+              encoding: isText ? 'utf-8' : 'base64',
+              data: isText ? window.data.toString('utf-8') : window.data.toString('base64'),
+              ...(isText ? {} : { mimeType: meta.mimeType }),
             }),
           )
+        } else if (isText) {
+          process.stdout.write(window.data.toString('utf-8'))
+        } else if (process.stdout.isTTY) {
+          console.error(
+            `${ANSI.yellow}Warning: Binary artifact detected (${meta.mimeType}, window: ${String(window.data.length)} bytes). Output suppressed in TTY.${ANSI.reset}`,
+          )
+          console.error(
+            `${ANSI.dim}Hint: Pipe to a file or command to stream raw bytes: forge artifacts cat ${artifactId} --offset ${String(offset)} --length ${String(length)} > chunk.bin${ANSI.reset}`,
+          )
         } else {
-          process.stdout.write(content)
+          process.stdout.write(window.data)
         }
       } else {
-        const text = await core.artifacts.readArtifactText(artifactId)
+        const buf = await core.artifacts.readArtifact(artifactId)
+        const isText = isTextArtifact(meta, buf)
+
         if (opts.json) {
-          console.log(JSON.stringify({ artifactId, sizeBytes: meta.sizeBytes, data: text }))
+          console.log(
+            JSON.stringify({
+              artifactId,
+              sizeBytes: meta.sizeBytes,
+              encoding: isText ? 'utf-8' : 'base64',
+              data: isText ? buf.toString('utf-8') : buf.toString('base64'),
+              ...(isText ? {} : { mimeType: meta.mimeType }),
+            }),
+          )
+        } else if (isText) {
+          process.stdout.write(buf.toString('utf-8'))
+        } else if (process.stdout.isTTY) {
+          console.error(
+            `${ANSI.yellow}Warning: Binary artifact detected (${meta.mimeType}, ${String(buf.length)} bytes). Output suppressed in TTY.${ANSI.reset}`,
+          )
+          console.error(
+            `${ANSI.dim}Hint: Pipe to a file or command to stream raw bytes: forge artifacts cat ${artifactId} > file.bin${ANSI.reset}`,
+          )
         } else {
-          process.stdout.write(text)
+          process.stdout.write(buf)
         }
       }
       return 0

@@ -197,6 +197,7 @@ In compliance with Phase 4, changes to documents marked `FROZEN` were formally r
 ### 8.2 `docs/architecture/contracts/artifact-storage.md`
 - **AMD-ART-001 (CORRECTION, 2026-09-22)**: Corrected metadata schema from speculative `ArtifactRecord` (with `type`) to canonical `ArtifactMetadata` (with `kind: ArtifactKind` matching `src/shared/domain/artifact.ts`). Updated directory layout and relativePath format to `<runId>/<artifactId>-<safeName>`.
 - **AMD-ART-002 (CORRECTION, 2026-09-22)**: Corrected `readWindow` signature to positional `(id, offsetBytes, lengthBytes)` returning `ReadWindowResult { data: Buffer, totalBytes: number }` matching `src/main/artifacts/artifactService.ts` lines 170–191.
+- **AMD-ART-003 (CLARIFICATION, 2026-09-25)**: Clarified IPC transport encoding for `artifacts:readWindow`. Buffers are serialized as base64 (`ArtifactWindowView`) across the IPC boundary to guarantee byte preservation for arbitrary binary and tool-spill artifacts without UTF-8 corruption.
 
 ### 8.3 `docs/architecture/contracts/verification-criteria.md`
 - **AMD-CRIT-001 (CORRECTION, 2026-09-22)**: Corrected `CriterionKind` values from camelCase speculative names (`diffScope`, `noUntracked`, etc.) to canonical `criterionKindSchema` enum (`'build'`, `'tests'`, `'diff-scope'`, `'no-assumptions'`, `'reviewer-verdict'`, `'file-exists'`, `'custom-command'`) in `src/shared/domain/enums.ts`.

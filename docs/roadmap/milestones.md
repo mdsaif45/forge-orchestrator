@@ -43,7 +43,7 @@
 | ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **AGENT-001** | #200 | P0 | **DONE** | CORE-001 | In-process native agent task loop and tool calling engine. | `executeDirectTask` in `src/main/core/taskRunner.ts`. | PR #198 (`26ac6e3`) |
-| **AGENT-002** | NEW | P1 | **READY** | AGENT-001 | Streaming artifact ingestion (`writeArtifactStream`) for large tool output; `writeArtifact` currently buffers in memory. | Large tool output stored without buffering the whole payload. | — |
+| **AGENT-002** | NEW | P1 | **DONE** | AGENT-001 | Streaming artifact ingestion (`writeArtifactStream`) for large tool output; `writeArtifact` currently buffers in memory. | `ArtifactService.writeArtifactStream()` covered by `artifactService.test.ts`. | — |
 | **AGENT-003** | NEW | P1 | **READY** | AGENT-001 | Eager concurrent tool execution via `Promise.all`. | Benchmarked reduction in step wall-clock time. | — |
 | **AGENT-004** | NEW | P1 | **READY** | AGENT-001 | Local Ollama auto-discovery and capability probing. | Offline execution on Qwen 2.5 coder models. | — |
 

@@ -186,5 +186,6 @@ inversion the [north star](../product/north-star.md) describes.
 - **Q-AR-01:** `STANDARD_AGENT_CATALOG` lists many CLIs, but only some have measured
   entries in the field guide. Which are supported versus merely detectable is not
   stated anywhere normative.
-- **Q-AR-02:** Streaming artifact ingestion for large tool output is referenced in the
-  source as `AGENT-002` but has no ADR and no roadmap acceptance target.
+- **[RESOLVED] Q-AR-02:** Streaming artifact ingestion for large tool output (`AGENT-002`)
+  is implemented in `ArtifactService.writeArtifactStream()` with on-the-fly SHA-256 and
+  byte counting, verified by unit tests in `artifactService.test.ts`.

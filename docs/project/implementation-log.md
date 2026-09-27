@@ -77,10 +77,12 @@
 
 | PR / Branch | State | Scope | Tests Added |
 | :--- | :--- | :--- | :--- |
-| `feat/verify-003-adversarial-verifier` | READY FOR REVIEW | VERIFY-003 adversarial evidence verifier, cross-checking against physical diffs, contradictory evidence detection, and cryptographic artifact integrity | +31 tests (1,142 → 1,173 passing) |
+| `feat/verify-003-adversarial-verifier` | PR #208 (OPEN) | VERIFY-003 adversarial evidence verifier, cross-checking against physical diffs, contradictory evidence detection, and cryptographic artifact integrity | +31 tests (1,142 → 1,173 passing) |
+| Small Milestones Consolidation | IN PROGRESS | M0-002 (Windows git EBUSY flakiness), M0-003 (Spike #64 formal closure), AGENT-002 (Streaming artifact ingestion) | +3 tests (1,173 → 1,176 passing) |
 
 ### Milestone VERIFY-003 Details
 - **Branch:** `feat/verify-003-adversarial-verifier`
+- **PR:** #208 (OPEN)
 - **Scope:** Strengthen Forge's independent verification layer to reliably detect deceptive, incomplete, contradictory, or insufficient agent-produced evidence.
 - **Key Deliverables:**
   - `src/main/evidence/adversarial.ts`: Adversarial evidence auditor (`auditAdversarialEvidence`) detecting stale evidence, contradictory exit-0 with test failures, nonexistent artifact references, `claimed-but-unchanged` physical diff mismatches, out-of-scope modifications, false success claims, and malformed criteria inputs.
@@ -94,6 +96,11 @@
   - `src/main/evidence/verify003.adversarial.test.ts` (14 scenario tests)
   - `src/main/artifacts/artifactService.test.ts` (+5 integrity tests)
 - **Suite Metrics:** 99 passed test files, 1,173 passing tests (2 manual test files skipped; 3 tests skipped).
+
+### Small Milestones (M0-002, M0-003, AGENT-002) Details
+- **M0-002 (Issue #178):** Replaced unpolled `rmSync` with polled `await removeTempDir()` in `src/main/git/gitService.test.ts`, eliminating Windows file-locking `EBUSY` flakiness during parallel test runs.
+- **M0-003 (Issue #64):** Formally closed obsolete spike #64 with documentation references to ADR-001 (§3 & §4) and ADR-003, confirming Forge reuses host CLI logins without custom re-authentication hacks.
+- **AGENT-002:** Implemented `ArtifactService.writeArtifactStream()` in `src/main/artifacts/artifactService.ts` for memory-safe streaming ingestion of high-throughput tool output (>50 KB) with on-the-fly SHA-256 hashing, byte tracking, and transactional rollback on SQLite metadata failure. Covered by 3 new unit tests in `src/main/artifacts/artifactService.test.ts`.
 
 ---
 

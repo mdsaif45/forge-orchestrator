@@ -181,12 +181,12 @@ resolvePath(relativePathOrMetadata: string | ArtifactMetadata): string
 length, so a multi-megabyte transcript can be paged without loading it into memory.
 The method is `readWindow`, not `readArtifactWindow`.
 
-### Known limitation
+### Streaming ingestion (AGENT-002)
 
-`writeArtifact` buffers its payload in memory. A streaming ingestion path
-(`writeArtifactStream`) for high-throughput tool spills is **not implemented** — it is
-noted in the source as future work under `AGENT-002`. It is tracked as PLANNED in
-[current-state.md](../project/current-state.md), not described here as if it existed.
+`writeArtifactStream` streams its payload directly to disk while computing SHA-256
+and counting total bytes on the fly via a Transform pipeline. If metadata recording
+fails or stream ingestion errors, the physical file is rolled back. Covered by
+`artifactService.test.ts`.
 
 ---
 

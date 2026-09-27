@@ -1,6 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { createWriteStream } from 'node:fs'
 import { mkdir, open, readFile, rm, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
+import { Transform } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 import {
   artifactIdSchema,
   type ArtifactId,
@@ -17,6 +20,17 @@ export interface WriteArtifactOptions {
   readonly kind: ArtifactKind
   readonly name: string
   readonly content: string | Buffer | Uint8Array
+  readonly mimeType?: string
+  readonly createdAt?: string
+  readonly id?: ArtifactId
+}
+
+export interface WriteArtifactStreamOptions {
+  readonly runId: RunId
+  readonly stepId?: StepId | null
+  readonly kind: ArtifactKind
+  readonly name: string
+  readonly stream: NodeJS.ReadableStream
   readonly mimeType?: string
   readonly createdAt?: string
   readonly id?: ArtifactId
@@ -99,6 +113,74 @@ export class ArtifactService {
 
     const absolutePath = join(runDir, fileName)
     await writeFile(absolutePath, contentBuffer)
+
+    const metadata: ArtifactMetadata = {
+      id,
+      runId: options.runId,
+      stepId: options.stepId ?? null,
+      kind: options.kind,
+      name: options.name,
+      mimeType,
+      sizeBytes,
+      sha256,
+      relativePath,
+      createdAt,
+    }
+
+    try {
+      return this.store.record(metadata)
+    } catch (err) {
+      try {
+        await rm(absolutePath, { force: true })
+      } catch {
+        // Non-fatal cleanup error during rollback
+      }
+      throw err
+    }
+  }
+
+  /**
+   * Writes streaming artifact content to disk and records metadata in SQLite (AGENT-002).
+   * Computes SHA-256 and byte length on the fly without buffering the whole payload in memory.
+   * If database metadata recording fails or stream errors, physical file is rolled back.
+   */
+  async writeArtifactStream(options: WriteArtifactStreamOptions): Promise<ArtifactMetadata> {
+    const id = options.id ?? artifactIdSchema.parse(randomUUID())
+    const safeName = sanitizeFileName(options.name)
+    const fileName = `${id}-${safeName}`
+    const relativePath = `${options.runId}/${fileName}`
+    const createdAt = options.createdAt ?? new Date().toISOString()
+    const mimeType = options.mimeType ?? 'application/octet-stream'
+
+    const runDir = join(this.baseDir, options.runId)
+    await mkdir(runDir, { recursive: true })
+
+    const absolutePath = join(runDir, fileName)
+    const fileOut = createWriteStream(absolutePath)
+    const hash = createHash('sha256')
+    let sizeBytes = 0
+
+    const tracker = new Transform({
+      transform(chunk: Buffer | string, _encoding, callback) {
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+        sizeBytes += buf.length
+        hash.update(buf)
+        callback(null, buf)
+      },
+    })
+
+    try {
+      await pipeline(options.stream, tracker, fileOut)
+    } catch (err) {
+      try {
+        await rm(absolutePath, { force: true })
+      } catch {
+        // Non-fatal cleanup
+      }
+      throw err
+    }
+
+    const sha256 = hash.digest('hex')
 
     const metadata: ArtifactMetadata = {
       id,

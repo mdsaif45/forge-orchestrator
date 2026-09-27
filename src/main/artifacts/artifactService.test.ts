@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Readable } from 'node:stream'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   artifactIdSchema,
@@ -393,6 +394,81 @@ describe('ArtifactService', () => {
       const result = await service.verifyArtifactIntegrity(meta.id)
       expect(result.valid).toBe(false)
       expect(result.reason).toContain('Failed to read physical artifact from disk')
+    })
+  })
+
+  describe('writeArtifactStream (AGENT-002)', () => {
+    it('streams artifact chunks to disk and records metadata with correct size and sha256', async () => {
+      const chunks = ['First chunk of stream. ', 'Second chunk of stream. ', 'Final payload end.']
+      const fullText = chunks.join('')
+      const stream = Readable.from(chunks)
+
+      const meta = await service.writeArtifactStream({
+        runId,
+        kind: 'stdout',
+        name: 'streamed.log',
+        stream,
+      })
+
+      expect(meta.runId).toBe(runId)
+      expect(meta.name).toBe('streamed.log')
+      expect(meta.sizeBytes).toBe(Buffer.byteLength(fullText))
+      const expectedSha256 = createHash('sha256').update(fullText).digest('hex')
+      expect(meta.sha256).toBe(expectedSha256)
+
+      // Content on disk matches exactly
+      const diskBytes = await service.readArtifact(meta.id)
+      expect(diskBytes.toString('utf-8')).toBe(fullText)
+
+      // Cryptographic integrity verified
+      const integrity = await service.verifyArtifactIntegrity(meta.id)
+      expect(integrity.valid).toBe(true)
+    })
+
+    it('reads back streamed artifact with windowed byte-offset slices', async () => {
+      const content = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+      const stream = Readable.from([content])
+
+      const meta = await service.writeArtifactStream({
+        runId,
+        kind: 'tool-output',
+        name: 'windowed-stream.bin',
+        stream,
+      })
+
+      const window = await service.readWindow(meta.id, 10, 5)
+      expect(window.totalBytes).toBe(content.length)
+      expect(window.data.toString('utf-8')).toBe('ABCDE')
+    })
+
+    it('rolls back physical file if metadata store insertion fails', async () => {
+      const badId = artifactIdSchema.parse(randomUUID())
+
+      // Force store.record to throw by inserting an artifact with duplicate primary key
+      await service.writeArtifact({
+        id: badId,
+        runId,
+        kind: 'stdout',
+        name: 'initial.log',
+        content: 'initial',
+      })
+
+      // Try streaming with the same ID, causing a duplicate key error in SQLite
+      const duplicateStream = Readable.from(['duplicate content'])
+      await expect(
+        service.writeArtifactStream({
+          id: badId,
+          runId,
+          kind: 'stdout',
+          name: 'duplicate.log',
+          stream: duplicateStream,
+        }),
+      ).rejects.toThrow()
+
+      // The duplicate file on disk must be rolled back (only initial exists)
+      const runDir = join(tempDir, runId)
+      const files = await readdir(runDir)
+      expect(files.some((f) => f.includes('duplicate'))).toBe(false)
     })
   })
 })

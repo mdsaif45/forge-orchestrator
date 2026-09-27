@@ -23,8 +23,8 @@
 | ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **M0-001** | — | P0 | **DONE** | — | Establish CI matrix, linting, formatting, and test runner baseline. | 678 baseline tests passing on Windows and Linux CI. | PR #186 |
-| **M0-002** | #178 | P1 | **READY** | — | Resolve intermittent Windows git EBUSY test failures during parallel runs. | Zero flakiness in `gitService.test.ts`. | — |
-| **M0-003** | #64 | P3 | **READY** | — | Formally close obsolete spike #64 with evidence. | ADR-001 / ADR-003 documentation references. | — |
+| **M0-002** | #178 | P1 | **DONE** | — | Resolve intermittent Windows git EBUSY test failures during parallel runs. | Zero flakiness: `gitService.test.ts` uses `removeTempDir`. | — |
+| **M0-003** | #64 | P3 | **DONE** | — | Formally close obsolete spike #64 with evidence. | Closed: superseded by ADR-001 (§3 & §4) and ADR-003. | — |
 
 ---
 

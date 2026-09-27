@@ -146,6 +146,41 @@ export class ArtifactService {
   }
 
   /**
+   * Authoritatively verifies physical artifact integrity against SQLite metadata (Axiom A3).
+   * Checks file existence, exact sizeBytes, and cryptographic sha256 checksum.
+   */
+  async verifyArtifactIntegrity(
+    id: ArtifactId,
+  ): Promise<{ readonly valid: boolean; readonly reason?: string }> {
+    const meta = this.getMetadata(id)
+    if (!meta) {
+      return { valid: false, reason: `Artifact ${id} does not exist in metadata store` }
+    }
+
+    try {
+      const filePath = this.resolvePath(meta)
+      const content = await readFile(filePath)
+      if (content.length !== meta.sizeBytes) {
+        return {
+          valid: false,
+          reason: `Artifact size mismatch: expected ${String(meta.sizeBytes)} bytes, found ${String(content.length)} bytes on disk`,
+        }
+      }
+      const actualSha256 = createHash('sha256').update(content).digest('hex')
+      if (actualSha256 !== meta.sha256) {
+        return {
+          valid: false,
+          reason: `Artifact SHA-256 hash mismatch: expected ${meta.sha256}, calculated ${actualSha256} from disk bytes`,
+        }
+      }
+      return { valid: true }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return { valid: false, reason: `Failed to read physical artifact from disk: ${message}` }
+    }
+  }
+
+  /**
    * Reads an artifact's content as a decoded text string.
    */
   async readArtifactText(id: ArtifactId, encoding: BufferEncoding = 'utf-8'): Promise<string> {

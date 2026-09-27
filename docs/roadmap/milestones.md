@@ -80,7 +80,7 @@
 | **CRIT-001** | NEW | P0 | **DONE** | EVIDENCE-001 | Durable completion criteria evaluation & task loop integration. | Criterion evaluator engine, task loop evaluation, UNKNOWN!=PASS, evidence persistence, policy-halt preservation. | PR #204 (`5987501`) |
 | **VERIFY-001** | NEW | P0 | **DONE** | EVIDENCE-001 | Physical diff reconciliation enhancements (untracked & binary). | `--untracked-files=all` collection, path codepoint sorting, nested & binary scope halts with status `halted`. | PR #206 |
 | **VERIFY-002** | NEW | P1 | **DONE** | EVIDENCE-001 | Independent test & build child process execution runner. | `src/main/evidence/verifier.ts`, 14 tests in `verifier.test.ts`. | merged before this baseline |
-| **VERIFY-003** | NEW | P2 | **READY** | VERIFY-001 | Adversarial edge-case verifier agent for boundary regressions. | Fails on intentional edge-case corruptions. | — |
+| **VERIFY-003** | NEW | P2 | **IN-PROGRESS** | VERIFY-001 | Adversarial edge-case verifier auditor for boundary regressions & deceptive evidence. | `src/main/evidence/adversarial.ts`, `verify003.adversarial.test.ts` (14 tests), `adversarial.test.ts` (12 tests). Detects contradictory/stale/nonexistent evidence, diff discrepancies, false success claims, and out-of-scope breaches. | feat/verify-003-adversarial-verifier (in review) |
 
 ---
 

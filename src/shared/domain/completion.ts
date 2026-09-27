@@ -249,6 +249,10 @@ function fromReview(criterion: CompletionCriterion, input: CompletionInput): Cri
   }
 }
 
+function normalisePath(p: string): string {
+  return p.replace(/\\/g, '/').replace(/^\.\//, '')
+}
+
 /** Whether every path in `params.paths` exists. */
 function fromFileExists(criterion: CompletionCriterion, input: CompletionInput): CriterionResult {
   const paths = stringArrayParam(criterion, 'paths')
@@ -264,8 +268,8 @@ function fromFileExists(criterion: CompletionCriterion, input: CompletionInput):
     )
   }
 
-  const present = new Set(input.existingPaths)
-  const missing = paths.filter((path) => !present.has(path))
+  const present = new Set(input.existingPaths.map(normalisePath))
+  const missing = paths.filter((path) => !present.has(normalisePath(path)))
 
   if (missing.length === 0) {
     return passResult(criterion, `All ${String(paths.length)} required path(s) exist`)

@@ -2,12 +2,18 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Physical Implementation Truth  
-**Last Updated:** 2026-09-25  
-**Baseline:** `main` @ `5987501` (PR #204 merged)  
+**Last Updated:** 2026-09-26  
+**Baseline:** `main` @ `7b91d67` (PR #207 merged) | Active Branch: `feat/verify-003-adversarial-verifier`  
 
 ---
 
 ## 1. Merged Pull Requests (Reverse Chronological)
+
+### PR #207: `docs(project): record CRIT-001 completion after PR #204 merge`
+- **Merged:** 2026-09-25T20:00:00Z
+- **Commit:** `7b91d67`
+- **Summary:** Forensic documentation stabilization; separated normative authority from implementation evidence; unified truth baselines.
+- **Tests:** 97 passed test files, 1,142 passing tests.
 
 ### PR #204: `feat(criteria, cli): implement CRIT-001 criteria evaluation & runs/artifacts inspection CLI`
 - **Merged:** 2026-09-25T13:36:09Z
@@ -67,11 +73,27 @@
 
 ---
 
-## 2. Active Unmerged PRs Under Review
+## 2. Active Development Branches & PRs
 
-| PR | Branch | State | Scope |
+| PR / Branch | State | Scope | Tests Added |
 | :--- | :--- | :--- | :--- |
-| [#207](https://github.com/mdsaif45/forge-orchestrator/pull/207) | `docs/crit-001-post-merge-bookkeeping` | OPEN | Post-merge documentation bookkeeping and stabilization |
+| `feat/verify-003-adversarial-verifier` | READY FOR REVIEW | VERIFY-003 adversarial evidence verifier, cross-checking against physical diffs, contradictory evidence detection, and cryptographic artifact integrity | +31 tests (1,142 → 1,173 passing) |
+
+### Milestone VERIFY-003 Details
+- **Branch:** `feat/verify-003-adversarial-verifier`
+- **Scope:** Strengthen Forge's independent verification layer to reliably detect deceptive, incomplete, contradictory, or insufficient agent-produced evidence.
+- **Key Deliverables:**
+  - `src/main/evidence/adversarial.ts`: Adversarial evidence auditor (`auditAdversarialEvidence`) detecting stale evidence, contradictory exit-0 with test failures, nonexistent artifact references, `claimed-but-unchanged` physical diff mismatches, out-of-scope modifications, false success claims, and malformed criteria inputs.
+  - `src/main/evidence/verifier.ts`: Integration with `verifyStep` and false claims cross-checking against build/test child process outputs. Disqualifies PASS verdict on adversarial findings.
+  - `src/shared/domain/evidence.ts`: Hardened `evidencePassed(artifact)` against test runners wrapped with `|| true` masking exit codes.
+  - `src/shared/domain/completion.ts`: Normalized paths in `fromFileExists` for cross-platform robustness.
+  - `src/main/artifacts/artifactService.ts`: Added `verifyArtifactIntegrity(id)` to cryptographically verify physical existence, byte count, and SHA-256 digest against SQLite metadata.
+  - `src/main/core/taskRunner.ts`: Hardened criteria evaluation and step verdict to preserve `unknown` verdict on `StepEvidence` while enforcing exit code 1.
+- **Tests Added:**
+  - `src/main/evidence/adversarial.test.ts` (12 tests)
+  - `src/main/evidence/verify003.adversarial.test.ts` (14 scenario tests)
+  - `src/main/artifacts/artifactService.test.ts` (+5 integrity tests)
+- **Suite Metrics:** 99 passed test files, 1,173 passing tests (2 manual test files skipped; 3 tests skipped).
 
 ---
 

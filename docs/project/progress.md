@@ -2,11 +2,11 @@
 
 ```
 Project:            Forge — AI Engineering Control Plane
-Current milestone:  Milestone M5 Verification & Criteria COMPLETE on main
-Overall status:     Headless Core, Native Loop, CLI, SQLite persistence, and Criteria Evaluation merged.
-Last updated:       2026-09-25
-Evidence baseline:  main @ 5987501 (PR #204 merged) — 1,142 tests passing
-Active branch:      docs/crit-001-post-merge-bookkeeping @ 9719092
+Current milestone:  Milestone M5 Verification & Criteria (VERIFY-003 in progress on feature branch)
+Overall status:     Headless Core, Native Loop, CLI, SQLite persistence, Criteria Evaluation merged; Adversarial Verifier in review.
+Last updated:       2026-09-26
+Evidence baseline:  main @ 7b91d67 (PR #207 merged) | feat/verify-003-adversarial-verifier
+Active branch:      feat/verify-003-adversarial-verifier
 ```
 
 ---
@@ -16,7 +16,7 @@ Active branch:      docs/crit-001-post-merge-bookkeeping @ 9719092
 ```
 M0  Foundation & Quality Gates    ██████████  DONE        PR #186 merged
         ↓
-M1  Headless Forge Core           ██████████  DONE        PR #198 merged (CORE-001/002)
+M1  Headless Core                 ██████████  DONE        PR #198 merged (CORE-001/002)
         ↓
 M2  Native Agent Core             ██████████  DONE        PR #198 merged (AGENT-001)
         ↓
@@ -24,7 +24,7 @@ M3  Forge CLI 1.0                 ███████░░░  IN PROGRESS PR
         ↓
 M4  State, Events & Persistence   ██████████  DONE        PR #203 merged (STATE-001)
         ↓
-M5  Verification & Criteria       ██████████  DONE        PR #204 (CRIT-001) & PR #206 (VERIFY-001) merged
+M5  Verification & Criteria       ████████░░  IN PROGRESS PR #204 (CRIT-001) & PR #206 (VERIFY-001) merged; VERIFY-003 in review
         ↓
 M6  Generic Workflow Graph        ░░░░░░░░░░  NOT STARTED Types defined; engine blocked on M5
         ↓
@@ -46,7 +46,7 @@ M9  Production Polish & Scale     ░░░░░░░░░░  NOT STARTED
 | **M2 Native Agent** | **DONE** | Native in-process tool loop (`taskRunner.ts`, `agentLoop.ts`), six tools in `providers/tools.ts`. | — | Streaming artifact ingestion for large tool output (`AGENT-002`). |
 | **M3 Forge CLI** | **IN PROGRESS** | Standalone `bin/forge.ts`, NDJSON stream, exit codes 0/1/2. | — no TUI work is in flight; see Q-IL-01. | Terminal TUI (`CLI-004`) not started. |
 | **M4 State & Storage** | **DONE** | SQLite `RunStore`, `EventStore`, `ArtifactStore`, `ArtifactService` including `readWindow()` (PR #203). | — | Typed IPC event streaming. |
-| **M5 Verification** | **DONE** | Physical diff reconciliation, `ChangeSet` snapshotting, completion-criteria evaluation & task loop integration, independent build/test runner (`verifier.ts`), untracked/binary reconciliation. | — | Adversarial edge-case verifier (`VERIFY-003`). |
+| **M5 Verification** | **IN PROGRESS** | Physical diff reconciliation, `ChangeSet` snapshotting, completion-criteria evaluation & task loop integration, independent build/test runner (`verifier.ts`), untracked/binary reconciliation. | Adversarial edge-case verifier (`VERIFY-003`) on `feat/verify-003-adversarial-verifier` (+28 tests). | Complete forensic review, PR review, and merge. |
 | **M6 Workflow Graph** | **NOT STARTED** | Domain types declared. | — | DAG execution engine. |
 | **M7 Human Control** | **NOT STARTED** | ConPTY terminal session spawner validated in spikes. | — | Attach UI pane to running session. |
 | **M8 Provider Ecosystem**| **NOT STARTED** | Claude/Antigravity adapters prototyped. | — | Data-driven provider config. |
@@ -55,6 +55,16 @@ M9  Production Polish & Scale     ░░░░░░░░░░  NOT STARTED
 ---
 
 ## 3. Major Slice History & Merged PRs
+
+### 2026-09-26: VERIFY-003 implemented (`feat/verify-003-adversarial-verifier`)
+- **Title:** `feat(verify): VERIFY-003 adversarial evidence verifier & artifact integrity hardening`
+- **Delivered:** Independent adversarial evidence auditor (`src/main/evidence/adversarial.ts`), verifier integration (`verifier.ts`), false claims cross-checking against physical git diffs and build/test failures, contradictory test-wrapper masking prevention (`evidencePassed`), artifact integrity checking via SHA-256 digest (`artifactService.ts`), and taskRunner criteria evaluation hardening.
+- **Tests:** 99 passed test files, 1,173 passing tests (2 manual test files skipped; 3 tests skipped). 31 new tests added (12 unit tests in `adversarial.test.ts`, 14 scenario tests in `verify003.adversarial.test.ts`, 5 integrity tests in `artifactService.test.ts`).
+
+### 2026-09-25: PR #207 merged (`7b91d67`)
+- **Title:** `docs(project): record CRIT-001 completion after PR #204 merge`
+- **Delivered:** Forensic stabilization of documentation hierarchy, separation of normative authority from implementation evidence, and reconciliation of truth baselines.
+- **Tests:** 97 passed test files, 1,142 passing tests.
 
 ### 2026-09-25: PR #204 (CRIT-001) merged (`5987501`)
 - **Title:** `feat(criteria, cli): implement CRIT-001 criteria evaluation & runs/artifacts inspection CLI`

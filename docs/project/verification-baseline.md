@@ -2,10 +2,9 @@
 
 **Status:** IMPLEMENTED
 **Authority:** Implementation truth (see [documentation-policy.md](../meta/documentation-policy.md))
-**Last Updated:** 2026-09-22
-**Baseline Commit:** `5987501358a85fd77f23dff1375e20a8794c4175` (`origin/main`, PR #204 merged)  
-**Active Working State:** `9719092c7ce2d31496fdd9be40c96bb9736bd9b8` (Branch: `docs/crit-001-post-merge-bookkeeping`, PR #207)  
-**Last Updated:** 2026-09-25  
+**Last Updated:** 2026-09-26
+**Baseline Commit:** `7b91d670295436fcf138ca48cb4ef6edfa6068f8` (`origin/main`, PR #207 merged)  
+**Active Working State:** `feat/verify-003-adversarial-verifier`  
 **Related:** [current-state.md](current-state.md)  
 
 Every number here was produced by running the command shown on the physical repository.
@@ -26,8 +25,8 @@ here because a green local run on a different runtime is weaker evidence than a 
 | Node (local measurement) | v24.20.0 |
 | Node (CI, authoritative) | 22 — see §4 |
 | Package version | `0.3.0-alpha.1` |
-| Measured Main SHA | `5987501358a85fd77f23dff1375e20a8794c4175` |
-| Measured Branch SHA | `9719092c7ce2d31496fdd9be40c96bb9736bd9b8` |
+| Measured Main SHA | `7b91d670295436fcf138ca48cb4ef6edfa6068f8` |
+| Measured Branch | `feat/verify-003-adversarial-verifier` |
 
 ---
 
@@ -36,9 +35,9 @@ here because a green local run on a different runtime is weaker evidence than a 
 Command: `npx vitest run`
 
 ```
-Test Files   97 passed | 2 skipped (99)
-Tests      1142 passed | 3 skipped (1145)
-Duration     ~43 s
+Test Files   99 passed | 2 skipped (101)
+Tests      1173 passed | 3 skipped (1176)
+Duration     ~59 s
 ```
 
 Per-file assertion counts cited in [current-state.md](current-state.md) were extracted
@@ -55,7 +54,7 @@ Each gate below was executed at the baseline commit on the host described in §1
 | Formatting | `npm run format:check` | PASS — all matched files use Prettier style |
 | Lint | `npm run lint` | PASS — zero errors, zero warnings across repository |
 | Typecheck (node, web, test) | `npm run typecheck` | PASS — zero errors across all three tsconfig projects |
-| Unit & integration tests | `npm test` | PASS — 1142 passed, 0 failed, 3 skipped across 97 test files |
+| Unit & integration tests | `npm test` | PASS — 1173 passed, 0 failed, 3 skipped across 99 test files |
 | State diagram invariant | `npm run check:docs` | PASS — `docs/DOMAIN.md: state diagram is up to date` |
 | Build | `npm run build` | NOT RUN in this documentation pass |
 | IPC router parity | `npm run check:router` | NOT RUN in this documentation pass |

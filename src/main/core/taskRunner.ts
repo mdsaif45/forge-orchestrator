@@ -31,6 +31,7 @@ import {
   type Sha,
   type StepEvidence,
   type Task,
+  type Verdict,
 } from '@shared/domain'
 import { GitService } from '../git'
 import { readRepositoryInstructions } from '../context/repositoryInstructions'
@@ -563,6 +564,7 @@ export async function executeDirectTask(
       stepId,
       report,
       reconciliation: built.reconciliation,
+      physicalFilesChanged: physicalPaths,
       task,
     })
 
@@ -615,11 +617,27 @@ export async function executeDirectTask(
     let exitCode = 0
     if (built.reconciliation.outOfScope.length > 0) {
       exitCode = 2 // Policy violation (out of scope edits)
-    } else if (report.status === 'blocked' || !vResult.passed) {
-      exitCode = 1 // Execution, criteria, or test failure
+    } else if (
+      report.status === 'blocked' ||
+      !vResult.passed ||
+      vResult.falseClaims.length > 0 ||
+      built.reconciliation.discrepancies.some((d) => d.kind === 'claimed-but-unchanged')
+    ) {
+      exitCode = 1 // Execution, criteria, false-claim, or test failure
     }
 
-    // Authoritative EVIDENCE-001 domain contract
+    // Authoritative EVIDENCE-001 domain contract: preserve UNKNOWN semantics
+    const stepVerdict: Verdict =
+      exitCode === 0
+        ? 'pass'
+        : built.reconciliation.outOfScope.length > 0
+          ? 'fail'
+          : vResult.verdict === 'unknown' &&
+              report.status !== 'blocked' &&
+              vResult.falseClaims.length === 0
+            ? 'unknown'
+            : 'fail'
+
     const evidence: StepEvidence = stepEvidenceSchema.parse({
       id: evidenceIdSchema.parse(randomUUID()),
       taskId,
@@ -633,7 +651,7 @@ export async function executeDirectTask(
       criteria: vResult.criteria,
       discrepancies: built.reconciliation.discrepancies,
       passed: exitCode === 0,
-      verdict: exitCode === 0 ? 'pass' : 'fail',
+      verdict: stepVerdict,
       findings: vResult.findings,
       falseClaims: vResult.falseClaims,
       recordedAt: now,

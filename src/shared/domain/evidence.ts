@@ -111,7 +111,14 @@ export type EvidenceArtifact = z.infer<typeof evidenceArtifactSchema>
  * boolean an agent could influence.
  */
 export function evidencePassed(artifact: EvidenceArtifact): boolean {
-  return artifact.outcome === 'completed' && artifact.exitCode === 0
+  if (artifact.outcome !== 'completed' || artifact.exitCode !== 0) {
+    return false
+  }
+  // Contradictory evidence: process exited 0, but parsed test counts report test failures
+  if (artifact.counts !== null && artifact.counts.failed !== null && artifact.counts.failed > 0) {
+    return false
+  }
+  return true
 }
 
 /**
@@ -123,7 +130,9 @@ export function summariseEvidence(artifact: EvidenceArtifact): string {
   const verdict = evidencePassed(artifact) ? 'PASS' : 'FAIL'
   const detail =
     artifact.outcome === 'completed'
-      ? `exit ${String(artifact.exitCode)}`
+      ? artifact.exitCode === 0 && artifact.counts?.failed && artifact.counts.failed > 0
+        ? `exit 0 with ${String(artifact.counts.failed)} failed test(s)`
+        : `exit ${String(artifact.exitCode)}`
       : `${artifact.outcome}: ${artifact.failure ?? 'no detail'}`
 
   const counts = artifact.counts
@@ -151,6 +160,12 @@ export function evidenceFindings(artifact: EvidenceArtifact): readonly string[] 
   if (artifact.outcome !== 'completed') {
     return [
       `The ${artifact.kind} command \`${artifact.command}\` did not finish (${artifact.outcome}: ${artifact.failure ?? 'no detail'}). Output so far:\n${tail}`,
+    ]
+  }
+
+  if (artifact.exitCode === 0 && artifact.counts?.failed && artifact.counts.failed > 0) {
+    return [
+      `The ${artifact.kind} command \`${artifact.command}\` exited 0, but reported ${String(artifact.counts.failed)} failed test(s). Fix the test failures rather than masking exit codes. Output:\n${tail}`,
     ]
   }
 

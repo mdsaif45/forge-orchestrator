@@ -2,8 +2,8 @@
 
 **Status:** IMPLEMENTED
 **Authority:** Implementation truth (see [documentation-policy.md](../meta/documentation-policy.md))
-**Last Updated:** 2026-09-25  
-**Baseline:** `main` @ `5987501` (PR #204 merged) | Active Branch: `docs/crit-001-post-merge-bookkeeping` @ `9719092`  
+**Last Updated:** 2026-09-26  
+**Baseline:** `main` @ `7b91d67` (PR #207 merged) | Active Branch: `feat/verify-003-adversarial-verifier`  
 **Verification Baseline:** [verification-baseline.md](verification-baseline.md)  
 **Related Roadmap:** [roadmap.md](../roadmap/roadmap.md)  
 
@@ -35,7 +35,7 @@ state is planning truth and belongs in the roadmap, not in this document.
 ## 2. Evidence-based capability matrix
 
 All test counts are per-file assertion counts measured with
-`vitest run` at the baseline commit (`5987501`).
+`vitest run` at the baseline commit (`7b91d67` + branch `feat/verify-003-adversarial-verifier`).
 
 ### 2.1 Headless core & CLI
 
@@ -120,7 +120,7 @@ All test counts are per-file assertion counts measured with
 
 | PR | Branch | State | Scope |
 | :--- | :--- | :--- | :--- |
-| [#207](https://github.com/mdsaif45/forge-orchestrator/pull/207) | `docs/crit-001-post-merge-bookkeeping` | OPEN | Post-merge documentation bookkeeping and stabilization |
+| — | `feat/verify-003-adversarial-verifier` | IN PROGRESS | VERIFY-003 adversarial evidence verifier & artifact integrity hardening |
 
 Nothing on unmerged branches is counted as implemented in §2.
 

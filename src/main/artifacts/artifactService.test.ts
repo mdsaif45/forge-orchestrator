@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -323,5 +323,76 @@ describe('ArtifactService', () => {
     } catch {
       // Directory may not exist
     }
+  })
+
+  describe('verifyArtifactIntegrity', () => {
+    it('returns valid true when disk bytes match SQLite metadata and sha256', async () => {
+      const meta = await service.writeArtifact({
+        runId,
+        kind: 'stdout',
+        name: 'valid.log',
+        content: 'hello authoritative world',
+      })
+
+      const result = await service.verifyArtifactIntegrity(meta.id)
+      expect(result.valid).toBe(true)
+      expect(result.reason).toBeUndefined()
+    })
+
+    it('returns valid false when artifact id does not exist in SQLite', async () => {
+      const unknownId = artifactIdSchema.parse(randomUUID())
+      const result = await service.verifyArtifactIntegrity(unknownId)
+      expect(result.valid).toBe(false)
+      expect(result.reason).toContain('does not exist')
+    })
+
+    it('returns valid false when file on disk has been corrupted or tampered with', async () => {
+      const meta = await service.writeArtifact({
+        runId,
+        kind: 'stdout',
+        name: 'tamper.log',
+        content: 'unaltered content 12345',
+      })
+
+      const filePath = service.resolvePath(meta)
+      // Tamper content with exact same length (23 bytes)
+      await writeFile(filePath, 'tampered  content 12345')
+
+      const result = await service.verifyArtifactIntegrity(meta.id)
+      expect(result.valid).toBe(false)
+      expect(result.reason).toContain('SHA-256 hash mismatch')
+    })
+
+    it('returns valid false when file on disk has size mismatch', async () => {
+      const meta = await service.writeArtifact({
+        runId,
+        kind: 'stdout',
+        name: 'truncated.log',
+        content: 'longer content than truncated',
+      })
+
+      const filePath = service.resolvePath(meta)
+      await writeFile(filePath, 'truncated')
+
+      const result = await service.verifyArtifactIntegrity(meta.id)
+      expect(result.valid).toBe(false)
+      expect(result.reason).toContain('size mismatch')
+    })
+
+    it('returns valid false when physical file is deleted from disk', async () => {
+      const meta = await service.writeArtifact({
+        runId,
+        kind: 'stdout',
+        name: 'deleted.log',
+        content: 'to be removed from disk',
+      })
+
+      const filePath = service.resolvePath(meta)
+      await rm(filePath)
+
+      const result = await service.verifyArtifactIntegrity(meta.id)
+      expect(result.valid).toBe(false)
+      expect(result.reason).toContain('Failed to read physical artifact from disk')
+    })
   })
 })

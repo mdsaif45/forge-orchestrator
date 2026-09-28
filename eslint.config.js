@@ -126,7 +126,12 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ['**/runtimes/mockRuntime', '**/runtimes/*CliRuntime', '**/runtimes/scenario'],
+              group: [
+                '**/runtimes/mockRuntime',
+                '**/runtimes/*CliRuntime',
+                '**/runtimes/scenario',
+                '**/runtimes/claudeTrust*',
+              ],
               message:
                 'Axiom A6: core must not import a concrete runtime. Depend on IAgentRuntime and resolve through RuntimeRegistry. Only src/main/runtimes/* may name a provider.',
             },
@@ -142,6 +147,217 @@ export default tseslint.config(
             'Literal[value=/(?:^|[^a-z])(?:claude|anthropic|antigravity)(?:[^a-z]|$)/i], TemplateElement[value.raw=/(?:^|[^a-z])(?:claude|anthropic|antigravity)(?:[^a-z]|$)/i]',
           message:
             'Axiom A6: no provider name outside src/main/runtimes/*. Runtime and account identifiers are opaque strings to core.',
+        },
+      ],
+    },
+  },
+
+  // ---- ADR-004: Domain purity ---------------------------------------------
+  {
+    files: ['src/shared/domain/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                'electron',
+                'node:*',
+                'fs',
+                'path',
+                'child_process',
+                'crypto',
+                'os',
+                'src/main/**',
+                '@main/**',
+                'src/preload/**',
+                'src/renderer/**',
+                '@renderer/**',
+                '@shared/views',
+                '@shared/views/**',
+                '@shared/ipc',
+                '@shared/ipc/**',
+                '../views*',
+                '../ipc*',
+                '../app*',
+              ],
+              message:
+                'ADR-004: src/shared/domain must remain pure and not import upward or outside domain.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // ---- ADR-004: Views purity ----------------------------------------------
+  {
+    files: ['src/shared/views/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                'electron',
+                'node:*',
+                'fs',
+                'path',
+                'child_process',
+                'crypto',
+                'os',
+                'src/main/**',
+                '@main/**',
+                'src/preload/**',
+                'src/renderer/**',
+                '@renderer/**',
+                '@shared/ipc',
+                '@shared/ipc/**',
+                '../ipc*',
+                '../app*',
+              ],
+              message:
+                'ADR-004: src/shared/views must remain pure read models and not import main, preload, renderer, or ipc transport.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // ---- ADR-004: Application services isolated from IPC transport ----------
+  {
+    files: [
+      'src/main/projects/**/*.ts',
+      'src/main/accounts/**/*.ts',
+      'src/main/workflows/**/*.ts',
+      'src/main/changesets/**/*.ts',
+      'src/main/decisions/**/*.ts',
+      'src/main/questions/**/*.ts',
+      'src/main/bindings/**/*.ts',
+      'src/main/artifacts/**/*.ts',
+      'src/main/audit/**/*.ts',
+      'src/main/health/**/*.ts',
+      'src/main/templates/**/*.ts',
+      'src/main/context/**/*.ts',
+      'src/main/evidence/**/*.ts',
+    ],
+    ignores: ['**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '@shared/ipc',
+                '@shared/ipc/**',
+                '**/shared/ipc*',
+                '**/ipc/router*',
+                '**/ipc/handlers*',
+                '@main/ipc/**',
+              ],
+              message:
+                'ADR-004: Application services must not import IPC transport. Depend on @shared/views instead.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // ---- ADR-004: Infrastructure downward direction -------------------------
+  {
+    files: [
+      'src/main/db/**/*.ts',
+      'src/main/process/**/*.ts',
+      'src/main/git/**/*.ts',
+      'src/main/terminal/**/*.ts',
+      'src/main/logging/**/*.ts',
+    ],
+    ignores: ['**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '**/projects/**',
+                '**/accounts/**',
+                '**/workflows/**',
+                '**/changesets/**',
+                '**/decisions/**',
+                '**/questions/**',
+                '**/bindings/**',
+                '**/artifacts/**',
+                '**/audit/**',
+                '**/health/**',
+                '**/templates/**',
+                '**/core/**',
+                '**/runtimes/**',
+                '**/providers/**',
+              ],
+              message:
+                'ADR-004: Infrastructure must not import application services, execution, or runtime adapters.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // ---- ADR-004: DB schema and drizzle-orm privacy -------------------------
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: ['src/main/db/**', '**/*.test.{ts,tsx}', 'scripts/**'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['drizzle-orm', 'drizzle-orm/**', '**/db/schema*'],
+              message:
+                'ADR-004: Database table schemas and drizzle-orm queries must remain private to src/main/db/*. Application code must interact via Store/Repository abstractions.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
+  // ---- ADR-004: Runtime adapters isolated from application services -------
+  {
+    files: ['src/main/runtimes/**/*.ts', 'src/main/providers/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '**/projects/**',
+                '**/accounts/**',
+                '**/workflows/**',
+                '**/changesets/**',
+                '**/decisions/**',
+                '**/questions/**',
+                '**/bindings/**',
+                '**/artifacts/**',
+                '**/audit/**',
+                '**/health/**',
+                '**/templates/**',
+              ],
+              message:
+                'ADR-004: Runtime and provider adapters must not import application service internals. Configuration and paths must cross the boundary via SessionOptions or constructor parameters.',
+            },
+          ],
         },
       ],
     },

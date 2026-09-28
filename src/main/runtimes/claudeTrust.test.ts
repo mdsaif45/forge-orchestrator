@@ -120,4 +120,19 @@ describe('ClaudeTrustStore', () => {
     const dir = configPath.slice(0, configPath.lastIndexOf('\\') + 1) || tmpdir()
     expect(readdirSync(dir).filter((f) => f.includes('.forge-'))).toEqual([])
   })
+
+  it('exposes prepareWorkspace on Claude runtime adapters without throwing on failure', async () => {
+    const { ClaudeCliRuntime } = await import('./claudeCliRuntime')
+    const { HostedClaudeRuntime } = await import('./hostedClaudeRuntime')
+
+    const cliRuntime = new ClaudeCliRuntime()
+    const hostedRuntime = new HostedClaudeRuntime()
+
+    expect(typeof cliRuntime.prepareWorkspace).toBe('function')
+    expect(typeof hostedRuntime.prepareWorkspace).toBe('function')
+
+    // Must be non-fatal on arbitrary path
+    await expect(cliRuntime.prepareWorkspace('D:/test-wt')).resolves.toBeUndefined()
+    await expect(hostedRuntime.prepareWorkspace('D:/test-wt')).resolves.toBeUndefined()
+  })
 })

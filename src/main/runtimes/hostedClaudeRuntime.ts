@@ -16,6 +16,7 @@ import {
 import type { ProcessHandle, ProcessManager } from '../process/processManager'
 import { ClaudeHookBridge } from './claudeHooks'
 import { claudeSessionId } from './claudeSession'
+import { ClaudeTrustStore } from './claudeTrust'
 import { HostedSession } from './hostedSession'
 import { blockingPrompt, promptKeystrokes } from './interactiveTurn'
 
@@ -131,7 +132,17 @@ export class HostedClaudeRuntime implements IAgentRuntime {
     this.hookReceiverDir = options.hookReceiverDir ?? null
   }
 
+  async prepareWorkspace(workspacePath: string): Promise<void> {
+    try {
+      await new ClaudeTrustStore().trust(workspacePath)
+    } catch {
+      // Trust recording failure is non-fatal: the run still proceeds.
+    }
+  }
+
   async start(options: SessionOptions): Promise<SessionHandle> {
+    await this.prepareWorkspace(options.repositoryPath)
+
     // A2/A3: a runtime with nothing to spawn must fail loudly. Reporting success
     // for work that never happened is the exact failure this product exists to
     // catch in agents, and it cannot be acceptable in Forge's own adapter.

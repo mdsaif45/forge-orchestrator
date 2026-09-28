@@ -1,11 +1,8 @@
 import { randomUUID } from 'node:crypto'
-import { eq } from 'drizzle-orm'
-import { z } from 'zod'
 import {
   assessReview,
   changeSetIdSchema,
   compileContext,
-  completionCriterionSchema,
   decisionIdSchema,
   TEMPLATES,
   isTemplateId,
@@ -15,7 +12,6 @@ import {
   questionIdSchema,
   repositoryIdSchema,
   resolveEffectivePolicy,
-  scopePolicySchema,
   stepIdSchema,
   taskIdSchema,
   workflowIdSchema,
@@ -43,8 +39,6 @@ import type {
 import type { ForgeDatabase } from '../db/connection'
 import { EventStore } from '../db/eventStore'
 import { applyEvent } from '../db/projections'
-import { fromJson } from '../db/rows'
-import { tasks } from '../db/schema'
 import { WorkflowStore } from '../db/workflowStore'
 import { QuestionStore } from '../db/questionStore'
 import { DecisionStore } from '../db/decisionStore'
@@ -56,7 +50,6 @@ import { buildChangeSet } from '../evidence/changeSetBuilder'
 import { verifyStep } from '../evidence/verifier'
 import { bindRole, BindingSet } from '../runtimes/bindings'
 import { BindingStore } from '../db/bindingStore'
-import { ClaudeTrustStore } from '../runtimes/claudeTrust'
 import { agentSessionKey, type AgentSessionRegistry } from '../terminal/sessionRegistry'
 import { Orchestrator } from '../runtimes/orchestrator'
 import type { RuntimeRegistry } from '../runtimes/registry'
@@ -282,7 +275,14 @@ export class WorkflowService {
 
     // Spawn orchestrator execution asynchronously in background
     if (input.autoRun !== false) {
-      void this.executeWorkflow(pId, wId, task, projectDetail.project.repository.absolutePath)
+      void this.executeWorkflow(
+        pId,
+        wId,
+        task,
+        projectDetail.project.repository.absolutePath,
+      ).catch((_err: unknown) => {
+        void 0
+      })
     }
 
     return this.toDetailView(workflow)
@@ -373,27 +373,8 @@ export class WorkflowService {
       .get(projectId)
       .then((prj) => {
         if (prj !== null) {
-          const taskRow = this.options.db.select().from(tasks).where(eq(tasks.id, wf.taskId)).get()
-          if (taskRow !== undefined) {
-            const domainTask: Task = {
-              id: taskIdSchema.parse(taskRow.id),
-              objective: taskRow.objective,
-              constraints: fromJson(z.array(z.string()), taskRow.constraints, 'tasks.constraints'),
-              completionCriteria: fromJson(
-                z.array(completionCriterionSchema),
-                taskRow.completionCriteria,
-                'tasks.completionCriteria',
-              ),
-              scope: fromJson(scopePolicySchema, taskRow.scope, 'tasks.scope'),
-              lockedDecisionIds: fromJson(
-                z.array(decisionIdSchema),
-                taskRow.lockedDecisionIds,
-                'tasks.lockedDecisionIds',
-              ),
-              correctsTaskId:
-                taskRow.correctsTaskId === null ? null : taskIdSchema.parse(taskRow.correctsTaskId),
-              createdAt: taskRow.createdAt,
-            }
+          const domainTask = this.workflows.getTask(wf.taskId)
+          if (domainTask !== null) {
             void this.executeWorkflow(
               projectId,
               wId,
@@ -457,40 +438,51 @@ export class WorkflowService {
             at: now,
           })
 
-          void this.options.projects.get(pId).then((projectDetail) => {
-            if (projectDetail !== null) {
-              const completionCriteria: CompletionCriterion[] = [
-                { kind: 'no-assumptions', description: 'No unverified assumptions', params: {} },
-              ]
-              if (projectDetail.project.repository.buildCommand !== null) {
-                completionCriteria.push({ kind: 'build', description: 'Build passes', params: {} })
-              }
-              if (projectDetail.project.repository.testCommand !== null) {
-                completionCriteria.push({
-                  kind: 'tests',
-                  description: 'Test suite passes',
-                  params: {},
+          void this.options.projects
+            .get(pId)
+            .then((projectDetail) => {
+              if (projectDetail !== null) {
+                const completionCriteria: CompletionCriterion[] = [
+                  { kind: 'no-assumptions', description: 'No unverified assumptions', params: {} },
+                ]
+                if (projectDetail.project.repository.buildCommand !== null) {
+                  completionCriteria.push({
+                    kind: 'build',
+                    description: 'Build passes',
+                    params: {},
+                  })
+                }
+                if (projectDetail.project.repository.testCommand !== null) {
+                  completionCriteria.push({
+                    kind: 'tests',
+                    description: 'Test suite passes',
+                    params: {},
+                  })
+                }
+
+                const task: Task = {
+                  id: waiting.taskId,
+                  objective: `Continue task ${waiting.taskId}`,
+                  constraints: [],
+                  completionCriteria,
+                  scope: { allowedPaths: [], forbiddenPaths: [] },
+                  lockedDecisionIds: [],
+                  correctsTaskId: null,
+                  createdAt: waiting.startedAt,
+                }
+                void this.executeWorkflow(
+                  pId,
+                  waiting.id,
+                  task,
+                  projectDetail.project.repository.absolutePath,
+                ).catch((_err: unknown) => {
+                  void 0
                 })
               }
-
-              const task: Task = {
-                id: waiting.taskId,
-                objective: `Continue task ${waiting.taskId}`,
-                constraints: [],
-                completionCriteria,
-                scope: { allowedPaths: [], forbiddenPaths: [] },
-                lockedDecisionIds: [],
-                correctsTaskId: null,
-                createdAt: waiting.startedAt,
-              }
-              void this.executeWorkflow(
-                pId,
-                waiting.id,
-                task,
-                projectDetail.project.repository.absolutePath,
-              )
-            }
-          })
+            })
+            .catch((_err: unknown) => {
+              void 0
+            })
         }
       }
     }
@@ -520,18 +512,19 @@ export class WorkflowService {
     task: Task,
     repositoryPath: string,
   ): Promise<void> {
+    const existing = this.workflows.find(workflowId)
+    if (existing === null) return
+    if (existing.finishedAt !== null || isTerminalWorkflowState(existing.state)) return
+
     const controller = new AbortController()
     this.running.set(workflowId, controller)
 
-    // Read from the stored workflow rather than threaded through the signature, so the
-    // template the user picked survives a resume as well as the initial run.
-    const storedTemplateId = this.workflows.find(workflowId)?.templateId ?? 'feature'
     // Narrowed by lookup rather than cast: the stored value is a plain string from the
     // database, so a row written by an older build (or a template since removed) must
     // fall back rather than index TEMPLATES with a key it does not have.
-    const templateId: TemplateId = isTemplateId(storedTemplateId) ? storedTemplateId : 'feature'
-
-    const baseSha = await new GitService({ repositoryPath }).headSha()
+    const templateId: TemplateId = isTemplateId(existing.templateId)
+      ? existing.templateId
+      : 'feature'
 
     // Retired in the `finally` below, so a crashed or cancelled run does not leave
     // the pane attached to processes that are gone.
@@ -541,123 +534,125 @@ export class WorkflowService {
     // `repositoryPath` only when no worktree root is configured, which keeps the
     // existing test harnesses running against a plain directory.
     let worktree: PreparedWorktree | null = null
-    if (this.options.worktreeRoot !== undefined) {
-      const worktrees = new WorktreeService({
-        repositoryPath,
-        root: this.options.worktreeRoot,
-      })
-      // Clears anything a previous session was killed before disposing, so a crash
-      // does not leave worktrees registered against the user's repository forever.
-      await worktrees.reclaimAbandoned()
-      worktree = await worktrees.prepare(workflowId)
-    }
-    const agentPath = worktree?.path ?? repositoryPath
-
-    // Recorded before any agent is spawned into this path. On a directory it has
-    // not seen, the Claude CLI blocks at startup on "Quick safety check: Is this a
-    // project you created or one you trust?" — and every worktree is a fresh path,
-    // so it would fire on every run (#166/#167).
-    //
-    // Not fatal when it fails: the run still proceeds, and the user answers the
-    // dialog once by hand. Failing the workflow over a config file Forge does not
-    // own would be worse than the dialog it avoids.
-    await new ClaudeTrustStore().trust(agentPath)
-
-    // Reads the worktree the agents actually edited. Pointed at the project checkout
-    // it would report a clean tree for every run and the change set would be empty.
-    const gitService = new GitService({ repositoryPath: agentPath })
-
-    // Ensure runtimes are bound for the template
-    const bindings = this.resolveBindings(projectId)
-
-    const orchestrator = new Orchestrator({
-      registry: this.registry,
-      workflows: this.workflows,
-      packets: this.packets,
-      compilePacket: async (ctx) => {
-        const projectDetail = await this.options.projects.get(projectId)
-        const rawRules: ResolvableRule[] = [
-          ...FORGE_DEFAULT_RULES,
-          ...(projectDetail?.rules.map((r) => ({
-            scope: r.scope as RuleScope,
-            key: r.key,
-            statement: r.statement,
-            source: r.source,
-          })) ?? []),
-        ]
-        const effectivePolicy = resolveEffectivePolicy(rawRules)
-
-        const allProjectQuestions = this.questions.listForProject(projectId)
-        const answeredQuestions = allProjectQuestions
-          .filter((q): q is OpenQuestion & { answer: string } => q.answer !== null)
-          .map((q) => ({ question: q.question, answer: q.answer }))
-
-        const locked = this.decisions.listLocked(projectId)
-        const lockedDecisions: LockedDecision[] = locked.map((d) => ({
-          id: d.id,
-          statement: d.statement,
-          rationale: d.rationale,
-        }))
-
-        // Read per step rather than once per workflow: a run can span an edit to the
-        // file, and the packet should say what the repository asked for at the time the
-        // step ran, not when the workflow started.
-        //
-        // The filenames come from the runtime bound to this role — which file a provider
-        // reads is provider-specific, and core must not name one (A6). A role with no
-        // binding gets no instructions rather than a guessed filename.
-        const boundRuntimeId = bindings.get(ctx.role)?.runtimeId ?? null
-        const instructionFilenames =
-          boundRuntimeId !== null && this.registry.has(boundRuntimeId)
-            ? this.registry.resolve(boundRuntimeId).instructionFilenames
-            : []
-        const repositoryInstructions = await readRepositoryInstructions(
-          repositoryPath,
-          instructionFilenames,
-        )
-
-        const compiled = compileContext({
-          role: ctx.role,
-          task,
-          rules: effectivePolicy,
-          lockedDecisions,
-          files: [],
-          previousAttempt: ctx.previousAttempt,
-          reviewFindings: ctx.reviewFindings,
-          answeredQuestions,
-          repositoryInstructions,
-        })
-        return compiled.packet
-      },
-      measureChange: async () => {
-        try {
-          const diff = await gitService.diffWorktree(baseSha ?? 'HEAD')
-          return { files: [...diff.files], patch: diff.patch }
-        } catch {
-          return null
-        }
-      },
-      reconcileStep: async (report) => {
-        try {
-          const now = new Date().toISOString()
-          const built = await buildChangeSet(gitService, {
-            baseSha: baseSha ?? 'HEAD',
-            report,
-            scope: task.scope,
-            authorActor: 'agent:implementer',
-            stepId: stepIdSchema.parse(randomUUID()),
-            taskId: task.id,
-            capturedAt: now,
-          })
-          this.changeSets.record(built.changeSet, projectId, 'agent:implementer', now)
-          return built.reconciliation
-        } catch {
-          return null
-        }
-      },
-    })
 
     try {
+      const baseSha = await new GitService({ repositoryPath }).headSha()
+      if (this.options.worktreeRoot !== undefined) {
+        const worktrees = new WorktreeService({
+          repositoryPath,
+          root: this.options.worktreeRoot,
+        })
+        // Clears anything a previous session was killed before disposing, so a crash
+        // does not leave worktrees registered against the user's repository forever.
+        await worktrees.reclaimAbandoned()
+        worktree = await worktrees.prepare(workflowId)
+      }
+      const agentPath = worktree?.path ?? repositoryPath
+
+      // Reads the worktree the agents actually edited. Pointed at the project checkout
+      // it would report a clean tree for every run and the change set would be empty.
+      const gitService = new GitService({ repositoryPath: agentPath })
+
+      // Ensure runtimes are bound for the template
+      const bindings = this.resolveBindings(projectId)
+
+      // Prepare workspace for all bound runtimes (e.g. folder trust initialization).
+      // Not fatal when it fails: the run still proceeds.
+      for (const role of bindings.roles()) {
+        const binding = bindings.get(role)
+        if (binding !== null && this.registry.has(binding.runtimeId)) {
+          const runtime = this.registry.resolve(binding.runtimeId)
+          await runtime.prepareWorkspace?.(agentPath)
+        }
+      }
+
+      const orchestrator = new Orchestrator({
+        registry: this.registry,
+        workflows: this.workflows,
+        packets: this.packets,
+        compilePacket: async (ctx) => {
+          const projectDetail = await this.options.projects.get(projectId)
+          const rawRules: ResolvableRule[] = [
+            ...FORGE_DEFAULT_RULES,
+            ...(projectDetail?.rules.map((r) => ({
+              scope: r.scope as RuleScope,
+              key: r.key,
+              statement: r.statement,
+              source: r.source,
+            })) ?? []),
+          ]
+          const effectivePolicy = resolveEffectivePolicy(rawRules)
+
+          const allProjectQuestions = this.questions.listForProject(projectId)
+          const answeredQuestions = allProjectQuestions
+            .filter((q): q is OpenQuestion & { answer: string } => q.answer !== null)
+            .map((q) => ({ question: q.question, answer: q.answer }))
+
+          const locked = this.decisions.listLocked(projectId)
+          const lockedDecisions: LockedDecision[] = locked.map((d) => ({
+            id: d.id,
+            statement: d.statement,
+            rationale: d.rationale,
+          }))
+
+          // Read per step rather than once per workflow: a run can span an edit to the
+          // file, and the packet should say what the repository asked for at the time the
+          // step ran, not when the workflow started.
+          //
+          // The filenames come from the runtime bound to this role — which file a provider
+          // reads is provider-specific, and core must not name one (A6). A role with no
+          // binding gets no instructions rather than a guessed filename.
+          const boundRuntimeId = bindings.get(ctx.role)?.runtimeId ?? null
+          const instructionFilenames =
+            boundRuntimeId !== null && this.registry.has(boundRuntimeId)
+              ? this.registry.resolve(boundRuntimeId).instructionFilenames
+              : []
+          const repositoryInstructions = await readRepositoryInstructions(
+            repositoryPath,
+            instructionFilenames,
+          )
+
+          const compiled = compileContext({
+            role: ctx.role,
+            task,
+            rules: effectivePolicy,
+            lockedDecisions,
+            files: [],
+            previousAttempt: ctx.previousAttempt,
+            reviewFindings: ctx.reviewFindings,
+            answeredQuestions,
+            repositoryInstructions,
+          })
+          return compiled.packet
+        },
+        measureChange: async () => {
+          try {
+            const diff = await gitService.diffWorktree(baseSha ?? 'HEAD')
+            return { files: [...diff.files], patch: diff.patch }
+          } catch {
+            return null
+          }
+        },
+        reconcileStep: async (report) => {
+          try {
+            const now = new Date().toISOString()
+            const built = await buildChangeSet(gitService, {
+              baseSha: baseSha ?? 'HEAD',
+              report,
+              scope: task.scope,
+              authorActor: 'agent:implementer',
+              stepId: stepIdSchema.parse(randomUUID()),
+              taskId: task.id,
+              capturedAt: now,
+            })
+            this.changeSets.record(built.changeSet, projectId, 'agent:implementer', now)
+            return built.reconciliation
+          } catch {
+            return null
+          }
+        },
+      })
+
       // Resolved from the workflow's own `templateId`. It was hardcoded to
       // FEATURE_IMPLEMENTATION, so every template ran the feature pipeline: the header
       // read "Template: security" — echoing the stored string — while the engine
@@ -783,15 +778,23 @@ export class WorkflowService {
       // Disposed even when the run threw or was cancelled: a worktree left behind
       // holds a lock on its directory and shows up in `git worktree list` forever.
       for (const session of liveSessions) this.options.sessions?.retire(session.key, session.handle)
-      await worktree?.dispose()
-      const finished = this.workflows.find(workflowId)
-      if (finished !== null) {
-        this.notifyEvent({
-          workflowId,
-          type: 'workflow.finished',
-          state: finished.state,
-          at: new Date().toISOString(),
-        })
+      try {
+        await worktree?.dispose()
+      } catch {
+        // Ignore worktree disposal failure on teardown
+      }
+      try {
+        const finished = this.workflows.find(workflowId)
+        if (finished !== null) {
+          this.notifyEvent({
+            workflowId,
+            type: 'workflow.finished',
+            state: finished.state,
+            at: new Date().toISOString(),
+          })
+        }
+      } catch {
+        // Ignore finished notification on teardown if store is closed
       }
     }
   }

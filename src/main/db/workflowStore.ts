@@ -10,10 +10,16 @@ import {
   workflowLimitsSchema,
   workflowSchema,
   workflowStepSchema,
+  completionCriterionSchema,
+  decisionIdSchema,
+  scopePolicySchema,
+  taskIdSchema,
   type Actor,
   type EvidenceArtifact,
   type ProjectId,
   type QuestionId,
+  type Task,
+  type TaskId,
   type Workflow,
   type WorkflowCheckpoint,
   type WorkflowId,
@@ -26,7 +32,7 @@ import type { ForgeDatabase } from './connection'
 import { EventStore } from './eventStore'
 import { applyEvent } from './projections'
 import { fromJson, parseRow } from './rows'
-import { evidenceArtifacts, workflows, workflowSteps } from './schema'
+import { evidenceArtifacts, tasks, workflows, workflowSteps } from './schema'
 
 /**
  * The command layer for workflows.
@@ -349,6 +355,33 @@ export class WorkflowStore {
       .orderBy(asc(workflows.startedAt))
       .all()
       .map((row) => this.toDomain(row))
+  }
+
+  /**
+   * Retrieves a persisted task by its ID, deserializing its JSON fields according to domain schemas.
+   */
+  getTask(taskId: TaskId): Task | null {
+    const taskRow = this.db.select().from(tasks).where(eq(tasks.id, taskId)).get()
+    if (!taskRow) return null
+    return {
+      id: taskIdSchema.parse(taskRow.id),
+      objective: taskRow.objective,
+      constraints: fromJson(z.array(z.string()), taskRow.constraints, 'tasks.constraints'),
+      completionCriteria: fromJson(
+        z.array(completionCriterionSchema),
+        taskRow.completionCriteria,
+        'tasks.completionCriteria',
+      ),
+      scope: fromJson(scopePolicySchema, taskRow.scope, 'tasks.scope'),
+      lockedDecisionIds: fromJson(
+        z.array(decisionIdSchema),
+        taskRow.lockedDecisionIds,
+        'tasks.lockedDecisionIds',
+      ),
+      correctsTaskId:
+        taskRow.correctsTaskId === null ? null : taskIdSchema.parse(taskRow.correctsTaskId),
+      createdAt: taskRow.createdAt,
+    }
   }
 
   private require(workflowId: WorkflowId): Workflow {

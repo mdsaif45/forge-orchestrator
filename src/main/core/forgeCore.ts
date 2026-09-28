@@ -201,7 +201,10 @@ export function createForgeCore(options: ForgeCoreOptions = {}): ForgeCore {
 
   const terminalService = new TerminalService({
     processes,
-    projects: projectService,
+    resolveProjectCwd: async (projectId) => {
+      const detail = await projectService.get(projectId)
+      return detail?.project.repository.absolutePath ?? null
+    },
     runtimeExecutable,
     sessions: agentSessions,
     emitData: options.emitTerminalData ?? NOOP,

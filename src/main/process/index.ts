@@ -17,3 +17,5 @@ export {
   stripAnsi,
   withheldEnvNames,
 } from './redact'
+
+export { accountEnv } from './accountEnv'

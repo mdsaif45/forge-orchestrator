@@ -13,7 +13,8 @@ import {
   type SessionHandle,
   type SessionOptions,
 } from '@shared/domain'
-import { accountEnv } from '../accounts/accountAuth'
+import { accountEnv } from '../process/accountEnv'
+import { ClaudeTrustStore } from './claudeTrust'
 import { claudeSessionId } from './claudeSession'
 import { observeStreamLine, takeCompleteLines } from './claudeStream'
 
@@ -127,8 +128,17 @@ export class ClaudeCliRuntime implements IAgentRuntime {
     this.homeForAccount = options.homeForAccount ?? null
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await
+  async prepareWorkspace(workspacePath: string): Promise<void> {
+    try {
+      await new ClaudeTrustStore().trust(workspacePath)
+    } catch {
+      // Trust recording failure is non-fatal: the run still proceeds.
+    }
+  }
+
   async start(options: SessionOptions): Promise<SessionHandle> {
+    await this.prepareWorkspace(options.repositoryPath)
+
     const handle: SessionHandle = {
       sessionId: sessionIdSchema.parse(`claude-sess-${randomUUID()}`),
       runtimeId: this.id,

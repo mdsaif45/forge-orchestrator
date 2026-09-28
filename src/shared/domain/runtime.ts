@@ -419,6 +419,12 @@ export interface IAgentRuntime {
    */
   readonly instructionFilenames: readonly string[]
 
+  /**
+   * Prepares a workspace path before an agent is launched into it (e.g. trust registration).
+   * Optional lifecycle hook; runtimes with no workspace preparation requirements omit this.
+   */
+  prepareWorkspace?(workspacePath: string): Promise<void>
+
   start(options: SessionOptions): Promise<SessionHandle>
   send(session: SessionHandle, packet: PromptPacket): Promise<void>
   events(session: SessionHandle): AsyncIterable<RuntimeEvent>

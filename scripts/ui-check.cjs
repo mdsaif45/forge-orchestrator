@@ -103,8 +103,6 @@ app
     ipcMain.handle('template:getV2', () => ({ ok: true, value: null }))
     ipcMain.handle('template:saveV2', () => ({ ok: true, value: { id: 'stub' } }))
     ipcMain.handle('template:deleteV2', () => ({ ok: true, value: { success: true } }))
-    ipcMain.handle('artifact:list', () => ({ ok: true, value: { artifacts: [] } }))
-    ipcMain.handle('artifact:get', () => ({ ok: true, value: null }))
     ipcMain.handle('runtime:list', () => ({ ok: true, value: { runtimes: [] } }))
     ipcMain.handle('runtime:detectClis', () => ({ ok: true, value: { clis: [] } }))
     ipcMain.handle('runtime:getAgentDefaults', () => ({

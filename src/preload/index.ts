@@ -116,10 +116,6 @@ const api: ForgeApi = {
     saveV2: (template) => call('template:saveV2', { template }),
     deleteV2: (templateId) => call('template:deleteV2', { templateId }),
   },
-  artifact: {
-    list: (workflowId, nodeId) => call('artifact:list', { workflowId, nodeId }),
-    get: (artifactId) => call('artifact:get', { artifactId }),
-  },
   terminal: {
     spawn: (request) => call('terminal:spawn', request),
     write: (terminalId, data) => call('terminal:write', { terminalId, data }),

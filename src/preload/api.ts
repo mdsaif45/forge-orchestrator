@@ -14,7 +14,6 @@ import type {
   ProviderChunkPayload,
   PromptPacketView,
   RepositoryProbe,
-  WorkflowArtifactView,
   ArtifactMetadataView,
   ArtifactWindowView,
   WorkflowDetailView,
@@ -327,17 +326,6 @@ export interface ForgeApi {
     getV2: (templateId: string) => Promise<IpcResult<WorkflowTemplateV2View | null>>
     saveV2: (template: WorkflowTemplateV2View) => Promise<IpcResult<WorkflowTemplateV2View>>
     deleteV2: (templateId: string) => Promise<IpcResult<{ readonly success: boolean }>>
-  }
-  readonly artifact: {
-    list: (
-      workflowId: string,
-      nodeId?: string,
-    ) => Promise<
-      IpcResult<{
-        readonly artifacts: readonly WorkflowArtifactView[]
-      }>
-    >
-    get: (artifactId: string) => Promise<IpcResult<WorkflowArtifactView | null>>
   }
   readonly terminal: {
     spawn: (request: {

@@ -15,6 +15,7 @@ These records serve as the defense against architectural drift.
 | [**ADR-001**](ADR-001-agents-runtimes-accounts.md) | Agents, runtimes, and the end of account isolation | **IMPLEMENTED** | 2026-08-31 | Separates accounts from runtime execution; models CLI vs API provider kinds. |
 | [**ADR-002**](ADR-002-interactive-orchestration.md) | Interactive orchestration vs headless stdout parsing | **IMPLEMENTED** | 2026-08-31 | Inverts the architecture from headless scraping to live interactive steering. |
 | [**ADR-003**](ADR-003-host-the-real-cli.md) | Host the real CLI instead of parsing a headless one | **IMPLEMENTED** | 2026-09-01 | Hosts the real CLI in a pseudo-terminal (`node-pty`; ConPTY on Windows) with a terminal pane attached. |
+| [**ADR-006**](ADR-006-artifact-storage-authority.md) | Artifact Storage Authority | **ACCEPTED** | 2026-09-28 | Establishes ArtifactService as application authority, SQLite ArtifactStore as metadata persistence, and removes legacy in-memory prototype. |
 
 ---
 

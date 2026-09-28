@@ -433,12 +433,6 @@ export function createIpcHandlers({
       success: templatesV2Store.delete(templateId),
     }),
 
-    'artifact:list': () => ({
-      artifacts: [],
-    }),
-
-    'artifact:get': () => null,
-
     'terminal:spawn': async (request) => terminal.spawn(request),
 
     'terminal:write': ({ terminalId, data }) => {

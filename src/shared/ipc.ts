@@ -42,7 +42,6 @@ import {
   workflowDetailViewSchema,
   workflowTemplateViewSchema,
   workflowTemplateV2ViewSchema,
-  workflowArtifactViewSchema,
   artifactMetadataViewSchema,
   artifactWindowViewSchema,
   promptPacketViewSchema,
@@ -520,21 +519,6 @@ export const IPC_CONTRACT = {
       templateId: z.string(),
     }),
     response: z.strictObject({ success: z.boolean() }),
-  },
-  'artifact:list': {
-    request: z.strictObject({
-      workflowId: z.string(),
-      nodeId: z.string().optional(),
-    }),
-    response: z.strictObject({
-      artifacts: z.array(workflowArtifactViewSchema).readonly(),
-    }),
-  },
-  'artifact:get': {
-    request: z.strictObject({
-      artifactId: z.string(),
-    }),
-    response: workflowArtifactViewSchema.nullable(),
   },
   'terminal:spawn': {
     request: z.strictObject({

@@ -41,12 +41,12 @@ M9  Production Polish & Scale     ░░░░░░░░░░  NOT STARTED
 
 | Milestone | Status | Completed Work | In Progress Work | Next Up |
 | :--- | :--- | :--- | :--- | :--- |
-| **M0 Baseline** | **DONE** | CI matrix, vitest suites, lint/formatting, baseline smoke check. | — | Fix Windows git EBUSY flakiness (#178). |
+| **M0 Baseline** | **DONE** | CI matrix, vitest suites, lint/formatting, baseline smoke check, Windows git EBUSY flakiness resolution (M0-002), spike #64 formal closure (M0-003). | — | — |
 | **M1 Headless Core** | **DONE** | `createForgeCore` decoupled from Electron; `--data-dir` support. | — | Headless config loader (`.forgerc`). |
-| **M2 Native Agent** | **DONE** | Native in-process tool loop (`taskRunner.ts`, `agentLoop.ts`), six tools in `providers/tools.ts`. | — | Streaming artifact ingestion for large tool output (`AGENT-002`). |
+| **M2 Native Agent** | **DONE** | Native in-process tool loop (`taskRunner.ts`, `agentLoop.ts`), six tools in `providers/tools.ts`, streaming artifact ingestion (`AGENT-002`). | — | Eager concurrent tool execution (`AGENT-003`). |
 | **M3 Forge CLI** | **IN PROGRESS** | Standalone `bin/forge.ts`, NDJSON stream, exit codes 0/1/2. | — no TUI work is in flight; see Q-IL-01. | Terminal TUI (`CLI-004`) not started. |
 | **M4 State & Storage** | **DONE** | SQLite `RunStore`, `EventStore`, `ArtifactStore`, `ArtifactService` including `readWindow()` (PR #203). | — | Typed IPC event streaming. |
-| **M5 Verification** | **IN PROGRESS** | Physical diff reconciliation, `ChangeSet` snapshotting, completion-criteria evaluation & task loop integration, independent build/test runner (`verifier.ts`), untracked/binary reconciliation. | Adversarial edge-case verifier (`VERIFY-003`) on `feat/verify-003-adversarial-verifier` (+28 tests). | Complete forensic review, PR review, and merge. |
+| **M5 Verification** | **IN PROGRESS** | Physical diff reconciliation, `ChangeSet` snapshotting, completion-criteria evaluation & task loop integration, independent build/test runner (`verifier.ts`), untracked/binary reconciliation. | Adversarial edge-case verifier (`VERIFY-003`) on `feat/verify-003-adversarial-verifier` (+31 tests). | Complete forensic review, PR review, and merge. |
 | **M6 Workflow Graph** | **NOT STARTED** | Domain types declared. | — | DAG execution engine. |
 | **M7 Human Control** | **NOT STARTED** | ConPTY terminal session spawner validated in spikes. | — | Attach UI pane to running session. |
 | **M8 Provider Ecosystem**| **NOT STARTED** | Claude/Antigravity adapters prototyped. | — | Data-driven provider config. |

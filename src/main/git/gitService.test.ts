@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { changedFileSchema } from '@shared/domain'
+import { removeTempDir } from '../../test/tempDir'
 import { DirtyWorktreeError, GitService, NotARepositoryError } from '.'
 
 /**
@@ -39,8 +40,8 @@ beforeEach(() => {
   git('config', 'commit.gpgsign', 'false')
 })
 
-afterEach(() => {
-  rmSync(repoPath, { recursive: true, force: true })
+afterEach(async () => {
+  await removeTempDir(repoPath)
 })
 
 describe('isRepo', () => {
@@ -54,7 +55,7 @@ describe('isRepo', () => {
     try {
       await expect(new GitService({ repositoryPath: plain }).isRepo()).resolves.toBe(false)
     } finally {
-      rmSync(plain, { recursive: true, force: true })
+      await removeTempDir(plain)
     }
   })
 
@@ -94,7 +95,7 @@ describe('isRepo', () => {
         NotARepositoryError,
       )
     } finally {
-      rmSync(plain, { recursive: true, force: true })
+      await removeTempDir(plain)
     }
   })
 })

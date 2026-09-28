@@ -1,6 +1,6 @@
-export { ArtifactStore } from './artifactStore'
 export {
   ArtifactService,
   type WriteArtifactOptions,
+  type WriteArtifactStreamOptions,
   type ReadWindowResult,
 } from './artifactService'

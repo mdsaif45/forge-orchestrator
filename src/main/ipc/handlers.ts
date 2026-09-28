@@ -22,7 +22,6 @@ import { openTerminal } from '../accounts/terminalLauncher'
 
 import type { TerminalService } from '../terminal/terminalService'
 import { TemplateV2Store } from '../templates/templateV2Store'
-import { ArtifactStore } from '../artifacts/artifactStore'
 import type { ArtifactService } from '../artifacts/artifactService'
 import {
   detectInstalledClis,
@@ -44,7 +43,6 @@ export interface IpcDependencies {
   readonly enrollment: EnrollmentService
   readonly terminal: TerminalService
   readonly templatesV2?: TemplateV2Store
-  readonly artifacts?: ArtifactStore
   readonly artifactService?: ArtifactService
   /**
    * Broadcasts one chunk of a streamed model reply.
@@ -86,14 +84,12 @@ export function createIpcHandlers({
   enrollment,
   terminal,
   templatesV2,
-  artifacts,
   artifactService,
   emitProviderChunk,
   setActiveModel,
   registerCustomCli,
 }: IpcDependencies): IpcHandlerMap {
   const templatesV2Store = templatesV2 ?? new TemplateV2Store()
-  const artifactStore = artifacts ?? new ArtifactStore()
 
   /**
    * Gathers everything a report needs and renders it.
@@ -437,11 +433,11 @@ export function createIpcHandlers({
       success: templatesV2Store.delete(templateId),
     }),
 
-    'artifact:list': ({ workflowId, nodeId }) => ({
-      artifacts: artifactStore.list(workflowId, nodeId),
+    'artifact:list': () => ({
+      artifacts: [],
     }),
 
-    'artifact:get': ({ artifactId }) => artifactStore.get(artifactId),
+    'artifact:get': () => null,
 
     'terminal:spawn': async (request) => terminal.spawn(request),
 

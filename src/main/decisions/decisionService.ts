@@ -6,7 +6,7 @@ import {
   type Decision,
   type DecisionStatus,
 } from '@shared/domain'
-import type { DecisionView } from '@shared/ipc'
+import type { DecisionView } from '@shared/views'
 import type { DecisionStore } from '../db/decisionStore'
 
 export interface DecisionServiceOptions {

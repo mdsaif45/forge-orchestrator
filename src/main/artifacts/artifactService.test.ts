@@ -14,7 +14,7 @@ import {
   type RunId,
   type StepId,
 } from '@shared/domain'
-import { artifactWindowViewSchema } from '@shared/ipc'
+import { artifactWindowViewSchema } from '@shared/views'
 import { openDatabase, type ForgeDatabase } from '../db/connection'
 import { runMigrations } from '../db/migrate'
 import { MIGRATIONS } from '../db/migrations.generated'

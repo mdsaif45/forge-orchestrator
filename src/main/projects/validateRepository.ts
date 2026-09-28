@@ -1,6 +1,6 @@
 import { realpath, stat } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
-import type { RepositoryProbe, RepositoryProbeProblem } from '@shared/ipc'
+import type { RepositoryProbe, RepositoryProbeProblem } from '@shared/views'
 import { GitService } from '../git'
 import { runGit } from '../git/exec'
 

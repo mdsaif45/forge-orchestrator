@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import type { ProviderChunkPayload, WorkflowEventPayload, WorkflowLogPayload } from '@shared/ipc'
+import type { ProviderChunkPayload, WorkflowEventPayload, WorkflowLogPayload } from '@shared/views'
 import { initialiseDatabase, RunStore, ArtifactStore } from '../db'
 import type { ForgeDatabase, OpenDatabaseResult } from '../db'
 import type { ChangeSetStore } from '../db/changeSetStore'

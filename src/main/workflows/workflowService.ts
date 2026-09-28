@@ -39,7 +39,7 @@ import type {
   WorkflowEventPayload,
   WorkflowLogPayload,
   WorkflowSummaryView,
-} from '@shared/ipc'
+} from '@shared/views'
 import type { ForgeDatabase } from '../db/connection'
 import { EventStore } from '../db/eventStore'
 import { applyEvent } from '../db/projections'

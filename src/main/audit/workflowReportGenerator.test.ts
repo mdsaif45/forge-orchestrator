@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { generateWorkflowReportMarkdown } from './workflowReportGenerator'
-import type { WorkflowDetailView, DecisionView, OpenQuestionView } from '@shared/ipc'
+import type { WorkflowDetailView, DecisionView, OpenQuestionView } from '@shared/views'
 
 describe('Workflow Audit Report Generator (#48)', () => {
   it('generates a clean markdown report from workflow data', () => {

@@ -1,4 +1,4 @@
-import type { WorkflowDetailView, DecisionView, OpenQuestionView } from '@shared/ipc'
+import type { WorkflowDetailView, DecisionView, OpenQuestionView } from '@shared/views'
 
 export interface WorkflowReportData {
   readonly workflow: WorkflowDetailView

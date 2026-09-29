@@ -556,16 +556,6 @@ export class WorkflowService {
       // Ensure runtimes are bound for the template
       const bindings = this.resolveBindings(projectId)
 
-      // Prepare workspace for all bound runtimes (e.g. folder trust initialization).
-      // Not fatal when it fails: the run still proceeds.
-      for (const role of bindings.roles()) {
-        const binding = bindings.get(role)
-        if (binding !== null && this.registry.has(binding.runtimeId)) {
-          const runtime = this.registry.resolve(binding.runtimeId)
-          await runtime.prepareWorkspace?.(agentPath)
-        }
-      }
-
       const orchestrator = new Orchestrator({
         registry: this.registry,
         workflows: this.workflows,

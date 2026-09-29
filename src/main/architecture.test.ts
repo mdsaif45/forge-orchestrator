@@ -434,4 +434,33 @@ describe('ADR-004 Architectural Boundaries & Invariants', () => {
 
     expect(cycles).toEqual([])
   })
+
+  it('verifies ClaudeTrustStore is strictly private to src/main/runtimes/**', () => {
+    const nonRuntimeFiles = allProdFiles.filter(
+      (f) => !normalizeRelative(f).startsWith('src/main/runtimes/'),
+    )
+    expect(nonRuntimeFiles.length).toBeGreaterThan(0)
+
+    const violations: string[] = []
+
+    for (const file of nonRuntimeFiles) {
+      const rel = normalizeRelative(file)
+      const content = readFileSync(file, 'utf8')
+      if (content.includes('ClaudeTrustStore')) {
+        violations.push(`${rel} references ClaudeTrustStore`)
+      }
+    }
+
+    expect(violations).toEqual([])
+  })
+
+  it('verifies WorkflowService has zero prepareWorkspace references and IAgentRuntime declares no prepareWorkspace contract', () => {
+    const wfFile = join(SRC_DIR, 'main', 'workflows', 'workflowService.ts')
+    const wfContent = readFileSync(wfFile, 'utf8')
+    expect(wfContent.includes('prepareWorkspace')).toBe(false)
+
+    const runtimeFile = join(SRC_DIR, 'shared', 'domain', 'runtime.ts')
+    const runtimeContent = readFileSync(runtimeFile, 'utf8')
+    expect(runtimeContent.includes('prepareWorkspace')).toBe(false)
+  })
 })

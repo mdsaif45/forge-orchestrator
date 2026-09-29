@@ -104,7 +104,7 @@ To achieve compliance with these rules, four pre-existing boundary violations we
 1. **`terminalService.ts` Inverted:** Inverted `TerminalService`'s dependency on `ProjectService` by injecting `resolveProjectCwd: (projectId: string) => Promise<string | null>` in `TerminalServiceOptions`.
 2. **`workflowService.ts` Query Encapsulated:** Encapsulated raw task queries inside `WorkflowStore.getTask(taskId)` in `src/main/db/workflowStore.ts`, removing all imports of `drizzle-orm` and `src/main/db/schema.ts` from `workflowService.ts`.
 3. **`claudeCliRuntime.ts` Decoupled from Accounts:** Extracted the pure process environment builder `accountEnv(home)` to `src/main/process/accountEnv.ts`, eliminating the runtime adapter's dependency on `src/main/accounts/accountAuth.ts`.
-4. **`ClaudeTrustStore` Encapsulated:** Removed direct `ClaudeTrustStore` instantiation from `WorkflowService`. Workspace trust preparation is handled by the runtime adapter lifecycle (`prepareWorkspace`) or workspace trust abstraction.
+4. **`ClaudeTrustStore` Encapsulated:** Removed direct `ClaudeTrustStore` instantiation and all provider trust references from `WorkflowService`. Workspace trust preparation is handled internally by the runtime adapter lifecycle (`runtime.start()`), preserving the runtime/provider boundary without leaking into the application layer or expanding the domain `IAgentRuntime` contract.
 
 ---
 

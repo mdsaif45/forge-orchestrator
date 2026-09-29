@@ -17,6 +17,7 @@ These records serve as the defense against architectural drift.
 | [**ADR-003**](ADR-003-host-the-real-cli.md) | Host the real CLI instead of parsing a headless one | **IMPLEMENTED** | 2026-09-01 | Hosts the real CLI in a pseudo-terminal (`node-pty`; ConPTY on Windows) with a terminal pane attached. |
 | [**ADR-004**](ADR-004-architectural-layering-and-boundaries.md) | Architectural Layering and Boundary Enforcement | **ACCEPTED** | 2026-09-29 | Strict unidirectional dependency model across domain, views, application, execution, runtimes, and infrastructure. |
 | [**ADR-006**](ADR-006-artifact-storage-authority.md) | Artifact Storage Authority | **ACCEPTED** | 2026-09-28 | Establishes ArtifactService as application authority, SQLite ArtifactStore as metadata persistence, and removes legacy in-memory prototype. |
+| [**ADR-007**](ADR-007-generic-workflow-graph-engine.md) | Generic Workflow Graph Architecture & Execution Model | **ACCEPTED** | 2026-09-29 | Defines DAG workflow execution, branch worktree isolation (Q-WF-01), graph checkpoints, and linear template compilation. |
 
 ---
 

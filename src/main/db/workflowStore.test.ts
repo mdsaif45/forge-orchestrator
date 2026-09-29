@@ -478,4 +478,23 @@ describe('replay', () => {
     // Reopening reads; it must not write.
     expect(new EventStore(db).read(projectId)).toHaveLength(before)
   })
+
+  it('retrieves and deserializes a persisted task via getTask', () => {
+    const store = new WorkflowStore(db)
+    const task = store.getTask(taskId)
+    expect(task).not.toBeNull()
+    expect(task?.id).toBe(taskId)
+    expect(task?.objective).toBe('Correct the constant')
+    expect(task?.constraints).toEqual([])
+    expect(task?.completionCriteria).toHaveLength(1)
+    expect(task?.completionCriteria[0]?.kind).toBe('tests')
+    expect(task?.scope.allowedPaths).toEqual([])
+    expect(task?.scope.forbiddenPaths).toEqual([])
+    expect(task?.lockedDecisionIds).toEqual([])
+    expect(task?.correctsTaskId).toBeNull()
+    expect(task?.createdAt).toBe(NOW)
+
+    const nonExistent = store.getTask(taskIdSchema.parse(randomUUID()))
+    expect(nonExistent).toBeNull()
+  })
 })

@@ -18,3 +18,12 @@ export {
   type AdversarialFinding,
   type AdversarialFindingCode,
 } from './adversarial'
+
+export {
+  mergeChangeSets,
+  normalizePath,
+  type ChangeSetMergeResult,
+  type MergeBranchInput,
+  type MergeConflictDetail,
+  type MergeConflictType,
+} from './changeSetMerger'

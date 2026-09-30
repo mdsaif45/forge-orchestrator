@@ -1,6 +1,14 @@
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -512,6 +520,7 @@ describe('GraphExecutor', () => {
         if (ctx.node.id === 'branchA' && ctx.worktreePath) {
           const scriptPath = join(ctx.worktreePath, 'run.sh')
           writeFileSync(scriptPath, '#!/bin/sh\necho "OK"\n')
+          chmodSync(scriptPath, 0o755)
           execFileSync('git', ['add', 'run.sh'], { cwd: ctx.worktreePath })
           execFileSync('git', ['update-index', '--chmod=+x', 'run.sh'], { cwd: ctx.worktreePath })
         } else if (ctx.node.id === 'downstream') {

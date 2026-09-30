@@ -1,4 +1,6 @@
-import { mkdir, rm, rmdir } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { mkdir, rm, rmdir, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { runGit, GitCommandError } from './exec'
 
@@ -190,5 +192,34 @@ export class WorktreeService {
     }
 
     return { path, dispose }
+  }
+
+  /**
+   * Applies a unified patch to a prepared worktree filesystem.
+   *
+   * Enforces Axiom A2 (never guess) and conservative disjoint fan-in:
+   * uses `git apply --binary --whitespace=nowarn` directly in the target worktree.
+   * If any hunk fails or cannot be applied cleanly, git rejects and throws GitCommandError.
+   * Zero 3-way merging or synthetic conflict resolution is attempted.
+   */
+  async applyPatch(worktreePath: string, patch: string): Promise<void> {
+    if (patch.trim() === '') return
+
+    let normalizedPatch = patch.replace(/\r\n/g, '\n').replace(/\n+\s*(diff --git )/g, '\n$1')
+    if (/GIT binary patch[\s\S]*?$/m.test(normalizedPatch)) {
+      normalizedPatch = normalizedPatch.trimEnd() + '\n\n'
+    } else {
+      normalizedPatch = normalizedPatch.trimEnd() + '\n'
+    }
+
+    const exec = { cwd: worktreePath }
+    const patchFile = join(tmpdir(), `forge-patch-${randomUUID()}.patch`)
+
+    await writeFile(patchFile, normalizedPatch, 'utf8')
+    try {
+      await runGit(['apply', '--binary', '--whitespace=nowarn', patchFile], exec)
+    } finally {
+      await rm(patchFile, { force: true }).catch(() => undefined)
+    }
   }
 }

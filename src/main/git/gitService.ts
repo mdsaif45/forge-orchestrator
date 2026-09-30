@@ -447,7 +447,7 @@ export class GitService {
     const diffs = await Promise.all(
       paths.map(async (rawPath) => {
         const path = rawPath.split('\\').join('/')
-        const args = ['diff', '--no-index', '--no-color']
+        const args = ['diff', '--no-index', '--binary', '--no-color']
 
         const [numstat, patch] = await Promise.all([
           // `--no-index` exits 1 when the files differ, which is always the case
@@ -496,7 +496,7 @@ export class GitService {
     const [nameStatus, numstat, patch] = await Promise.all([
       runGit([...base, '--name-status', '-z'], this.exec),
       runGit([...base, '--numstat', '-z'], this.exec),
-      runGit([...base, '--patch', '--no-color'], this.exec),
+      runGit([...base, '--patch', '--binary', '--no-color'], this.exec),
     ])
 
     const files = joinDiffFiles(

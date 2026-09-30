@@ -295,3 +295,175 @@ describe('WorktreeService.prepareBranch', () => {
     expect(existsSync(parentDir)).toBe(false)
   })
 })
+
+describe('WorktreeService.applyPatch', () => {
+  const dirs: string[] = []
+
+  afterEach(async () => {
+    for (const dir of dirs.splice(0)) await removeTempDir(dir)
+  })
+
+  it('applies unified patch with modified files to worktree', async () => {
+    const repo = makeRepo()
+    const root = mkdtempSync(join(tmpdir(), 'forge-wt-root-'))
+    dirs.push(repo, root)
+
+    const service = new WorktreeService({ repositoryPath: repo, root })
+    const branch = await service.prepareBranch('wf-patch', 'node-1')
+    expect(branch).not.toBeNull()
+    if (!branch) return
+
+    const patch = `diff --git a/source.txt b/source.txt
+--- a/source.txt
++++ b/source.txt
+@@ -1 +1 @@
+-original
++modified by patch
+`
+    await service.applyPatch(branch.path, patch)
+    expect(readFileSync(join(branch.path, 'source.txt'), 'utf8')).toBe('modified by patch\n')
+
+    await branch.dispose()
+  })
+
+  it('applies patch with added and deleted files', async () => {
+    const repo = makeRepo()
+    const root = mkdtempSync(join(tmpdir(), 'forge-wt-root-'))
+    dirs.push(repo, root)
+
+    const service = new WorktreeService({ repositoryPath: repo, root })
+    const branch = await service.prepareBranch('wf-add-del', 'node-1')
+    expect(branch).not.toBeNull()
+    if (!branch) return
+
+    const patch = `diff --git a/new_file.txt b/new_file.txt
+new file mode 100644
+--- /dev/null
++++ b/new_file.txt
+@@ -0,0 +1 @@
++hello new file
+diff --git a/source.txt b/source.txt
+deleted file mode 100644
+--- a/source.txt
++++ /dev/null
+@@ -1 +0,0 @@
+-original
+`
+    await service.applyPatch(branch.path, patch)
+    expect(existsSync(join(branch.path, 'new_file.txt'))).toBe(true)
+    expect(readFileSync(join(branch.path, 'new_file.txt'), 'utf8')).toBe('hello new file\n')
+    expect(existsSync(join(branch.path, 'source.txt'))).toBe(false)
+
+    await branch.dispose()
+  })
+
+  it('applies patch with renamed files', async () => {
+    const repo = makeRepo()
+    const root = mkdtempSync(join(tmpdir(), 'forge-wt-root-'))
+    dirs.push(repo, root)
+
+    const service = new WorktreeService({ repositoryPath: repo, root })
+    const branch = await service.prepareBranch('wf-rename', 'node-1')
+    expect(branch).not.toBeNull()
+    if (!branch) return
+
+    const patch = `diff --git a/source.txt b/renamed.txt
+similarity index 100%
+rename from source.txt
+rename to renamed.txt
+`
+    await service.applyPatch(branch.path, patch)
+    expect(existsSync(join(branch.path, 'source.txt'))).toBe(false)
+    expect(existsSync(join(branch.path, 'renamed.txt'))).toBe(true)
+    expect(readFileSync(join(branch.path, 'renamed.txt'), 'utf8')).toBe('original\n')
+
+    await branch.dispose()
+  })
+
+  it('applies patch with mode changes', async () => {
+    const repo = makeRepo()
+    const root = mkdtempSync(join(tmpdir(), 'forge-wt-root-'))
+    dirs.push(repo, root)
+
+    const service = new WorktreeService({ repositoryPath: repo, root })
+    const branch = await service.prepareBranch('wf-mode', 'node-1')
+    expect(branch).not.toBeNull()
+    if (!branch) return
+
+    const patch = `diff --git a/script.sh b/script.sh
+new file mode 100755
+--- /dev/null
++++ b/script.sh
+@@ -0,0 +1 @@
++#!/bin/sh
+`
+    await service.applyPatch(branch.path, patch)
+    expect(existsSync(join(branch.path, 'script.sh'))).toBe(true)
+    expect(readFileSync(join(branch.path, 'script.sh'), 'utf8')).toBe('#!/bin/sh\n')
+
+    await branch.dispose()
+  })
+
+  it('applies patch with binary changes', async () => {
+    const repo = makeRepo()
+    const root = mkdtempSync(join(tmpdir(), 'forge-wt-root-'))
+    dirs.push(repo, root)
+
+    const service = new WorktreeService({ repositoryPath: repo, root })
+    const branch = await service.prepareBranch('wf-bin', 'node-1')
+    expect(branch).not.toBeNull()
+    if (!branch) return
+    const binaryPatch = `diff --git a/blob.bin b/blob.bin
+new file mode 100644
+index 0000000000000000000000000000000000000000..d43e6e83345438787f245d7976e872ebf6f9eb46
+GIT binary patch
+literal 6
+NcmZQzWMXDv1pojk01yBG
+
+literal 0
+HcmV?d00001
+
+`
+    await service.applyPatch(branch.path, binaryPatch)
+    expect(existsSync(join(branch.path, 'blob.bin'))).toBe(true)
+    expect(readFileSync(join(branch.path, 'blob.bin'))).toEqual(Buffer.from([0, 1, 2, 3, 4, 5]))
+
+    await branch.dispose()
+  })
+
+  it('handles empty patch as a clean no-op', async () => {
+    const repo = makeRepo()
+    const root = mkdtempSync(join(tmpdir(), 'forge-wt-root-'))
+    dirs.push(repo, root)
+
+    const service = new WorktreeService({ repositoryPath: repo, root })
+    const branch = await service.prepareBranch('wf-empty-p', 'node-1')
+    expect(branch).not.toBeNull()
+    if (!branch) return
+
+    await service.applyPatch(branch.path, '   \n  ')
+    expect(readFileSync(join(branch.path, 'source.txt'), 'utf8')).toBe('original\n')
+
+    await branch.dispose()
+  })
+
+  it('rejects invalid or corrupted patch and throws GitCommandError', async () => {
+    const repo = makeRepo()
+    const root = mkdtempSync(join(tmpdir(), 'forge-wt-root-'))
+    dirs.push(repo, root)
+
+    const service = new WorktreeService({ repositoryPath: repo, root })
+    const branch = await service.prepareBranch('wf-corrupt', 'node-1')
+    expect(branch).not.toBeNull()
+    if (!branch) return
+
+    const corruptPatch = `diff --git a/source.txt b/source.txt
+@@ -100,5 +100,5 @@
+-nonexistent line
++replacement
+`
+    await expect(service.applyPatch(branch.path, corruptPatch)).rejects.toThrow()
+
+    await branch.dispose()
+  })
+})

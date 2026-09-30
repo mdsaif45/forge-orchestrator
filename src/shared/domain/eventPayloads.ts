@@ -22,6 +22,7 @@ import { openQuestionSchema } from './question'
 import { findingSchema } from './review'
 import { taskSchema } from './task'
 import { workflowCheckpointSchema, workflowLimitsSchema, workflowStepSchema } from './workflow'
+import { graphStateSnapshotSchema } from './workflowGraph'
 
 /**
  * One payload schema per event type.
@@ -224,12 +225,7 @@ const graphCheckpointed = z.strictObject({
   graphRunId: z.string().min(1),
   nodeId: z.string().min(1),
   operation: z.string().min(1),
-  stateSnapshot: z.strictObject({
-    readyNodeIds: z.array(z.string()).readonly(),
-    runningNodeIds: z.array(z.string()).readonly(),
-    completedNodeIds: z.array(z.string()).readonly(),
-    blockedNodeIds: z.array(z.string()).readonly(),
-  }),
+  stateSnapshot: graphStateSnapshotSchema,
   occurredAt: timestampSchema,
 })
 

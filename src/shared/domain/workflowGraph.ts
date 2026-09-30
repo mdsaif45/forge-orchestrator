@@ -139,6 +139,7 @@ export const graphStateSnapshotSchema = z.strictObject({
   runningNodeIds: z.array(z.string()).readonly().default([]),
   completedNodeIds: z.array(z.string()).readonly().default([]),
   blockedNodeIds: z.array(z.string()).readonly().default([]),
+  skippedNodeIds: z.array(z.string()).readonly().optional(),
 })
 export type GraphStateSnapshot = z.infer<typeof graphStateSnapshotSchema>
 
@@ -287,12 +288,14 @@ export function getTopologicalSort(
 
 /**
  * Resolves which nodes in a DAG are currently ready to execute given the set of
- * already-completed node IDs. Feedback edges do not block initial node readiness.
+ * already-completed and skipped node IDs. Feedback edges do not block initial node readiness.
+ * Sequencing dependency satisfaction evaluates: finishedNodeIds = completedNodeIds ∪ skippedNodeIds.
  */
 export function getReadyNodes(
   nodes: readonly WorkflowNode[],
   edges: readonly WorkflowEdge[],
   completedNodeIds: ReadonlySet<string>,
+  skippedNodeIds: ReadonlySet<string> = new Set<string>(),
 ): readonly WorkflowNode[] {
   const forwardEdges = edges.filter((e) => !e.isFeedback)
   const incomingEdges = new Map<string, string[]>()
@@ -305,14 +308,16 @@ export function getReadyNodes(
     incomingEdges.get(edge.target)?.push(edge.source)
   }
 
+  const finishedNodeIds = new Set<string>([...completedNodeIds, ...skippedNodeIds])
+
   const ready: WorkflowNode[] = []
   for (const node of nodes) {
-    if (completedNodeIds.has(node.id)) {
+    if (finishedNodeIds.has(node.id)) {
       continue
     }
 
     const dependencies = incomingEdges.get(node.id) ?? []
-    const allDependenciesMet = dependencies.every((depId) => completedNodeIds.has(depId))
+    const allDependenciesMet = dependencies.every((depId) => finishedNodeIds.has(depId))
 
     if (allDependenciesMet) {
       ready.push(node)

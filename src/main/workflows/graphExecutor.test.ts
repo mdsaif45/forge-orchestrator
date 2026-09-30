@@ -1061,4 +1061,810 @@ describe('GraphExecutor', () => {
     expect(verified).toBe(true)
     expect([...result.completedNodeIds].sort()).toEqual(['featureA', 'featureB', 'verifyBoth'])
   })
+
+  describe('WORK-002: Stage Run, Skip, and Rerun Semantics', () => {
+    // 1. DOMAIN: skippedNodeIds in checkpoint snapshot round-trip
+    it('round-trips skippedNodeIds in checkpoint stateSnapshot', () => {
+      const graphRunId = randomUUID()
+      workflowStore.startGraphRun(
+        {
+          graphRunId,
+          projectId,
+          workflowId,
+          templateId: 'test-template',
+          startedAt: NOW,
+        },
+        'user',
+      )
+
+      const cpId = randomUUID()
+      const cp = workflowStore.writeGraphCheckpoint(
+        {
+          id: cpId,
+          projectId,
+          graphRunId,
+          nodeId: 'node-A',
+          operation: 'node.skipped',
+          stateSnapshot: {
+            readyNodeIds: ['node-B'],
+            runningNodeIds: [],
+            completedNodeIds: ['node-root'],
+            blockedNodeIds: [],
+            skippedNodeIds: ['node-A'],
+          },
+          occurredAt: NOW,
+        },
+        'user',
+      )
+
+      expect(cp.stateSnapshot.skippedNodeIds).toEqual(['node-A'])
+      const retrieved = workflowStore.getLatestGraphCheckpoint(graphRunId)
+      expect(retrieved?.stateSnapshot.skippedNodeIds).toEqual(['node-A'])
+    })
+
+    // 2. SKIP: ready -> skipped produces zero artifacts, no changeset, and updates snapshot
+    it('explicit node skip transitions ready -> skipped with zero artifacts and changesets', async () => {
+      const template = makeTemplate([makeNode('A'), makeNode('B')], [{ source: 'A', target: 'B' }])
+
+      let aExecuted = false
+      let bExecuted = false
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'A') aExecuted = true
+          if (ctx.node.id === 'B') bExecuted = true
+          return { status: 'completed' }
+        },
+      })
+
+      const result = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        skipNodeIds: ['A'],
+      })
+
+      expect(aExecuted).toBe(false)
+      expect(bExecuted).toBe(true)
+      expect(result.skippedNodeIds).toEqual(['A'])
+      expect(result.completedNodeIds).toEqual(['B'])
+      expect(result.status).toBe('completed')
+
+      const aAttempts = workflowStore.getNodeAttempts(result.graphRunId, 'A')
+      expect(aAttempts).toHaveLength(1)
+      expect(aAttempts[0]!.status).toBe('skipped')
+      expect(aAttempts[0]!.changeSetId).toBeNull()
+      expect(aAttempts[0]!.evidenceId).toBeNull()
+    })
+
+    // 3. OPTIONAL INPUT: skipped predecessor allows downstream execution when slot is optional
+    it('optional missing slot allows downstream execution when predecessor is skipped', async () => {
+      const nodeA = makeNode('A')
+      const nodeB = makeNode('B', {
+        inputs: [
+          { name: 'optional-plan', kind: 'plan', required: false, description: 'Optional plan' },
+        ],
+      })
+      const template = makeTemplate([nodeA, nodeB], [{ source: 'A', target: 'B' }])
+
+      let bIncomingSlotValue: unknown = 'NOT_SET'
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'B') {
+            bIncomingSlotValue = ctx.incomingSlots.get('optional-plan') ?? null
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const result = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        skipNodeIds: ['A'],
+      })
+
+      expect(result.status).toBe('completed')
+      expect(result.skippedNodeIds).toEqual(['A'])
+      expect(result.completedNodeIds).toEqual(['B'])
+      expect(bIncomingSlotValue).toBeNull()
+    })
+
+    // 4. REQUIRED FALLBACK: required slot uses initialContext fallback when predecessor is skipped
+    it('required missing slot uses declared initialContext fallback when predecessor is skipped', async () => {
+      const nodeA = makeNode('A')
+      const nodeB = makeNode('B', {
+        inputs: [{ name: 'spec', kind: 'markdown', required: true }],
+      })
+      const template = makeTemplate([nodeA, nodeB], [{ source: 'A', target: 'B' }])
+
+      let boundFallbackContent: string | null = null
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'B') {
+            const artifact = ctx.incomingSlots.get('spec')
+            boundFallbackContent = artifact?.content ?? null
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const result = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        skipNodeIds: ['A'],
+        initialContext: { spec: '# Fallback Specification\n' },
+      })
+
+      expect(result.status).toBe('completed')
+      expect(result.skippedNodeIds).toEqual(['A'])
+      expect(result.completedNodeIds).toEqual(['B'])
+      expect(boundFallbackContent).toBe('# Fallback Specification\n')
+    })
+
+    // 5. REQUIRED MISSING (NO FALLBACK): transitions node to blocked and graph terminal status to failed
+    it('required missing slot without fallback transitions node to blocked and graph status to failed', async () => {
+      const nodeA = makeNode('A')
+      const nodeB = makeNode('B', {
+        inputs: [{ name: 'spec', kind: 'markdown', required: true }],
+      })
+      const template = makeTemplate([nodeA, nodeB], [{ source: 'A', target: 'B' }])
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+      })
+
+      const result = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        skipNodeIds: ['A'],
+      })
+
+      expect(result.status).toBe('failed')
+      expect(result.skippedNodeIds).toEqual(['A'])
+      expect(result.blockedNodeIds).toEqual(['B'])
+      expect(result.completedNodeIds).toEqual([])
+
+      const bAttempts = workflowStore.getNodeAttempts(result.graphRunId, 'B')
+      expect(bAttempts).toHaveLength(1)
+      expect(bAttempts[0]!.status).toBe('blocked')
+      expect(bAttempts[0]!.error).toContain('Missing required input slot: spec')
+    })
+
+    // 6. TRANSITIVE CASCADE BLOCKING: A skipped -> B blocked -> C blocked -> D blocked
+    it('transitive cascade blocking: A skipped -> B blocked -> C blocked -> D blocked', async () => {
+      const nodeA = makeNode('A')
+      const nodeB = makeNode('B', { inputs: [{ name: 'slotB', kind: 'k1', required: true }] })
+      const nodeC = makeNode('C', { inputs: [{ name: 'slotC', kind: 'k2', required: true }] })
+      const nodeD = makeNode('D', { inputs: [{ name: 'slotD', kind: 'k3', required: true }] })
+
+      const template = makeTemplate(
+        [nodeA, nodeB, nodeC, nodeD],
+        [
+          { source: 'A', target: 'B' },
+          { source: 'B', target: 'C' },
+          { source: 'C', target: 'D' },
+        ],
+      )
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+      })
+
+      const result = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        skipNodeIds: ['A'],
+      })
+
+      expect(result.status).toBe('failed')
+      expect(result.skippedNodeIds).toEqual(['A'])
+      expect(result.blockedNodeIds).toContain('B')
+      expect(result.completedNodeIds).toEqual([])
+    })
+
+    // 7. RERUN FAILED: creates attempt 2 and completes, leaving attempt 1 immutable
+    it('rerun of failed node creates attempt 2 and completes, preserving attempt 1 immutability', async () => {
+      const template = makeTemplate([makeNode('A')])
+
+      let attemptCount = 0
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: () => {
+          attemptCount++
+          if (attemptCount === 1) {
+            return { status: 'failed', error: 'Network timeout' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run1 = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run1.status).toBe('failed')
+      expect(run1.failedNodeIds).toEqual(['A'])
+
+      const attemptsAfter1 = workflowStore.getNodeAttempts(run1.graphRunId, 'A')
+      expect(attemptsAfter1).toHaveLength(1)
+      expect(attemptsAfter1[0]!.attempt).toBe(1)
+      expect(attemptsAfter1[0]!.status).toBe('failed')
+
+      // Rerun node A
+      const run2 = await executor.rerunNode({
+        graphRunId: run1.graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        targetNodeId: 'A',
+      })
+
+      expect(run2.status).toBe('completed')
+      expect(run2.completedNodeIds).toEqual(['A'])
+
+      const attemptsAfter2 = workflowStore.getNodeAttempts(run1.graphRunId, 'A')
+      expect(attemptsAfter2).toHaveLength(2)
+      expect(attemptsAfter2[0]!.attempt).toBe(1)
+      expect(attemptsAfter2[0]!.status).toBe('failed')
+      expect(attemptsAfter2[1]!.attempt).toBe(2)
+      expect(attemptsAfter2[1]!.status).toBe('completed')
+
+      // getLatestNodeRuns returns attempt 2
+      const latest = workflowStore.getLatestNodeRuns(run1.graphRunId)
+      expect(latest.find((n) => n.nodeId === 'A')?.attempt).toBe(2)
+      expect(latest.find((n) => n.nodeId === 'A')?.status).toBe('completed')
+    })
+
+    // 8. RERUN SKIPPED: creates attempt 2 and completes
+    it('rerun of skipped node creates attempt 2 and completes', async () => {
+      const template = makeTemplate([makeNode('A')])
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: () => ({ status: 'completed' }),
+      })
+
+      const run1 = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        skipNodeIds: ['A'],
+      })
+
+      expect(run1.skippedNodeIds).toEqual(['A'])
+
+      const run2 = await executor.rerunNode({
+        graphRunId: run1.graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        targetNodeId: 'A',
+      })
+
+      expect(run2.status).toBe('completed')
+      expect(run2.completedNodeIds).toEqual(['A'])
+      expect(run2.skippedNodeIds).toEqual([])
+
+      const attempts = workflowStore.getNodeAttempts(run1.graphRunId, 'A')
+      expect(attempts).toHaveLength(2)
+      expect(attempts[0]!.attempt).toBe(1)
+      expect(attempts[0]!.status).toBe('skipped')
+      expect(attempts[1]!.attempt).toBe(2)
+      expect(attempts[1]!.status).toBe('completed')
+    })
+
+    // 9. RERUN CANCELLED: creates attempt 2 and completes
+    it('rerun of cancelled node creates attempt 2 and completes', async () => {
+      const template = makeTemplate([makeNode('A')])
+      const controller = new AbortController()
+
+      let executedOnce = false
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: () => {
+          if (!executedOnce) {
+            executedOnce = true
+            controller.abort()
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run1 = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        signal: controller.signal,
+      })
+
+      expect(run1.status).toBe('cancelled')
+
+      const run2 = await executor.rerunNode({
+        graphRunId: run1.graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        targetNodeId: 'A',
+      })
+
+      expect(run2.status).toBe('completed')
+      expect(run2.completedNodeIds).toEqual(['A'])
+
+      const attempts = workflowStore.getNodeAttempts(run1.graphRunId, 'A')
+      expect(attempts).toHaveLength(2)
+      expect(attempts[0]!.status).toBe('cancelled')
+      expect(attempts[1]!.status).toBe('completed')
+    })
+
+    // 10. RERUN COMPLETED: monotonic attempt advances and produces new artifacts
+    it('rerun of completed node advances attempt and produces fresh artifacts without mutating historical ones', async () => {
+      const template = makeTemplate([makeNode('A')])
+
+      let attemptCounter = 0
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: () => {
+          attemptCounter++
+          return {
+            status: 'completed',
+            artifacts: [
+              {
+                id: randomUUID(),
+                workflowId,
+                nodeId: 'A',
+                kind: 'output',
+                format: 'markdown',
+                title: `Output Attempt ${String(attemptCounter)}`,
+                content: `Content from attempt ${String(attemptCounter)}`,
+                metadata: { attempt: attemptCounter },
+                createdAt: NOW,
+              },
+            ],
+          }
+        },
+      })
+
+      const run1 = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run1.artifacts).toHaveLength(1)
+      expect(run1.artifacts[0]!.title).toBe('Output Attempt 1')
+
+      const run2 = await executor.rerunNode({
+        graphRunId: run1.graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        targetNodeId: 'A',
+      })
+
+      expect(run2.artifacts).toHaveLength(1)
+      expect(run2.artifacts[0]!.title).toBe('Output Attempt 2')
+
+      const attempts = workflowStore.getNodeAttempts(run1.graphRunId, 'A')
+      expect(attempts).toHaveLength(2)
+      expect(attempts[0]!.attempt).toBe(1)
+      expect(attempts[1]!.attempt).toBe(2)
+    })
+
+    // 11. CASCADE RERUN A -> B: B re-executes with fresh A2 output, B1 remains immutable
+    it('cascade rerun A -> B: B re-executes consuming A2 output and leaves B1 immutable', async () => {
+      const nodeA = makeNode('A')
+      const nodeB = makeNode('B', { inputs: [{ name: 'plan', kind: 'plan', required: true }] })
+      const template = makeTemplate([nodeA, nodeB], [{ source: 'A', target: 'B' }])
+
+      let aCount = 0
+      let bReceivedContent: string | null = null
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'A') {
+            aCount++
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'A',
+                  kind: 'plan',
+                  format: 'markdown',
+                  title: `Plan ${String(aCount)}`,
+                  content: `Plan version ${String(aCount)}`,
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'B') {
+            bReceivedContent = ctx.incomingSlots.get('plan')?.content ?? null
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run1 = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run1.status).toBe('completed')
+      expect(bReceivedContent).toBe('Plan version 1')
+
+      // Rerun node A
+      const run2 = await executor.rerunNode({
+        graphRunId: run1.graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        targetNodeId: 'A',
+      })
+
+      expect(run2.status).toBe('completed')
+      expect(bReceivedContent).toBe('Plan version 2')
+
+      const aAttempts = workflowStore.getNodeAttempts(run1.graphRunId, 'A')
+      const bAttempts = workflowStore.getNodeAttempts(run1.graphRunId, 'B')
+
+      expect(aAttempts).toHaveLength(2)
+      expect(aAttempts[0]!.attempt).toBe(1)
+      expect(aAttempts[1]!.attempt).toBe(2)
+
+      expect(bAttempts).toHaveLength(2)
+      expect(bAttempts[0]!.attempt).toBe(1)
+      expect(bAttempts[1]!.attempt).toBe(2)
+    })
+
+    // 12. CASCADE RERUN A -> B -> C: strictly fresh outputs, no stale outputs leak
+    it('cascade rerun A -> B -> C: downstream attempts execute with strictly fresh outputs', async () => {
+      const nodeA = makeNode('A')
+      const nodeB = makeNode('B', { inputs: [{ name: 'dataA', kind: 'dataA', required: true }] })
+      const nodeC = makeNode('C', { inputs: [{ name: 'dataB', kind: 'dataB', required: true }] })
+      const template = makeTemplate(
+        [nodeA, nodeB, nodeC],
+        [
+          { source: 'A', target: 'B' },
+          { source: 'B', target: 'C' },
+        ],
+      )
+
+      let round = 1
+      let cObservedData: string | null = null
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'A') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'A',
+                  kind: 'dataA',
+                  format: 'text',
+                  title: 'A Output',
+                  content: `A-round-${String(round)}`,
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'B') {
+            const incoming = ctx.incomingSlots.get('dataA')?.content ?? ''
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'B',
+                  kind: 'dataB',
+                  format: 'text',
+                  title: 'B Output',
+                  content: `B-transformed(${incoming})`,
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'C') {
+            cObservedData = ctx.incomingSlots.get('dataB')?.content ?? null
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run1 = await executor.run({ workflowId, projectId, template, forkSha })
+      expect(run1.status).toBe('completed')
+      expect(cObservedData).toBe('B-transformed(A-round-1)')
+
+      // Trigger rerun on A with round 2
+      round = 2
+      const run2 = await executor.rerunNode({
+        graphRunId: run1.graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        targetNodeId: 'A',
+      })
+
+      expect(run2.status).toBe('completed')
+      expect(cObservedData).toBe('B-transformed(A-round-2)')
+
+      const aAttempts = workflowStore.getNodeAttempts(run1.graphRunId, 'A')
+      const bAttempts = workflowStore.getNodeAttempts(run1.graphRunId, 'B')
+      const cAttempts = workflowStore.getNodeAttempts(run1.graphRunId, 'C')
+
+      expect(aAttempts).toHaveLength(2)
+      expect(bAttempts).toHaveLength(2)
+      expect(cAttempts).toHaveLength(2)
+    })
+
+    // 13. RERUN RECOVERY: A skipped, B blocked -> rerun A -> A2 completes -> B2 unblocks and completes
+    it('rerun recovery: A skipped, B blocked -> rerun A -> A2 completes -> B2 unblocks and completes', async () => {
+      const nodeA = makeNode('A')
+      const nodeB = makeNode('B', { inputs: [{ name: 'spec', kind: 'markdown', required: true }] })
+      const template = makeTemplate([nodeA, nodeB], [{ source: 'A', target: 'B' }])
+
+      let bRan = false
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'A') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'A',
+                  kind: 'markdown',
+                  format: 'markdown',
+                  title: 'Spec',
+                  content: '# Specification from A2\n',
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'B') {
+            bRan = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      // Run 1: A is skipped, B blocks
+      const run1 = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        skipNodeIds: ['A'],
+      })
+
+      expect(run1.status).toBe('failed')
+      expect(run1.skippedNodeIds).toEqual(['A'])
+      expect(run1.blockedNodeIds).toEqual(['B'])
+      expect(bRan).toBe(false)
+
+      // Rerun A
+      const run2 = await executor.rerunNode({
+        graphRunId: run1.graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        targetNodeId: 'A',
+      })
+
+      expect(run2.status).toBe('completed')
+      expect(run2.completedNodeIds).toContain('A')
+      expect(run2.completedNodeIds).toContain('B')
+      expect(bRan).toBe(true)
+
+      const aAttempts = workflowStore.getNodeAttempts(run1.graphRunId, 'A')
+      const bAttempts = workflowStore.getNodeAttempts(run1.graphRunId, 'B')
+      expect(aAttempts).toHaveLength(2)
+      expect(aAttempts[0]!.status).toBe('skipped')
+      expect(aAttempts[1]!.status).toBe('completed')
+
+      expect(bAttempts).toHaveLength(2)
+      expect(bAttempts[0]!.status).toBe('blocked')
+      expect(bAttempts[1]!.status).toBe('completed')
+    })
+
+    // 14. STATE HYDRATION: existing graphRunId does not create duplicate graph_runs row
+    it('state hydration: running an existing graphRunId hydrates completed state without duplicate insert', async () => {
+      const template = makeTemplate([makeNode('A'), makeNode('B')], [{ source: 'A', target: 'B' }])
+
+      let aExecutionCount = 0
+      let bExecutionCount = 0
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'A') {
+            aExecutionCount++
+            return { status: 'completed' }
+          }
+          if (ctx.node.id === 'B') {
+            bExecutionCount++
+            if (bExecutionCount === 1) {
+              return { status: 'failed', error: 'Failure 1' }
+            }
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run1 = await executor.run({ workflowId, projectId, template, forkSha })
+      expect(run1.status).toBe('failed')
+      expect(aExecutionCount).toBe(1)
+      expect(bExecutionCount).toBe(1)
+
+      // Re-run with the same graphRunId (e.g. rerunning B)
+      const run2 = await executor.rerunNode({
+        graphRunId: run1.graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        targetNodeId: 'B',
+      })
+
+      expect(run2.status).toBe('completed')
+      // A was already completed and was NOT downstream of B, so A was NOT re-executed
+      expect(aExecutionCount).toBe(1)
+      expect(bExecutionCount).toBe(2)
+    })
+
+    // 15. WORKTREE ON RERUN: clean branch worktree re-allocated at forkSha without directory collision
+    it('worktree isolation on rerun: write node re-prepares clean branch worktree without directory collision', async () => {
+      const template = makeTemplate([makeNode('worker')])
+
+      let round = 1
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: (ctx) => {
+          if (ctx.worktreePath) {
+            writeFileSync(join(ctx.worktreePath, 'output.txt'), `Run round ${String(round)}\n`)
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run1 = await executor.run({ workflowId, projectId, template, forkSha })
+      expect(run1.status).toBe('completed')
+
+      // Rerun worker
+      round = 2
+      const run2 = await executor.rerunNode({
+        graphRunId: run1.graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        targetNodeId: 'worker',
+      })
+
+      expect(run2.status).toBe('completed')
+      expect(run2.completedNodeIds).toEqual(['worker'])
+
+      const attempts = workflowStore.getNodeAttempts(run1.graphRunId, 'worker')
+      expect(attempts).toHaveLength(2)
+      expect(attempts[0]!.status).toBe('completed')
+      expect(attempts[1]!.status).toBe('completed')
+    })
+
+    // 16. EXPLICIT skipNode() METHOD: validates predecessors are finished and transitions ready -> skipped
+    it('skipNode() validates predecessor completion and records skipped attempt with checkpoints', async () => {
+      const template = makeTemplate([makeNode('A'), makeNode('B')], [{ source: 'A', target: 'B' }])
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+      })
+
+      // Attempting to skip B before run starts should fail because A is not finished
+      await expect(
+        executor.skipNode({
+          graphRunId: 'nonexistent',
+          workflowId,
+          projectId,
+          template,
+          nodeId: 'B',
+        }),
+      ).rejects.toThrow('predecessor "A" is not finished')
+
+      // Run A to completion
+      const run = await executor.run({
+        workflowId,
+        projectId,
+        template: makeTemplate([makeNode('A')]),
+        forkSha,
+      })
+
+      // Now skip B on this run
+      const skippedB = await executor.skipNode({
+        graphRunId: run.graphRunId,
+        workflowId,
+        projectId,
+        template,
+        nodeId: 'B',
+      })
+
+      expect(skippedB.nodeId).toBe('B')
+      expect(skippedB.status).toBe('skipped')
+      expect(skippedB.attempt).toBe(1)
+
+      // Attempting to skip B again throws that it is already in terminal status
+      await expect(
+        executor.skipNode({
+          graphRunId: run.graphRunId,
+          workflowId,
+          projectId,
+          template,
+          nodeId: 'B',
+        }),
+      ).rejects.toThrow('already in terminal status "skipped"')
+    })
+  })
 })

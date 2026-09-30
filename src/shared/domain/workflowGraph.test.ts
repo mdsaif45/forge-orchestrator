@@ -261,4 +261,91 @@ describe('workflowGraph domain model', () => {
     ready = getReadyNodes(nodes, edges, new Set(['A', 'B1', 'B2', 'C']))
     expect(ready).toHaveLength(0)
   })
+
+  it('allows feedback edges without causing forward DAG cycle errors', () => {
+    const nodes: WorkflowNode[] = [
+      {
+        id: 'A',
+        title: 'Node A',
+        type: 'agent',
+        runtimeType: 'forge-native',
+        config: { skills: [], permissionMode: 'developer' },
+        inputs: [],
+        outputs: [],
+      },
+      {
+        id: 'B',
+        title: 'Node B',
+        type: 'agent',
+        runtimeType: 'forge-native',
+        config: { skills: [], permissionMode: 'developer' },
+        inputs: [],
+        outputs: [],
+      },
+      {
+        id: 'C',
+        title: 'Node C',
+        type: 'agent',
+        runtimeType: 'forge-native',
+        config: { skills: [], permissionMode: 'developer' },
+        inputs: [],
+        outputs: [],
+      },
+    ]
+
+    // Forward path: A -> B -> C. Feedback path: C -> B (isFeedback: true)
+    const edges: WorkflowEdge[] = [
+      { id: 'e1', source: 'A', target: 'B' },
+      { id: 'e2', source: 'B', target: 'C' },
+      { id: 'feedback-1', source: 'C', target: 'B', isFeedback: true },
+    ]
+
+    expect(() => {
+      validateWorkflowGraph(nodes, edges)
+    }).not.toThrow()
+    const sort = getTopologicalSort(nodes, edges)
+    expect(sort).toEqual(['A', 'B', 'C'])
+
+    // getReadyNodes should ignore feedback edges so B is not blocked by C initially
+    const readyInitial = getReadyNodes(nodes, edges, new Set())
+    expect(readyInitial.map((n) => n.id)).toEqual(['A'])
+
+    const readyAfterA = getReadyNodes(nodes, edges, new Set(['A']))
+    expect(readyAfterA.map((n) => n.id)).toEqual(['B'])
+  })
+
+  it('rejects feedback edges targeting a node that does not precede the source topologically', () => {
+    const nodes: WorkflowNode[] = [
+      {
+        id: 'A',
+        title: 'Node A',
+        type: 'agent',
+        runtimeType: 'forge-native',
+        config: { skills: [], permissionMode: 'developer' },
+        inputs: [],
+        outputs: [],
+      },
+      {
+        id: 'B',
+        title: 'Node B',
+        type: 'agent',
+        runtimeType: 'forge-native',
+        config: { skills: [], permissionMode: 'developer' },
+        inputs: [],
+        outputs: [],
+      },
+    ]
+
+    // Forward path: A -> B. Feedback path claiming A -> B (forward direction!)
+    const edges: WorkflowEdge[] = [
+      { id: 'e1', source: 'A', target: 'B' },
+      { id: 'invalid-fb', source: 'A', target: 'B', isFeedback: true },
+    ]
+
+    expect(() => {
+      validateWorkflowGraph(nodes, edges)
+    }).toThrow(
+      /Feedback edge "invalid-fb" targets node "B" which does not precede source node "A" topologically/i,
+    )
+  })
 })

@@ -3,7 +3,7 @@ import type { EventType } from './event'
 import { accountSchema } from './account'
 import { changeSetSchema } from './changeset'
 import { decisionSchema } from './decision'
-import { accountStatusSchema, verdictSchema, workflowStateSchema } from './enums'
+import { accountStatusSchema, roleSchema, verdictSchema, workflowStateSchema } from './enums'
 import { evidenceArtifactSchema } from './evidence'
 import {
   accountIdSchema,
@@ -203,6 +203,59 @@ const accountRemoved = z.strictObject({
   accountId: accountIdSchema,
 })
 
+const graphStarted = z.strictObject({
+  graphRunId: z.string().min(1),
+  workflowId: workflowIdSchema,
+  templateId: z.string().min(1),
+  startedAt: timestampSchema,
+})
+
+const graphStatusUpdated = z.strictObject({
+  graphRunId: z.string().min(1),
+  status: z.enum(['running', 'completed', 'failed', 'halted', 'cancelled']),
+  iteration: z.number().int().positive().optional(),
+  haltReason: z.string().nullable().optional(),
+  error: z.string().nullable().optional(),
+  finishedAt: timestampSchema.nullable().optional(),
+})
+
+const graphCheckpointed = z.strictObject({
+  id: z.string().min(1),
+  graphRunId: z.string().min(1),
+  nodeId: z.string().min(1),
+  operation: z.string().min(1),
+  stateSnapshot: z.strictObject({
+    readyNodeIds: z.array(z.string()).readonly(),
+    runningNodeIds: z.array(z.string()).readonly(),
+    completedNodeIds: z.array(z.string()).readonly(),
+    blockedNodeIds: z.array(z.string()).readonly(),
+  }),
+  occurredAt: timestampSchema,
+})
+
+const graphNodeAttemptStarted = z.strictObject({
+  id: z.string().min(1),
+  graphRunId: z.string().min(1),
+  nodeId: z.string().min(1),
+  attempt: z.number().int().positive(),
+  status: z.enum(['pending', 'ready', 'running']),
+  role: roleSchema.nullable().optional(),
+  runtimeId: z.string().nullable().optional(),
+  contextRef: z.string().nullable().optional(),
+  startedAt: timestampSchema,
+})
+
+const graphNodeAttemptUpdated = z.strictObject({
+  graphRunId: z.string().min(1),
+  nodeId: z.string().min(1),
+  attempt: z.number().int().positive(),
+  status: z.enum(['completed', 'failed', 'skipped', 'blocked', 'cancelled']),
+  changeSetId: changeSetIdSchema.nullable().optional(),
+  evidenceId: z.string().nullable().optional(),
+  finishedAt: timestampSchema.nullable().optional(),
+  error: z.string().nullable().optional(),
+})
+
 /**
  * The payload map.
  *
@@ -236,6 +289,11 @@ export const EVENT_PAYLOADS = {
   'account.registered': accountRegistered,
   'account.status_updated': accountStatusUpdated,
   'account.removed': accountRemoved,
+  'graph.started': graphStarted,
+  'graph.status_updated': graphStatusUpdated,
+  'graph.checkpointed': graphCheckpointed,
+  'graph_node.attempt_started': graphNodeAttemptStarted,
+  'graph_node.attempt_updated': graphNodeAttemptUpdated,
 } as const
 
 // Every event type must have a payload schema. A missing entry is a compile error

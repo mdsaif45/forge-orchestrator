@@ -355,8 +355,14 @@ export {
   artifactFormatSchema,
   getReadyNodes,
   getTopologicalSort,
+  graphCheckpointSchema,
+  graphNodeRunSchema,
+  graphRunSchema,
+  graphRunStatusSchema,
+  graphStateSnapshotSchema,
   nodePositionSchema,
   nodeRuntimeConfigSchema,
+  nodeStatusSchema,
   nodeTypeSchema,
   outputDefinitionSchema,
   runtimeTypeSchema,
@@ -369,8 +375,14 @@ export {
   workflowNodeSchema,
   workflowTemplateV2Schema,
   type ArtifactFormat,
+  type GraphCheckpoint,
+  type GraphNodeRun,
+  type GraphRun,
+  type GraphRunStatus,
+  type GraphStateSnapshot,
   type NodePosition,
   type NodeRuntimeConfig,
+  type NodeStatus,
   type NodeType,
   type OutputDefinition,
   type RuntimeType,
@@ -381,6 +393,8 @@ export {
   type WorkflowNode,
   type WorkflowTemplateV2,
 } from './workflowGraph'
+
+export { compileLinearTemplateToGraph } from './templateCompiler'
 
 export {
   runRecordSchema,

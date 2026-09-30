@@ -187,6 +187,68 @@ export const workflowSteps = sqliteTable(
   (table) => [unique('workflow_steps_order').on(table.workflowId, table.index)],
 )
 
+export const graphRuns = sqliteTable(
+  'graph_runs',
+  {
+    id: text('id').primaryKey(),
+    workflowId: text('workflow_id')
+      .notNull()
+      .references(() => workflows.id, { onDelete: 'cascade' }),
+    templateId: text('template_id').notNull(),
+    status: text('status').notNull(),
+    iteration: integer('iteration').notNull().default(1),
+    startedAt: text('started_at').notNull(),
+    finishedAt: text('finished_at'),
+    haltReason: text('halt_reason'),
+    error: text('error'),
+  },
+  (table) => [
+    index('graph_runs_workflow').on(table.workflowId),
+    index('graph_runs_status').on(table.status),
+  ],
+)
+
+export const graphNodeRuns = sqliteTable(
+  'graph_node_runs',
+  {
+    id: text('id').primaryKey(),
+    graphRunId: text('graph_run_id')
+      .notNull()
+      .references(() => graphRuns.id, { onDelete: 'cascade' }),
+    nodeId: text('node_id').notNull(),
+    attempt: integer('attempt').notNull().default(1),
+    status: text('status').notNull(),
+    role: text('role'),
+    runtimeId: text('runtime_id'),
+    contextRef: text('context_ref'),
+    changeSetId: text('change_set_id'),
+    evidenceId: text('evidence_id'),
+    startedAt: text('started_at'),
+    finishedAt: text('finished_at'),
+    error: text('error'),
+  },
+  (table) => [
+    unique('graph_node_runs_attempt_unique').on(table.graphRunId, table.nodeId, table.attempt),
+    index('graph_node_runs_graph_node').on(table.graphRunId, table.nodeId),
+    index('graph_node_runs_status').on(table.status),
+  ],
+)
+
+export const graphCheckpoints = sqliteTable(
+  'graph_checkpoints',
+  {
+    id: text('id').primaryKey(),
+    graphRunId: text('graph_run_id')
+      .notNull()
+      .references(() => graphRuns.id, { onDelete: 'cascade' }),
+    nodeId: text('node_id').notNull(),
+    operation: text('operation').notNull(),
+    stateSnapshot: text('state_snapshot').notNull(),
+    occurredAt: text('occurred_at').notNull(),
+  },
+  (table) => [index('graph_checkpoints_run').on(table.graphRunId, table.occurredAt)],
+)
+
 export const changeSets = sqliteTable(
   'change_sets',
   {

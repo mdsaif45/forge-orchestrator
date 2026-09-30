@@ -1,4 +1,4 @@
-import { rm } from 'node:fs/promises'
+import { mkdir, rm } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { runGit, GitCommandError } from './exec'
 
@@ -74,6 +74,10 @@ export class WorktreeService {
 
       await runGit(['worktree', 'remove', '--force', path], exec).catch(() => undefined)
       await rm(path, { recursive: true, force: true }).catch(() => undefined)
+      const parent = resolve(path, '..')
+      if (parent !== root) {
+        await rm(parent).catch(() => undefined)
+      }
     }
 
     await runGit(['worktree', 'prune'], exec).catch(() => undefined)
@@ -120,6 +124,61 @@ export class WorktreeService {
       // detached; removing it directly keeps the root from accumulating.
       await rm(path, { recursive: true, force: true }).catch(() => undefined)
       await runGit(['worktree', 'prune'], exec).catch(() => undefined)
+    }
+
+    return { path, dispose }
+  }
+
+  /**
+   * Creates an isolated branch worktree for a concurrent node within a workflow.
+   *
+   * Path: `<root>/<workflowId>/branch-<nodeId>`
+   * Checked out detached at `forkSha` (or `HEAD` if omitted):
+   * `git worktree add --detach <path> <targetRef>`
+   *
+   * Ensures concurrent write-capable nodes run in distinct worktrees branched
+   * from the same snapshot commit without dirty worktree collision (Resolving Q-WF-01).
+   *
+   * Returns `null` if the repository cannot provide a worktree (e.g. empty repository).
+   */
+  async prepareBranch(
+    workflowId: string,
+    nodeId: string,
+    forkSha?: string,
+  ): Promise<PreparedWorktree | null> {
+    const parentDir = join(this.options.root, workflowId)
+    const path = join(parentDir, `branch-${nodeId}`)
+    const exec = { cwd: this.options.repositoryPath }
+    const targetRef = forkSha ?? 'HEAD'
+
+    try {
+      await runGit(['rev-parse', '--verify', targetRef], exec)
+    } catch (error) {
+      if (error instanceof GitCommandError) return null
+      throw error
+    }
+
+    // Ensure parent directory exists before adding worktree
+    await mkdir(parentDir, { recursive: true }).catch(() => undefined)
+    // Idempotent cleanup in case a prior crashed attempt left this directory behind
+    await rm(path, { recursive: true, force: true }).catch(() => undefined)
+
+    await runGit(['worktree', 'add', '--detach', path, targetRef], exec)
+
+    let disposed = false
+    const dispose = async (): Promise<void> => {
+      if (disposed) return
+      disposed = true
+
+      // `--force` because the agents will have left the worktree dirty, and a clean
+      // removal is not the goal — reclaiming the directory is.
+      await runGit(['worktree', 'remove', '--force', path], exec).catch(() => undefined)
+      // `worktree remove` leaves the directory behind if git considered it already
+      // detached; removing it directly keeps the root from accumulating.
+      await rm(path, { recursive: true, force: true }).catch(() => undefined)
+      await runGit(['worktree', 'prune'], exec).catch(() => undefined)
+      // Try removing the parent workflow directory if empty (safe no-op if sibling branches exist)
+      await rm(parentDir).catch(() => undefined)
     }
 
     return { path, dispose }

@@ -497,4 +497,531 @@ describe('replay', () => {
     const nonExistent = store.getTask(taskIdSchema.parse(randomUUID()))
     expect(nonExistent).toBeNull()
   })
+
+  describe('graph persistence', () => {
+    it('starts and retrieves a graph run', () => {
+      const store = startWorkflow()
+      const graphRunId = randomUUID()
+
+      const created = store.startGraphRun(
+        {
+          graphRunId,
+          projectId,
+          workflowId,
+          templateId: 'feature_implementation_v2',
+          startedAt: NOW,
+        },
+        'user',
+      )
+
+      expect(created.id).toBe(graphRunId)
+      expect(created.workflowId).toBe(workflowId)
+      expect(created.templateId).toBe('feature_implementation_v2')
+      expect(created.status).toBe('running')
+      expect(created.iteration).toBe(1)
+      expect(created.startedAt).toBe(NOW)
+      expect(created.finishedAt).toBeNull()
+      expect(created.haltReason).toBeNull()
+      expect(created.error).toBeNull()
+
+      const retrieved = store.getGraphRun(graphRunId)
+      expect(retrieved).toEqual(created)
+
+      expect(store.getGraphRun(randomUUID())).toBeNull()
+    })
+
+    it('updates graph run status with completion, failure, and halt details', () => {
+      const store = startWorkflow()
+      const graphRunId = randomUUID()
+      store.startGraphRun(
+        {
+          graphRunId,
+          projectId,
+          workflowId,
+          templateId: 'feature_implementation_v2',
+          startedAt: NOW,
+        },
+        'user',
+      )
+
+      const FINISHED = '2026-08-19T10:15:00.000Z'
+      const updated = store.updateGraphRunStatus(
+        {
+          projectId,
+          graphRunId,
+          status: 'completed',
+          finishedAt: FINISHED,
+          occurredAt: FINISHED,
+        },
+        'system',
+      )
+
+      expect(updated.status).toBe('completed')
+      expect(updated.finishedAt).toBe(FINISHED)
+
+      // Test failure and halt reason
+      const graphRunId2 = randomUUID()
+      store.startGraphRun(
+        {
+          graphRunId: graphRunId2,
+          projectId,
+          workflowId,
+          templateId: 'bug_fix_v2',
+          startedAt: NOW,
+        },
+        'user',
+      )
+
+      const failed = store.updateGraphRunStatus(
+        {
+          projectId,
+          graphRunId: graphRunId2,
+          status: 'failed',
+          error: 'Verification suite exited with code 1',
+          finishedAt: FINISHED,
+          occurredAt: FINISHED,
+        },
+        'system',
+      )
+      expect(failed.status).toBe('failed')
+      expect(failed.error).toBe('Verification suite exited with code 1')
+    })
+
+    it('enforces attempt monotonicity when recording node attempts', () => {
+      const store = startWorkflow()
+      const graphRunId = randomUUID()
+      store.startGraphRun(
+        {
+          graphRunId,
+          projectId,
+          workflowId,
+          templateId: 'feature_implementation_v2',
+          startedAt: NOW,
+        },
+        'user',
+      )
+
+      // Initial attempt must be 1
+      expect(() =>
+        store.recordNodeAttempt(
+          {
+            id: randomUUID(),
+            projectId,
+            graphRunId,
+            nodeId: 'node-implement',
+            attempt: 2, // violation
+            status: 'running',
+            role: 'implementer',
+            startedAt: NOW,
+          },
+          'system',
+        ),
+      ).toThrow(/Attempt monotonicity violation: initial attempt.*must be 1/i)
+
+      // Record valid initial attempt
+      const attempt1Id = randomUUID()
+      const attempt1 = store.recordNodeAttempt(
+        {
+          id: attempt1Id,
+          projectId,
+          graphRunId,
+          nodeId: 'node-implement',
+          attempt: 1,
+          status: 'running',
+          role: 'implementer',
+          startedAt: NOW,
+        },
+        'system',
+      )
+      expect(attempt1.attempt).toBe(1)
+      expect(attempt1.status).toBe('running')
+
+      // Cannot record duplicate attempt 1
+      expect(() =>
+        store.recordNodeAttempt(
+          {
+            id: randomUUID(),
+            projectId,
+            graphRunId,
+            nodeId: 'node-implement',
+            attempt: 1, // duplicate violation
+            status: 'running',
+            role: 'implementer',
+            startedAt: NOW,
+          },
+          'system',
+        ),
+      ).toThrow(/Attempt monotonicity violation: next attempt.*must be 2/i)
+
+      // Cannot skip to attempt 3
+      expect(() =>
+        store.recordNodeAttempt(
+          {
+            id: randomUUID(),
+            projectId,
+            graphRunId,
+            nodeId: 'node-implement',
+            attempt: 3, // skipped violation
+            status: 'running',
+            role: 'implementer',
+            startedAt: NOW,
+          },
+          'system',
+        ),
+      ).toThrow(/Attempt monotonicity violation: next attempt.*must be 2/i)
+
+      // Monotonic attempt 2 succeeds
+      const attempt2 = store.recordNodeAttempt(
+        {
+          id: randomUUID(),
+          projectId,
+          graphRunId,
+          nodeId: 'node-implement',
+          attempt: 2,
+          status: 'running',
+          role: 'implementer',
+          startedAt: NOW,
+        },
+        'system',
+      )
+      expect(attempt2.attempt).toBe(2)
+    })
+
+    it('enforces terminal attempt immutability', () => {
+      const store = startWorkflow()
+      const graphRunId = randomUUID()
+      store.startGraphRun(
+        {
+          graphRunId,
+          projectId,
+          workflowId,
+          templateId: 'feature_implementation_v2',
+          startedAt: NOW,
+        },
+        'user',
+      )
+
+      store.recordNodeAttempt(
+        {
+          id: randomUUID(),
+          projectId,
+          graphRunId,
+          nodeId: 'node-plan',
+          attempt: 1,
+          status: 'running',
+          role: 'planner',
+          startedAt: NOW,
+        },
+        'system',
+      )
+
+      // Transition attempt 1 to terminal state 'completed'
+      const completed = store.updateNodeAttempt(
+        {
+          projectId,
+          graphRunId,
+          nodeId: 'node-plan',
+          attempt: 1,
+          status: 'completed',
+          finishedAt: NOW,
+          occurredAt: NOW,
+        },
+        'system',
+      )
+      expect(completed.status).toBe('completed')
+
+      // Attempting to mutate terminal attempt throws
+      expect(() =>
+        store.updateNodeAttempt(
+          {
+            projectId,
+            graphRunId,
+            nodeId: 'node-plan',
+            attempt: 1,
+            status: 'failed',
+            occurredAt: NOW,
+          },
+          'system',
+        ),
+      ).toThrow(
+        /Terminal attempt immutability violation: node "node-plan" attempt 1 is in terminal status "completed" and cannot be updated/i,
+      )
+    })
+
+    it('derives latest NodeRun state (Option A) and preserves attempt history', () => {
+      const store = startWorkflow()
+      const graphRunId = randomUUID()
+      store.startGraphRun(
+        {
+          graphRunId,
+          projectId,
+          workflowId,
+          templateId: 'feature_implementation_v2',
+          startedAt: NOW,
+        },
+        'user',
+      )
+
+      // Node A attempt 1 -> failed
+      store.recordNodeAttempt(
+        {
+          id: randomUUID(),
+          projectId,
+          graphRunId,
+          nodeId: 'node-A',
+          attempt: 1,
+          status: 'running',
+          role: 'implementer',
+          startedAt: NOW,
+        },
+        'system',
+      )
+      store.updateNodeAttempt(
+        {
+          projectId,
+          graphRunId,
+          nodeId: 'node-A',
+          attempt: 1,
+          status: 'failed',
+          error: 'Syntax error',
+          occurredAt: NOW,
+        },
+        'system',
+      )
+
+      // Node A attempt 2 -> completed (after rerun)
+      store.recordNodeAttempt(
+        {
+          id: randomUUID(),
+          projectId,
+          graphRunId,
+          nodeId: 'node-A',
+          attempt: 2,
+          status: 'running',
+          role: 'implementer',
+          startedAt: NOW,
+        },
+        'system',
+      )
+      store.updateNodeAttempt(
+        {
+          projectId,
+          graphRunId,
+          nodeId: 'node-A',
+          attempt: 2,
+          status: 'completed',
+          occurredAt: NOW,
+        },
+        'system',
+      )
+
+      // Node B attempt 1 -> running
+      store.recordNodeAttempt(
+        {
+          id: randomUUID(),
+          projectId,
+          graphRunId,
+          nodeId: 'node-B',
+          attempt: 1,
+          status: 'running',
+          role: 'reviewer',
+          startedAt: NOW,
+        },
+        'system',
+      )
+
+      // getLatestNodeRuns returns Option A logical NodeRuns (latest attempt for each node)
+      const latestRuns = store.getLatestNodeRuns(graphRunId)
+      expect(latestRuns).toHaveLength(2)
+
+      const nodeARun = latestRuns.find((n) => n.nodeId === 'node-A')
+      expect(nodeARun?.attempt).toBe(2)
+      expect(nodeARun?.status).toBe('completed')
+
+      const nodeBRun = latestRuns.find((n) => n.nodeId === 'node-B')
+      expect(nodeBRun?.attempt).toBe(1)
+      expect(nodeBRun?.status).toBe('running')
+
+      // getNodeAttempts returns complete historical audit log
+      const allAttempts = store.getNodeAttempts(graphRunId)
+      expect(allAttempts).toHaveLength(3)
+
+      const nodeAAttempts = store.getNodeAttempts(graphRunId, 'node-A')
+      expect(nodeAAttempts).toHaveLength(2)
+      expect(nodeAAttempts[0]?.attempt).toBe(1)
+      expect(nodeAAttempts[0]?.status).toBe('failed')
+      expect(nodeAAttempts[1]?.attempt).toBe(2)
+      expect(nodeAAttempts[1]?.status).toBe('completed')
+    })
+
+    it('persists write-ahead checkpoints and retrieves the latest checkpoint', () => {
+      const store = startWorkflow()
+      const graphRunId = randomUUID()
+      store.startGraphRun(
+        {
+          graphRunId,
+          projectId,
+          workflowId,
+          templateId: 'feature_implementation_v2',
+          startedAt: NOW,
+        },
+        'user',
+      )
+
+      expect(store.getLatestGraphCheckpoint(graphRunId)).toBeNull()
+
+      const cp1Id = randomUUID()
+      const cp1 = store.writeGraphCheckpoint(
+        {
+          id: cp1Id,
+          projectId,
+          graphRunId,
+          nodeId: 'node-plan',
+          operation: 'dispatch_agent',
+          stateSnapshot: {
+            readyNodeIds: ['node-plan'],
+            runningNodeIds: [],
+            completedNodeIds: [],
+            blockedNodeIds: [],
+          },
+          occurredAt: '2026-08-19T10:01:00.000Z',
+        },
+        'system',
+      )
+
+      expect(cp1.id).toBe(cp1Id)
+      expect(cp1.operation).toBe('dispatch_agent')
+      expect(cp1.stateSnapshot.readyNodeIds).toEqual(['node-plan'])
+
+      const latest1 = store.getLatestGraphCheckpoint(graphRunId)
+      expect(latest1).toEqual(cp1)
+
+      const cp2Id = randomUUID()
+      const cp2 = store.writeGraphCheckpoint(
+        {
+          id: cp2Id,
+          projectId,
+          graphRunId,
+          nodeId: 'node-implement',
+          operation: 'dispatch_agent',
+          stateSnapshot: {
+            readyNodeIds: ['node-implement'],
+            runningNodeIds: [],
+            completedNodeIds: ['node-plan'],
+            blockedNodeIds: [],
+          },
+          occurredAt: '2026-08-19T10:05:00.000Z',
+        },
+        'system',
+      )
+
+      const latest2 = store.getLatestGraphCheckpoint(graphRunId)
+      expect(latest2).toEqual(cp2)
+      expect(latest2?.stateSnapshot.completedNodeIds).toEqual(['node-plan'])
+    })
+
+    it('discovers interrupted graph runs across process restarts', () => {
+      const store = startWorkflow()
+      const graphRunId = randomUUID()
+      store.startGraphRun(
+        {
+          graphRunId,
+          projectId,
+          workflowId,
+          templateId: 'feature_implementation_v2',
+          startedAt: NOW,
+        },
+        'user',
+      )
+
+      // Graph run is currently 'running' with finishedAt = null
+      let interrupted = store.findInterruptedGraphRuns(projectId)
+      expect(interrupted).toHaveLength(1)
+      expect(interrupted[0]?.id).toBe(graphRunId)
+
+      // Simulate crash and restart
+      reopen()
+      const reopenedStore = new WorkflowStore(db)
+      interrupted = reopenedStore.findInterruptedGraphRuns(projectId)
+      expect(interrupted).toHaveLength(1)
+      expect(interrupted[0]?.id).toBe(graphRunId)
+
+      // Complete the run
+      reopenedStore.updateGraphRunStatus(
+        {
+          projectId,
+          graphRunId,
+          status: 'completed',
+          finishedAt: '2026-08-19T10:30:00.000Z',
+          occurredAt: '2026-08-19T10:30:00.000Z',
+        },
+        'system',
+      )
+
+      expect(reopenedStore.findInterruptedGraphRuns(projectId)).toHaveLength(0)
+    })
+
+    it('rebuilds graph read models deterministically from the event log', () => {
+      const store = startWorkflow()
+      const graphRunId = randomUUID()
+      store.startGraphRun(
+        {
+          graphRunId,
+          projectId,
+          workflowId,
+          templateId: 'feature_implementation_v2',
+          startedAt: NOW,
+        },
+        'user',
+      )
+
+      store.recordNodeAttempt(
+        {
+          id: randomUUID(),
+          projectId,
+          graphRunId,
+          nodeId: 'node-1',
+          attempt: 1,
+          status: 'running',
+          role: 'implementer',
+          startedAt: NOW,
+        },
+        'system',
+      )
+
+      store.writeGraphCheckpoint(
+        {
+          id: randomUUID(),
+          projectId,
+          graphRunId,
+          nodeId: 'node-1',
+          operation: 'dispatch',
+          stateSnapshot: {
+            readyNodeIds: [],
+            runningNodeIds: ['node-1'],
+            completedNodeIds: [],
+            blockedNodeIds: [],
+          },
+          occurredAt: NOW,
+        },
+        'system',
+      )
+
+      const runBefore = store.getGraphRun(graphRunId)
+      const attemptsBefore = store.getNodeAttempts(graphRunId)
+      const checkpointBefore = store.getLatestGraphCheckpoint(graphRunId)
+
+      // Rebuild from events
+      const projectStore = new ProjectStore(db)
+      projectStore.rebuild(projectId)
+
+      const runAfter = store.getGraphRun(graphRunId)
+      const attemptsAfter = store.getNodeAttempts(graphRunId)
+      const checkpointAfter = store.getLatestGraphCheckpoint(graphRunId)
+
+      expect(runAfter).toEqual(runBefore)
+      expect(attemptsAfter).toEqual(attemptsBefore)
+      expect(checkpointAfter).toEqual(checkpointBefore)
+    })
+  })
 })

@@ -1,23 +1,35 @@
-import { and, asc, eq, isNotNull, isNull } from 'drizzle-orm'
+import { and, asc, desc, eq, isNotNull, isNull } from 'drizzle-orm'
 import { z } from 'zod'
 import {
+  completionCriterionSchema,
+  decisionIdSchema,
   evidenceArtifactSchema,
-  testCountsSchema,
+  graphCheckpointSchema,
+  graphNodeRunSchema,
+  graphRunSchema,
+  graphStateSnapshotSchema,
   isTerminalWorkflowState,
+  scopePolicySchema,
   summariseEvidence,
+  taskIdSchema,
+  testCountsSchema,
   transition,
   workflowCheckpointSchema,
   workflowLimitsSchema,
   workflowSchema,
   workflowStepSchema,
-  completionCriterionSchema,
-  decisionIdSchema,
-  scopePolicySchema,
-  taskIdSchema,
   type Actor,
+  type ChangeSetId,
   type EvidenceArtifact,
+  type GraphCheckpoint,
+  type GraphNodeRun,
+  type GraphRun,
+  type GraphRunStatus,
+  type GraphStateSnapshot,
+  type NodeStatus,
   type ProjectId,
   type QuestionId,
+  type Role,
   type Task,
   type TaskId,
   type Workflow,
@@ -32,7 +44,15 @@ import type { ForgeDatabase } from './connection'
 import { EventStore } from './eventStore'
 import { applyEvent } from './projections'
 import { fromJson, parseRow } from './rows'
-import { evidenceArtifacts, tasks, workflows, workflowSteps } from './schema'
+import {
+  evidenceArtifacts,
+  graphCheckpoints,
+  graphNodeRuns,
+  graphRuns,
+  tasks,
+  workflows,
+  workflowSteps,
+} from './schema'
 
 /**
  * The command layer for workflows.
@@ -63,6 +83,61 @@ export interface StartWorkflowInput {
   readonly templateId: string
   readonly limits?: Partial<WorkflowLimits>
   readonly startedAt: string
+}
+
+export interface StartGraphRunInput {
+  readonly graphRunId: string
+  readonly projectId: ProjectId
+  readonly workflowId: WorkflowId
+  readonly templateId: string
+  readonly startedAt: string
+}
+
+export interface UpdateGraphRunStatusInput {
+  readonly projectId: ProjectId
+  readonly graphRunId: string
+  readonly status: GraphRunStatus
+  readonly iteration?: number
+  readonly haltReason?: string | null
+  readonly finishedAt?: string | null
+  readonly error?: string | null
+  readonly occurredAt: string
+}
+
+export interface RecordNodeAttemptInput {
+  readonly id: string
+  readonly projectId: ProjectId
+  readonly graphRunId: string
+  readonly nodeId: string
+  readonly attempt: number
+  readonly status: 'pending' | 'ready' | 'running'
+  readonly role?: Role | null
+  readonly runtimeId?: string | null
+  readonly contextRef?: string | null
+  readonly startedAt: string
+}
+
+export interface UpdateNodeAttemptInput {
+  readonly projectId: ProjectId
+  readonly graphRunId: string
+  readonly nodeId: string
+  readonly attempt: number
+  readonly status: 'completed' | 'failed' | 'skipped' | 'blocked' | 'cancelled'
+  readonly changeSetId?: ChangeSetId | null
+  readonly evidenceId?: string | null
+  readonly finishedAt?: string | null
+  readonly error?: string | null
+  readonly occurredAt: string
+}
+
+export interface WriteGraphCheckpointInput {
+  readonly id: string
+  readonly projectId: ProjectId
+  readonly graphRunId: string
+  readonly nodeId: string
+  readonly operation: string
+  readonly stateSnapshot: GraphStateSnapshot
+  readonly occurredAt: string
 }
 
 export class WorkflowStore {
@@ -457,6 +532,368 @@ export class WorkflowStore {
         finishedAt: row.finishedAt,
       },
       'workflows row',
+    )
+  }
+
+  // --- M6 Generic Workflow Graph Persistence Methods ---
+
+  startGraphRun(input: StartGraphRunInput, actor: Actor): GraphRun {
+    this.db.transaction(() => {
+      const event = this.events.append(
+        {
+          type: 'graph.started',
+          payload: {
+            graphRunId: input.graphRunId,
+            workflowId: input.workflowId,
+            templateId: input.templateId,
+            startedAt: input.startedAt,
+          },
+        },
+        { projectId: input.projectId, actor, occurredAt: input.startedAt },
+      )
+
+      applyEvent(this.db, event)
+    })
+
+    const run = this.getGraphRun(input.graphRunId)
+    if (run === null) {
+      throw new Error(`Graph run "${input.graphRunId}" was not projected after being started`)
+    }
+    return run
+  }
+
+  getGraphRun(graphRunId: string): GraphRun | null {
+    const row = this.db.select().from(graphRuns).where(eq(graphRuns.id, graphRunId)).all().at(0)
+
+    return row === undefined ? null : this.toGraphRunDomain(row)
+  }
+
+  updateGraphRunStatus(input: UpdateGraphRunStatusInput, actor: Actor): GraphRun {
+    this.db.transaction(() => {
+      const event = this.events.append(
+        {
+          type: 'graph.status_updated',
+          payload: {
+            graphRunId: input.graphRunId,
+            status: input.status,
+            iteration: input.iteration,
+            haltReason: input.haltReason,
+            error: input.error,
+            finishedAt: input.finishedAt,
+          },
+        },
+        { projectId: input.projectId, actor, occurredAt: input.occurredAt },
+      )
+
+      applyEvent(this.db, event)
+    })
+
+    const run = this.getGraphRun(input.graphRunId)
+    if (run === null) {
+      throw new Error(`Graph run "${input.graphRunId}" was not found after status update`)
+    }
+    return run
+  }
+
+  recordNodeAttempt(input: RecordNodeAttemptInput, actor: Actor): GraphNodeRun {
+    // Enforce attempt monotonicity: attempt must be 1 for initial attempt, or previousAttempt + 1
+    const existingAttempts = this.getNodeAttempts(input.graphRunId, input.nodeId)
+    const latestAttempt = existingAttempts.at(-1)
+
+    if (latestAttempt === undefined) {
+      if (input.attempt !== 1) {
+        throw new Error(
+          `Attempt monotonicity violation: initial attempt for node "${input.nodeId}" in run "${input.graphRunId}" must be 1 (got ${String(input.attempt)})`,
+        )
+      }
+    } else {
+      const expectedAttempt = latestAttempt.attempt + 1
+      if (input.attempt !== expectedAttempt) {
+        throw new Error(
+          `Attempt monotonicity violation: next attempt for node "${input.nodeId}" in run "${input.graphRunId}" must be ${String(expectedAttempt)} (got ${String(input.attempt)})`,
+        )
+      }
+    }
+
+    this.db.transaction(() => {
+      const event = this.events.append(
+        {
+          type: 'graph_node.attempt_started',
+          payload: {
+            id: input.id,
+            graphRunId: input.graphRunId,
+            nodeId: input.nodeId,
+            attempt: input.attempt,
+            status: input.status,
+            role: input.role,
+            runtimeId: input.runtimeId,
+            contextRef: input.contextRef,
+            startedAt: input.startedAt,
+          },
+        },
+        { projectId: input.projectId, actor, occurredAt: input.startedAt },
+      )
+
+      applyEvent(this.db, event)
+    })
+
+    const attempt = this.getNodeAttempt(input.graphRunId, input.nodeId, input.attempt)
+    if (attempt === null) {
+      throw new Error(
+        `Node attempt ${input.nodeId}#${String(input.attempt)} was not projected after being recorded`,
+      )
+    }
+    return attempt
+  }
+
+  updateNodeAttempt(input: UpdateNodeAttemptInput, actor: Actor): GraphNodeRun {
+    // Enforce terminal attempt immutability: once completed/failed/skipped/blocked/cancelled, attempt is immutable
+    const existing = this.getNodeAttempt(input.graphRunId, input.nodeId, input.attempt)
+    if (existing === null) {
+      throw new Error(
+        `Node attempt not found: run="${input.graphRunId}", node="${input.nodeId}", attempt=${String(input.attempt)}`,
+      )
+    }
+
+    const TERMINAL_STATUSES: readonly NodeStatus[] = [
+      'completed',
+      'failed',
+      'skipped',
+      'blocked',
+      'cancelled',
+    ]
+    if (TERMINAL_STATUSES.includes(existing.status)) {
+      throw new Error(
+        `Terminal attempt immutability violation: node "${input.nodeId}" attempt ${String(input.attempt)} is in terminal status "${existing.status}" and cannot be updated`,
+      )
+    }
+
+    this.db.transaction(() => {
+      const event = this.events.append(
+        {
+          type: 'graph_node.attempt_updated',
+          payload: {
+            graphRunId: input.graphRunId,
+            nodeId: input.nodeId,
+            attempt: input.attempt,
+            status: input.status,
+            changeSetId: input.changeSetId,
+            evidenceId: input.evidenceId,
+            finishedAt: input.finishedAt,
+            error: input.error,
+          },
+        },
+        { projectId: input.projectId, actor, occurredAt: input.occurredAt },
+      )
+
+      applyEvent(this.db, event)
+    })
+
+    const updated = this.getNodeAttempt(input.graphRunId, input.nodeId, input.attempt)
+    if (updated === null) {
+      throw new Error(
+        `Node attempt ${input.nodeId}#${String(input.attempt)} was not found after update`,
+      )
+    }
+    return updated
+  }
+
+  getNodeAttempt(graphRunId: string, nodeId: string, attempt: number): GraphNodeRun | null {
+    const row = this.db
+      .select()
+      .from(graphNodeRuns)
+      .where(
+        and(
+          eq(graphNodeRuns.graphRunId, graphRunId),
+          eq(graphNodeRuns.nodeId, nodeId),
+          eq(graphNodeRuns.attempt, attempt),
+        ),
+      )
+      .all()
+      .at(0)
+
+    return row === undefined ? null : this.toGraphNodeRunDomain(row)
+  }
+
+  getNodeAttempts(graphRunId: string, nodeId?: string): readonly GraphNodeRun[] {
+    const query = this.db
+      .select()
+      .from(graphNodeRuns)
+      .where(
+        nodeId !== undefined
+          ? and(eq(graphNodeRuns.graphRunId, graphRunId), eq(graphNodeRuns.nodeId, nodeId))
+          : eq(graphNodeRuns.graphRunId, graphRunId),
+      )
+      .orderBy(asc(graphNodeRuns.nodeId), asc(graphNodeRuns.attempt))
+      .all()
+
+    return query.map((row) => this.toGraphNodeRunDomain(row))
+  }
+
+  /**
+   * Option A read derivation: logical NodeRun state is derived from the latest attempt
+   * (highest attempt number) for each nodeId in the graph run.
+   */
+  getLatestNodeRuns(graphRunId: string): readonly GraphNodeRun[] {
+    const rows = this.db
+      .select()
+      .from(graphNodeRuns)
+      .where(eq(graphNodeRuns.graphRunId, graphRunId))
+      .orderBy(asc(graphNodeRuns.nodeId), desc(graphNodeRuns.attempt))
+      .all()
+
+    const latestByNode = new Map<string, GraphNodeRun>()
+    for (const row of rows) {
+      if (!latestByNode.has(row.nodeId)) {
+        latestByNode.set(row.nodeId, this.toGraphNodeRunDomain(row))
+      }
+    }
+
+    return Array.from(latestByNode.values())
+  }
+
+  /**
+   * Write-ahead checkpoint semantics: writes checkpoint event to log and projects to table
+   * before node execution proceeds.
+   */
+  writeGraphCheckpoint(input: WriteGraphCheckpointInput, actor: Actor): GraphCheckpoint {
+    this.db.transaction(() => {
+      const event = this.events.append(
+        {
+          type: 'graph.checkpointed',
+          payload: {
+            id: input.id,
+            graphRunId: input.graphRunId,
+            nodeId: input.nodeId,
+            operation: input.operation,
+            stateSnapshot: input.stateSnapshot,
+            occurredAt: input.occurredAt,
+          },
+        },
+        { projectId: input.projectId, actor, occurredAt: input.occurredAt },
+      )
+
+      applyEvent(this.db, event)
+    })
+
+    const row = this.db
+      .select()
+      .from(graphCheckpoints)
+      .where(eq(graphCheckpoints.id, input.id))
+      .all()
+      .at(0)
+
+    if (row === undefined) {
+      throw new Error(`Graph checkpoint "${input.id}" was not projected after being written`)
+    }
+    return this.toGraphCheckpointDomain(row)
+  }
+
+  getLatestGraphCheckpoint(graphRunId: string): GraphCheckpoint | null {
+    const row = this.db
+      .select()
+      .from(graphCheckpoints)
+      .where(eq(graphCheckpoints.graphRunId, graphRunId))
+      .orderBy(desc(graphCheckpoints.occurredAt), desc(graphCheckpoints.id))
+      .all()
+      .at(0)
+
+    return row === undefined ? null : this.toGraphCheckpointDomain(row)
+  }
+
+  findInterruptedGraphRuns(projectId?: ProjectId): readonly GraphRun[] {
+    if (projectId !== undefined) {
+      const rows = this.db
+        .select({
+          id: graphRuns.id,
+          workflowId: graphRuns.workflowId,
+          templateId: graphRuns.templateId,
+          status: graphRuns.status,
+          iteration: graphRuns.iteration,
+          startedAt: graphRuns.startedAt,
+          finishedAt: graphRuns.finishedAt,
+          haltReason: graphRuns.haltReason,
+          error: graphRuns.error,
+        })
+        .from(graphRuns)
+        .innerJoin(workflows, eq(graphRuns.workflowId, workflows.id))
+        .where(
+          and(
+            eq(workflows.projectId, projectId),
+            eq(graphRuns.status, 'running'),
+            isNull(graphRuns.finishedAt),
+          ),
+        )
+        .all()
+
+      return rows.map((row) => this.toGraphRunDomain(row))
+    }
+
+    const rows = this.db
+      .select()
+      .from(graphRuns)
+      .where(and(eq(graphRuns.status, 'running'), isNull(graphRuns.finishedAt)))
+      .all()
+
+    return rows.map((row) => this.toGraphRunDomain(row))
+  }
+
+  private toGraphRunDomain(row: typeof graphRuns.$inferSelect): GraphRun {
+    return parseRow(
+      graphRunSchema,
+      {
+        id: row.id,
+        workflowId: row.workflowId,
+        templateId: row.templateId,
+        status: row.status,
+        iteration: row.iteration,
+        startedAt: row.startedAt,
+        finishedAt: row.finishedAt,
+        haltReason: row.haltReason,
+        error: row.error,
+      },
+      'graph_runs row',
+    )
+  }
+
+  private toGraphNodeRunDomain(row: typeof graphNodeRuns.$inferSelect): GraphNodeRun {
+    return parseRow(
+      graphNodeRunSchema,
+      {
+        id: row.id,
+        graphRunId: row.graphRunId,
+        nodeId: row.nodeId,
+        attempt: row.attempt,
+        status: row.status,
+        role: row.role,
+        runtimeId: row.runtimeId,
+        contextRef: row.contextRef,
+        changeSetId: row.changeSetId,
+        evidenceId: row.evidenceId,
+        startedAt: row.startedAt,
+        finishedAt: row.finishedAt,
+        error: row.error,
+      },
+      'graph_node_runs row',
+    )
+  }
+
+  private toGraphCheckpointDomain(row: typeof graphCheckpoints.$inferSelect): GraphCheckpoint {
+    return parseRow(
+      graphCheckpointSchema,
+      {
+        id: row.id,
+        graphRunId: row.graphRunId,
+        nodeId: row.nodeId,
+        operation: row.operation,
+        stateSnapshot: fromJson(
+          graphStateSnapshotSchema,
+          row.stateSnapshot,
+          'graph_checkpoints.stateSnapshot',
+        ),
+        occurredAt: row.occurredAt,
+      },
+      'graph_checkpoints row',
     )
   }
 }

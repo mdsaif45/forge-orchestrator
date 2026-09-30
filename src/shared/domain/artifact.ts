@@ -17,6 +17,7 @@ export const artifactKindSchema = z.enum([
   'diff',
   'prompt-packet',
   'agent-raw',
+  'stage-output',
   'custom',
 ])
 

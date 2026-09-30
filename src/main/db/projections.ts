@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { DomainEvent, EventPayloads, EventType, ProjectId } from '@shared/domain'
 import type { ForgeDatabase } from './connection'
 import {
@@ -7,6 +7,9 @@ import {
   changeSets,
   decisions,
   evidenceArtifacts,
+  graphCheckpoints,
+  graphNodeRuns,
+  graphRuns,
   openQuestions,
   projects,
   repositories,
@@ -557,6 +560,140 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
           permissions: JSON.stringify(b.permissions),
         },
       })
+      .run()
+    return
+  }
+
+  if (isType(event, 'graph.started')) {
+    db.insert(graphRuns)
+      .values({
+        id: event.payload.graphRunId,
+        workflowId: event.payload.workflowId,
+        templateId: event.payload.templateId,
+        status: 'running',
+        iteration: 1,
+        startedAt: event.payload.startedAt,
+      })
+      .onConflictDoUpdate({
+        target: graphRuns.id,
+        set: {
+          templateId: event.payload.templateId,
+          startedAt: event.payload.startedAt,
+        },
+      })
+      .run()
+    return
+  }
+
+  if (isType(event, 'graph.status_updated')) {
+    const payload = event.payload
+    const updateData: {
+      status: string
+      iteration?: number
+      haltReason?: string | null
+      finishedAt?: string | null
+      error?: string | null
+    } = {
+      status: payload.status,
+    }
+    if (payload.iteration !== undefined) {
+      updateData.iteration = payload.iteration
+    }
+    if (payload.haltReason !== undefined) {
+      updateData.haltReason = payload.haltReason
+    }
+    if (payload.finishedAt !== undefined) {
+      updateData.finishedAt = payload.finishedAt
+    }
+    if (payload.error !== undefined) {
+      updateData.error = payload.error
+    }
+    db.update(graphRuns).set(updateData).where(eq(graphRuns.id, payload.graphRunId)).run()
+    return
+  }
+
+  if (isType(event, 'graph.checkpointed')) {
+    db.insert(graphCheckpoints)
+      .values({
+        id: event.payload.id,
+        graphRunId: event.payload.graphRunId,
+        nodeId: event.payload.nodeId,
+        operation: event.payload.operation,
+        stateSnapshot: JSON.stringify(event.payload.stateSnapshot),
+        occurredAt: event.payload.occurredAt,
+      })
+      .onConflictDoUpdate({
+        target: graphCheckpoints.id,
+        set: {
+          nodeId: event.payload.nodeId,
+          operation: event.payload.operation,
+          stateSnapshot: JSON.stringify(event.payload.stateSnapshot),
+          occurredAt: event.payload.occurredAt,
+        },
+      })
+      .run()
+    return
+  }
+
+  if (isType(event, 'graph_node.attempt_started')) {
+    db.insert(graphNodeRuns)
+      .values({
+        id: event.payload.id,
+        graphRunId: event.payload.graphRunId,
+        nodeId: event.payload.nodeId,
+        attempt: event.payload.attempt,
+        status: event.payload.status,
+        role: event.payload.role ?? null,
+        runtimeId: event.payload.runtimeId ?? null,
+        contextRef: event.payload.contextRef ?? null,
+        startedAt: event.payload.startedAt,
+      })
+      .onConflictDoUpdate({
+        target: [graphNodeRuns.graphRunId, graphNodeRuns.nodeId, graphNodeRuns.attempt],
+        set: {
+          status: event.payload.status,
+          role: event.payload.role ?? null,
+          runtimeId: event.payload.runtimeId ?? null,
+          contextRef: event.payload.contextRef ?? null,
+          startedAt: event.payload.startedAt,
+        },
+      })
+      .run()
+    return
+  }
+
+  if (isType(event, 'graph_node.attempt_updated')) {
+    const payload = event.payload
+    const updateData: {
+      status: string
+      changeSetId?: string | null
+      evidenceId?: string | null
+      finishedAt?: string | null
+      error?: string | null
+    } = {
+      status: payload.status,
+    }
+    if (payload.changeSetId !== undefined) {
+      updateData.changeSetId = payload.changeSetId
+    }
+    if (payload.evidenceId !== undefined) {
+      updateData.evidenceId = payload.evidenceId
+    }
+    if (payload.finishedAt !== undefined) {
+      updateData.finishedAt = payload.finishedAt
+    }
+    if (payload.error !== undefined) {
+      updateData.error = payload.error
+    }
+    db.update(graphNodeRuns)
+      .set(updateData)
+      .where(
+        and(
+          eq(graphNodeRuns.graphRunId, payload.graphRunId),
+          eq(graphNodeRuns.nodeId, payload.nodeId),
+          eq(graphNodeRuns.attempt, payload.attempt),
+        ),
+      )
       .run()
     return
   }

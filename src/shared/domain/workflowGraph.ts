@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { roleSchema } from './enums'
+import { changeSetIdSchema, timestampSchema, workflowIdSchema } from './ids'
 
 /**
  * Node execution categories for generic Lego-piece workflows.
@@ -50,6 +52,8 @@ export const nodeRuntimeConfigSchema = z.strictObject({
   systemPrompt: z.string().optional(),
   skills: z.array(z.string()).readonly().default([]),
   permissionMode: z.enum(['read-only', 'developer', 'full-access']).default('developer'),
+  role: roleSchema.optional(),
+  timeoutMs: z.number().int().positive().optional(),
 })
 export type NodeRuntimeConfig = z.infer<typeof nodeRuntimeConfigSchema>
 
@@ -75,8 +79,78 @@ export const workflowEdgeSchema = z.strictObject({
   sourceHandle: z.string().optional(),
   target: z.string().min(1),
   targetHandle: z.string().optional(),
+  isFeedback: z.boolean().optional(),
 })
 export type WorkflowEdge = z.infer<typeof workflowEdgeSchema>
+
+export const graphRunStatusSchema = z.enum([
+  'running',
+  'completed',
+  'failed',
+  'halted',
+  'cancelled',
+])
+export type GraphRunStatus = z.infer<typeof graphRunStatusSchema>
+
+export const nodeStatusSchema = z.enum([
+  'pending',
+  'ready',
+  'running',
+  'completed',
+  'failed',
+  'skipped',
+  'blocked',
+  'cancelled',
+])
+export type NodeStatus = z.infer<typeof nodeStatusSchema>
+
+export const graphRunSchema = z.strictObject({
+  id: z.string().min(1),
+  workflowId: workflowIdSchema,
+  templateId: z.string().min(1),
+  status: graphRunStatusSchema,
+  iteration: z.number().int().positive().default(1),
+  startedAt: timestampSchema,
+  finishedAt: timestampSchema.nullable().default(null),
+  haltReason: z.string().nullable().default(null),
+  error: z.string().nullable().default(null),
+})
+export type GraphRun = z.infer<typeof graphRunSchema>
+
+export const graphNodeRunSchema = z.strictObject({
+  id: z.string().min(1),
+  graphRunId: z.string().min(1),
+  nodeId: z.string().min(1),
+  attempt: z.number().int().positive().default(1),
+  status: nodeStatusSchema,
+  role: roleSchema.nullable().default(null),
+  runtimeId: z.string().nullable().default(null),
+  contextRef: z.string().nullable().default(null),
+  changeSetId: changeSetIdSchema.nullable().default(null),
+  evidenceId: z.string().nullable().default(null),
+  startedAt: timestampSchema.nullable().default(null),
+  finishedAt: timestampSchema.nullable().default(null),
+  error: z.string().nullable().default(null),
+})
+export type GraphNodeRun = z.infer<typeof graphNodeRunSchema>
+
+export const graphStateSnapshotSchema = z.strictObject({
+  readyNodeIds: z.array(z.string()).readonly().default([]),
+  runningNodeIds: z.array(z.string()).readonly().default([]),
+  completedNodeIds: z.array(z.string()).readonly().default([]),
+  blockedNodeIds: z.array(z.string()).readonly().default([]),
+})
+export type GraphStateSnapshot = z.infer<typeof graphStateSnapshotSchema>
+
+export const graphCheckpointSchema = z.strictObject({
+  id: z.string().min(1),
+  graphRunId: z.string().min(1),
+  nodeId: z.string().min(1),
+  operation: z.string().min(1),
+  stateSnapshot: graphStateSnapshotSchema,
+  occurredAt: timestampSchema,
+})
+export type GraphCheckpoint = z.infer<typeof graphCheckpointSchema>
 
 export const workflowTemplateV2Schema = z.strictObject({
   id: z.string().min(1),
@@ -119,7 +193,8 @@ export class WorkflowGraphCycleError extends Error {
 /**
  * Validates a workflow graph:
  * - All edge sources and targets must exist in nodes.
- * - Graph must be acyclic (DAG).
+ * - Forward graph must be acyclic (DAG).
+ * - Feedback edges must target a node that precedes the source topologically.
  */
 export function validateWorkflowGraph(
   nodes: readonly WorkflowNode[],
@@ -136,18 +211,32 @@ export function validateWorkflowGraph(
     }
   }
 
-  // Detect cycles using Tarjan / DFS
-  getTopologicalSort(nodes, edges)
+  // Detect cycles in forward DAG
+  const sortedNodeIds = getTopologicalSort(nodes, edges)
+
+  // Validate feedback edges: target must precede source topologically
+  const feedbackEdges = edges.filter((e) => e.isFeedback)
+  for (const edge of feedbackEdges) {
+    const sourceIndex = sortedNodeIds.indexOf(edge.source)
+    const targetIndex = sortedNodeIds.indexOf(edge.target)
+    if (targetIndex >= sourceIndex) {
+      throw new Error(
+        `Feedback edge "${edge.id}" targets node "${edge.target}" which does not precede source node "${edge.source}" topologically`,
+      )
+    }
+  }
 }
 
 /**
- * Computes a valid topological execution order for the workflow nodes.
- * Throws WorkflowGraphCycleError if a cycle is detected.
+ * Computes a valid topological execution order for the forward workflow nodes.
+ * Filters out feedback edges (isFeedback: true) so they do not produce false cycles.
+ * Throws WorkflowGraphCycleError if a cycle is detected in the forward DAG.
  */
 export function getTopologicalSort(
   nodes: readonly WorkflowNode[],
   edges: readonly WorkflowEdge[],
 ): readonly string[] {
+  const forwardEdges = edges.filter((e) => !e.isFeedback)
   const inDegree = new Map<string, number>()
   const adjacency = new Map<string, string[]>()
 
@@ -156,7 +245,7 @@ export function getTopologicalSort(
     adjacency.set(node.id, [])
   }
 
-  for (const edge of edges) {
+  for (const edge of forwardEdges) {
     // Only count unique edges between node pairs
     const targets = adjacency.get(edge.source)
     if (targets && !targets.includes(edge.target)) {
@@ -198,20 +287,21 @@ export function getTopologicalSort(
 
 /**
  * Resolves which nodes in a DAG are currently ready to execute given the set of
- * already-completed node IDs.
+ * already-completed node IDs. Feedback edges do not block initial node readiness.
  */
 export function getReadyNodes(
   nodes: readonly WorkflowNode[],
   edges: readonly WorkflowEdge[],
   completedNodeIds: ReadonlySet<string>,
 ): readonly WorkflowNode[] {
+  const forwardEdges = edges.filter((e) => !e.isFeedback)
   const incomingEdges = new Map<string, string[]>()
 
   for (const node of nodes) {
     incomingEdges.set(node.id, [])
   }
 
-  for (const edge of edges) {
+  for (const edge of forwardEdges) {
     incomingEdges.get(edge.target)?.push(edge.source)
   }
 

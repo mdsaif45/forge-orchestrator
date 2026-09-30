@@ -35,6 +35,11 @@ export const EVENT_TYPES = [
   'account.registered',
   'account.status_updated',
   'account.removed',
+  'graph.started',
+  'graph.status_updated',
+  'graph.checkpointed',
+  'graph_node.attempt_started',
+  'graph_node.attempt_updated',
 ] as const
 
 export const eventTypeSchema = z.enum(EVENT_TYPES)

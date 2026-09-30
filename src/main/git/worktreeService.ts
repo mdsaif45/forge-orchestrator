@@ -1,4 +1,4 @@
-import { mkdir, rm } from 'node:fs/promises'
+import { mkdir, rm, rmdir } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { runGit, GitCommandError } from './exec'
 
@@ -76,7 +76,7 @@ export class WorktreeService {
       await rm(path, { recursive: true, force: true }).catch(() => undefined)
       const parent = resolve(path, '..')
       if (parent !== root) {
-        await rm(parent).catch(() => undefined)
+        await rmdir(parent).catch(() => undefined)
       }
     }
 
@@ -160,10 +160,18 @@ export class WorktreeService {
 
     // Ensure parent directory exists before adding worktree
     await mkdir(parentDir, { recursive: true }).catch(() => undefined)
-    // Idempotent cleanup in case a prior crashed attempt left this directory behind
+    // Attempt to remove stale git worktree registration first (safely ignore error if unregistered),
+    // then remove physical path to ensure idempotence across duplicate allocations or crashes
+    await runGit(['worktree', 'remove', '--force', path], exec).catch(() => undefined)
     await rm(path, { recursive: true, force: true }).catch(() => undefined)
 
-    await runGit(['worktree', 'add', '--detach', path, targetRef], exec)
+    try {
+      await runGit(['worktree', 'add', '--detach', path, targetRef], exec)
+    } catch (error) {
+      await rm(path, { recursive: true, force: true }).catch(() => undefined)
+      await rmdir(parentDir).catch(() => undefined)
+      throw error
+    }
 
     let disposed = false
     const dispose = async (): Promise<void> => {
@@ -178,7 +186,7 @@ export class WorktreeService {
       await rm(path, { recursive: true, force: true }).catch(() => undefined)
       await runGit(['worktree', 'prune'], exec).catch(() => undefined)
       // Try removing the parent workflow directory if empty (safe no-op if sibling branches exist)
-      await rm(parentDir).catch(() => undefined)
+      await rmdir(parentDir).catch(() => undefined)
     }
 
     return { path, dispose }

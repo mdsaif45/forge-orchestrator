@@ -249,4 +249,49 @@ describe('WorktreeService.prepareBranch', () => {
     const service = new WorktreeService({ repositoryPath: repo, root })
     expect(await service.prepareBranch('wf-empty', 'node-1')).toBeNull()
   })
+
+  it('handles duplicate prepareBranch allocation on same (workflowId, nodeId) with stale registration', async () => {
+    const repo = makeRepo()
+    const root = mkdtempSync(join(tmpdir(), 'forge-wt-root-'))
+    dirs.push(repo, root)
+
+    const service = new WorktreeService({ repositoryPath: repo, root })
+    const branch1 = await service.prepareBranch('wf-dup', 'node-dup')
+    expect(branch1).not.toBeNull()
+    if (!branch1) return
+
+    // Dirty the branch without disposing it (simulating active or uncleaned state)
+    writeFileSync(join(branch1.path, 'stale.txt'), 'stale uncommitted data\n', 'utf8')
+    expect(existsSync(join(branch1.path, 'stale.txt'))).toBe(true)
+
+    // Re-allocating the same (workflowId, nodeId) must cleanly recreate the worktree
+    const branch2 = await service.prepareBranch('wf-dup', 'node-dup')
+    expect(branch2).not.toBeNull()
+    if (!branch2) return
+
+    // Path is clean and stale file was removed
+    expect(existsSync(join(branch2.path, 'stale.txt'))).toBe(false)
+    expect(existsSync(join(branch2.path, 'source.txt'))).toBe(true)
+
+    await branch2.dispose()
+    expect(existsSync(branch2.path)).toBe(false)
+  })
+
+  it('cleans up directory and leaves no orphan when git worktree add fails', async () => {
+    const repo = makeRepo()
+    const root = mkdtempSync(join(tmpdir(), 'forge-wt-root-'))
+    dirs.push(repo, root)
+
+    // Obtain a tree SHA which passes rev-parse but fails git worktree add (requires commit)
+    const treeSha = git(repo, ['rev-parse', 'HEAD^{tree}']).trim()
+
+    const service = new WorktreeService({ repositoryPath: repo, root })
+    await expect(service.prepareBranch('wf-fail', 'node-fail', treeSha)).rejects.toThrow()
+
+    // Neither the branch path nor the parent workflow directory should remain on disk
+    const branchPath = join(root, 'wf-fail', 'branch-node-fail')
+    const parentDir = join(root, 'wf-fail')
+    expect(existsSync(branchPath)).toBe(false)
+    expect(existsSync(parentDir)).toBe(false)
+  })
 })

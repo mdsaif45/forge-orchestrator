@@ -373,4 +373,105 @@ index 111..333
     if (result.ok) return
     expect(result.conflicts.length).toBeGreaterThanOrEqual(2)
   })
+
+  it('detects rename-vs-delete collision when a branch deletes the rename source path', () => {
+    const cs1 = makeChangeSet({
+      files: [makeFile('new-service.ts', 'renamed', 'old-service.ts')],
+    })
+    const cs2 = makeChangeSet({
+      files: [makeFile('old-service.ts', 'deleted')],
+    })
+
+    const result = mergeChangeSets([
+      { branchId: 'branch-rename', changeSet: cs1 },
+      { branchId: 'branch-delete', changeSet: cs2 },
+    ])
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.haltCode).toBe('HALTED_POLICY')
+    expect(result.haltReason).toContain('HALTED_POLICY: merge-conflict')
+    expect(result.conflicts[0]?.type).toBe('rename-collision')
+    expect(result.conflicts[0]?.path).toBe('old-service.ts')
+  })
+
+  it('detects rename-vs-modify-target collision when a branch modifies the rename destination path', () => {
+    const cs1 = makeChangeSet({
+      files: [makeFile('destination.ts', 'renamed', 'source.ts')],
+    })
+    const cs2 = makeChangeSet({
+      files: [makeFile('destination.ts', 'modified')],
+    })
+
+    const result = mergeChangeSets([
+      { branchId: 'branch-rename', changeSet: cs1 },
+      { branchId: 'branch-modify', changeSet: cs2 },
+    ])
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.haltCode).toBe('HALTED_POLICY')
+    expect(result.conflicts[0]?.type).toBe('rename-collision')
+    expect(result.conflicts[0]?.path).toBe('destination.ts')
+  })
+
+  it('detects mode-vs-content-modification collision on same file', () => {
+    const modePatch = `diff --git a/exec.sh b/exec.sh
+old mode 100644
+new mode 100755
+index 111..222
+`
+    const cs1 = makeChangeSet({
+      files: [makeFile('exec.sh', 'modified')],
+      patch: modePatch,
+    })
+    const cs2 = makeChangeSet({
+      files: [makeFile('exec.sh', 'modified')],
+      patch: `diff --git a/exec.sh b/exec.sh
+--- a/exec.sh
++++ b/exec.sh
+@@ -1 +1 @@
+-echo old
++echo new
+`,
+    })
+
+    const result = mergeChangeSets([
+      { branchId: 'branch-mode', changeSet: cs1 },
+      { branchId: 'branch-content', changeSet: cs2 },
+    ])
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.haltCode).toBe('HALTED_POLICY')
+    expect(result.haltReason).toContain('HALTED_POLICY: merge-conflict')
+    expect(result.conflicts[0]?.path).toBe('exec.sh')
+  })
+
+  it('detects collision when a file is absent from files[] but present in unified patch headers', () => {
+    const patchWithHeader = `diff --git a/untracked-header.ts b/untracked-header.ts
+--- a/untracked-header.ts
++++ b/untracked-header.ts
+@@ -1 +1 @@
++untracked
+`
+    const cs1 = makeChangeSet({
+      files: [],
+      patch: patchWithHeader,
+    })
+    const cs2 = makeChangeSet({
+      files: [makeFile('untracked-header.ts', 'modified')],
+    })
+
+    const result = mergeChangeSets([
+      { branchId: 'branch-patch-only', changeSet: cs1 },
+      { branchId: 'branch-files-only', changeSet: cs2 },
+    ])
+
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.haltCode).toBe('HALTED_POLICY')
+    expect(result.haltReason).toContain('HALTED_POLICY: merge-conflict')
+    expect(result.conflicts[0]?.path).toBe('untracked-header.ts')
+  })
 })

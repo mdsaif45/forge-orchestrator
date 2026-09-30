@@ -97,7 +97,7 @@ interface NormalizedBranch {
 
 function normalizeBranch(input: MergeBranchInput | ChangeSet, index: number): NormalizedBranch {
   const isBranchInput = 'branchId' in input && 'changeSet' in input
-  const branchId = isBranchInput ? input.branchId : (input.stepId || `branch-${String(index)}`)
+  const branchId = isBranchInput ? input.branchId : input.stepId || `branch-${String(index)}`
   const changeSet = isBranchInput ? input.changeSet : input
 
   const filesByPath = new Map<string, ChangedFile>()

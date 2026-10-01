@@ -1866,5 +1866,126 @@ describe('GraphExecutor', () => {
         }),
       ).rejects.toThrow('already in terminal status "skipped"')
     })
+
+    // 17. REGRESSION: skipNode() on a running node throws and does not mutate running attempt or state
+    it('skipNode() on a running node throws and does not mutate running attempt or state', async () => {
+      const graphRunId = randomUUID()
+      const template = makeTemplate([makeNode('A')])
+
+      let nodeAStartedResolve: (() => void) | undefined
+      const nodeAStarted = new Promise<void>((resolve) => {
+        nodeAStartedResolve = resolve
+      })
+      let nodeAContinueResolve: (() => void) | undefined
+      const nodeAContinue = new Promise<void>((resolve) => {
+        nodeAContinueResolve = resolve
+      })
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: async (ctx) => {
+          if (ctx.node.id === 'A') {
+            nodeAStartedResolve?.()
+            await nodeAContinue
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const runPromise = executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      // Wait for node A to start running
+      await nodeAStarted
+
+      // Confirm attempt 1 is currently in status 'running'
+      const attemptsBefore = workflowStore.getNodeAttempts(graphRunId, 'A')
+      expect(attemptsBefore).toHaveLength(1)
+      expect(attemptsBefore[0]!.status).toBe('running')
+      expect(attemptsBefore[0]!.attempt).toBe(1)
+
+      const checkpointsBefore = workflowStore.getLatestGraphCheckpoint(graphRunId)
+      expect(checkpointsBefore?.operation).toBe('node.started')
+
+      // Attempt to skip node A while running MUST throw/reject
+      await expect(
+        executor.skipNode({
+          graphRunId,
+          workflowId,
+          projectId,
+          template,
+          nodeId: 'A',
+        }),
+      ).rejects.toThrow('Node "A" is currently running and cannot be skipped')
+
+      // Verify attempt 1 was NOT mutated
+      const attemptsAfterSkipAttempt = workflowStore.getNodeAttempts(graphRunId, 'A')
+      expect(attemptsAfterSkipAttempt).toHaveLength(1)
+      expect(attemptsAfterSkipAttempt[0]!.status).toBe('running')
+      expect(attemptsAfterSkipAttempt[0]!.attempt).toBe(1)
+      expect(attemptsAfterSkipAttempt[0]!.changeSetId).toBeNull()
+
+      // Verify no 'node.skipped' checkpoint was written
+      const checkpointsAfterSkip = workflowStore.getLatestGraphCheckpoint(graphRunId)
+      expect(checkpointsAfterSkip?.operation).toBe('node.started')
+
+      // Allow node A to finish execution
+      nodeAContinueResolve?.()
+      const result = await runPromise
+
+      // Confirm node A completes normally
+      expect(result.status).toBe('completed')
+      expect(result.completedNodeIds).toEqual(['A'])
+      expect(result.skippedNodeIds).toEqual([])
+
+      const attemptsFinal = workflowStore.getNodeAttempts(graphRunId, 'A')
+      expect(attemptsFinal).toHaveLength(1)
+      expect(attemptsFinal[0]!.status).toBe('completed')
+
+      // Also verify direct rejection when latest attempt in DB has status 'running'
+      const directRunId = randomUUID()
+      workflowStore.startGraphRun(
+        {
+          graphRunId: directRunId,
+          projectId,
+          workflowId,
+          templateId: template.id,
+          startedAt: NOW,
+        },
+        'user',
+      )
+      workflowStore.recordNodeAttempt(
+        {
+          id: randomUUID(),
+          projectId,
+          graphRunId: directRunId,
+          nodeId: 'A',
+          attempt: 1,
+          status: 'running',
+          startedAt: NOW,
+        },
+        'user',
+      )
+      await expect(
+        executor.skipNode({
+          graphRunId: directRunId,
+          workflowId,
+          projectId,
+          template,
+          nodeId: 'A',
+        }),
+      ).rejects.toThrow('Node "A" is currently running and cannot be skipped')
+
+      const directAttempts = workflowStore.getNodeAttempts(directRunId, 'A')
+      expect(directAttempts).toHaveLength(1)
+      expect(directAttempts[0]!.status).toBe('running')
+    })
   })
 })

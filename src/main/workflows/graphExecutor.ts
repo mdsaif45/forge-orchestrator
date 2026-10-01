@@ -1228,13 +1228,20 @@ export class GraphExecutor {
     const latestByNode = new Map(latestRuns.map((r) => [r.nodeId, r]))
 
     const currentRun = latestByNode.get(nodeId)
-    if (
-      currentRun &&
-      ['completed', 'failed', 'skipped', 'blocked', 'cancelled'].includes(currentRun.status)
-    ) {
-      throw new Error(
-        `Node "${nodeId}" is already in terminal status "${currentRun.status}" and cannot be skipped`,
-      )
+    if (currentRun) {
+      if (currentRun.status === 'running') {
+        throw new Error(`Node "${nodeId}" is currently running and cannot be skipped`)
+      }
+      if (['completed', 'failed', 'skipped', 'blocked', 'cancelled'].includes(currentRun.status)) {
+        throw new Error(
+          `Node "${nodeId}" is already in terminal status "${currentRun.status}" and cannot be skipped`,
+        )
+      }
+      if (currentRun.status !== 'ready') {
+        throw new Error(
+          `Node "${nodeId}" is in status "${currentRun.status}" and cannot be skipped`,
+        )
+      }
     }
 
     const forwardEdges = template.edges.filter((e) => !e.isFeedback && e.target === nodeId)

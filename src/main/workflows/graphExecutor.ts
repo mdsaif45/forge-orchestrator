@@ -6,6 +6,7 @@ import {
   validateWorkflowGraph,
   type Actor,
   type ChangeSet,
+  type GraphNodeRun,
   type GraphRun,
   type GraphRunStatus,
   type GraphStateSnapshot,
@@ -20,6 +21,7 @@ import {
   type WorkflowTemplateV2,
 } from '@shared/domain'
 import type { ArtifactService } from '../artifacts/artifactService'
+import type { ChangeSetStore } from '../db/changeSetStore'
 import type { DecisionStore } from '../db/decisionStore'
 import type { WorkflowStore } from '../db/workflowStore'
 import { mergeChangeSets, type ChangeSetMergeResult } from '../evidence/changeSetMerger'
@@ -56,12 +58,22 @@ export type LeafNodeExecutor = (
   ctx: NodeExecutionContext,
 ) => Promise<NodeExecutionResult> | NodeExecutionResult
 
+/**
+ * Ephemeral execution lineage entry for attempt-scoped dataflow.
+ */
+export interface LineageEntry {
+  readonly attempt: number
+  readonly changeSet?: ChangeSet | undefined
+  readonly artifacts: readonly WorkflowArtifact[]
+}
+
 export interface GraphExecutorOptions {
   readonly workflowStore: WorkflowStore
   readonly worktreeService: WorktreeService
   readonly gitServiceFactory?: ((path: string) => GitService) | undefined
   readonly artifactService?: ArtifactService | undefined
   readonly decisionStore?: DecisionStore | undefined
+  readonly changeSetStore?: ChangeSetStore | undefined
   readonly actor?: Actor | undefined
   readonly maxConcurrency?: number | undefined
   readonly executeLeafNode?: LeafNodeExecutor | undefined
@@ -75,6 +87,28 @@ export interface RunGraphOptions {
   readonly forkSha: Sha
   readonly initialContext?: Readonly<Record<string, string>> | undefined
   readonly signal?: AbortSignal | undefined
+  readonly skipNodeIds?: ReadonlySet<string> | readonly string[] | undefined
+  readonly invalidatedNodeIds?: ReadonlySet<string> | undefined
+}
+
+export interface SkipNodeOptions {
+  readonly graphRunId: string
+  readonly workflowId: WorkflowId
+  readonly projectId: ProjectId
+  readonly template: WorkflowTemplateV2
+  readonly nodeId: string
+  readonly actor?: Actor | undefined
+}
+
+export interface RerunNodeOptions {
+  readonly graphRunId: string
+  readonly workflowId: WorkflowId
+  readonly projectId: ProjectId
+  readonly template: WorkflowTemplateV2
+  readonly forkSha: Sha
+  readonly targetNodeId: string
+  readonly initialContext?: Readonly<Record<string, string>> | undefined
+  readonly signal?: AbortSignal | undefined
 }
 
 export interface GraphRunResult {
@@ -83,6 +117,7 @@ export interface GraphRunResult {
   readonly completedNodeIds: readonly string[]
   readonly failedNodeIds: readonly string[]
   readonly blockedNodeIds: readonly string[]
+  readonly skippedNodeIds: readonly string[]
   readonly haltReason?: string | null | undefined
   readonly error?: string | null | undefined
   readonly changeSets: ReadonlyMap<string, ChangeSet>
@@ -108,6 +143,7 @@ export class GraphExecutor {
   private readonly gitServiceFactory: (path: string) => GitService
   private readonly artifactService?: ArtifactService | undefined
   private readonly decisionStore?: DecisionStore | undefined
+  private readonly changeSetStore?: ChangeSetStore | undefined
   private readonly defaultActor: Actor
   private readonly maxConcurrency?: number | undefined
   private readonly executeLeafNode?: LeafNodeExecutor | undefined
@@ -119,6 +155,7 @@ export class GraphExecutor {
       options.gitServiceFactory ?? ((path: string) => new GitService({ repositoryPath: path }))
     this.artifactService = options.artifactService
     this.decisionStore = options.decisionStore
+    this.changeSetStore = options.changeSetStore
     this.defaultActor = options.actor ?? 'system'
     this.maxConcurrency = options.maxConcurrency
     this.executeLeafNode = options.executeLeafNode
@@ -137,26 +174,70 @@ export class GraphExecutor {
     validateWorkflowGraph(template.nodes, template.edges)
 
     const now = new Date().toISOString()
-    this.workflowStore.startGraphRun(
-      {
-        graphRunId,
-        workflowId,
-        projectId,
-        templateId: template.id,
-        startedAt: now,
-      },
-      actor,
-    )
+    const existingRun = this.workflowStore.getGraphRun(graphRunId)
+    if (!existingRun) {
+      this.workflowStore.startGraphRun(
+        {
+          graphRunId,
+          workflowId,
+          projectId,
+          templateId: template.id,
+          startedAt: now,
+        },
+        actor,
+      )
+    } else {
+      this.workflowStore.updateGraphRunStatus(
+        {
+          projectId,
+          graphRunId,
+          status: 'running',
+          occurredAt: now,
+        },
+        actor,
+      )
+    }
 
     const completedNodeIds = new Set<string>()
     const runningNodeIds = new Set<string>()
     const failedNodeIds = new Set<string>()
     const blockedNodeIds = new Set<string>()
+    const skippedNodeIds = new Set<string>()
     const activeWorktrees = new Map<string, PreparedWorktree>()
 
-    const nodeChangeSets = new Map<string, ChangeSet>()
-    const nodeArtifacts = new Map<string, WorkflowArtifact[]>()
+    const currentLineage = new Map<string, LineageEntry>()
     const allArtifacts: WorkflowArtifact[] = []
+
+    const skipSet = new Set(options.skipNodeIds ?? [])
+    const invalidatedSet = options.invalidatedNodeIds ?? new Set<string>()
+
+    // Hydrate existing latest state if run existed previously
+    if (existingRun) {
+      const latestRuns = this.workflowStore.getLatestNodeRuns(graphRunId)
+      for (const nodeRun of latestRuns) {
+        if (invalidatedSet.has(nodeRun.nodeId)) {
+          continue
+        }
+        if (nodeRun.status === 'completed') {
+          completedNodeIds.add(nodeRun.nodeId)
+          let cs: ChangeSet | undefined
+          if (nodeRun.changeSetId && this.changeSetStore) {
+            cs = this.changeSetStore.find(nodeRun.changeSetId) ?? undefined
+          }
+          currentLineage.set(nodeRun.nodeId, {
+            attempt: nodeRun.attempt,
+            changeSet: cs,
+            artifacts: [],
+          })
+        } else if (nodeRun.status === 'skipped') {
+          skippedNodeIds.add(nodeRun.nodeId)
+        } else if (nodeRun.status === 'blocked') {
+          blockedNodeIds.add(nodeRun.nodeId)
+        } else if (nodeRun.status === 'failed') {
+          failedNodeIds.add(nodeRun.nodeId)
+        }
+      }
+    }
 
     const loopState = {
       isHalted: false,
@@ -165,25 +246,33 @@ export class GraphExecutor {
     }
 
     const getSnapshot = (): GraphStateSnapshot => ({
-      readyNodeIds: getReadyNodes(template.nodes, template.edges, completedNodeIds)
+      readyNodeIds: getReadyNodes(template.nodes, template.edges, completedNodeIds, skippedNodeIds)
         .map((n) => n.id)
         .sort((a, b) => a.localeCompare(b)),
       runningNodeIds: Array.from(runningNodeIds).sort((a, b) => a.localeCompare(b)),
       completedNodeIds: Array.from(completedNodeIds).sort((a, b) => a.localeCompare(b)),
       blockedNodeIds: Array.from(blockedNodeIds).sort((a, b) => a.localeCompare(b)),
+      skippedNodeIds: Array.from(skippedNodeIds).sort((a, b) => a.localeCompare(b)),
     })
 
     // Main execution scheduling loop
     while (
-      completedNodeIds.size + failedNodeIds.size + blockedNodeIds.size < template.nodes.length &&
+      completedNodeIds.size + skippedNodeIds.size + failedNodeIds.size + blockedNodeIds.size <
+        template.nodes.length &&
       !loopState.isHalted &&
       !abortSignal.aborted
     ) {
-      const candidateNodes = getReadyNodes(template.nodes, template.edges, completedNodeIds).filter(
+      const candidateNodes = getReadyNodes(
+        template.nodes,
+        template.edges,
+        completedNodeIds,
+        skippedNodeIds,
+      ).filter(
         (node) =>
           !runningNodeIds.has(node.id) &&
           !failedNodeIds.has(node.id) &&
-          !blockedNodeIds.has(node.id),
+          !blockedNodeIds.has(node.id) &&
+          !skippedNodeIds.has(node.id),
       )
 
       if (candidateNodes.length === 0 && runningNodeIds.size === 0) {
@@ -204,7 +293,7 @@ export class GraphExecutor {
 
       // Execute ready batch concurrently
       const executions = batch.map(async (node) => {
-        // Enforce WORK-001 boundary: router nodes strictly rejected
+        // Enforce WORK-001/WORK-002 boundary: router nodes strictly rejected
         if (node.type === 'router') {
           const attemptNum = this.getNextAttemptNumber(graphRunId, node.id)
           const startedAt = new Date().toISOString()
@@ -271,11 +360,74 @@ export class GraphExecutor {
           return
         }
 
+        // Check if node is explicitly skipped via options
+        if (skipSet.has(node.id)) {
+          const attemptNum = this.getNextAttemptNumber(graphRunId, node.id)
+          const startedAt = new Date().toISOString()
+
+          this.workflowStore.writeGraphCheckpoint(
+            {
+              id: randomUUID(),
+              projectId,
+              graphRunId,
+              nodeId: node.id,
+              operation: 'node.skipped',
+              stateSnapshot: getSnapshot(),
+              occurredAt: startedAt,
+            },
+            actor,
+          )
+
+          this.workflowStore.recordNodeAttempt(
+            {
+              id: randomUUID(),
+              projectId,
+              graphRunId,
+              nodeId: node.id,
+              attempt: attemptNum,
+              status: 'ready',
+              role: node.config.role ?? null,
+              startedAt,
+            },
+            actor,
+          )
+
+          const finishedAt = new Date().toISOString()
+          this.workflowStore.updateNodeAttempt(
+            {
+              projectId,
+              graphRunId,
+              nodeId: node.id,
+              attempt: attemptNum,
+              status: 'skipped',
+              finishedAt,
+              occurredAt: finishedAt,
+            },
+            actor,
+          )
+
+          this.workflowStore.writeGraphCheckpoint(
+            {
+              id: randomUUID(),
+              projectId,
+              graphRunId,
+              nodeId: node.id,
+              operation: 'node.skipped',
+              stateSnapshot: getSnapshot(),
+              occurredAt: finishedAt,
+            },
+            actor,
+          )
+
+          skippedNodeIds.add(node.id)
+          return
+        }
+
         // Validate required input slots
         const { inputArtifacts, incomingSlots, missingRequiredSlot } = this.resolveNodeInputs(
           node,
           template.edges,
-          nodeArtifacts,
+          currentLineage,
           initialContext,
           workflowId,
         )
@@ -398,15 +550,15 @@ export class GraphExecutor {
             }
             activeWorktrees.set(node.id, branchWorktree)
 
-            // Resolve predecessor ChangeSets for Fan-In
+            // Resolve predecessor ChangeSets for Fan-In strictly from currentLineage
             const predecessorEdges = template.edges.filter(
               (e) => e.target === node.id && !e.isFeedback,
             )
             const predecessorChangeSets: ChangeSet[] = []
             for (const edge of predecessorEdges) {
-              const cs = nodeChangeSets.get(edge.source)
-              if (cs?.patch.trim()) {
-                predecessorChangeSets.push(cs)
+              const lineage = currentLineage.get(edge.source)
+              if (lineage?.changeSet?.patch.trim()) {
+                predecessorChangeSets.push(lineage.changeSet)
               }
             }
 
@@ -565,10 +717,6 @@ export class GraphExecutor {
               }
             }
 
-            if (capturedChangeSet) {
-              nodeChangeSets.set(node.id, capturedChangeSet)
-            }
-
             // Record artifacts
             const artifactsForNode = (leafResult.artifacts ?? []).map((a) => ({
               ...a,
@@ -578,7 +726,20 @@ export class GraphExecutor {
               createdAt: a.createdAt || new Date().toISOString(),
             }))
 
-            nodeArtifacts.set(node.id, artifactsForNode)
+            currentLineage.set(node.id, {
+              attempt: attemptNum,
+              changeSet: capturedChangeSet,
+              artifacts: artifactsForNode,
+            })
+            if (capturedChangeSet && this.changeSetStore) {
+              this.changeSetStore.record(
+                capturedChangeSet,
+                projectId,
+                actor,
+                new Date().toISOString(),
+              )
+            }
+
             allArtifacts.push(...artifactsForNode)
             completedNodeIds.add(node.id)
 
@@ -716,6 +877,13 @@ export class GraphExecutor {
       await Promise.all(executions)
     }
 
+    const resultChangeSets = new Map<string, ChangeSet>()
+    for (const [nodeId, lineage] of currentLineage.entries()) {
+      if (lineage.changeSet) {
+        resultChangeSets.set(nodeId, lineage.changeSet)
+      }
+    }
+
     // Handle cancellation
     if (abortSignal.aborted) {
       await this.handleCancellation(
@@ -733,19 +901,27 @@ export class GraphExecutor {
         completedNodeIds: Array.from(completedNodeIds),
         failedNodeIds: Array.from(failedNodeIds),
         blockedNodeIds: Array.from(blockedNodeIds),
+        skippedNodeIds: Array.from(skippedNodeIds),
         haltReason: 'Execution cancelled by signal',
         error: 'Execution cancelled',
-        changeSets: nodeChangeSets,
+        changeSets: resultChangeSets,
         artifacts: allArtifacts,
       }
     }
 
-    // Determine terminal graph run status
+    // Determine terminal graph run status with locked precedence:
+    // 1. cancelled (handled above)
+    // 2. halted
+    // 3. failed (if failedNodeIds.size > 0 || blockedNodeIds.size > 0)
+    // 4. completed (only when all reachable nodes are completed or skipped, with zero failed/blocked nodes)
     let finalStatus: GraphRunStatus = 'completed'
     if (loopState.isHalted) {
       finalStatus = 'halted'
-    } else if (failedNodeIds.size > 0) {
+    } else if (failedNodeIds.size > 0 || blockedNodeIds.size > 0) {
       finalStatus = 'failed'
+      if (!loopState.runError && blockedNodeIds.size > 0) {
+        loopState.runError = `Graph execution blocked at nodes: ${Array.from(blockedNodeIds).join(', ')}`
+      }
     }
 
     const finishedAt = new Date().toISOString()
@@ -768,9 +944,10 @@ export class GraphExecutor {
       completedNodeIds: Array.from(completedNodeIds),
       failedNodeIds: Array.from(failedNodeIds),
       blockedNodeIds: Array.from(blockedNodeIds),
+      skippedNodeIds: Array.from(skippedNodeIds),
       haltReason: loopState.haltedReason,
       error: loopState.runError,
-      changeSets: nodeChangeSets,
+      changeSets: resultChangeSets,
       artifacts: allArtifacts,
     }
   }
@@ -839,12 +1016,12 @@ export class GraphExecutor {
   }
 
   /**
-   * Resolves incoming dataflow slots and artifacts for a node.
+   * Resolves incoming dataflow slots and artifacts for a node from currentLineage.
    */
   private resolveNodeInputs(
     node: WorkflowNode,
     edges: readonly WorkflowEdge[],
-    nodeArtifacts: Map<string, WorkflowArtifact[]>,
+    currentLineage: ReadonlyMap<string, LineageEntry>,
     initialContext: Readonly<Record<string, string>>,
     workflowId: string,
   ): {
@@ -857,7 +1034,8 @@ export class GraphExecutor {
     const artifacts: WorkflowArtifact[] = []
 
     for (const edge of incomingEdges) {
-      const sourceArtifacts = nodeArtifacts.get(edge.source) ?? []
+      const lineage = currentLineage.get(edge.source)
+      const sourceArtifacts = lineage?.artifacts ?? []
       for (const artifact of sourceArtifacts) {
         if (!edge.sourceHandle || edge.sourceHandle === artifact.kind) {
           const targetSlotName = edge.targetHandle ?? artifact.kind
@@ -872,7 +1050,8 @@ export class GraphExecutor {
     for (const slot of node.inputs) {
       if (!slotMap.has(slot.name)) {
         for (const edge of incomingEdges) {
-          const sourceArtifacts = nodeArtifacts.get(edge.source) ?? []
+          const lineage = currentLineage.get(edge.source)
+          const sourceArtifacts = lineage?.artifacts ?? []
           const matching = sourceArtifacts.find((a) => a.kind === slot.kind)
           if (matching) {
             slotMap.set(slot.name, matching)
@@ -1027,5 +1206,228 @@ export class GraphExecutor {
       },
       actor,
     )
+  }
+
+  /**
+   * Explicitly skips a node that is ready to execute (all predecessors are finished).
+   * Transitions node from ready -> skipped, emitting write-ahead checkpoints.
+   * Produces zero artifacts, changesets, or worktrees.
+   */
+  async skipNode(options: SkipNodeOptions): Promise<GraphNodeRun> {
+    await Promise.resolve()
+    const { graphRunId, projectId, template, nodeId } = options
+    const actor = options.actor ?? this.defaultActor
+    const now = new Date().toISOString()
+
+    const node = template.nodes.find((n) => n.id === nodeId)
+    if (!node) {
+      throw new Error(`Node "${nodeId}" not found in template "${template.id}"`)
+    }
+
+    const latestRuns = this.workflowStore.getLatestNodeRuns(graphRunId)
+    const latestByNode = new Map(latestRuns.map((r) => [r.nodeId, r]))
+
+    const currentRun = latestByNode.get(nodeId)
+    if (currentRun) {
+      if (currentRun.status === 'running') {
+        throw new Error(`Node "${nodeId}" is currently running and cannot be skipped`)
+      }
+      if (['completed', 'failed', 'skipped', 'blocked', 'cancelled'].includes(currentRun.status)) {
+        throw new Error(
+          `Node "${nodeId}" is already in terminal status "${currentRun.status}" and cannot be skipped`,
+        )
+      }
+      if (currentRun.status !== 'ready') {
+        throw new Error(
+          `Node "${nodeId}" is in status "${currentRun.status}" and cannot be skipped`,
+        )
+      }
+    }
+
+    const forwardEdges = template.edges.filter((e) => !e.isFeedback && e.target === nodeId)
+    for (const edge of forwardEdges) {
+      const pred = latestByNode.get(edge.source)
+      if (!pred || (pred.status !== 'completed' && pred.status !== 'skipped')) {
+        throw new Error(
+          `Node "${nodeId}" cannot be skipped because predecessor "${edge.source}" is not finished`,
+        )
+      }
+    }
+
+    const attemptNum = this.getNextAttemptNumber(graphRunId, nodeId)
+
+    const completed = new Set(
+      latestRuns.filter((r) => r.status === 'completed').map((r) => r.nodeId),
+    )
+    const skipped = new Set(latestRuns.filter((r) => r.status === 'skipped').map((r) => r.nodeId))
+    skipped.add(nodeId)
+    const blocked = new Set(latestRuns.filter((r) => r.status === 'blocked').map((r) => r.nodeId))
+    const running = new Set(latestRuns.filter((r) => r.status === 'running').map((r) => r.nodeId))
+
+    const snapshot: GraphStateSnapshot = {
+      readyNodeIds: getReadyNodes(template.nodes, template.edges, completed, skipped)
+        .map((n) => n.id)
+        .sort((a, b) => a.localeCompare(b)),
+      runningNodeIds: Array.from(running).sort((a, b) => a.localeCompare(b)),
+      completedNodeIds: Array.from(completed).sort((a, b) => a.localeCompare(b)),
+      blockedNodeIds: Array.from(blocked).sort((a, b) => a.localeCompare(b)),
+      skippedNodeIds: Array.from(skipped).sort((a, b) => a.localeCompare(b)),
+    }
+
+    this.workflowStore.writeGraphCheckpoint(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId,
+        nodeId,
+        operation: 'node.skipped',
+        stateSnapshot: snapshot,
+        occurredAt: now,
+      },
+      actor,
+    )
+
+    this.workflowStore.recordNodeAttempt(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId,
+        nodeId,
+        attempt: attemptNum,
+        status: 'ready',
+        role: node.config.role ?? null,
+        startedAt: now,
+      },
+      actor,
+    )
+
+    const updated = this.workflowStore.updateNodeAttempt(
+      {
+        projectId,
+        graphRunId,
+        nodeId,
+        attempt: attemptNum,
+        status: 'skipped',
+        finishedAt: now,
+        occurredAt: now,
+      },
+      actor,
+    )
+
+    this.workflowStore.writeGraphCheckpoint(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId,
+        nodeId,
+        operation: 'node.skipped',
+        stateSnapshot: snapshot,
+        occurredAt: now,
+      },
+      actor,
+    )
+
+    return updated
+  }
+
+  /**
+   * Reruns a node within an existing graph run.
+   * Invalidates active lineage for target node and all transitive downstream dependents,
+   * schedules attempt N+1 for target node, and cascades just-in-time attempts downstream.
+   * Historical attempts and artifacts remain strictly immutable.
+   */
+  async rerunNode(options: RerunNodeOptions): Promise<GraphRunResult> {
+    const {
+      graphRunId,
+      workflowId,
+      projectId,
+      template,
+      forkSha,
+      targetNodeId,
+      initialContext = {},
+      signal,
+    } = options
+    const actor = this.defaultActor
+
+    const targetNode = template.nodes.find((n) => n.id === targetNodeId)
+    if (!targetNode) {
+      throw new Error(`Target node "${targetNodeId}" not found in template "${template.id}"`)
+    }
+
+    const downstream = this.getTransitiveDownstream(targetNodeId, template.edges)
+    const invalidatedNodeIds = new Set<string>([targetNodeId, ...downstream])
+
+    const now = new Date().toISOString()
+    const latestRuns = this.workflowStore.getLatestNodeRuns(graphRunId)
+    const completedBefore = new Set(
+      latestRuns
+        .filter((r) => r.status === 'completed' && !invalidatedNodeIds.has(r.nodeId))
+        .map((r) => r.nodeId),
+    )
+    const skippedBefore = new Set(
+      latestRuns
+        .filter((r) => r.status === 'skipped' && !invalidatedNodeIds.has(r.nodeId))
+        .map((r) => r.nodeId),
+    )
+
+    this.workflowStore.writeGraphCheckpoint(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId,
+        nodeId: targetNodeId,
+        operation: 'node.rerun_scheduled',
+        stateSnapshot: {
+          readyNodeIds: getReadyNodes(
+            template.nodes,
+            template.edges,
+            completedBefore,
+            skippedBefore,
+          )
+            .map((n) => n.id)
+            .sort((a, b) => a.localeCompare(b)),
+          runningNodeIds: [],
+          completedNodeIds: Array.from(completedBefore).sort((a, b) => a.localeCompare(b)),
+          blockedNodeIds: [],
+          skippedNodeIds: Array.from(skippedBefore).sort((a, b) => a.localeCompare(b)),
+        },
+        occurredAt: now,
+      },
+      actor,
+    )
+
+    return this.run({
+      graphRunId,
+      workflowId,
+      projectId,
+      template,
+      forkSha,
+      initialContext,
+      signal,
+      invalidatedNodeIds,
+    })
+  }
+
+  private getTransitiveDownstream(
+    startNodeId: string,
+    edges: readonly WorkflowEdge[],
+  ): Set<string> {
+    const downstream = new Set<string>()
+    const queue = [startNodeId]
+    while (queue.length > 0) {
+      const current = queue.shift()
+      if (current === undefined) {
+        break
+      }
+      for (const edge of edges) {
+        if (edge.source === current && !edge.isFeedback) {
+          if (!downstream.has(edge.target)) {
+            downstream.add(edge.target)
+            queue.push(edge.target)
+          }
+        }
+      }
+    }
+    return downstream
   }
 }

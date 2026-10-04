@@ -146,6 +146,8 @@ export interface WriteGraphCheckpointInput {
 }
 
 export interface AdvanceLoopIterationInput {
+  readonly projectId?: ProjectId | undefined
+  readonly actor?: Actor | undefined
   readonly graphRunId: string
   readonly sourceNodeId: string
   readonly sourceAttempt: number
@@ -804,6 +806,7 @@ export class WorkflowStore {
             graphRunId: input.graphRunId,
             nodeId: input.nodeId,
             attempt: input.attempt,
+            iteration: input.iteration ?? 1,
             status: input.status,
             role: input.role,
             runtimeId: input.runtimeId,
@@ -815,20 +818,6 @@ export class WorkflowStore {
       )
 
       applyEvent(this.db, event)
-
-      if (input.iteration !== undefined && input.iteration !== 1) {
-        this.db
-          .update(graphNodeRuns)
-          .set({ iteration: input.iteration })
-          .where(
-            and(
-              eq(graphNodeRuns.graphRunId, input.graphRunId),
-              eq(graphNodeRuns.nodeId, input.nodeId),
-              eq(graphNodeRuns.attempt, input.attempt),
-            ),
-          )
-          .run()
-      }
     })
 
     const attempt = this.getNodeAttempt(input.graphRunId, input.nodeId, input.attempt)
@@ -1294,10 +1283,27 @@ export class WorkflowStore {
       )
     }
 
+    // Resolve actor
+    const actor: Actor = input.actor ?? 'system'
+
     // 3. In-Transaction Execution with status-guarded CAS and immediate lock
     try {
       return this.db.transaction(
         (tx) => {
+          let projectId = input.projectId
+          if (!projectId) {
+            const run = tx
+              .select({ workflowId: graphRuns.workflowId })
+              .from(graphRuns)
+              .where(eq(graphRuns.id, input.graphRunId))
+              .all()
+              .at(0)
+            if (!run) {
+              throw new TerminalGraphRunError(input.graphRunId, 'not_found')
+            }
+            projectId = this.projectIdOf(run.workflowId as WorkflowId)
+          }
+
           // In-tx double checks against concurrent commits
           const inTxSource = tx
             .select()
@@ -1413,34 +1419,47 @@ export class WorkflowStore {
           const targetNodeRunId = randomUUID()
           const now = input.occurredAt ?? new Date().toISOString()
 
-          // Insert target node attempt in 'ready' status
-          tx.insert(graphNodeRuns)
-            .values({
-              id: targetNodeRunId,
-              graphRunId: input.graphRunId,
-              nodeId: input.targetNodeId,
-              attempt: targetAttempt,
-              iteration: input.toIteration,
-              status: 'ready',
-              startedAt: now,
-            })
-            .run()
+          // Append events atomically to the append-only event log
+          const appendedEvents = this.events.appendMany(
+            [
+              {
+                type: 'graph_node.attempt_started',
+                payload: {
+                  id: targetNodeRunId,
+                  graphRunId: input.graphRunId,
+                  nodeId: input.targetNodeId,
+                  attempt: targetAttempt,
+                  iteration: input.toIteration,
+                  status: 'ready',
+                  role: null,
+                  runtimeId: null,
+                  contextRef: null,
+                  startedAt: now,
+                },
+              },
+              {
+                type: 'graph.iteration_advanced',
+                payload: {
+                  transitionId: computedId,
+                  graphRunId: input.graphRunId,
+                  sourceNodeId: input.sourceNodeId,
+                  sourceAttempt: input.sourceAttempt,
+                  targetNodeId: input.targetNodeId,
+                  targetAttempt,
+                  fromIteration: input.fromIteration,
+                  toIteration: input.toIteration,
+                  checkpointId: input.checkpointId ?? null,
+                  occurredAt: now,
+                },
+              },
+            ],
+            { projectId, actor, occurredAt: now },
+          )
 
-          // Insert transition
-          tx.insert(graphTransitions)
-            .values({
-              id: computedId,
-              graphRunId: input.graphRunId,
-              sourceNodeId: input.sourceNodeId,
-              sourceAttempt: input.sourceAttempt,
-              targetNodeId: input.targetNodeId,
-              targetAttempt: targetAttempt,
-              fromIteration: input.fromIteration,
-              toIteration: input.toIteration,
-              checkpointId: input.checkpointId ?? null,
-              occurredAt: now,
-            })
-            .run()
+          // Project events into read models
+          for (const event of appendedEvents) {
+            applyEvent(this.db, event)
+          }
 
           const insertedRow = tx
             .select()

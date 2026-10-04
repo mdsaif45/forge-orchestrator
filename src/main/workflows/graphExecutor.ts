@@ -203,6 +203,7 @@ export class GraphExecutor {
     conditionMet?: boolean
     checkpointId?: string | null
     occurredAt?: string
+    actor?: Actor
   }): AdvanceLoopIterationResult {
     authorizeLoopTransition(
       options.template,
@@ -220,6 +221,7 @@ export class GraphExecutor {
       toIteration: options.toIteration,
       checkpointId: options.checkpointId,
       occurredAt: options.occurredAt,
+      actor: options.actor ?? this.defaultActor,
     })
   }
 

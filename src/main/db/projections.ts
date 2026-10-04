@@ -10,6 +10,7 @@ import {
   graphCheckpoints,
   graphNodeRuns,
   graphRuns,
+  graphTransitions,
   openQuestions,
   projects,
   repositories,
@@ -642,6 +643,7 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
         graphRunId: event.payload.graphRunId,
         nodeId: event.payload.nodeId,
         attempt: event.payload.attempt,
+        iteration: event.payload.iteration,
         status: event.payload.status,
         role: event.payload.role ?? null,
         runtimeId: event.payload.runtimeId ?? null,
@@ -651,6 +653,7 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
       .onConflictDoUpdate({
         target: [graphNodeRuns.graphRunId, graphNodeRuns.nodeId, graphNodeRuns.attempt],
         set: {
+          iteration: event.payload.iteration,
           status: event.payload.status,
           role: event.payload.role ?? null,
           runtimeId: event.payload.runtimeId ?? null,
@@ -694,6 +697,38 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
           eq(graphNodeRuns.attempt, payload.attempt),
         ),
       )
+      .run()
+    return
+  }
+
+  if (isType(event, 'graph.iteration_advanced')) {
+    const payload = event.payload
+    db.update(graphRuns)
+      .set({ iteration: payload.toIteration })
+      .where(eq(graphRuns.id, payload.graphRunId))
+      .run()
+
+    db.insert(graphTransitions)
+      .values({
+        id: payload.transitionId,
+        graphRunId: payload.graphRunId,
+        sourceNodeId: payload.sourceNodeId,
+        sourceAttempt: payload.sourceAttempt,
+        targetNodeId: payload.targetNodeId,
+        targetAttempt: payload.targetAttempt,
+        fromIteration: payload.fromIteration,
+        toIteration: payload.toIteration,
+        checkpointId: payload.checkpointId ?? null,
+        occurredAt: payload.occurredAt,
+      })
+      .onConflictDoUpdate({
+        target: graphTransitions.id,
+        set: {
+          targetAttempt: payload.targetAttempt,
+          checkpointId: payload.checkpointId ?? null,
+          occurredAt: payload.occurredAt,
+        },
+      })
       .run()
     return
   }

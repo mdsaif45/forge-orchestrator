@@ -40,6 +40,7 @@ export const EVENT_TYPES = [
   'graph.checkpointed',
   'graph_node.attempt_started',
   'graph_node.attempt_updated',
+  'graph.iteration_advanced',
 ] as const
 
 export const eventTypeSchema = z.enum(EVENT_TYPES)

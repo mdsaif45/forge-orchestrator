@@ -1404,4 +1404,368 @@ describe('WORK-003 Slice 1: Transition Persistence Contract', () => {
       expect(reviewerAttempts.map((a) => a.iteration)).toEqual([1, 2])
     })
   })
+
+  describe('12. Event-sourcing consistency and projection rebuild from event log alone', () => {
+    it('rebuilds multi-iteration graph run, attempts, and transitions identically from event log alone', () => {
+      const store = startWorkflow(db)
+      const graphRunId = randomUUID()
+      store.startGraphRun(
+        { graphRunId, projectId, workflowId, templateId: 'cr-sdlc', startedAt: NOW },
+        'user',
+      )
+
+      // --- Iteration 1 ---
+      // Node 1 (implementer) attempt 1
+      store.recordNodeAttempt(
+        {
+          id: randomUUID(),
+          projectId,
+          graphRunId,
+          nodeId: 'implementer',
+          attempt: 1,
+          iteration: 1,
+          status: 'running',
+          startedAt: NOW,
+        },
+        'system',
+      )
+      store.updateNodeAttempt(
+        {
+          projectId,
+          graphRunId,
+          nodeId: 'implementer',
+          attempt: 1,
+          status: 'completed',
+          finishedAt: FINISHED,
+          occurredAt: FINISHED,
+        },
+        'system',
+      )
+
+      // Node 2 (reviewer) attempt 1
+      store.recordNodeAttempt(
+        {
+          id: randomUUID(),
+          projectId,
+          graphRunId,
+          nodeId: 'reviewer',
+          attempt: 1,
+          iteration: 1,
+          status: 'running',
+          startedAt: NOW,
+        },
+        'system',
+      )
+      store.updateNodeAttempt(
+        {
+          projectId,
+          graphRunId,
+          nodeId: 'reviewer',
+          attempt: 1,
+          status: 'completed',
+          finishedAt: FINISHED,
+          occurredAt: FINISHED,
+        },
+        'system',
+      )
+
+      // Advance Iteration 1 -> 2 (reviewer#1 -> implementer#2)
+      store.advanceLoopIteration({
+        projectId,
+        graphRunId,
+        sourceNodeId: 'reviewer',
+        sourceAttempt: 1,
+        targetNodeId: 'implementer',
+        fromIteration: 1,
+        toIteration: 2,
+      })
+
+      // --- Iteration 2 ---
+      // Target attempt (implementer#2) completes
+      store.updateNodeAttempt(
+        {
+          projectId,
+          graphRunId,
+          nodeId: 'implementer',
+          attempt: 2,
+          status: 'completed',
+          finishedAt: FINISHED,
+          occurredAt: FINISHED,
+        },
+        'system',
+      )
+
+      // Reviewer attempt 2 in iteration 2 completes
+      store.recordNodeAttempt(
+        {
+          id: randomUUID(),
+          projectId,
+          graphRunId,
+          nodeId: 'reviewer',
+          attempt: 2,
+          iteration: 2,
+          status: 'running',
+          startedAt: NOW,
+        },
+        'system',
+      )
+      store.updateNodeAttempt(
+        {
+          projectId,
+          graphRunId,
+          nodeId: 'reviewer',
+          attempt: 2,
+          status: 'completed',
+          finishedAt: FINISHED,
+          occurredAt: FINISHED,
+        },
+        'system',
+      )
+
+      // Advance Iteration 2 -> 3 (reviewer#2 -> implementer#3)
+      store.advanceLoopIteration({
+        projectId,
+        graphRunId,
+        sourceNodeId: 'reviewer',
+        sourceAttempt: 2,
+        targetNodeId: 'implementer',
+        fromIteration: 2,
+        toIteration: 3,
+      })
+
+      // --- Iteration 3 ---
+      // Target attempt (implementer#3) completes
+      store.updateNodeAttempt(
+        {
+          projectId,
+          graphRunId,
+          nodeId: 'implementer',
+          attempt: 3,
+          status: 'completed',
+          finishedAt: FINISHED,
+          occurredAt: FINISHED,
+        },
+        'system',
+      )
+
+      // Capture pre-rebuild state
+      const runBefore = store.getGraphRun(graphRunId)
+      const attemptsBefore = store.getNodeAttempts(graphRunId)
+      const transitionsBefore = store.getTransitionsForRun(graphRunId)
+
+      expect(runBefore?.iteration).toBe(3)
+      expect(attemptsBefore).toHaveLength(5)
+      expect(transitionsBefore).toHaveLength(2)
+
+      // Rebuild read models from the event log alone using the real production path
+      const projectStore = new ProjectStore(db)
+      projectStore.rebuild(projectId)
+
+      // Capture post-rebuild state
+      const runAfter = store.getGraphRun(graphRunId)
+      const attemptsAfter = store.getNodeAttempts(graphRunId)
+      const transitionsAfter = store.getTransitionsForRun(graphRunId)
+
+      // Assert complete equality between incremental projections and event-rebuilt projections
+      expect(runAfter).toEqual(runBefore)
+      expect(attemptsAfter).toEqual(attemptsBefore)
+      expect(transitionsAfter).toEqual(transitionsBefore)
+
+      // Verify specific lookups reproduce identical objects
+      const t1 = store.getTransitionBySource(graphRunId, 'reviewer', 1)
+      const t2 = store.getTransitionBySource(graphRunId, 'reviewer', 2)
+      expect(t1).toEqual(transitionsBefore[0])
+      expect(t2).toEqual(transitionsBefore[1])
+
+      const tTarget2 = store.getTransitionByTarget(graphRunId, 2, 'implementer')
+      const tTarget3 = store.getTransitionByTarget(graphRunId, 3, 'implementer')
+      expect(tTarget2).toEqual(transitionsBefore[0])
+      expect(tTarget3).toEqual(transitionsBefore[1])
+
+      const attemptIter2 = store.getNodeAttemptInIteration(graphRunId, 'implementer', 2)
+      const attemptIter3 = store.getNodeAttemptInIteration(graphRunId, 'implementer', 3)
+      expect(attemptIter2?.attempt).toBe(2)
+      expect(attemptIter2?.iteration).toBe(2)
+      expect(attemptIter3?.attempt).toBe(3)
+      expect(attemptIter3?.iteration).toBe(3)
+
+      // Rebuilding a second time must remain completely idempotent and not corrupt state
+      projectStore.rebuild(projectId)
+      expect(store.getGraphRun(graphRunId)).toEqual(runBefore)
+      expect(store.getNodeAttempts(graphRunId)).toEqual(attemptsBefore)
+      expect(store.getTransitionsForRun(graphRunId)).toEqual(transitionsBefore)
+    })
+
+    it('emits strictly ordered events with correct payloads in the event store', () => {
+      const store = startWorkflow(db)
+      const graphRunId = randomUUID()
+      store.startGraphRun(
+        { graphRunId, projectId, workflowId, templateId: 'cr-sdlc', startedAt: NOW },
+        'user',
+      )
+      setupCompletedSourceAttempt(store, graphRunId, 'reviewer', 1, 1)
+
+      const result = store.advanceLoopIteration({
+        projectId,
+        graphRunId,
+        sourceNodeId: 'reviewer',
+        sourceAttempt: 1,
+        targetNodeId: 'implementer',
+        fromIteration: 1,
+        toIteration: 2,
+      })
+
+      const allEvents = new EventStore(db).read(projectId)
+      const graphEvents = allEvents.filter((e) => e.type.startsWith('graph'))
+
+      // Should have: graph.started, graph_node.attempt_started (reviewer), graph_node.attempt_updated (reviewer),
+      // graph_node.attempt_started (implementer@2), graph.iteration_advanced
+      const types = graphEvents.map((e) => e.type)
+      expect(types).toEqual([
+        'graph.started',
+        'graph_node.attempt_started',
+        'graph_node.attempt_updated',
+        'graph_node.attempt_started',
+        'graph.iteration_advanced',
+      ])
+
+      // Verify sequence monotonicity
+      for (let i = 1; i < allEvents.length; i += 1) {
+        expect(allEvents[i]!.seq).toBe(allEvents[i - 1]!.seq + 1)
+      }
+
+      // Check transition event payload
+      const transitionEvent = graphEvents.find((e) => e.type === 'graph.iteration_advanced')
+      expect(transitionEvent).toBeDefined()
+      const payload = transitionEvent!.payload as {
+        readonly transitionId: string
+        readonly fromIteration: number
+        readonly toIteration: number
+        readonly sourceNodeId: string
+        readonly sourceAttempt: number
+        readonly targetNodeId: string
+        readonly targetAttempt: number
+      }
+      expect(payload.transitionId).toBe(result.transition.id)
+      expect(payload.fromIteration).toBe(1)
+      expect(payload.toIteration).toBe(2)
+      expect(payload.sourceNodeId).toBe('reviewer')
+      expect(payload.sourceAttempt).toBe(1)
+      expect(payload.targetNodeId).toBe('implementer')
+      expect(payload.targetAttempt).toBe(result.targetAttempt)
+    })
+  })
+
+  describe('13. Transaction rollback across event log and projection writes', () => {
+    it('rolls back event log writes when advanceLoopIteration encounters TargetIterationAlreadyActivatedError', () => {
+      const store = startWorkflow(db)
+      const graphRunId = randomUUID()
+      store.startGraphRun(
+        { graphRunId, projectId, workflowId, templateId: 'cr-sdlc', startedAt: NOW },
+        'user',
+      )
+      setupCompletedSourceAttempt(store, graphRunId, 'reviewer', 1, 1)
+
+      // Advance once
+      store.advanceLoopIteration({
+        projectId,
+        graphRunId,
+        sourceNodeId: 'reviewer',
+        sourceAttempt: 1,
+        targetNodeId: 'implementer',
+        fromIteration: 1,
+        toIteration: 2,
+      })
+
+      // Setup a second completed source attempt in iteration 1
+      setupCompletedSourceAttempt(store, graphRunId, 'reviewer-2', 1, 1)
+      const eventsAfterSetup = new EventStore(db).read(projectId).length
+
+      // Try to activate implementer in iteration 2 again from reviewer-2
+      expect(() => {
+        store.advanceLoopIteration({
+          projectId,
+          graphRunId,
+          sourceNodeId: 'reviewer-2',
+          sourceAttempt: 1,
+          targetNodeId: 'implementer',
+          fromIteration: 1,
+          toIteration: 2,
+        })
+      }).toThrow(TargetIterationAlreadyActivatedError)
+
+      // Event log must NOT have appended any events for the failed advancement
+      const eventsAfterFailure = new EventStore(db).read(projectId).length
+      expect(eventsAfterFailure).toBe(eventsAfterSetup)
+
+      // Only 1 transition exists
+      expect(store.getTransitionsForRun(graphRunId)).toHaveLength(1)
+    })
+
+    it('rolls back event log writes when advanceLoopIteration encounters CompetingTransitionError', () => {
+      const store = startWorkflow(db)
+      const graphRunId = randomUUID()
+      store.startGraphRun(
+        { graphRunId, projectId, workflowId, templateId: 'cr-sdlc', startedAt: NOW },
+        'user',
+      )
+      setupCompletedSourceAttempt(store, graphRunId, 'reviewer', 1, 1)
+
+      // Concurrently advance iteration to 2 behind the store's back
+      db.update(graphRuns).set({ iteration: 2 }).where(eq(graphRuns.id, graphRunId)).run()
+
+      const eventsBefore = new EventStore(db).read(projectId).length
+
+      expect(() => {
+        store.advanceLoopIteration({
+          projectId,
+          graphRunId,
+          sourceNodeId: 'reviewer',
+          sourceAttempt: 1,
+          targetNodeId: 'implementer',
+          fromIteration: 1,
+          toIteration: 2,
+        })
+      }).toThrow(CompetingTransitionError)
+
+      // Event log was not appended to
+      const eventsAfter = new EventStore(db).read(projectId).length
+      expect(eventsAfter).toBe(eventsBefore)
+      expect(store.getTransitionsForRun(graphRunId)).toHaveLength(0)
+    })
+
+    it('rolls back event log writes when advanceLoopIteration encounters TerminalGraphRunError', () => {
+      const store = startWorkflow(db)
+      const graphRunId = randomUUID()
+      store.startGraphRun(
+        { graphRunId, projectId, workflowId, templateId: 'cr-sdlc', startedAt: NOW },
+        'user',
+      )
+      setupCompletedSourceAttempt(store, graphRunId, 'reviewer', 1, 1)
+
+      // Mark graph run terminal
+      store.updateGraphRunStatus(
+        { projectId, graphRunId, status: 'cancelled', occurredAt: FINISHED },
+        'user',
+      )
+
+      const eventsBefore = new EventStore(db).read(projectId).length
+
+      expect(() => {
+        store.advanceLoopIteration({
+          projectId,
+          graphRunId,
+          sourceNodeId: 'reviewer',
+          sourceAttempt: 1,
+          targetNodeId: 'implementer',
+          fromIteration: 1,
+          toIteration: 2,
+        })
+      }).toThrow(TerminalGraphRunError)
+
+      const eventsAfter = new EventStore(db).read(projectId).length
+      expect(eventsAfter).toBe(eventsBefore)
+      expect(store.getTransitionsForRun(graphRunId)).toHaveLength(0)
+    })
+  })
 })

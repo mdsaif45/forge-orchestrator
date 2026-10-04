@@ -1,4 +1,12 @@
-import { index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
+import {
+  foreignKey,
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  unique,
+} from 'drizzle-orm/sqlite-core'
 
 /**
  * The SQLite schema, mirroring `src/shared/domain`.
@@ -217,6 +225,7 @@ export const graphNodeRuns = sqliteTable(
       .references(() => graphRuns.id, { onDelete: 'cascade' }),
     nodeId: text('node_id').notNull(),
     attempt: integer('attempt').notNull().default(1),
+    iteration: integer('iteration').notNull().default(1),
     status: text('status').notNull(),
     role: text('role'),
     runtimeId: text('runtime_id'),
@@ -229,6 +238,12 @@ export const graphNodeRuns = sqliteTable(
   },
   (table) => [
     unique('graph_node_runs_attempt_unique').on(table.graphRunId, table.nodeId, table.attempt),
+    unique('graph_node_runs_node_iter_attempt_unique').on(
+      table.graphRunId,
+      table.nodeId,
+      table.attempt,
+      table.iteration,
+    ),
     index('graph_node_runs_graph_node').on(table.graphRunId, table.nodeId),
     index('graph_node_runs_status').on(table.status),
   ],
@@ -247,6 +262,59 @@ export const graphCheckpoints = sqliteTable(
     occurredAt: text('occurred_at').notNull(),
   },
   (table) => [index('graph_checkpoints_run').on(table.graphRunId, table.occurredAt)],
+)
+
+export const graphTransitions = sqliteTable(
+  'graph_transitions',
+  {
+    id: text('id').primaryKey(),
+    graphRunId: text('graph_run_id')
+      .notNull()
+      .references(() => graphRuns.id, { onDelete: 'cascade' }),
+    sourceNodeId: text('source_node_id').notNull(),
+    sourceAttempt: integer('source_attempt').notNull(),
+    targetNodeId: text('target_node_id').notNull(),
+    targetAttempt: integer('target_attempt').notNull(),
+    fromIteration: integer('from_iteration').notNull(),
+    toIteration: integer('to_iteration').notNull(),
+    checkpointId: text('checkpoint_id').references(() => graphCheckpoints.id, {
+      onDelete: 'set null',
+    }),
+    occurredAt: text('occurred_at').notNull(),
+  },
+  (table) => [
+    unique('graph_transitions_source_attempt_unique').on(
+      table.graphRunId,
+      table.sourceNodeId,
+      table.sourceAttempt,
+    ),
+    unique('graph_transitions_target_iter_unique').on(
+      table.graphRunId,
+      table.toIteration,
+      table.targetNodeId,
+    ),
+    index('graph_transitions_run').on(table.graphRunId, table.occurredAt),
+    foreignKey({
+      columns: [table.graphRunId, table.targetNodeId, table.targetAttempt, table.toIteration],
+      foreignColumns: [
+        graphNodeRuns.graphRunId,
+        graphNodeRuns.nodeId,
+        graphNodeRuns.attempt,
+        graphNodeRuns.iteration,
+      ],
+      name: 'graph_transitions_target_fk',
+    }).onDelete('restrict'),
+    foreignKey({
+      columns: [table.graphRunId, table.sourceNodeId, table.sourceAttempt, table.fromIteration],
+      foreignColumns: [
+        graphNodeRuns.graphRunId,
+        graphNodeRuns.nodeId,
+        graphNodeRuns.attempt,
+        graphNodeRuns.iteration,
+      ],
+      name: 'graph_transitions_source_fk',
+    }).onDelete('restrict'),
+  ],
 )
 
 export const changeSets = sqliteTable(

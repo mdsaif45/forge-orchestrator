@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto'
 import { and, asc, desc, eq, isNotNull, isNull } from 'drizzle-orm'
 import { z } from 'zod'
 import {
@@ -8,6 +9,7 @@ import {
   graphNodeRunSchema,
   graphRunSchema,
   graphStateSnapshotSchema,
+  graphTransitionSchema,
   isTerminalWorkflowState,
   scopePolicySchema,
   summariseEvidence,
@@ -26,6 +28,7 @@ import {
   type GraphRun,
   type GraphRunStatus,
   type GraphStateSnapshot,
+  type GraphTransition,
   type NodeStatus,
   type ProjectId,
   type QuestionId,
@@ -49,6 +52,7 @@ import {
   graphCheckpoints,
   graphNodeRuns,
   graphRuns,
+  graphTransitions,
   tasks,
   workflows,
   workflowSteps,
@@ -110,6 +114,7 @@ export interface RecordNodeAttemptInput {
   readonly graphRunId: string
   readonly nodeId: string
   readonly attempt: number
+  readonly iteration?: number | undefined
   readonly status: 'pending' | 'ready' | 'running'
   readonly role?: Role | null
   readonly runtimeId?: string | null
@@ -138,6 +143,181 @@ export interface WriteGraphCheckpointInput {
   readonly operation: string
   readonly stateSnapshot: GraphStateSnapshot
   readonly occurredAt: string
+}
+
+export interface AdvanceLoopIterationInput {
+  readonly graphRunId: string
+  readonly sourceNodeId: string
+  readonly sourceAttempt: number
+  readonly targetNodeId: string
+  readonly fromIteration: number
+  readonly toIteration: number
+  readonly checkpointId?: string | null | undefined
+  readonly occurredAt?: string | undefined
+}
+
+export interface AdvanceLoopIterationResult {
+  readonly success: boolean
+  readonly replayed: boolean
+  readonly transition: GraphTransition
+  readonly targetAttempt: number
+  readonly targetNodeRunId: string
+  readonly targetStatus: NodeStatus
+  readonly diagnostic?: string
+}
+
+export function computeTransitionId(params: {
+  graphRunId: string
+  sourceNodeId: string
+  sourceAttempt: number
+  targetNodeId: string
+  fromIteration: number
+  toIteration: number
+}): string {
+  const payload = JSON.stringify({
+    fromIteration: params.fromIteration,
+    graphRunId: params.graphRunId,
+    sourceAttempt: params.sourceAttempt,
+    sourceNodeId: params.sourceNodeId,
+    targetNodeId: params.targetNodeId,
+    toIteration: params.toIteration,
+  })
+  return createHash('sha256').update(payload).digest('hex')
+}
+
+export class WorkflowDomainError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = this.constructor.name
+  }
+}
+
+export class ConflictingTargetNodeError extends WorkflowDomainError {
+  constructor(
+    public readonly graphRunId: string,
+    public readonly sourceNodeId: string,
+    public readonly sourceAttempt: number,
+    public readonly existingTarget: string,
+    public readonly requestedTarget: string,
+  ) {
+    super(
+      `Source attempt "${sourceNodeId}@${String(sourceAttempt)}" in run "${graphRunId}" already transitioned to target "${existingTarget}", cannot transition to "${requestedTarget}"`,
+    )
+  }
+}
+
+export class ConflictingIterationError extends WorkflowDomainError {
+  constructor(
+    public readonly graphRunId: string,
+    public readonly sourceNodeId: string,
+    public readonly sourceAttempt: number,
+    public readonly existingToIteration: number,
+    public readonly requestedToIteration: number,
+  ) {
+    super(
+      `Source attempt "${sourceNodeId}@${String(sourceAttempt)}" in run "${graphRunId}" already advanced to iteration ${String(existingToIteration)}, cannot advance to ${String(requestedToIteration)}`,
+    )
+  }
+}
+
+export class TargetIterationAlreadyActivatedError extends WorkflowDomainError {
+  constructor(
+    public readonly graphRunId: string,
+    public readonly targetNodeId: string,
+    public readonly toIteration: number,
+    public readonly activeSourceNodeId?: string,
+    public readonly activeSourceAttempt?: number,
+  ) {
+    super(
+      `Target node "${targetNodeId}" in iteration ${String(toIteration)} for run "${graphRunId}" was already activated${
+        activeSourceNodeId
+          ? ` by source "${activeSourceNodeId}@${String(activeSourceAttempt)}"`
+          : ''
+      }`,
+    )
+  }
+}
+
+export class CompetingTransitionError extends WorkflowDomainError {
+  constructor(
+    public readonly graphRunId: string,
+    public readonly expectedIteration: number,
+    public readonly currentIteration: number,
+  ) {
+    super(
+      `Competing transition conflict on run "${graphRunId}": expected iteration ${String(expectedIteration)}, but current iteration is ${String(currentIteration)}`,
+    )
+  }
+}
+
+export class TerminalGraphRunError extends WorkflowDomainError {
+  constructor(
+    public readonly graphRunId: string,
+    public readonly status: string,
+  ) {
+    super(`Cannot advance loop iteration on run "${graphRunId}" in non-running status "${status}"`)
+  }
+}
+
+export class InvalidIterationAdvanceError extends WorkflowDomainError {
+  constructor(
+    public readonly fromIteration: number,
+    public readonly toIteration: number,
+  ) {
+    super(
+      `Invalid iteration advance: toIteration (${String(toIteration)}) must be exactly fromIteration + 1 (${String(fromIteration + 1)})`,
+    )
+  }
+}
+
+export class SourceAttemptNotFoundError extends WorkflowDomainError {
+  constructor(
+    public readonly graphRunId: string,
+    public readonly sourceNodeId: string,
+    public readonly sourceAttempt: number,
+  ) {
+    super(
+      `Source attempt "${sourceNodeId}@${String(sourceAttempt)}" not found in run "${graphRunId}"`,
+    )
+  }
+}
+
+export class SourceAttemptNotCompletedError extends WorkflowDomainError {
+  constructor(
+    public readonly graphRunId: string,
+    public readonly sourceNodeId: string,
+    public readonly sourceAttempt: number,
+    public readonly status: string,
+  ) {
+    super(
+      `Source attempt "${sourceNodeId}@${String(sourceAttempt)}" in run "${graphRunId}" is in status "${status}" (must be "completed" to transition)`,
+    )
+  }
+}
+
+export class DatabaseLockTimeoutError extends WorkflowDomainError {
+  constructor(public readonly originalError: Error) {
+    super(
+      `Database lock timeout (SQLITE_BUSY) during advanceLoopIteration: ${originalError.message}`,
+    )
+  }
+}
+
+export class FatalStateCorruptionError extends WorkflowDomainError {
+  constructor(message: string) {
+    super(`Fatal state corruption: ${message}`)
+  }
+}
+
+export class InconsistentPersistenceStateError extends WorkflowDomainError {
+  constructor(
+    message: string,
+    public readonly constraint?: string,
+  ) {
+    super(
+      `Inconsistent persistence state: ${message}${constraint ? ` (constraint: ${constraint})` : ''}`,
+    )
+  }
 }
 
 export class WorkflowStore {
@@ -635,6 +815,20 @@ export class WorkflowStore {
       )
 
       applyEvent(this.db, event)
+
+      if (input.iteration !== undefined && input.iteration !== 1) {
+        this.db
+          .update(graphNodeRuns)
+          .set({ iteration: input.iteration })
+          .where(
+            and(
+              eq(graphNodeRuns.graphRunId, input.graphRunId),
+              eq(graphNodeRuns.nodeId, input.nodeId),
+              eq(graphNodeRuns.attempt, input.attempt),
+            ),
+          )
+          .run()
+      }
     })
 
     const attempt = this.getNodeAttempt(input.graphRunId, input.nodeId, input.attempt)
@@ -864,6 +1058,7 @@ export class WorkflowStore {
         graphRunId: row.graphRunId,
         nodeId: row.nodeId,
         attempt: row.attempt,
+        iteration: row.iteration,
         status: row.status,
         role: row.role,
         runtimeId: row.runtimeId,
@@ -896,6 +1091,477 @@ export class WorkflowStore {
       'graph_checkpoints row',
     )
   }
+
+  private toGraphTransitionDomain(row: typeof graphTransitions.$inferSelect): GraphTransition {
+    return parseRow(
+      graphTransitionSchema,
+      {
+        id: row.id,
+        graphRunId: row.graphRunId,
+        sourceNodeId: row.sourceNodeId,
+        sourceAttempt: row.sourceAttempt,
+        targetNodeId: row.targetNodeId,
+        targetAttempt: row.targetAttempt,
+        fromIteration: row.fromIteration,
+        toIteration: row.toIteration,
+        checkpointId: row.checkpointId,
+        occurredAt: row.occurredAt,
+      },
+      'graph_transitions row',
+    )
+  }
+
+  getNodeAttemptInIteration(
+    graphRunId: string,
+    nodeId: string,
+    iteration: number,
+  ): GraphNodeRun | null {
+    const row = this.db
+      .select()
+      .from(graphNodeRuns)
+      .where(
+        and(
+          eq(graphNodeRuns.graphRunId, graphRunId),
+          eq(graphNodeRuns.nodeId, nodeId),
+          eq(graphNodeRuns.iteration, iteration),
+        ),
+      )
+      .all()
+      .at(0)
+    return row === undefined ? null : this.toGraphNodeRunDomain(row)
+  }
+
+  getTransition(transitionId: string): GraphTransition | null {
+    const row = this.db
+      .select()
+      .from(graphTransitions)
+      .where(eq(graphTransitions.id, transitionId))
+      .all()
+      .at(0)
+    return row === undefined ? null : this.toGraphTransitionDomain(row)
+  }
+
+  getTransitionBySource(
+    graphRunId: string,
+    sourceNodeId: string,
+    sourceAttempt: number,
+  ): GraphTransition | null {
+    const row = this.db
+      .select()
+      .from(graphTransitions)
+      .where(
+        and(
+          eq(graphTransitions.graphRunId, graphRunId),
+          eq(graphTransitions.sourceNodeId, sourceNodeId),
+          eq(graphTransitions.sourceAttempt, sourceAttempt),
+        ),
+      )
+      .all()
+      .at(0)
+    return row === undefined ? null : this.toGraphTransitionDomain(row)
+  }
+
+  getTransitionByTarget(
+    graphRunId: string,
+    toIteration: number,
+    targetNodeId: string,
+  ): GraphTransition | null {
+    const row = this.db
+      .select()
+      .from(graphTransitions)
+      .where(
+        and(
+          eq(graphTransitions.graphRunId, graphRunId),
+          eq(graphTransitions.toIteration, toIteration),
+          eq(graphTransitions.targetNodeId, targetNodeId),
+        ),
+      )
+      .all()
+      .at(0)
+    return row === undefined ? null : this.toGraphTransitionDomain(row)
+  }
+
+  getTransitionsForRun(graphRunId: string): readonly GraphTransition[] {
+    const rows = this.db
+      .select()
+      .from(graphTransitions)
+      .where(eq(graphTransitions.graphRunId, graphRunId))
+      .orderBy(asc(graphTransitions.toIteration), asc(graphTransitions.occurredAt))
+      .all()
+    return rows.map((r) => this.toGraphTransitionDomain(r))
+  }
+
+  /**
+   * Durably advances a graph run into a new iteration and records the loop transition.
+   * Enforces:
+   *  - Monotonic step: toIteration === fromIteration + 1
+   *  - Source existence & completion check
+   *  - Business-key lookups for exact replay vs domain conflict before CAS
+   *  - Target activation uniqueness check (preflight and in-transaction re-check)
+   *  - Status-guarded CAS on graph_runs within an immediate transaction
+   *  - Monotonic attempt allocation for target node (max(attempt) + 1)
+   *  - Atomic insertion of target ready attempt and transition record
+   *  - Non-authoritative checkpoint audit marker: checkpoint_id references graph_checkpoints(id)
+   *    with ON DELETE SET NULL, ensuring checkpoint pruning or deletion never blocks transitions
+   *    or parent graph run cascade deletion.
+   */
+  advanceLoopIteration(input: AdvanceLoopIterationInput): AdvanceLoopIterationResult {
+    // 1. Basic structural parameter validation
+    if (input.toIteration !== input.fromIteration + 1) {
+      throw new InvalidIterationAdvanceError(input.fromIteration, input.toIteration)
+    }
+    if (input.sourceAttempt < 1) {
+      throw new WorkflowDomainError(
+        `Source attempt must be positive, got ${String(input.sourceAttempt)}`,
+      )
+    }
+
+    const computedId = computeTransitionId({
+      graphRunId: input.graphRunId,
+      sourceNodeId: input.sourceNodeId,
+      sourceAttempt: input.sourceAttempt,
+      targetNodeId: input.targetNodeId,
+      fromIteration: input.fromIteration,
+      toIteration: input.toIteration,
+    })
+
+    // 2. Preflight Conflict Evaluation (Lookups 1, 2, 3)
+    const existingSource = this.getTransitionBySource(
+      input.graphRunId,
+      input.sourceNodeId,
+      input.sourceAttempt,
+    )
+    if (existingSource !== null) {
+      return this.evaluateExistingTransitionReplay(existingSource, input, computedId)
+    }
+
+    const existingTarget = this.getTransitionByTarget(
+      input.graphRunId,
+      input.toIteration,
+      input.targetNodeId,
+    )
+    if (existingTarget !== null) {
+      throw new TargetIterationAlreadyActivatedError(
+        input.graphRunId,
+        input.targetNodeId,
+        input.toIteration,
+        existingTarget.sourceNodeId,
+        existingTarget.sourceAttempt,
+      )
+    }
+
+    const existingTargetAttemptInIter = this.getNodeAttemptInIteration(
+      input.graphRunId,
+      input.targetNodeId,
+      input.toIteration,
+    )
+    if (existingTargetAttemptInIter !== null) {
+      throw new TargetIterationAlreadyActivatedError(
+        input.graphRunId,
+        input.targetNodeId,
+        input.toIteration,
+      )
+    }
+
+    // Validate that source attempt exists and is completed
+    const sourceAttempt = this.getNodeAttempt(
+      input.graphRunId,
+      input.sourceNodeId,
+      input.sourceAttempt,
+    )
+    if (sourceAttempt === null) {
+      throw new SourceAttemptNotFoundError(
+        input.graphRunId,
+        input.sourceNodeId,
+        input.sourceAttempt,
+      )
+    }
+    if (sourceAttempt.status !== 'completed') {
+      throw new SourceAttemptNotCompletedError(
+        input.graphRunId,
+        input.sourceNodeId,
+        input.sourceAttempt,
+        sourceAttempt.status,
+      )
+    }
+    if (sourceAttempt.iteration !== input.fromIteration) {
+      throw new ConflictingIterationError(
+        input.graphRunId,
+        input.sourceNodeId,
+        input.sourceAttempt,
+        sourceAttempt.iteration,
+        input.fromIteration,
+      )
+    }
+
+    // 3. In-Transaction Execution with status-guarded CAS and immediate lock
+    try {
+      return this.db.transaction(
+        (tx) => {
+          // In-tx double checks against concurrent commits
+          const inTxSource = tx
+            .select()
+            .from(graphTransitions)
+            .where(
+              and(
+                eq(graphTransitions.graphRunId, input.graphRunId),
+                eq(graphTransitions.sourceNodeId, input.sourceNodeId),
+                eq(graphTransitions.sourceAttempt, input.sourceAttempt),
+              ),
+            )
+            .all()
+            .at(0)
+          if (inTxSource !== undefined) {
+            return this.evaluateExistingTransitionReplay(
+              this.toGraphTransitionDomain(inTxSource),
+              input,
+              computedId,
+            )
+          }
+
+          const inTxTarget = tx
+            .select()
+            .from(graphTransitions)
+            .where(
+              and(
+                eq(graphTransitions.graphRunId, input.graphRunId),
+                eq(graphTransitions.toIteration, input.toIteration),
+                eq(graphTransitions.targetNodeId, input.targetNodeId),
+              ),
+            )
+            .all()
+            .at(0)
+          if (inTxTarget !== undefined) {
+            throw new TargetIterationAlreadyActivatedError(
+              input.graphRunId,
+              input.targetNodeId,
+              input.toIteration,
+              inTxTarget.sourceNodeId,
+              inTxTarget.sourceAttempt,
+            )
+          }
+
+          // In-transaction check for pre-existing target node attempt in toIteration (e.g. without transition)
+          const inTxTargetAttempt = tx
+            .select()
+            .from(graphNodeRuns)
+            .where(
+              and(
+                eq(graphNodeRuns.graphRunId, input.graphRunId),
+                eq(graphNodeRuns.nodeId, input.targetNodeId),
+                eq(graphNodeRuns.iteration, input.toIteration),
+              ),
+            )
+            .all()
+            .at(0)
+          if (inTxTargetAttempt !== undefined) {
+            throw new TargetIterationAlreadyActivatedError(
+              input.graphRunId,
+              input.targetNodeId,
+              input.toIteration,
+            )
+          }
+
+          // Status-guarded CAS update on graph_runs
+          const casRes = tx
+            .update(graphRuns)
+            .set({ iteration: input.toIteration })
+            .where(
+              and(
+                eq(graphRuns.id, input.graphRunId),
+                eq(graphRuns.iteration, input.fromIteration),
+                eq(graphRuns.status, 'running'),
+              ),
+            )
+            .run()
+
+          if (casRes.changes === 0) {
+            const currentRun = tx
+              .select()
+              .from(graphRuns)
+              .where(eq(graphRuns.id, input.graphRunId))
+              .all()
+              .at(0)
+            if (currentRun?.status !== 'running') {
+              throw new TerminalGraphRunError(
+                input.graphRunId,
+                currentRun ? currentRun.status : 'not_found',
+              )
+            }
+            throw new CompetingTransitionError(
+              input.graphRunId,
+              input.fromIteration,
+              currentRun.iteration,
+            )
+          }
+
+          // Compute next monotonic attempt for target node
+          const existingAttempts = tx
+            .select({ attempt: graphNodeRuns.attempt })
+            .from(graphNodeRuns)
+            .where(
+              and(
+                eq(graphNodeRuns.graphRunId, input.graphRunId),
+                eq(graphNodeRuns.nodeId, input.targetNodeId),
+              ),
+            )
+            .all()
+          const maxAttempt =
+            existingAttempts.length === 0 ? 0 : Math.max(...existingAttempts.map((a) => a.attempt))
+          const targetAttempt = maxAttempt + 1
+
+          const targetNodeRunId = randomUUID()
+          const now = input.occurredAt ?? new Date().toISOString()
+
+          // Insert target node attempt in 'ready' status
+          tx.insert(graphNodeRuns)
+            .values({
+              id: targetNodeRunId,
+              graphRunId: input.graphRunId,
+              nodeId: input.targetNodeId,
+              attempt: targetAttempt,
+              iteration: input.toIteration,
+              status: 'ready',
+              startedAt: now,
+            })
+            .run()
+
+          // Insert transition
+          tx.insert(graphTransitions)
+            .values({
+              id: computedId,
+              graphRunId: input.graphRunId,
+              sourceNodeId: input.sourceNodeId,
+              sourceAttempt: input.sourceAttempt,
+              targetNodeId: input.targetNodeId,
+              targetAttempt: targetAttempt,
+              fromIteration: input.fromIteration,
+              toIteration: input.toIteration,
+              checkpointId: input.checkpointId ?? null,
+              occurredAt: now,
+            })
+            .run()
+
+          const insertedRow = tx
+            .select()
+            .from(graphTransitions)
+            .where(eq(graphTransitions.id, computedId))
+            .all()
+            .at(0)
+
+          if (!insertedRow) {
+            throw new InconsistentPersistenceStateError(
+              'Inserted transition could not be retrieved',
+            )
+          }
+
+          return {
+            success: true,
+            replayed: false,
+            transition: this.toGraphTransitionDomain(insertedRow),
+            targetAttempt,
+            targetNodeRunId,
+            targetStatus: 'ready',
+          }
+        },
+        { behavior: 'immediate' },
+      )
+    } catch (error) {
+      if (error instanceof WorkflowDomainError) {
+        throw error
+      }
+      if (isSqliteError(error)) {
+        if (error.code === 'SQLITE_BUSY') {
+          throw new DatabaseLockTimeoutError(error)
+        }
+        if (
+          error.code === 'SQLITE_CONSTRAINT_UNIQUE' ||
+          error.code === 'SQLITE_CONSTRAINT_PRIMARYKEY'
+        ) {
+          throw new InconsistentPersistenceStateError(error.message, 'UNIQUE')
+        }
+        if (error.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
+          throw new InconsistentPersistenceStateError(error.message, 'FOREIGN_KEY')
+        }
+        if (error.code === 'SQLITE_CONSTRAINT_CHECK') {
+          throw new InconsistentPersistenceStateError(error.message, 'CHECK')
+        }
+      }
+      throw error
+    }
+  }
+
+  private evaluateExistingTransitionReplay(
+    existing: GraphTransition,
+    input: AdvanceLoopIterationInput,
+    computedId: string,
+  ): AdvanceLoopIterationResult {
+    // Case 2: Conflicting target node
+    if (existing.targetNodeId !== input.targetNodeId) {
+      throw new ConflictingTargetNodeError(
+        input.graphRunId,
+        input.sourceNodeId,
+        input.sourceAttempt,
+        existing.targetNodeId,
+        input.targetNodeId,
+      )
+    }
+
+    // Case 3: Conflicting iteration
+    if (
+      existing.fromIteration !== input.fromIteration ||
+      existing.toIteration !== input.toIteration
+    ) {
+      throw new ConflictingIterationError(
+        input.graphRunId,
+        input.sourceNodeId,
+        input.sourceAttempt,
+        existing.toIteration,
+        input.toIteration,
+      )
+    }
+
+    // Case 6: Hash ID / corruption check
+    if (existing.id !== computedId) {
+      throw new FatalStateCorruptionError(
+        `Persisted transition ID "${existing.id}" does not match canonical hash "${computedId}" of request parameters`,
+      )
+    }
+
+    // Target attempt status lookup
+    const targetNodeRun = this.getNodeAttempt(
+      input.graphRunId,
+      input.targetNodeId,
+      existing.targetAttempt,
+    )
+    if (!targetNodeRun) {
+      throw new FatalStateCorruptionError(
+        `Referenced target attempt "${input.targetNodeId}#${String(existing.targetAttempt)}" missing in graph_node_runs`,
+      )
+    }
+
+    // Case 4: Checkpoint metadata divergence diagnostic
+    let diagnostic: string | undefined = undefined
+    const requestedCheckpoint = input.checkpointId ?? null
+    const persistedCheckpoint = existing.checkpointId ?? null
+    if (requestedCheckpoint !== persistedCheckpoint) {
+      diagnostic = `CHECKPOINT_MISMATCH: Requested checkpoint "${requestedCheckpoint ?? 'null'}" differs from persisted checkpoint "${persistedCheckpoint ?? 'null'}"`
+    }
+
+    return {
+      success: true,
+      replayed: true,
+      transition: existing,
+      targetAttempt: existing.targetAttempt,
+      targetNodeRunId: targetNodeRun.id,
+      targetStatus: targetNodeRun.status,
+      ...(diagnostic !== undefined ? { diagnostic } : {}),
+    }
+  }
+}
+
+function isSqliteError(error: unknown): error is Error & { code?: string } {
+  return error instanceof Error && 'code' in error
 }
 
 /** What the user is offered when an interrupted workflow is found at startup. */

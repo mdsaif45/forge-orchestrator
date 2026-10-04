@@ -24,6 +24,7 @@ import {
   type Sha,
   type StepId,
   type TaskId,
+  type WorkflowEdge,
   type WorkflowId,
   type WorkflowNode,
   type WorkflowTemplateV2,
@@ -72,7 +73,7 @@ describe('GraphExecutor', () => {
 
   function makeTemplate(
     nodes: readonly WorkflowNode[],
-    edges: readonly { source: string; target: string; isFeedback?: boolean }[] = [],
+    edges: readonly (Partial<WorkflowEdge> & { source: string; target: string })[] = [],
   ): WorkflowTemplateV2 {
     return {
       id: 'test-template',
@@ -83,10 +84,14 @@ describe('GraphExecutor', () => {
       category: 'General',
       nodes,
       edges: edges.map((e, idx) => ({
-        id: `e-${String(idx)}`,
+        id: e.id ?? `e-${String(idx)}`,
         source: e.source,
         target: e.target,
         isFeedback: e.isFeedback,
+        condition: e.condition,
+        isDefault: e.isDefault,
+        sourceHandle: e.sourceHandle,
+        targetHandle: e.targetHandle,
       })),
       createdAt: NOW,
       updatedAt: NOW,
@@ -654,17 +659,29 @@ describe('GraphExecutor', () => {
     expect(attempts[0]!.error).toContain('Missing required input slot: spec')
   })
 
-  // 13. Router rejection
-  it('strictly rejects router nodes with WORK-003 required error message', async () => {
+  // 13. Router execution (WORK-003 Slice 2A)
+  it('executes router node and persists routing-decision artifact', async () => {
     const routerNode = makeNode('routerNode', {
       type: 'router',
     })
+    const targetNode = makeNode('targetNode')
 
-    const template = makeTemplate([routerNode], [])
+    const template = makeTemplate(
+      [routerNode, targetNode],
+      [
+        {
+          id: 'e-router-target',
+          source: 'routerNode',
+          target: 'targetNode',
+          isDefault: true,
+        },
+      ],
+    )
 
     const executor = new GraphExecutor({
       workflowStore,
       worktreeService,
+      executeLeafNode: () => ({ status: 'completed' }),
     })
 
     const result = await executor.run({
@@ -674,16 +691,13 @@ describe('GraphExecutor', () => {
       forkSha,
     })
 
-    expect(result.status).toBe('failed')
-    expect(result.failedNodeIds).toContain('routerNode')
-    expect(result.error).toBe('Router nodes are not supported in WORK-001 (requires WORK-003)')
+    expect(result.status).toBe('completed')
+    expect(result.completedNodeIds).toContain('routerNode')
+    expect(result.completedNodeIds).toContain('targetNode')
 
     const attempts = workflowStore.getNodeAttempts(result.graphRunId, 'routerNode')
     expect(attempts).toHaveLength(1)
-    expect(attempts[0]!.status).toBe('failed')
-    expect(attempts[0]!.error).toBe(
-      'Router nodes are not supported in WORK-001 (requires WORK-003)',
-    )
+    expect(attempts[0]!.status).toBe('completed')
   })
 
   // 14. Write-ahead checkpoint
@@ -1986,6 +2000,629 @@ describe('GraphExecutor', () => {
       const directAttempts = workflowStore.getNodeAttempts(directRunId, 'A')
       expect(directAttempts).toHaveLength(1)
       expect(directAttempts[0]!.status).toBe('running')
+    })
+  })
+
+  describe('WORK-003 Slice 2A: Router Nodes, Conditional Branching, and Eager Pruning', () => {
+    it('TC-2A-01: selects first matching branch in declaration order (XOR routing)', async () => {
+      const routerNode = makeNode('router', { type: 'router' })
+      const branchA = makeNode('branchA')
+      const branchB = makeNode('branchB')
+
+      const template = makeTemplate(
+        [routerNode, branchA, branchB],
+        [
+          {
+            id: 'e-router-a',
+            source: 'router',
+            target: 'branchA',
+            condition: {
+              mode: 'all',
+              predicates: [
+                { ref: 'context.priority', operator: 'in', value: ['high', 'critical'] },
+              ],
+            },
+          },
+          {
+            id: 'e-router-b',
+            source: 'router',
+            target: 'branchB',
+            condition: {
+              mode: 'all',
+              predicates: [{ ref: 'context.priority', operator: 'eq', value: 'high' }],
+            },
+          },
+        ],
+      )
+
+      const executedNodes: string[] = []
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: (ctx) => {
+          executedNodes.push(ctx.node.id)
+          return { status: 'completed' }
+        },
+      })
+
+      const result = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: { priority: 'high' },
+      })
+
+      expect(result.status).toBe('completed')
+      expect(result.completedNodeIds).toContain('router')
+      expect(result.completedNodeIds).toContain('branchA')
+      expect(result.skippedNodeIds).toContain('branchB')
+      expect(executedNodes).toEqual(['branchA'])
+
+      const attempts = workflowStore.getNodeAttempts(result.graphRunId, 'router')
+      expect(attempts[0]!.status).toBe('completed')
+
+      const bAttempts = workflowStore.getNodeAttempts(result.graphRunId, 'branchB')
+      expect(bAttempts).toHaveLength(1)
+      expect(bAttempts[0]!.status).toBe('skipped')
+    })
+
+    it('TC-2A-02: falls back to default branch when no conditions match', async () => {
+      const router = makeNode('router', { type: 'router' })
+      const prodBranch = makeNode('prodBranch')
+      const defaultBranch = makeNode('defaultBranch')
+
+      const template = makeTemplate(
+        [router, prodBranch, defaultBranch],
+        [
+          {
+            id: 'e-prod',
+            source: 'router',
+            target: 'prodBranch',
+            condition: {
+              mode: 'all',
+              predicates: [{ ref: 'context.env', operator: 'eq', value: 'prod' }],
+            },
+          },
+          {
+            id: 'e-default',
+            source: 'router',
+            target: 'defaultBranch',
+            isDefault: true,
+          },
+        ],
+      )
+
+      const executedNodes: string[] = []
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: (ctx) => {
+          executedNodes.push(ctx.node.id)
+          return { status: 'completed' }
+        },
+      })
+
+      const result = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: { env: 'staging' },
+      })
+
+      expect(result.status).toBe('completed')
+      expect(result.completedNodeIds).toContain('router')
+      expect(result.completedNodeIds).toContain('defaultBranch')
+      expect(result.skippedNodeIds).toContain('prodBranch')
+      expect(executedNodes).toEqual(['defaultBranch'])
+    })
+
+    it('TC-2A-03: fails when no condition matches and no default branch is declared', async () => {
+      const router = makeNode('router', { type: 'router' })
+      const branchA = makeNode('branchA')
+
+      const template = makeTemplate(
+        [router, branchA],
+        [
+          {
+            id: 'e-a',
+            source: 'router',
+            target: 'branchA',
+            condition: {
+              mode: 'all',
+              predicates: [{ ref: 'context.env', operator: 'eq', value: 'prod' }],
+            },
+          },
+        ],
+      )
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+      })
+
+      const result = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: { env: 'dev' },
+      })
+
+      expect(result.status).toBe('failed')
+      expect(result.failedNodeIds).toContain('router')
+      expect(result.error).toContain(
+        'No routing condition satisfied and no default branch declared',
+      )
+
+      const attempts = workflowStore.getNodeAttempts(result.graphRunId, 'router')
+      expect(attempts).toHaveLength(1)
+      expect(attempts[0]!.status).toBe('failed')
+    })
+
+    it('TC-2A-07: evaluates complex condition predicates and modes correctly', async () => {
+      const router = makeNode('router', { type: 'router' })
+      const targetNode = makeNode('targetNode')
+      const fallbackNode = makeNode('fallbackNode')
+
+      const template = makeTemplate(
+        [router, targetNode, fallbackNode],
+        [
+          {
+            id: 'e-target',
+            source: 'router',
+            target: 'targetNode',
+            condition: {
+              mode: 'all',
+              predicates: [
+                { ref: 'context.tag', operator: 'in', value: ['release', 'hotfix'] },
+                { ref: 'context.tier', operator: 'neq', value: 'free' },
+                { ref: 'run.iteration', operator: 'eq', value: 1 },
+              ],
+            },
+          },
+          {
+            id: 'e-fallback',
+            source: 'router',
+            target: 'fallbackNode',
+            isDefault: true,
+          },
+        ],
+      )
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: () => ({ status: 'completed' }),
+      })
+
+      const result = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: { tag: 'release', tier: 'premium' },
+      })
+
+      expect(result.status).toBe('completed')
+      expect(result.completedNodeIds).toContain('targetNode')
+      expect(result.skippedNodeIds).toContain('fallbackNode')
+    })
+
+    it('TC-2A-08: evaluates condition on incoming artifact JSON payload with fail-closed semantics', async () => {
+      const producer = makeNode('producer')
+      const router = makeNode('router', { type: 'router' })
+      const passBranch = makeNode('passBranch')
+      const failBranch = makeNode('failBranch')
+
+      const template = makeTemplate(
+        [producer, router, passBranch, failBranch],
+        [
+          {
+            id: 'e-prod-router',
+            source: 'producer',
+            target: 'router',
+            sourceHandle: 'eval_metrics',
+            targetHandle: 'metrics',
+          },
+          {
+            id: 'e-router-pass',
+            source: 'router',
+            target: 'passBranch',
+            condition: {
+              mode: 'all',
+              predicates: [
+                { ref: 'artifacts.metrics.quality.score', operator: 'gte', value: 90 },
+                { ref: 'artifacts.metrics.missing_prop', operator: 'neq', value: 'foo' },
+              ],
+            },
+          },
+          {
+            id: 'e-router-fail',
+            source: 'router',
+            target: 'failBranch',
+            isDefault: true,
+          },
+        ],
+      )
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'producer') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'producer',
+                  kind: 'eval_metrics',
+                  format: 'json',
+                  title: 'metrics.json',
+                  content: JSON.stringify({ quality: { score: 95 } }),
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const result = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(result.status).toBe('completed')
+      expect(result.completedNodeIds).toContain('failBranch')
+      expect(result.skippedNodeIds).toContain('passBranch')
+    })
+
+    it('TC-2A-09: eagerly prunes cascade chains of unselected downstream nodes', async () => {
+      const router = makeNode('router', { type: 'router' })
+      const selectedNode = makeNode('sel')
+      const unselectedA = makeNode('unselA')
+      const unselectedB = makeNode('unselB')
+      const unselectedC = makeNode('unselC')
+
+      const template = makeTemplate(
+        [router, selectedNode, unselectedA, unselectedB, unselectedC],
+        [
+          {
+            id: 'e-sel',
+            source: 'router',
+            target: 'sel',
+            condition: {
+              mode: 'all',
+              predicates: [{ ref: 'context.flag', operator: 'eq', value: 'yes' }],
+            },
+          },
+          {
+            id: 'e-unsel',
+            source: 'router',
+            target: 'unselA',
+            isDefault: true,
+          },
+          { id: 'e-ab', source: 'unselA', target: 'unselB' },
+          { id: 'e-bc', source: 'unselB', target: 'unselC' },
+        ],
+      )
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: () => ({ status: 'completed' }),
+      })
+
+      const result = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: { flag: 'yes' },
+      })
+
+      expect(result.status).toBe('completed')
+      expect(result.completedNodeIds).toContain('sel')
+      expect(result.skippedNodeIds).toContain('unselA')
+      expect(result.skippedNodeIds).toContain('unselB')
+      expect(result.skippedNodeIds).toContain('unselC')
+
+      for (const skippedId of ['unselA', 'unselB', 'unselC']) {
+        const attempts = workflowStore.getNodeAttempts(result.graphRunId, skippedId)
+        expect(attempts).toHaveLength(1)
+        expect(attempts[0]!.status).toBe('skipped')
+      }
+    })
+
+    it('TC-2A-10: preserves diamond convergence when unselected branch converges with selected branch', async () => {
+      const router = makeNode('router', { type: 'router' })
+      const branchA = makeNode('branchA')
+      const branchB = makeNode('branchB')
+      const joinNode = makeNode('joinNode')
+
+      const template = makeTemplate(
+        [router, branchA, branchB, joinNode],
+        [
+          {
+            id: 'e-router-a',
+            source: 'router',
+            target: 'branchA',
+            condition: {
+              mode: 'all',
+              predicates: [{ ref: 'context.target', operator: 'eq', value: 'A' }],
+            },
+          },
+          {
+            id: 'e-router-b',
+            source: 'router',
+            target: 'branchB',
+            isDefault: true,
+          },
+          { id: 'e-a-join', source: 'branchA', target: 'joinNode' },
+          { id: 'e-b-join', source: 'branchB', target: 'joinNode' },
+        ],
+      )
+
+      const executedNodes: string[] = []
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: (ctx) => {
+          executedNodes.push(ctx.node.id)
+          return { status: 'completed' }
+        },
+      })
+
+      const result = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: { target: 'A' },
+      })
+
+      expect(result.status).toBe('completed')
+      expect(result.completedNodeIds).toContain('router')
+      expect(result.completedNodeIds).toContain('branchA')
+      expect(result.skippedNodeIds).toContain('branchB')
+      expect(result.completedNodeIds).toContain('joinNode')
+      expect(executedNodes).toEqual(['branchA', 'joinNode'])
+    })
+
+    it('TC-2A-11: protects multi-predecessor node from pruning when an active alternate path exists', async () => {
+      const rootWorker = makeNode('rootWorker')
+      const router = makeNode('router', { type: 'router' })
+      const branchA = makeNode('branchA')
+      const branchB = makeNode('branchB')
+      const multiPredNode = makeNode('multiPred')
+
+      const template = makeTemplate(
+        [rootWorker, router, branchA, branchB, multiPredNode],
+        [
+          {
+            id: 'e-router-a',
+            source: 'router',
+            target: 'branchA',
+            condition: {
+              mode: 'all',
+              predicates: [{ ref: 'context.takeA', operator: 'eq', value: 'true' }],
+            },
+          },
+          {
+            id: 'e-router-b',
+            source: 'router',
+            target: 'branchB',
+            isDefault: true,
+          },
+          { id: 'e-root-multi', source: 'rootWorker', target: 'multiPred' },
+          { id: 'e-b-multi', source: 'branchB', target: 'multiPred' },
+        ],
+      )
+
+      const executedNodes: string[] = []
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: (ctx) => {
+          executedNodes.push(ctx.node.id)
+          return { status: 'completed' }
+        },
+      })
+
+      const result = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: { takeA: 'true' },
+      })
+
+      expect(result.status).toBe('completed')
+      expect(result.completedNodeIds).toContain('branchA')
+      expect(result.skippedNodeIds).toContain('branchB')
+      expect(result.completedNodeIds).toContain('rootWorker')
+      expect(result.completedNodeIds).toContain('multiPred')
+      expect(executedNodes).toContain('multiPred')
+    })
+
+    it('TC-2A-12: transitions downstream node to blocked when required input from skipped predecessor is missing', async () => {
+      const router = makeNode('router', { type: 'router' })
+      const branchA = makeNode('branchA')
+      const branchB = makeNode('branchB')
+      const joinNode = makeNode('joinNode', {
+        inputs: [
+          {
+            name: 'b_data',
+            kind: 'data_b',
+            required: true,
+          },
+        ],
+      })
+
+      const template = makeTemplate(
+        [router, branchA, branchB, joinNode],
+        [
+          {
+            id: 'e-router-a',
+            source: 'router',
+            target: 'branchA',
+            condition: {
+              mode: 'all',
+              predicates: [{ ref: 'context.mode', operator: 'eq', value: 'A' }],
+            },
+          },
+          {
+            id: 'e-router-b',
+            source: 'router',
+            target: 'branchB',
+            isDefault: true,
+          },
+          { id: 'e-a-join', source: 'branchA', target: 'joinNode' },
+          { id: 'e-b-join', source: 'branchB', target: 'joinNode' },
+        ],
+      )
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'branchB') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'branchB',
+                  kind: 'data_b',
+                  format: 'text',
+                  title: 'b.txt',
+                  content: 'data from B',
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const result = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: { mode: 'A' },
+      })
+
+      expect(result.status).toBe('failed')
+      expect(result.completedNodeIds).toContain('branchA')
+      expect(result.skippedNodeIds).toContain('branchB')
+      expect(result.blockedNodeIds).toContain('joinNode')
+
+      const joinAttempts = workflowStore.getNodeAttempts(result.graphRunId, 'joinNode')
+      expect(joinAttempts).toHaveLength(1)
+      expect(joinAttempts[0]!.status).toBe('blocked')
+      expect(joinAttempts[0]!.error).toContain('Missing required input slot: b_data')
+    })
+
+    it('TC-2A-13: replaying a completed run with routers is idempotent without duplicate attempts', async () => {
+      const router = makeNode('router', { type: 'router' })
+      const branchA = makeNode('branchA')
+
+      const template = makeTemplate(
+        [router, branchA],
+        [
+          {
+            id: 'e-router-a',
+            source: 'router',
+            target: 'branchA',
+            isDefault: true,
+          },
+        ],
+      )
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: () => ({ status: 'completed' }),
+      })
+
+      const run1 = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run1.status).toBe('completed')
+      const routerAttempts1 = workflowStore.getNodeAttempts(run1.graphRunId, 'router')
+      const aAttempts1 = workflowStore.getNodeAttempts(run1.graphRunId, 'branchA')
+      expect(routerAttempts1).toHaveLength(1)
+      expect(aAttempts1).toHaveLength(1)
+
+      // Replay
+      const run2 = await executor.run({
+        graphRunId: run1.graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run2.status).toBe('completed')
+      const routerAttempts2 = workflowStore.getNodeAttempts(run1.graphRunId, 'router')
+      const aAttempts2 = workflowStore.getNodeAttempts(run1.graphRunId, 'branchA')
+      expect(routerAttempts2).toHaveLength(1)
+      expect(aAttempts2).toHaveLength(1)
+    })
+
+    it('TC-2A-14: non-router parallel fan-out remains unaffected and executes all branches', async () => {
+      const workerRoot = makeNode('workerRoot')
+      const workerA = makeNode('workerA')
+      const workerB = makeNode('workerB')
+
+      const template = makeTemplate(
+        [workerRoot, workerA, workerB],
+        [
+          { id: 'e-root-a', source: 'workerRoot', target: 'workerA' },
+          { id: 'e-root-b', source: 'workerRoot', target: 'workerB' },
+        ],
+      )
+
+      const executedNodes: string[] = []
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        executeLeafNode: (ctx) => {
+          executedNodes.push(ctx.node.id)
+          return { status: 'completed' }
+        },
+      })
+
+      const result = await executor.run({
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(result.status).toBe('completed')
+      expect(result.completedNodeIds).toContain('workerRoot')
+      expect(result.completedNodeIds).toContain('workerA')
+      expect(result.completedNodeIds).toContain('workerB')
+      expect(result.skippedNodeIds).toHaveLength(0)
+      expect(executedNodes).toContain('workerA')
+      expect(executedNodes).toContain('workerB')
     })
   })
 })

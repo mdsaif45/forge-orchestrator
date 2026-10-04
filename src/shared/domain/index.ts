@@ -377,6 +377,12 @@ export {
   workflowTemplateV2Schema,
   type ArtifactFormat,
   type GraphCheckpoint,
+  conditionOperatorSchema,
+  edgePredicateSchema,
+  edgeConditionSchema,
+  type ConditionOperator,
+  type EdgePredicate,
+  type EdgeCondition,
   type GraphNodeRun,
   type GraphRun,
   type GraphRunStatus,
@@ -395,6 +401,12 @@ export {
   type WorkflowNode,
   type WorkflowTemplateV2,
 } from './workflowGraph'
+
+export {
+  evaluateCondition,
+  resolveConditionRef,
+  type ConditionEvaluationContext,
+} from './conditions'
 
 export { compileLinearTemplateToGraph } from './templateCompiler'
 

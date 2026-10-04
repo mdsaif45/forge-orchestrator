@@ -73,6 +73,41 @@ export const workflowNodeSchema = z.strictObject({
 })
 export type WorkflowNode = z.infer<typeof workflowNodeSchema>
 
+export const conditionOperatorSchema = z.enum([
+  'eq',
+  'neq',
+  'gt',
+  'gte',
+  'lt',
+  'lte',
+  'in',
+  'not_in',
+  'exists',
+])
+export type ConditionOperator = z.infer<typeof conditionOperatorSchema>
+
+export const edgePredicateSchema = z.strictObject({
+  ref: z.string().min(1),
+  operator: conditionOperatorSchema,
+  value: z
+    .union([
+      z.string(),
+      z.number(),
+      z.boolean(),
+      z.array(z.string()),
+      z.array(z.number()),
+      z.null(),
+    ])
+    .optional(),
+})
+export type EdgePredicate = z.infer<typeof edgePredicateSchema>
+
+export const edgeConditionSchema = z.strictObject({
+  mode: z.enum(['all', 'any']).default('all'),
+  predicates: z.array(edgePredicateSchema).min(1),
+})
+export type EdgeCondition = z.infer<typeof edgeConditionSchema>
+
 export const workflowEdgeSchema = z.strictObject({
   id: z.string().min(1),
   source: z.string().min(1),
@@ -80,6 +115,8 @@ export const workflowEdgeSchema = z.strictObject({
   target: z.string().min(1),
   targetHandle: z.string().optional(),
   isFeedback: z.boolean().optional(),
+  condition: edgeConditionSchema.optional(),
+  isDefault: z.boolean().optional(),
 })
 export type WorkflowEdge = z.infer<typeof workflowEdgeSchema>
 
@@ -239,6 +276,50 @@ export function validateWorkflowGraph(
       throw new Error(
         `Feedback edge "${edge.id}" targets node "${edge.target}" which does not precede source node "${edge.source}" topologically`,
       )
+    }
+  }
+
+  // Validate router and non-router edge configurations
+  for (const node of nodes) {
+    const outgoingForward = edges.filter((e) => e.source === node.id && !e.isFeedback)
+
+    if (node.type === 'router') {
+      if (outgoingForward.length === 0) {
+        throw new Error(`Router node "${node.id}" has no outgoing edges`)
+      }
+
+      const defaults = outgoingForward.filter((e) => e.isDefault)
+      if (defaults.length > 1) {
+        throw new Error(
+          `Router node "${node.id}" declares multiple default outgoing edges: [${defaults.map((e) => e.id).join(', ')}]. At most one default edge is permitted.`,
+        )
+      }
+
+      for (const edge of outgoingForward) {
+        if (edge.condition && edge.isDefault) {
+          throw new Error(
+            `Edge "${edge.id}" from router "${node.id}" cannot specify both condition and isDefault: true`,
+          )
+        }
+        if (!edge.condition && !edge.isDefault) {
+          throw new Error(
+            `Edge "${edge.id}" from router "${node.id}" must specify either a condition or isDefault: true`,
+          )
+        }
+      }
+    } else {
+      for (const edge of outgoingForward) {
+        if (edge.condition) {
+          throw new Error(
+            `Edge "${edge.id}" from non-router node "${node.id}" cannot declare a condition. Only router nodes support conditional branching.`,
+          )
+        }
+        if (edge.isDefault) {
+          throw new Error(
+            `Edge "${edge.id}" from non-router node "${node.id}" cannot be marked isDefault. Only router nodes support default branching.`,
+          )
+        }
+      }
     }
   }
 }

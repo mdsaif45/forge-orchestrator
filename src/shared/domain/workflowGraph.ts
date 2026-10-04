@@ -122,6 +122,7 @@ export const graphNodeRunSchema = z.strictObject({
   graphRunId: z.string().min(1),
   nodeId: z.string().min(1),
   attempt: z.number().int().positive().default(1),
+  iteration: z.number().int().positive().default(1),
   status: nodeStatusSchema,
   role: roleSchema.nullable().default(null),
   runtimeId: z.string().nullable().default(null),
@@ -133,6 +134,20 @@ export const graphNodeRunSchema = z.strictObject({
   error: z.string().nullable().default(null),
 })
 export type GraphNodeRun = z.infer<typeof graphNodeRunSchema>
+
+export const graphTransitionSchema = z.strictObject({
+  id: z.string().min(1),
+  graphRunId: z.string().min(1),
+  sourceNodeId: z.string().min(1),
+  sourceAttempt: z.number().int().positive(),
+  targetNodeId: z.string().min(1),
+  targetAttempt: z.number().int().positive(),
+  fromIteration: z.number().int().positive(),
+  toIteration: z.number().int().positive(),
+  checkpointId: z.string().nullable().default(null),
+  occurredAt: timestampSchema,
+})
+export type GraphTransition = z.infer<typeof graphTransitionSchema>
 
 export const graphStateSnapshotSchema = z.strictObject({
   readyNodeIds: z.array(z.string()).readonly().default([]),

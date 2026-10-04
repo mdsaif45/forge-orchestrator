@@ -234,6 +234,7 @@ const graphNodeAttemptStarted = z.strictObject({
   graphRunId: z.string().min(1),
   nodeId: z.string().min(1),
   attempt: z.number().int().positive(),
+  iteration: z.number().int().positive().optional().default(1),
   status: z.enum(['pending', 'ready', 'running']),
   role: roleSchema.nullable().optional(),
   runtimeId: z.string().nullable().optional(),
@@ -250,6 +251,19 @@ const graphNodeAttemptUpdated = z.strictObject({
   evidenceId: z.string().nullable().optional(),
   finishedAt: timestampSchema.nullable().optional(),
   error: z.string().nullable().optional(),
+})
+
+const graphIterationAdvanced = z.strictObject({
+  transitionId: z.string().min(1),
+  graphRunId: z.string().min(1),
+  sourceNodeId: z.string().min(1),
+  sourceAttempt: z.number().int().positive(),
+  targetNodeId: z.string().min(1),
+  targetAttempt: z.number().int().positive(),
+  fromIteration: z.number().int().positive(),
+  toIteration: z.number().int().positive(),
+  checkpointId: z.string().nullable().optional(),
+  occurredAt: timestampSchema,
 })
 
 /**
@@ -290,6 +304,7 @@ export const EVENT_PAYLOADS = {
   'graph.checkpointed': graphCheckpointed,
   'graph_node.attempt_started': graphNodeAttemptStarted,
   'graph_node.attempt_updated': graphNodeAttemptUpdated,
+  'graph.iteration_advanced': graphIterationAdvanced,
 } as const
 
 // Every event type must have a payload schema. A missing entry is a compile error

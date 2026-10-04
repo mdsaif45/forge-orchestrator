@@ -23,7 +23,11 @@ import {
 import type { ArtifactService } from '../artifacts/artifactService'
 import type { ChangeSetStore } from '../db/changeSetStore'
 import type { DecisionStore } from '../db/decisionStore'
-import type { WorkflowStore } from '../db/workflowStore'
+import {
+  WorkflowDomainError,
+  type AdvanceLoopIterationResult,
+  type WorkflowStore,
+} from '../db/workflowStore'
 import { mergeChangeSets, type ChangeSetMergeResult } from '../evidence/changeSetMerger'
 import { GitService, type PreparedWorktree, type WorktreeService } from '../git'
 
@@ -137,6 +141,42 @@ export interface GraphRunResult {
  * - Comprehensive cancellation with partial diff preservation as cancelled-partial.patch.
  * - Crash recovery for running attempts left after process termination.
  */
+export class UnauthorizedTransitionError extends WorkflowDomainError {
+  constructor(message: string) {
+    super(`Unauthorized transition: ${message}`)
+  }
+}
+
+/**
+ * Validates that a requested loop transition is authorized by the workflow template:
+ *  1. An edge exists from source to target with isFeedback: true.
+ *  2. Branch condition (if specified) is met.
+ *
+ * This boundary keeps template topology and branch authorization strictly inside
+ * the orchestration layer, preventing WorkflowStore from becoming coupled to template models.
+ */
+export function authorizeLoopTransition(
+  template: WorkflowTemplateV2,
+  sourceNodeId: string,
+  targetNodeId: string,
+  conditionMet = true,
+): void {
+  const edge = template.edges.find(
+    (e) => e.source === sourceNodeId && e.target === targetNodeId && e.isFeedback,
+  )
+  if (!edge) {
+    throw new UnauthorizedTransitionError(
+      `No feedback edge exists from "${sourceNodeId}" to "${targetNodeId}" in template "${template.id}"`,
+    )
+  }
+
+  if (!conditionMet) {
+    throw new UnauthorizedTransitionError(
+      `Transition condition not met for edge "${edge.id}" from "${sourceNodeId}" to "${targetNodeId}"`,
+    )
+  }
+}
+
 export class GraphExecutor {
   private readonly workflowStore: WorkflowStore
   private readonly worktreeService: WorktreeService
@@ -147,6 +187,43 @@ export class GraphExecutor {
   private readonly defaultActor: Actor
   private readonly maxConcurrency?: number | undefined
   private readonly executeLeafNode?: LeafNodeExecutor | undefined
+
+  /**
+   * Authorizes and persists an iteration advancement via WorkflowStore.
+   * Enforces template authorization before calling persistence.
+   */
+  advanceLoopIteration(options: {
+    template: WorkflowTemplateV2
+    graphRunId: string
+    sourceNodeId: string
+    sourceAttempt: number
+    targetNodeId: string
+    fromIteration: number
+    toIteration: number
+    conditionMet?: boolean
+    checkpointId?: string | null
+    occurredAt?: string
+    actor?: Actor
+  }): AdvanceLoopIterationResult {
+    authorizeLoopTransition(
+      options.template,
+      options.sourceNodeId,
+      options.targetNodeId,
+      options.conditionMet ?? true,
+    )
+
+    return this.workflowStore.advanceLoopIteration({
+      graphRunId: options.graphRunId,
+      sourceNodeId: options.sourceNodeId,
+      sourceAttempt: options.sourceAttempt,
+      targetNodeId: options.targetNodeId,
+      fromIteration: options.fromIteration,
+      toIteration: options.toIteration,
+      checkpointId: options.checkpointId,
+      occurredAt: options.occurredAt,
+      actor: options.actor ?? this.defaultActor,
+    })
+  }
 
   constructor(options: GraphExecutorOptions) {
     this.workflowStore = options.workflowStore

@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   changeSetIdSchema,
+  evaluateCondition,
   getReadyNodes,
   runIdSchema,
   validateWorkflowGraph,
@@ -45,6 +46,9 @@ export interface NodeExecutionContext {
   readonly signal: AbortSignal
   readonly inputArtifacts: readonly WorkflowArtifact[]
   readonly incomingSlots: ReadonlyMap<string, WorkflowArtifact>
+  readonly outgoingEdges?: readonly WorkflowEdge[] | undefined
+  readonly initialContext?: Readonly<Record<string, string>> | undefined
+  readonly iteration?: number | undefined
 }
 
 /**
@@ -252,6 +256,7 @@ export class GraphExecutor {
 
     const now = new Date().toISOString()
     const existingRun = this.workflowStore.getGraphRun(graphRunId)
+    const currentIteration = existingRun?.iteration ?? 1
     if (!existingRun) {
       this.workflowStore.startGraphRun(
         {
@@ -280,6 +285,7 @@ export class GraphExecutor {
     const failedNodeIds = new Set<string>()
     const blockedNodeIds = new Set<string>()
     const skippedNodeIds = new Set<string>()
+    const deactivatedForwardEdgeIds = new Set<string>()
     const activeWorktrees = new Map<string, PreparedWorktree>()
 
     const currentLineage = new Map<string, LineageEntry>()
@@ -370,73 +376,6 @@ export class GraphExecutor {
 
       // Execute ready batch concurrently
       const executions = batch.map(async (node) => {
-        // Enforce WORK-001/WORK-002 boundary: router nodes strictly rejected
-        if (node.type === 'router') {
-          const attemptNum = this.getNextAttemptNumber(graphRunId, node.id)
-          const startedAt = new Date().toISOString()
-          const errMessage = 'Router nodes are not supported in WORK-001 (requires WORK-003)'
-
-          this.workflowStore.writeGraphCheckpoint(
-            {
-              id: randomUUID(),
-              projectId,
-              graphRunId,
-              nodeId: node.id,
-              operation: 'node.started',
-              stateSnapshot: getSnapshot(),
-              occurredAt: startedAt,
-            },
-            actor,
-          )
-
-          this.workflowStore.recordNodeAttempt(
-            {
-              id: randomUUID(),
-              projectId,
-              graphRunId,
-              nodeId: node.id,
-              attempt: attemptNum,
-              status: 'running',
-              role: node.config.role ?? null,
-              startedAt,
-            },
-            actor,
-          )
-
-          failedNodeIds.add(node.id)
-          loopState.runError = errMessage
-
-          const finishedAt = new Date().toISOString()
-          this.workflowStore.updateNodeAttempt(
-            {
-              projectId,
-              graphRunId,
-              nodeId: node.id,
-              attempt: attemptNum,
-              status: 'failed',
-              error: errMessage,
-              finishedAt,
-              occurredAt: finishedAt,
-            },
-            actor,
-          )
-
-          this.workflowStore.writeGraphCheckpoint(
-            {
-              id: randomUUID(),
-              projectId,
-              graphRunId,
-              nodeId: node.id,
-              operation: 'node.failed',
-              stateSnapshot: getSnapshot(),
-              occurredAt: finishedAt,
-            },
-            actor,
-          )
-
-          return
-        }
-
         // Check if node is explicitly skipped via options
         if (skipSet.has(node.id)) {
           const attemptNum = this.getNextAttemptNumber(graphRunId, node.id)
@@ -710,6 +649,9 @@ export class GraphExecutor {
             signal: abortSignal,
             inputArtifacts,
             incomingSlots,
+            outgoingEdges: template.edges.filter((e) => e.source === node.id && !e.isFeedback),
+            initialContext,
+            iteration: currentIteration,
           }
 
           const leafResult = await this.dispatchLeaf(ctx)
@@ -848,6 +790,52 @@ export class GraphExecutor {
               },
               actor,
             )
+
+            if (node.type === 'router') {
+              const decisionArtifact = artifactsForNode.find((a) => a.kind === 'routing-decision')
+              let selectedEdgeId: string | undefined
+              if (decisionArtifact) {
+                const metaEdgeId = decisionArtifact.metadata.selectedEdgeId
+                if (typeof metaEdgeId === 'string') {
+                  selectedEdgeId = metaEdgeId
+                } else {
+                  try {
+                    const parsed: unknown = JSON.parse(decisionArtifact.content)
+                    if (parsed && typeof parsed === 'object' && 'selectedEdgeId' in parsed) {
+                      const edgeId = parsed.selectedEdgeId
+                      if (typeof edgeId === 'string') {
+                        selectedEdgeId = edgeId
+                      }
+                    }
+                  } catch {
+                    // ignore
+                  }
+                }
+              }
+
+              const forwardOutgoing = template.edges.filter(
+                (e) => e.source === node.id && !e.isFeedback,
+              )
+              for (const edge of forwardOutgoing) {
+                if (edge.id !== selectedEdgeId) {
+                  deactivatedForwardEdgeIds.add(edge.id)
+                }
+              }
+
+              this.pruneUnselectedBranches({
+                template,
+                graphRunId,
+                projectId,
+                actor,
+                deactivatedForwardEdgeIds,
+                completedNodeIds,
+                skippedNodeIds,
+                runningNodeIds,
+                failedNodeIds,
+                blockedNodeIds,
+                getSnapshot,
+              })
+            }
           } else if (leafResult.status === 'blocked') {
             blockedNodeIds.add(node.id)
             const finishedAt = new Date().toISOString()
@@ -1176,6 +1164,10 @@ export class GraphExecutor {
    * or production default leaf primitives.
    */
   private async dispatchLeaf(ctx: NodeExecutionContext): Promise<NodeExecutionResult> {
+    if (ctx.node.type === 'router') {
+      return this.executeRouterNode(ctx)
+    }
+
     if (this.executeLeafNode) {
       return this.executeLeafNode(ctx)
     }
@@ -1200,13 +1192,6 @@ export class GraphExecutor {
 
       case 'agent': {
         return { status: 'completed' }
-      }
-
-      case 'router': {
-        return {
-          status: 'failed',
-          error: 'Router nodes are not supported in WORK-001 (requires WORK-003)',
-        }
       }
     }
   }
@@ -1506,5 +1491,220 @@ export class GraphExecutor {
       }
     }
     return downstream
+  }
+
+  /**
+   * Evaluates outgoing conditional edges of a router node and emits a routing-decision artifact.
+   */
+  private executeRouterNode(ctx: NodeExecutionContext): NodeExecutionResult {
+    const outgoing = (ctx.outgoingEdges ?? []).filter((e) => !e.isFeedback)
+
+    const evaluatedConditions: {
+      edgeId: string
+      targetNodeId: string
+      matched: boolean
+      isDefault?: boolean
+    }[] = []
+
+    let selectedEdge: WorkflowEdge | undefined
+
+    // 1. Evaluate conditional edges in declaration order
+    for (const edge of outgoing) {
+      if (edge.condition && !edge.isDefault) {
+        const matched = evaluateCondition(edge.condition, {
+          inputArtifacts: ctx.inputArtifacts,
+          incomingSlots: ctx.incomingSlots,
+          initialContext: ctx.initialContext,
+          iteration: ctx.iteration,
+        })
+
+        evaluatedConditions.push({
+          edgeId: edge.id,
+          targetNodeId: edge.target,
+          matched,
+        })
+
+        if (matched) {
+          selectedEdge = edge
+          break
+        }
+      }
+    }
+
+    // 2. Fall back to default branch if no condition matched
+    if (!selectedEdge) {
+      const defaultEdge = outgoing.find((e) => e.isDefault)
+      if (defaultEdge) {
+        selectedEdge = defaultEdge
+        evaluatedConditions.push({
+          edgeId: defaultEdge.id,
+          targetNodeId: defaultEdge.target,
+          matched: true,
+          isDefault: true,
+        })
+      }
+    }
+
+    // 3. Fail closed if neither condition nor default branch matched
+    if (!selectedEdge) {
+      return {
+        status: 'failed',
+        error: `No routing condition satisfied and no default branch declared for router "${ctx.node.id}"`,
+      }
+    }
+
+    // 4. Record durable routing decision artifact
+    const decisionPayload = {
+      selectedEdgeId: selectedEdge.id,
+      targetNodeId: selectedEdge.target,
+      evaluatedConditions,
+    }
+
+    const decisionArtifact: WorkflowArtifact = {
+      id: randomUUID(),
+      workflowId: ctx.workflowId,
+      nodeId: ctx.node.id,
+      kind: 'routing-decision',
+      format: 'json',
+      title: 'routing-decision.json',
+      content: JSON.stringify(decisionPayload, null, 2),
+      metadata: {
+        selectedEdgeId: selectedEdge.id,
+        targetNodeId: selectedEdge.target,
+      },
+      createdAt: new Date().toISOString(),
+    }
+
+    return {
+      status: 'completed',
+      artifacts: [decisionArtifact],
+    }
+  }
+
+  /**
+   * Eagerly prunes forward branches that are unreachable due to unselected router edges.
+   * Preserves diamond convergence and nodes with at least one active, viable incoming path.
+   */
+  private pruneUnselectedBranches(params: {
+    template: WorkflowTemplateV2
+    graphRunId: string
+    projectId: ProjectId
+    actor: Actor
+    deactivatedForwardEdgeIds: Set<string>
+    completedNodeIds: Set<string>
+    skippedNodeIds: Set<string>
+    runningNodeIds: Set<string>
+    failedNodeIds: Set<string>
+    blockedNodeIds: Set<string>
+    getSnapshot: () => GraphStateSnapshot
+  }): void {
+    const {
+      template,
+      graphRunId,
+      projectId,
+      actor,
+      deactivatedForwardEdgeIds,
+      completedNodeIds,
+      skippedNodeIds,
+      runningNodeIds,
+      failedNodeIds,
+      blockedNodeIds,
+      getSnapshot,
+    } = params
+
+    let newlySkipped = true
+    while (newlySkipped) {
+      newlySkipped = false
+      for (const node of template.nodes) {
+        if (
+          completedNodeIds.has(node.id) ||
+          skippedNodeIds.has(node.id) ||
+          runningNodeIds.has(node.id) ||
+          failedNodeIds.has(node.id) ||
+          blockedNodeIds.has(node.id)
+        ) {
+          continue
+        }
+
+        const incomingForwardEdges = template.edges.filter(
+          (e) => e.target === node.id && !e.isFeedback,
+        )
+
+        // Root nodes without forward incoming edges cannot be pruned by routers
+        if (incomingForwardEdges.length === 0) {
+          continue
+        }
+
+        // A node is pruned if and only if EVERY incoming forward edge is either:
+        // 1. In deactivatedForwardEdgeIds (an unselected edge from a router)
+        // 2. OR originating from a node that has already been skipped
+        const allIncomingDead = incomingForwardEdges.every(
+          (e) => deactivatedForwardEdgeIds.has(e.id) || skippedNodeIds.has(e.source),
+        )
+
+        if (allIncomingDead) {
+          const attemptNum = this.getNextAttemptNumber(graphRunId, node.id)
+          const startedAt = new Date().toISOString()
+
+          this.workflowStore.writeGraphCheckpoint(
+            {
+              id: randomUUID(),
+              projectId,
+              graphRunId,
+              nodeId: node.id,
+              operation: 'node.skipped',
+              stateSnapshot: getSnapshot(),
+              occurredAt: startedAt,
+            },
+            actor,
+          )
+
+          this.workflowStore.recordNodeAttempt(
+            {
+              id: randomUUID(),
+              projectId,
+              graphRunId,
+              nodeId: node.id,
+              attempt: attemptNum,
+              status: 'ready',
+              role: node.config.role ?? null,
+              startedAt,
+            },
+            actor,
+          )
+
+          const finishedAt = new Date().toISOString()
+          this.workflowStore.updateNodeAttempt(
+            {
+              projectId,
+              graphRunId,
+              nodeId: node.id,
+              attempt: attemptNum,
+              status: 'skipped',
+              finishedAt,
+              occurredAt: finishedAt,
+            },
+            actor,
+          )
+
+          skippedNodeIds.add(node.id)
+
+          this.workflowStore.writeGraphCheckpoint(
+            {
+              id: randomUUID(),
+              projectId,
+              graphRunId,
+              nodeId: node.id,
+              operation: 'node.skipped',
+              stateSnapshot: getSnapshot(),
+              occurredAt: finishedAt,
+            },
+            actor,
+          )
+
+          newlySkipped = true
+        }
+      }
+    }
   }
 }

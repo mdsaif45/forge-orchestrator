@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import {
   changeSetIdSchema,
   evaluateCondition,
+  getLoopBody,
   getReadyNodes,
   runIdSchema,
   validateWorkflowGraph,
@@ -11,6 +12,7 @@ import {
   type GraphRun,
   type GraphRunStatus,
   type GraphStateSnapshot,
+  type LoopPolicy,
   type ProjectId,
   type Sha,
   type StepId,
@@ -21,6 +23,11 @@ import {
   type WorkflowNode,
   type WorkflowTemplateV2,
 } from '@shared/domain'
+import {
+  computeIterationFingerprint,
+  getConsecutiveRepeatCount,
+  type RouterDecisionRecord,
+} from './loopFingerprint'
 import type { ArtifactService } from '../artifacts/artifactService'
 import type { ChangeSetStore } from '../db/changeSetStore'
 import type { DecisionStore } from '../db/decisionStore'
@@ -97,6 +104,7 @@ export interface RunGraphOptions {
   readonly signal?: AbortSignal | undefined
   readonly skipNodeIds?: ReadonlySet<string> | readonly string[] | undefined
   readonly invalidatedNodeIds?: ReadonlySet<string> | undefined
+  readonly loopPolicy?: LoopPolicy | undefined
 }
 
 export interface SkipNodeOptions {
@@ -117,6 +125,7 @@ export interface RerunNodeOptions {
   readonly targetNodeId: string
   readonly initialContext?: Readonly<Record<string, string>> | undefined
   readonly signal?: AbortSignal | undefined
+  readonly loopPolicy?: LoopPolicy | undefined
 }
 
 export interface GraphRunResult {
@@ -251,12 +260,60 @@ export class GraphExecutor {
     const abortSignal = options.signal ?? new AbortController().signal
     const actor = this.defaultActor
 
-    // 1. Static validation: forward DAG must be acyclic
-    validateWorkflowGraph(template.nodes, template.edges)
+    // 1. Static validation: forward DAG must be acyclic and feedback loops valid
+    validateWorkflowGraph(template.nodes, template.edges, template.loopPolicy ?? options.loopPolicy)
 
     const now = new Date().toISOString()
+    const allArtifacts: WorkflowArtifact[] = []
     const existingRun = this.workflowStore.getGraphRun(graphRunId)
-    const currentIteration = existingRun?.iteration ?? 1
+
+    // Idempotent return for already terminal runs
+    if (
+      existingRun &&
+      (existingRun.status === 'completed' ||
+        existingRun.status === 'halted' ||
+        existingRun.status === 'cancelled') &&
+      (!options.invalidatedNodeIds || options.invalidatedNodeIds.size === 0)
+    ) {
+      const latestRuns = this.workflowStore.getLatestNodeRuns(graphRunId)
+      const resultChangeSets = new Map<string, ChangeSet>()
+      for (const nodeRun of latestRuns) {
+        if (nodeRun.changeSetId && this.changeSetStore) {
+          const cs = this.changeSetStore.find(nodeRun.changeSetId)
+          if (cs) {
+            resultChangeSets.set(nodeRun.nodeId, cs)
+          }
+        }
+      }
+
+      return {
+        graphRunId,
+        status: existingRun.status,
+        completedNodeIds: latestRuns.filter((r) => r.status === 'completed').map((r) => r.nodeId),
+        failedNodeIds: latestRuns.filter((r) => r.status === 'failed').map((r) => r.nodeId),
+        blockedNodeIds: latestRuns.filter((r) => r.status === 'blocked').map((r) => r.nodeId),
+        skippedNodeIds: latestRuns.filter((r) => r.status === 'skipped').map((r) => r.nodeId),
+        haltReason: existingRun.haltReason,
+        error: existingRun.error,
+        changeSets: resultChangeSets,
+        artifacts: allArtifacts,
+      }
+    }
+
+    const loopPolicy: LoopPolicy = options.loopPolicy ??
+      template.loopPolicy ?? {
+        maxIterations: 5,
+        maxRepeatedStates: 1,
+        maxNodeAttempts: 10,
+      }
+
+    let currentIteration = existingRun?.iteration ?? 1
+    let previousLoopIterationPatch: string | null = null
+    let latestLoopChangeSet: ChangeSet | null = null
+    const fingerprintHistory: string[] = []
+    let iterationArtifacts: WorkflowArtifact[] = []
+    let iterationRouterDecisions: RouterDecisionRecord[] = []
+
     if (!existingRun) {
       this.workflowStore.startGraphRun(
         {
@@ -289,7 +346,6 @@ export class GraphExecutor {
     const activeWorktrees = new Map<string, PreparedWorktree>()
 
     const currentLineage = new Map<string, LineageEntry>()
-    const allArtifacts: WorkflowArtifact[] = []
 
     const skipSet = new Set(options.skipNodeIds ?? [])
     const invalidatedSet = options.invalidatedNodeIds ?? new Set<string>()
@@ -297,10 +353,44 @@ export class GraphExecutor {
     // Hydrate existing latest state if run existed previously
     if (existingRun) {
       const latestRuns = this.workflowStore.getLatestNodeRuns(graphRunId)
+      const transitions = this.workflowStore.getTransitionsForRun(graphRunId)
+      const latestTransition = transitions.at(-1)
+      let activeLoopBody: ReadonlySet<string> = new Set()
+      if (existingRun.iteration === latestTransition?.toIteration) {
+        activeLoopBody = getLoopBody(
+          template.nodes,
+          template.edges,
+          latestTransition.sourceNodeId,
+          latestTransition.targetNodeId,
+        )
+      }
+
+      // Restore prior iteration patch if recovering at iteration > 1
+      if (currentIteration > 1) {
+        const allRuns = this.workflowStore.getNodeAttempts(graphRunId)
+        const priorRuns = allRuns.filter((r) => r.iteration < currentIteration && r.changeSetId)
+        const latestPriorRun = priorRuns.at(-1)
+        if (latestPriorRun?.changeSetId && this.changeSetStore) {
+          const cs = this.changeSetStore.find(latestPriorRun.changeSetId)
+          if (cs) {
+            previousLoopIterationPatch = cs.patch
+          }
+        }
+      }
+
       for (const nodeRun of latestRuns) {
         if (invalidatedSet.has(nodeRun.nodeId)) {
           continue
         }
+
+        const isInActiveLoopBody = activeLoopBody.has(nodeRun.nodeId)
+        const isFromPriorIteration = nodeRun.iteration < currentIteration
+
+        if (isInActiveLoopBody && isFromPriorIteration) {
+          // Node belongs to the active loop body and needs re-execution in this iteration
+          continue
+        }
+
         if (nodeRun.status === 'completed') {
           completedNodeIds.add(nodeRun.nodeId)
           let cs: ChangeSet | undefined
@@ -337,6 +427,92 @@ export class GraphExecutor {
       blockedNodeIds: Array.from(blockedNodeIds).sort((a, b) => a.localeCompare(b)),
       skippedNodeIds: Array.from(skippedNodeIds).sort((a, b) => a.localeCompare(b)),
     })
+
+    // Check for pending feedback transition from an already-completed node (crash recovery TC-2B-REC-04)
+    if (existingRun && !loopState.isHalted) {
+      for (const completedNodeId of Array.from(completedNodeIds)) {
+        const node = template.nodes.find((n) => n.id === completedNodeId)
+        if (!node) continue
+
+        const attempts = this.workflowStore.getNodeAttempts(graphRunId, completedNodeId)
+        const latestAttempt = attempts.at(-1)
+        if (latestAttempt?.status !== 'completed') continue
+        if (latestAttempt.iteration !== currentIteration) continue
+
+        let triggeredFeedbackEdge: WorkflowEdge | undefined
+
+        if (node.type === 'router') {
+          let selectedEdgeId = latestAttempt.evidenceId ?? undefined
+          if (!selectedEdgeId) {
+            const lineage = currentLineage.get(completedNodeId)
+            const dec = lineage?.artifacts.find((a) => a.kind === 'routing-decision')
+            if (dec?.metadata.selectedEdgeId && typeof dec.metadata.selectedEdgeId === 'string') {
+              selectedEdgeId = dec.metadata.selectedEdgeId
+            }
+          }
+          if (selectedEdgeId) {
+            const edge = template.edges.find((e) => e.id === selectedEdgeId)
+            if (edge?.isFeedback) {
+              triggeredFeedbackEdge = edge
+            }
+          }
+        } else {
+          const feedbackEdge = template.edges.find((e) => e.source === node.id && e.isFeedback)
+          if (feedbackEdge) {
+            triggeredFeedbackEdge = feedbackEdge
+          }
+        }
+
+        if (triggeredFeedbackEdge) {
+          const existingTransition = this.workflowStore.getTransitionBySource(
+            graphRunId,
+            node.id,
+            latestAttempt.attempt,
+          )
+          if (!existingTransition) {
+            this.handleFeedbackTransition({
+              template,
+              graphRunId,
+              projectId,
+              sourceNodeId: node.id,
+              sourceAttempt: latestAttempt.attempt,
+              targetNodeId: triggeredFeedbackEdge.target,
+              loopPolicy,
+              initialContext,
+              loopState,
+              completedNodeIds,
+              skippedNodeIds,
+              blockedNodeIds,
+              failedNodeIds,
+              deactivatedForwardEdgeIds,
+              fingerprintHistory,
+              getIterationArtifacts: () => iterationArtifacts,
+              getIterationRouterDecisions: () => iterationRouterDecisions,
+              getLatestLoopChangeSet: () => latestLoopChangeSet,
+              setPreviousLoopIterationPatch: (patch) => {
+                previousLoopIterationPatch = patch
+              },
+              setIterationArtifacts: (artifacts) => {
+                iterationArtifacts = artifacts
+              },
+              setIterationRouterDecisions: (decisions) => {
+                iterationRouterDecisions = decisions
+              },
+              setLatestLoopChangeSet: (cs) => {
+                latestLoopChangeSet = cs
+              },
+              setCurrentIteration: (it) => {
+                currentIteration = it
+              },
+              getCurrentIteration: () => currentIteration,
+              getSnapshot,
+              actor,
+            })
+            break
+          }
+        }
+      }
+    }
 
     // Main execution scheduling loop
     while (
@@ -378,8 +554,10 @@ export class GraphExecutor {
       const executions = batch.map(async (node) => {
         // Check if node is explicitly skipped via options
         if (skipSet.has(node.id)) {
-          const attemptNum = this.getNextAttemptNumber(graphRunId, node.id)
+          const existingAttempts = this.workflowStore.getNodeAttempts(graphRunId, node.id)
+          const latestAttempt = existingAttempts.at(-1)
           const startedAt = new Date().toISOString()
+          let attemptNum: number
 
           this.workflowStore.writeGraphCheckpoint(
             {
@@ -394,19 +572,25 @@ export class GraphExecutor {
             actor,
           )
 
-          this.workflowStore.recordNodeAttempt(
-            {
-              id: randomUUID(),
-              projectId,
-              graphRunId,
-              nodeId: node.id,
-              attempt: attemptNum,
-              status: 'ready',
-              role: node.config.role ?? null,
-              startedAt,
-            },
-            actor,
-          )
+          if (latestAttempt?.status === 'ready') {
+            attemptNum = latestAttempt.attempt
+          } else {
+            attemptNum = existingAttempts.length + 1
+            this.workflowStore.recordNodeAttempt(
+              {
+                id: randomUUID(),
+                projectId,
+                graphRunId,
+                nodeId: node.id,
+                attempt: attemptNum,
+                iteration: currentIteration,
+                status: 'ready',
+                role: node.config.role ?? null,
+                startedAt,
+              },
+              actor,
+            )
+          }
 
           const finishedAt = new Date().toISOString()
           this.workflowStore.updateNodeAttempt(
@@ -449,9 +633,11 @@ export class GraphExecutor {
         )
 
         if (missingRequiredSlot) {
-          const attemptNum = this.getNextAttemptNumber(graphRunId, node.id)
+          const existingAttempts = this.workflowStore.getNodeAttempts(graphRunId, node.id)
+          const latestAttempt = existingAttempts.at(-1)
           const startedAt = new Date().toISOString()
           const errMessage = `Missing required input slot: ${missingRequiredSlot}`
+          let attemptNum: number
 
           this.workflowStore.writeGraphCheckpoint(
             {
@@ -466,19 +652,25 @@ export class GraphExecutor {
             actor,
           )
 
-          this.workflowStore.recordNodeAttempt(
-            {
-              id: randomUUID(),
-              projectId,
-              graphRunId,
-              nodeId: node.id,
-              attempt: attemptNum,
-              status: 'running',
-              role: node.config.role ?? null,
-              startedAt,
-            },
-            actor,
-          )
+          if (latestAttempt?.status === 'ready') {
+            attemptNum = latestAttempt.attempt
+          } else {
+            attemptNum = existingAttempts.length + 1
+            this.workflowStore.recordNodeAttempt(
+              {
+                id: randomUUID(),
+                projectId,
+                graphRunId,
+                nodeId: node.id,
+                attempt: attemptNum,
+                iteration: currentIteration,
+                status: 'running',
+                role: node.config.role ?? null,
+                startedAt,
+              },
+              actor,
+            )
+          }
 
           blockedNodeIds.add(node.id)
 
@@ -514,43 +706,61 @@ export class GraphExecutor {
         }
 
         runningNodeIds.add(node.id)
-        const attemptNum = this.getNextAttemptNumber(graphRunId, node.id)
+        const existingAttempts = this.workflowStore.getNodeAttempts(graphRunId, node.id)
+        const latestAttempt = existingAttempts.at(-1)
         const startedAt = new Date().toISOString()
+        let attemptNum: number
 
-        // 1. Write-ahead checkpoint before side-effects begin
-        this.workflowStore.writeGraphCheckpoint(
-          {
-            id: randomUUID(),
-            projectId,
-            graphRunId,
-            nodeId: node.id,
-            operation: 'node.started',
-            stateSnapshot: getSnapshot(),
-            occurredAt: startedAt,
-          },
-          actor,
-        )
+        if (latestAttempt?.status === 'ready') {
+          attemptNum = latestAttempt.attempt
+          this.workflowStore.writeGraphCheckpoint(
+            {
+              id: randomUUID(),
+              projectId,
+              graphRunId,
+              nodeId: node.id,
+              operation: 'node.started',
+              stateSnapshot: getSnapshot(),
+              occurredAt: startedAt,
+            },
+            actor,
+          )
+        } else {
+          attemptNum = existingAttempts.length + 1
+          this.workflowStore.writeGraphCheckpoint(
+            {
+              id: randomUUID(),
+              projectId,
+              graphRunId,
+              nodeId: node.id,
+              operation: 'node.started',
+              stateSnapshot: getSnapshot(),
+              occurredAt: startedAt,
+            },
+            actor,
+          )
 
-        // 2. Record running attempt
-        this.workflowStore.recordNodeAttempt(
-          {
-            id: randomUUID(),
-            projectId,
-            graphRunId,
-            nodeId: node.id,
-            attempt: attemptNum,
-            status: 'running',
-            role: node.config.role ?? null,
-            startedAt,
-          },
-          actor,
-        )
+          this.workflowStore.recordNodeAttempt(
+            {
+              id: randomUUID(),
+              projectId,
+              graphRunId,
+              nodeId: node.id,
+              attempt: attemptNum,
+              iteration: currentIteration,
+              status: 'running',
+              role: node.config.role ?? null,
+              startedAt,
+            },
+            actor,
+          )
+        }
 
         let branchWorktree: PreparedWorktree | null = null
 
         try {
           // Determine if this node needs an isolated branch worktree
-          const isReadOnly = node.config.permissionMode === 'read-only'
+          const isReadOnly = node.type === 'router' || node.config.permissionMode === 'read-only'
           const needsWorktree =
             !isReadOnly &&
             (node.config.permissionMode === 'developer' ||
@@ -578,8 +788,53 @@ export class GraphExecutor {
               }
             }
 
-            // Fan-In reconciliation & physical patch materialization
-            if (predecessorChangeSets.length > 1) {
+            // Cumulative prior iteration patch materialization takes precedence for loop targets
+            if (previousLoopIterationPatch?.trim()) {
+              try {
+                await this.worktreeService.applyPatch(
+                  branchWorktree.path,
+                  previousLoopIterationPatch,
+                )
+                previousLoopIterationPatch = null
+              } catch (patchErr: unknown) {
+                loopState.isHalted = true
+                loopState.haltedReason = 'HALTED_POLICY: patch-application-failed'
+                const errMsg = patchErr instanceof Error ? patchErr.message : String(patchErr)
+                loopState.runError = `Failed to apply previous iteration patch into worktree: ${errMsg}`
+
+                const haltOccurredAt = new Date().toISOString()
+                this.workflowStore.updateNodeAttempt(
+                  {
+                    projectId,
+                    graphRunId,
+                    nodeId: node.id,
+                    attempt: attemptNum,
+                    status: 'failed',
+                    error: loopState.runError,
+                    finishedAt: haltOccurredAt,
+                    occurredAt: haltOccurredAt,
+                  },
+                  actor,
+                )
+
+                this.workflowStore.writeGraphCheckpoint(
+                  {
+                    id: randomUUID(),
+                    projectId,
+                    graphRunId,
+                    nodeId: node.id,
+                    operation: 'iteration.halted',
+                    stateSnapshot: getSnapshot(),
+                    occurredAt: haltOccurredAt,
+                  },
+                  actor,
+                )
+
+                failedNodeIds.add(node.id)
+                return
+              }
+            } else if (predecessorChangeSets.length > 1) {
+              // Fan-In reconciliation & physical patch materialization
               const mergeResult: ChangeSetMergeResult = mergeChangeSets(predecessorChangeSets)
               if (!mergeResult.ok) {
                 // Conflict detected: conservative policy halt
@@ -649,7 +904,7 @@ export class GraphExecutor {
             signal: abortSignal,
             inputArtifacts,
             incomingSlots,
-            outgoingEdges: template.edges.filter((e) => e.source === node.id && !e.isFeedback),
+            outgoingEdges: template.edges.filter((e) => e.source === node.id),
             initialContext,
             iteration: currentIteration,
           }
@@ -760,6 +1015,10 @@ export class GraphExecutor {
             }
 
             allArtifacts.push(...artifactsForNode)
+            iterationArtifacts.push(...artifactsForNode)
+            if (capturedChangeSet) {
+              latestLoopChangeSet = capturedChangeSet
+            }
             completedNodeIds.add(node.id)
 
             const finishedAt = new Date().toISOString()
@@ -791,9 +1050,12 @@ export class GraphExecutor {
               actor,
             )
 
+            let triggeredFeedbackEdge: WorkflowEdge | undefined
+
             if (node.type === 'router') {
               const decisionArtifact = artifactsForNode.find((a) => a.kind === 'routing-decision')
               let selectedEdgeId: string | undefined
+              let isFeedbackEdge = false
               if (decisionArtifact) {
                 const metaEdgeId = decisionArtifact.metadata.selectedEdgeId
                 if (typeof metaEdgeId === 'string') {
@@ -811,29 +1073,111 @@ export class GraphExecutor {
                     // ignore
                   }
                 }
-              }
-
-              const forwardOutgoing = template.edges.filter(
-                (e) => e.source === node.id && !e.isFeedback,
-              )
-              for (const edge of forwardOutgoing) {
-                if (edge.id !== selectedEdgeId) {
-                  deactivatedForwardEdgeIds.add(edge.id)
+                if (decisionArtifact.metadata.isFeedback === true) {
+                  isFeedbackEdge = true
                 }
               }
+              if (!selectedEdgeId && leafResult.evidenceId) {
+                selectedEdgeId = leafResult.evidenceId
+              }
 
-              this.pruneUnselectedBranches({
+              const selectedEdge = template.edges.find((e) => e.id === selectedEdgeId)
+              if (selectedEdge?.isFeedback) {
+                isFeedbackEdge = true
+              }
+
+              if (selectedEdgeId && selectedEdge) {
+                iterationRouterDecisions.push({
+                  routerNodeId: node.id,
+                  selectedEdgeId,
+                  targetNodeId: selectedEdge.target,
+                  isFeedback: isFeedbackEdge,
+                })
+              }
+
+              if (isFeedbackEdge && selectedEdge) {
+                triggeredFeedbackEdge = selectedEdge
+              } else {
+                const forwardOutgoing = template.edges.filter(
+                  (e) => e.source === node.id && !e.isFeedback,
+                )
+                for (const edge of forwardOutgoing) {
+                  if (edge.id !== selectedEdgeId) {
+                    deactivatedForwardEdgeIds.add(edge.id)
+                  }
+                }
+
+                this.pruneUnselectedBranches({
+                  template,
+                  graphRunId,
+                  projectId,
+                  actor,
+                  deactivatedForwardEdgeIds,
+                  completedNodeIds,
+                  skippedNodeIds,
+                  runningNodeIds,
+                  failedNodeIds,
+                  blockedNodeIds,
+                  getSnapshot,
+                })
+              }
+            } else {
+              const outgoingFeedback = template.edges.find(
+                (e) => e.source === node.id && e.isFeedback,
+              )
+              if (outgoingFeedback) {
+                const matched = outgoingFeedback.condition
+                  ? evaluateCondition(outgoingFeedback.condition, {
+                      inputArtifacts,
+                      incomingSlots,
+                      initialContext,
+                      iteration: currentIteration,
+                    })
+                  : true
+                if (matched) {
+                  triggeredFeedbackEdge = outgoingFeedback
+                }
+              }
+            }
+
+            if (triggeredFeedbackEdge) {
+              this.handleFeedbackTransition({
                 template,
                 graphRunId,
                 projectId,
-                actor,
-                deactivatedForwardEdgeIds,
+                sourceNodeId: node.id,
+                sourceAttempt: attemptNum,
+                targetNodeId: triggeredFeedbackEdge.target,
+                loopPolicy,
+                initialContext,
+                loopState,
                 completedNodeIds,
                 skippedNodeIds,
-                runningNodeIds,
-                failedNodeIds,
                 blockedNodeIds,
+                failedNodeIds,
+                deactivatedForwardEdgeIds,
+                fingerprintHistory,
+                getIterationArtifacts: () => iterationArtifacts,
+                getIterationRouterDecisions: () => iterationRouterDecisions,
+                getLatestLoopChangeSet: () => latestLoopChangeSet,
+                setPreviousLoopIterationPatch: (patch) => {
+                  previousLoopIterationPatch = patch
+                },
+                setIterationArtifacts: (artifacts) => {
+                  iterationArtifacts = artifacts
+                },
+                setIterationRouterDecisions: (decisions) => {
+                  iterationRouterDecisions = decisions
+                },
+                setLatestLoopChangeSet: (cs) => {
+                  latestLoopChangeSet = cs
+                },
+                setCurrentIteration: (it) => {
+                  currentIteration = it
+                },
+                getCurrentIteration: () => currentIteration,
                 getSnapshot,
+                actor,
               })
             }
           } else if (leafResult.status === 'blocked') {
@@ -1497,13 +1841,14 @@ export class GraphExecutor {
    * Evaluates outgoing conditional edges of a router node and emits a routing-decision artifact.
    */
   private executeRouterNode(ctx: NodeExecutionContext): NodeExecutionResult {
-    const outgoing = (ctx.outgoingEdges ?? []).filter((e) => !e.isFeedback)
+    const outgoing = ctx.outgoingEdges ?? []
 
     const evaluatedConditions: {
       edgeId: string
       targetNodeId: string
       matched: boolean
       isDefault?: boolean
+      isFeedback?: boolean
     }[] = []
 
     let selectedEdge: WorkflowEdge | undefined
@@ -1522,6 +1867,7 @@ export class GraphExecutor {
           edgeId: edge.id,
           targetNodeId: edge.target,
           matched,
+          isFeedback: !!edge.isFeedback,
         })
 
         if (matched) {
@@ -1541,6 +1887,7 @@ export class GraphExecutor {
           targetNodeId: defaultEdge.target,
           matched: true,
           isDefault: true,
+          isFeedback: !!defaultEdge.isFeedback,
         })
       }
     }
@@ -1557,6 +1904,7 @@ export class GraphExecutor {
     const decisionPayload = {
       selectedEdgeId: selectedEdge.id,
       targetNodeId: selectedEdge.target,
+      isFeedback: !!selectedEdge.isFeedback,
       evaluatedConditions,
     }
 
@@ -1571,14 +1919,219 @@ export class GraphExecutor {
       metadata: {
         selectedEdgeId: selectedEdge.id,
         targetNodeId: selectedEdge.target,
+        isFeedback: !!selectedEdge.isFeedback,
       },
       createdAt: new Date().toISOString(),
     }
 
     return {
       status: 'completed',
+      evidenceId: selectedEdge.id,
       artifacts: [decisionArtifact],
     }
+  }
+
+  /**
+   * Handles authorized feedback transition, bound enforcement, progress detection,
+   * iteration advancement in persistence, write-ahead checkpoints, and loop body state reset.
+   */
+  private handleFeedbackTransition(params: {
+    template: WorkflowTemplateV2
+    graphRunId: string
+    projectId: ProjectId
+    sourceNodeId: string
+    sourceAttempt: number
+    targetNodeId: string
+    loopPolicy: LoopPolicy
+    initialContext: Readonly<Record<string, string>>
+    loopState: { isHalted: boolean; haltedReason: string | null; runError: string | null }
+    completedNodeIds: Set<string>
+    skippedNodeIds: Set<string>
+    blockedNodeIds: Set<string>
+    failedNodeIds: Set<string>
+    deactivatedForwardEdgeIds: Set<string>
+    fingerprintHistory: string[]
+    getIterationArtifacts: () => WorkflowArtifact[]
+    getIterationRouterDecisions: () => RouterDecisionRecord[]
+    getLatestLoopChangeSet: () => ChangeSet | null
+    setPreviousLoopIterationPatch: (patch: string | null) => void
+    setIterationArtifacts: (artifacts: WorkflowArtifact[]) => void
+    setIterationRouterDecisions: (decisions: RouterDecisionRecord[]) => void
+    setLatestLoopChangeSet: (cs: ChangeSet | null) => void
+    setCurrentIteration: (it: number) => void
+    getCurrentIteration: () => number
+    getSnapshot: () => GraphStateSnapshot
+    actor: Actor
+  }): boolean {
+    const {
+      template,
+      graphRunId,
+      projectId,
+      sourceNodeId,
+      sourceAttempt,
+      targetNodeId,
+      loopPolicy,
+      initialContext,
+      loopState,
+      completedNodeIds,
+      skippedNodeIds,
+      blockedNodeIds,
+      failedNodeIds,
+      deactivatedForwardEdgeIds,
+      fingerprintHistory,
+      getIterationArtifacts,
+      getIterationRouterDecisions,
+      getLatestLoopChangeSet,
+      setPreviousLoopIterationPatch,
+      setIterationArtifacts,
+      setIterationRouterDecisions,
+      setLatestLoopChangeSet,
+      setCurrentIteration,
+      getCurrentIteration,
+      getSnapshot,
+      actor,
+    } = params
+
+    const fromIteration = getCurrentIteration()
+    const toIteration = fromIteration + 1
+    const { maxIterations, maxRepeatedStates, maxNodeAttempts } = loopPolicy
+    const now = new Date().toISOString()
+
+    // 1. Check maxIterations bound
+    if (toIteration > maxIterations) {
+      loopState.isHalted = true
+      loopState.haltedReason = 'HALTED_LIMIT: max-iterations-exceeded'
+      loopState.runError = `Maximum loop iterations (${String(maxIterations)}) exceeded at iteration ${String(toIteration)}`
+
+      this.workflowStore.writeGraphCheckpoint(
+        {
+          id: randomUUID(),
+          projectId,
+          graphRunId,
+          nodeId: sourceNodeId,
+          operation: 'iteration.halted',
+          stateSnapshot: getSnapshot(),
+          occurredAt: now,
+        },
+        actor,
+      )
+      return false
+    }
+
+    // 2. Check maxNodeAttempts bound on target node
+    const existingTargetAttempts = this.workflowStore.getNodeAttempts(graphRunId, targetNodeId)
+    const nextTargetAttempt = existingTargetAttempts.length + 1
+    if (nextTargetAttempt > maxNodeAttempts) {
+      loopState.isHalted = true
+      loopState.haltedReason = 'HALTED_LIMIT: max-attempts-exceeded'
+      loopState.runError = `Maximum node attempts (${String(maxNodeAttempts)}) exceeded for node "${targetNodeId}"`
+
+      this.workflowStore.writeGraphCheckpoint(
+        {
+          id: randomUUID(),
+          projectId,
+          graphRunId,
+          nodeId: sourceNodeId,
+          operation: 'iteration.halted',
+          stateSnapshot: getSnapshot(),
+          occurredAt: now,
+        },
+        actor,
+      )
+      return false
+    }
+
+    // 3. Compute iteration fingerprint and check no-progress bound
+    const latestChangeSet = getLatestLoopChangeSet()
+    const currentFingerprint = computeIterationFingerprint({
+      diffPatch: latestChangeSet?.patch ?? null,
+      artifacts: getIterationArtifacts(),
+      routerDecisions: getIterationRouterDecisions(),
+      context: initialContext,
+    })
+
+    const repeatCount = getConsecutiveRepeatCount(fingerprintHistory, currentFingerprint)
+    if (repeatCount >= maxRepeatedStates) {
+      loopState.isHalted = true
+      loopState.haltedReason = 'HALTED_LIMIT: no-progress'
+      loopState.runError = `No progress detected: identical semantic fingerprint repeated consecutively (${String(repeatCount + 1)} times)`
+
+      this.workflowStore.writeGraphCheckpoint(
+        {
+          id: randomUUID(),
+          projectId,
+          graphRunId,
+          nodeId: sourceNodeId,
+          operation: 'iteration.halted',
+          stateSnapshot: getSnapshot(),
+          occurredAt: now,
+        },
+        actor,
+      )
+      return false
+    }
+
+    fingerprintHistory.push(currentFingerprint)
+
+    // 4. Advance iteration in persistence
+    this.advanceLoopIteration({
+      template,
+      graphRunId,
+      sourceNodeId,
+      sourceAttempt,
+      targetNodeId,
+      fromIteration,
+      toIteration,
+      conditionMet: true,
+      checkpointId: null,
+      occurredAt: now,
+      actor,
+    })
+
+    // 5. Update in-memory iteration tracking
+    setCurrentIteration(toIteration)
+    setPreviousLoopIterationPatch(latestChangeSet?.patch ?? null)
+    setIterationArtifacts([])
+    setIterationRouterDecisions([])
+    setLatestLoopChangeSet(null)
+
+    // 6. Write-ahead checkpoint for iteration advanced
+    this.workflowStore.writeGraphCheckpoint(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId,
+        nodeId: targetNodeId,
+        operation: 'iteration.advanced',
+        stateSnapshot: getSnapshot(),
+        occurredAt: now,
+      },
+      actor,
+    )
+
+    // 7. Reset loop body runtime state
+    const loopBody = getLoopBody(template.nodes, template.edges, sourceNodeId, targetNodeId)
+    for (const nid of loopBody) {
+      completedNodeIds.delete(nid)
+      skippedNodeIds.delete(nid)
+      blockedNodeIds.delete(nid)
+      failedNodeIds.delete(nid)
+      for (const edge of template.edges) {
+        if (edge.source === nid) {
+          deactivatedForwardEdgeIds.delete(edge.id)
+        }
+      }
+    }
+
+    // Also un-skip any node downstream of targetNodeId that was pruned
+    const downstream = this.getTransitiveDownstream(targetNodeId, template.edges)
+    for (const nid of Array.from(skippedNodeIds)) {
+      if (downstream.has(nid)) {
+        skippedNodeIds.delete(nid)
+      }
+    }
+
+    return true
   }
 
   /**

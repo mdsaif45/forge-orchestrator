@@ -984,6 +984,17 @@ export class WorkflowStore {
     return row === undefined ? null : this.toGraphCheckpointDomain(row)
   }
 
+  getGraphCheckpoints(graphRunId: string): readonly GraphCheckpoint[] {
+    const rows = this.db
+      .select()
+      .from(graphCheckpoints)
+      .where(eq(graphCheckpoints.graphRunId, graphRunId))
+      .orderBy(asc(graphCheckpoints.occurredAt), asc(graphCheckpoints.id))
+      .all()
+
+    return rows.map((r) => this.toGraphCheckpointDomain(r))
+  }
+
   findInterruptedGraphRuns(projectId?: ProjectId): readonly GraphRun[] {
     if (projectId !== undefined) {
       const rows = this.db

@@ -2625,4 +2625,1408 @@ describe('GraphExecutor', () => {
       expect(executedNodes).toContain('workerB')
     })
   })
+
+  describe('WORK-003 Slice 2B: Feedback-Loop Scheduling, Iteration Advancement, and Worktree Patching', () => {
+    describe('Scheduling (TC-2B-SCHED)', () => {
+      it('TC-2B-SCHED-01: basic iteration advancement resets loop body and executes target in iteration 2', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const exitNode = makeNode('exitNode')
+
+        const template = makeTemplate(
+          [worker, router, exitNode],
+          [
+            { id: 'e-worker-router', source: 'worker', target: 'router' },
+            {
+              id: 'e-router-worker',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'lt', value: 2 }],
+              },
+            },
+            {
+              id: 'e-router-exit',
+              source: 'router',
+              target: 'exitNode',
+              isDefault: true,
+            },
+          ],
+        )
+
+        const iterationsSeen: number[] = []
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => {
+            if (ctx.node.id === 'worker') {
+              iterationsSeen.push(ctx.iteration ?? 1)
+            }
+            return { status: 'completed' }
+          },
+        })
+
+        const result = await executor.run({
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        })
+
+        expect(result.status).toBe('completed')
+        expect(result.completedNodeIds).toContain('worker')
+        expect(result.completedNodeIds).toContain('router')
+        expect(result.completedNodeIds).toContain('exitNode')
+        expect(iterationsSeen).toEqual([1, 2])
+
+        // Verify iteration.advanced checkpoint exists
+        const checkpoints = workflowStore.getGraphCheckpoints(result.graphRunId)
+        const advCheckpoint = checkpoints.find((cp) => cp.operation === 'iteration.advanced')
+        expect(advCheckpoint).toBeDefined()
+        expect(advCheckpoint?.nodeId).toBe('worker')
+        const runInDb = workflowStore.getGraphRun(result.graphRunId)
+        expect(runInDb?.iteration).toBe(2)
+      })
+
+      it('TC-2B-SCHED-02: router feedback then exit records decision artifacts with correct isFeedback lineage', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const exitNode = makeNode('exitNode')
+
+        const template = makeTemplate(
+          [worker, router, exitNode],
+          [
+            { id: 'e-worker-router', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'eq', value: 1 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'exitNode',
+              isDefault: true,
+            },
+          ],
+        )
+
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: () => ({ status: 'completed' }),
+        })
+
+        const result = await executor.run({
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        })
+
+        expect(result.status).toBe('completed')
+
+        // Router ran in both iterations
+        const routerAttempts = workflowStore.getNodeAttempts(result.graphRunId, 'router')
+        expect(routerAttempts).toHaveLength(2)
+        expect(routerAttempts[0]!.status).toBe('completed')
+        expect(routerAttempts[1]!.status).toBe('completed')
+
+        // Inspect routing-decision artifacts
+        const decisionArtifacts = result.artifacts.filter((a) => a.kind === 'routing-decision')
+        expect(decisionArtifacts).toHaveLength(2)
+
+        const d1 = JSON.parse(decisionArtifacts[0]!.content) as {
+          selectedEdgeId: string
+          isFeedback: boolean
+        }
+        expect(d1.selectedEdgeId).toBe('e-feedback')
+        expect(d1.isFeedback).toBe(true)
+
+        const d2 = JSON.parse(decisionArtifacts[1]!.content) as {
+          selectedEdgeId: string
+          isFeedback: boolean
+        }
+        expect(d2.selectedEdgeId).toBe('e-exit')
+        expect(d2.isFeedback).toBe(false)
+      })
+
+      it('TC-2B-SCHED-03: monotonic attempts: node attempts strictly increment and historical attempts remain immutable', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const exitNode = makeNode('exitNode')
+
+        const template = makeTemplate(
+          [worker, router, exitNode],
+          [
+            { id: 'e-worker-router', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'lt', value: 3 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'exitNode',
+              isDefault: true,
+            },
+          ],
+        )
+
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => ({
+            status: 'completed',
+            artifacts: [
+              {
+                id: randomUUID(),
+                workflowId,
+                nodeId: ctx.node.id,
+                kind: 'data',
+                format: 'json',
+                title: `worker-iter-${String(ctx.iteration ?? 1)}.json`,
+                content: JSON.stringify({ iter: ctx.iteration }),
+                metadata: {},
+                createdAt: NOW,
+              },
+            ],
+          }),
+        })
+
+        const result = await executor.run({
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        })
+
+        expect(result.status).toBe('completed')
+
+        const workerAttempts = workflowStore.getNodeAttempts(result.graphRunId, 'worker')
+        expect(workerAttempts).toHaveLength(3)
+        expect(workerAttempts.map((a) => a.attempt)).toEqual([1, 2, 3])
+        expect(workerAttempts.every((a) => a.status === 'completed')).toBe(true)
+
+        // Historical attempt 1 remains unmodified
+        expect(workerAttempts[0]!.attempt).toBe(1)
+        expect(workerAttempts[0]!.finishedAt).toBeTruthy()
+        expect(workerAttempts[1]!.attempt).toBe(2)
+        expect(workerAttempts[2]!.attempt).toBe(3)
+      })
+
+      it('TC-2B-SCHED-04: Slice 2A pruning reset: iteration 1 selects B and prunes C, iteration 2 selects C, C executes normally', async () => {
+        const entry = makeNode('entry')
+        const branchRouter = makeNode('branchRouter', { type: 'router' })
+        const workerB = makeNode('workerB')
+        const workerC = makeNode('workerC')
+        const feedbackRouter = makeNode('feedbackRouter', { type: 'router' })
+        const doneNode = makeNode('doneNode')
+
+        const template = makeTemplate(
+          [entry, branchRouter, workerB, workerC, feedbackRouter, doneNode],
+          [
+            { id: 'e-entry-router', source: 'entry', target: 'branchRouter' },
+            {
+              id: 'e-router-b',
+              source: 'branchRouter',
+              target: 'workerB',
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'eq', value: 1 }],
+              },
+            },
+            {
+              id: 'e-router-c',
+              source: 'branchRouter',
+              target: 'workerC',
+              isDefault: true,
+            },
+            { id: 'e-b-feedback', source: 'workerB', target: 'feedbackRouter' },
+            { id: 'e-c-feedback', source: 'workerC', target: 'feedbackRouter' },
+            {
+              id: 'e-loop',
+              source: 'feedbackRouter',
+              target: 'entry',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'eq', value: 1 }],
+              },
+            },
+            {
+              id: 'e-done',
+              source: 'feedbackRouter',
+              target: 'doneNode',
+              isDefault: true,
+            },
+          ],
+        )
+
+        const executedNodes: { id: string; iteration: number }[] = []
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => {
+            executedNodes.push({ id: ctx.node.id, iteration: ctx.iteration ?? 1 })
+            return { status: 'completed' }
+          },
+        })
+
+        const result = await executor.run({
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        })
+
+        expect(result.status).toBe('completed')
+        expect(result.completedNodeIds).toContain('workerC')
+        expect(result.completedNodeIds).toContain('doneNode')
+
+        // workerB executed in iteration 1
+        expect(executedNodes).toContainEqual({ id: 'workerB', iteration: 1 })
+        // workerC executed in iteration 2
+        expect(executedNodes).toContainEqual({ id: 'workerC', iteration: 2 })
+
+        // Check attempts: workerB had attempt 1 completed (in iteration 1), attempt 2 skipped (in iteration 2)
+        const bAttempts = workflowStore.getNodeAttempts(result.graphRunId, 'workerB')
+        expect(bAttempts).toHaveLength(2)
+        expect(bAttempts[0]!.status).toBe('completed')
+        expect(bAttempts[1]!.status).toBe('skipped')
+
+        // Check attempts: workerC had attempt 1 skipped (in iteration 1), attempt 2 completed (in iteration 2)
+        const cAttempts = workflowStore.getNodeAttempts(result.graphRunId, 'workerC')
+        expect(cAttempts).toHaveLength(2)
+        expect(cAttempts[0]!.status).toBe('skipped')
+        expect(cAttempts[1]!.status).toBe('completed')
+      })
+
+      it('TC-2B-SCHED-05: diamond convergence across iterations: parallel paths converge cleanly on each iteration', async () => {
+        const entry = makeNode('entry')
+        const forkA = makeNode('forkA')
+        const forkB = makeNode('forkB')
+        const joinNode = makeNode('joinNode')
+        const router = makeNode('router', { type: 'router' })
+        const done = makeNode('done')
+
+        const template = makeTemplate(
+          [entry, forkA, forkB, joinNode, router, done],
+          [
+            { id: 'e-entry-a', source: 'entry', target: 'forkA' },
+            { id: 'e-entry-b', source: 'entry', target: 'forkB' },
+            { id: 'e-a-join', source: 'forkA', target: 'joinNode' },
+            { id: 'e-b-join', source: 'forkB', target: 'joinNode' },
+            { id: 'e-join-router', source: 'joinNode', target: 'router' },
+            {
+              id: 'e-router-entry',
+              source: 'router',
+              target: 'entry',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'eq', value: 1 }],
+              },
+            },
+            {
+              id: 'e-router-done',
+              source: 'router',
+              target: 'done',
+              isDefault: true,
+            },
+          ],
+        )
+
+        const runCountByNode = new Map<string, number>()
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => {
+            runCountByNode.set(ctx.node.id, (runCountByNode.get(ctx.node.id) ?? 0) + 1)
+            return { status: 'completed' }
+          },
+        })
+
+        const result = await executor.run({
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        })
+
+        expect(result.status).toBe('completed')
+        expect(runCountByNode.get('entry')).toBe(2)
+        expect(runCountByNode.get('forkA')).toBe(2)
+        expect(runCountByNode.get('forkB')).toBe(2)
+        expect(runCountByNode.get('joinNode')).toBe(2)
+        expect(runCountByNode.get('done')).toBe(1)
+      })
+
+      it('TC-2B-SCHED-06: three iterations then exit executes loop 3 times and halts/exits cleanly', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const done = makeNode('done')
+
+        const template = makeTemplate(
+          [worker, router, done],
+          [
+            { id: 'e-worker-router', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'lt', value: 3 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'done',
+              isDefault: true,
+            },
+          ],
+        )
+
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => ({
+            status: 'completed',
+            artifacts: [
+              {
+                id: randomUUID(),
+                workflowId,
+                nodeId: ctx.node.id,
+                kind: 'data',
+                format: 'json',
+                title: 'iter.json',
+                content: JSON.stringify({ iter: ctx.iteration }),
+                metadata: {},
+                createdAt: NOW,
+              },
+            ],
+          }),
+        })
+
+        const result = await executor.run({
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        })
+
+        expect(result.status).toBe('completed')
+        const workerAttempts = workflowStore.getNodeAttempts(result.graphRunId, 'worker')
+        expect(workerAttempts).toHaveLength(3)
+
+        const checkpoints = workflowStore.getGraphCheckpoints(result.graphRunId)
+        const advCheckpoints = checkpoints.filter((cp) => cp.operation === 'iteration.advanced')
+        expect(advCheckpoints).toHaveLength(2)
+      })
+    })
+
+    describe('Worktree & Patching (TC-2B-WT)', () => {
+      it('TC-2B-WT-01: iteration N changes materialized into N+1 worktree on disk', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const done = makeNode('done')
+
+        const template = makeTemplate(
+          [worker, router, done],
+          [
+            { id: 'e-w-r', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'eq', value: 1 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'done',
+              isDefault: true,
+            },
+          ],
+        )
+
+        let iter2SawFile = false
+        let iter2FileContent = ''
+
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => {
+            if (ctx.node.id === 'worker') {
+              if (ctx.iteration === 1) {
+                writeFileSync(join(ctx.worktreePath!, 'step1.txt'), 'iteration 1 file content\n')
+              } else if (ctx.iteration === 2) {
+                iter2SawFile = existsSync(join(ctx.worktreePath!, 'step1.txt'))
+                if (iter2SawFile) {
+                  iter2FileContent = readFileSync(join(ctx.worktreePath!, 'step1.txt'), 'utf8')
+                }
+              }
+            }
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: ctx.node.id,
+                  kind: 'state',
+                  format: 'json',
+                  title: 'state.json',
+                  content: JSON.stringify({ iter: ctx.iteration }),
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          },
+        })
+
+        const result = await executor.run({
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        })
+
+        expect(result.status).toBe('completed')
+        expect(iter2SawFile).toBe(true)
+        expect(iter2FileContent).toBe('iteration 1 file content\n')
+      })
+
+      it('TC-2B-WT-02: cumulative code verified across 3 iterations in N+1 worktree', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const done = makeNode('done')
+
+        const template = makeTemplate(
+          [worker, router, done],
+          [
+            { id: 'e-w-r', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'lt', value: 3 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'done',
+              isDefault: true,
+            },
+          ],
+        )
+
+        let iter3SawBoth = false
+
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => {
+            if (ctx.node.id === 'worker') {
+              if (ctx.iteration === 1) {
+                writeFileSync(join(ctx.worktreePath!, 'file1.txt'), 'file1 data\n')
+              } else if (ctx.iteration === 2) {
+                writeFileSync(join(ctx.worktreePath!, 'file2.txt'), 'file2 data\n')
+              } else if (ctx.iteration === 3) {
+                const has1 = existsSync(join(ctx.worktreePath!, 'file1.txt'))
+                const has2 = existsSync(join(ctx.worktreePath!, 'file2.txt'))
+                iter3SawBoth = has1 && has2
+              }
+            }
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: ctx.node.id,
+                  kind: 'iter-state',
+                  format: 'json',
+                  title: 'iter-state.json',
+                  content: JSON.stringify({ iter: ctx.iteration }),
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          },
+        })
+
+        const result = await executor.run({
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        })
+
+        expect(result.status).toBe('completed')
+        expect(iter3SawBoth).toBe(true)
+      })
+
+      it('TC-2B-WT-03: patch application failure halts with HALTED_POLICY: patch-application-failed', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const done = makeNode('done')
+
+        const template = makeTemplate(
+          [worker, router, done],
+          [
+            { id: 'e-w-r', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'eq', value: 1 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'done',
+              isDefault: true,
+            },
+          ],
+        )
+
+        const corruptChangeSet: ChangeSet = {
+          id: changeSetIdSchema.parse(randomUUID()),
+          baseSha: forkSha,
+          headSha: null,
+          files: [
+            {
+              path: 'fileA.txt',
+              changeType: 'modified',
+              previousPath: null,
+              insertions: 1,
+              deletions: 0,
+            },
+          ],
+          patch: 'corrupt invalid patch header\n@@ not a real hunk @@\n',
+          authorActor: 'system',
+          stepId: 'worker' as StepId,
+          taskId: 'test-template' as TaskId,
+          correctsChangeSetId: null,
+          reviewVerdict: null,
+          discrepancies: [],
+          capturedAt: NOW,
+        }
+
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => {
+            if (ctx.node.id === 'worker' && ctx.iteration === 1) {
+              return {
+                status: 'completed',
+                changeSet: corruptChangeSet,
+                artifacts: [
+                  {
+                    id: randomUUID(),
+                    workflowId,
+                    nodeId: 'worker',
+                    kind: 'dummy',
+                    format: 'json',
+                    title: 'dummy.json',
+                    content: JSON.stringify({ iter: 1 }),
+                    metadata: {},
+                    createdAt: NOW,
+                  },
+                ],
+              }
+            }
+            return { status: 'completed' }
+          },
+        })
+
+        const result = await executor.run({
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        })
+
+        expect(result.status).toBe('halted')
+        expect(result.haltReason).toBe('HALTED_POLICY: patch-application-failed')
+
+        // iteration.halted checkpoint persisted
+        const checkpoints = workflowStore.getGraphCheckpoints(result.graphRunId)
+        const haltedCp = checkpoints.find((cp) => cp.operation === 'iteration.halted')
+        expect(haltedCp).toBeDefined()
+      })
+
+      it('TC-2B-WT-04: worktree cleanup/recreation disposes worktrees without directory collision', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const done = makeNode('done')
+
+        const template = makeTemplate(
+          [worker, router, done],
+          [
+            { id: 'e-w-r', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'eq', value: 1 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'done',
+              isDefault: true,
+            },
+          ],
+        )
+
+        const worktreePaths: string[] = []
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => {
+            if (ctx.worktreePath) {
+              worktreePaths.push(ctx.worktreePath)
+              writeFileSync(
+                join(ctx.worktreePath, 'temp.txt'),
+                `iter ${String(ctx.iteration ?? 1)}\n`,
+              )
+            }
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: ctx.node.id,
+                  kind: 'data',
+                  format: 'json',
+                  title: 'd.json',
+                  content: JSON.stringify({ iter: ctx.iteration }),
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          },
+        })
+
+        const result = await executor.run({
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        })
+
+        expect(result.status).toBe('completed')
+        expect(worktreePaths.length).toBeGreaterThanOrEqual(2)
+      })
+    })
+
+    describe('Bounds & Progress Detection (TC-2B-BOUND)', () => {
+      it('TC-2B-BOUND-01: identical semantic state halts with HALTED_LIMIT: no-progress', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const done = makeNode('done')
+
+        const template = makeTemplate(
+          [worker, router, done],
+          [
+            { id: 'e-w-r', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'lt', value: 10 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'done',
+              isDefault: true,
+            },
+          ],
+        )
+
+        // worker produces EXACTLY the same static artifact every iteration and makes no file edits
+        const staticArtifact = {
+          id: 'static-art-id',
+          workflowId,
+          nodeId: 'worker',
+          kind: 'eval_report',
+          format: 'json' as const,
+          title: 'eval.json',
+          content: JSON.stringify({ score: 42 }),
+          metadata: {},
+          createdAt: NOW,
+        }
+
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: () => ({
+            status: 'completed',
+            artifacts: [staticArtifact],
+          }),
+        })
+
+        const result = await executor.run({
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+          loopPolicy: {
+            maxIterations: 5,
+            maxRepeatedStates: 1, // First repetition immediately triggers halt
+            maxNodeAttempts: 5,
+          },
+        })
+
+        expect(result.status).toBe('halted')
+        expect(result.haltReason).toBe('HALTED_LIMIT: no-progress')
+
+        const checkpoints = workflowStore.getGraphCheckpoints(result.graphRunId)
+        const haltedCp = checkpoints.find((cp) => cp.operation === 'iteration.halted')
+        expect(haltedCp).toBeDefined()
+      })
+
+      it('TC-2B-BOUND-02: unchanged git diff but changed semantic artifact continues without no-progress halt', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const done = makeNode('done')
+
+        const template = makeTemplate(
+          [worker, router, done],
+          [
+            { id: 'e-w-r', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'lt', value: 3 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'done',
+              isDefault: true,
+            },
+          ],
+        )
+
+        // Zero git diff, but artifact content changes each iteration
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => ({
+            status: 'completed',
+            artifacts: [
+              {
+                id: randomUUID(),
+                workflowId,
+                nodeId: ctx.node.id,
+                kind: 'eval_report',
+                format: 'json',
+                title: 'eval.json',
+                content: JSON.stringify({ iterationProgress: ctx.iteration }),
+                metadata: {},
+                createdAt: NOW,
+              },
+            ],
+          }),
+        })
+
+        const result = await executor.run({
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+          loopPolicy: {
+            maxIterations: 5,
+            maxRepeatedStates: 1,
+            maxNodeAttempts: 5,
+          },
+        })
+
+        expect(result.status).toBe('completed')
+        expect(result.completedNodeIds).toContain('done')
+      })
+
+      it('TC-2B-BOUND-03: maxIterations halts with HALTED_LIMIT: max-iterations-exceeded', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const done = makeNode('done')
+
+        const template = makeTemplate(
+          [worker, router, done],
+          [
+            { id: 'e-w-r', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'lt', value: 100 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'done',
+              isDefault: true,
+            },
+          ],
+        )
+
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => ({
+            status: 'completed',
+            artifacts: [
+              {
+                id: randomUUID(),
+                workflowId,
+                nodeId: ctx.node.id,
+                kind: 'data',
+                format: 'json',
+                title: 'data.json',
+                content: JSON.stringify({ unique: randomUUID() }),
+                metadata: {},
+                createdAt: NOW,
+              },
+            ],
+          }),
+        })
+
+        const result = await executor.run({
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+          loopPolicy: {
+            maxIterations: 2,
+            maxRepeatedStates: 5,
+            maxNodeAttempts: 5,
+          },
+        })
+
+        expect(result.status).toBe('halted')
+        expect(result.haltReason).toBe('HALTED_LIMIT: max-iterations-exceeded')
+
+        // worker should have executed exactly 2 times (iterations 1 and 2)
+        const workerAttempts = workflowStore.getNodeAttempts(result.graphRunId, 'worker')
+        expect(workerAttempts).toHaveLength(2)
+      })
+
+      it('TC-2B-BOUND-04: halted run replay is idempotent without extra attempts or checkpoints', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const done = makeNode('done')
+
+        const template = makeTemplate(
+          [worker, router, done],
+          [
+            { id: 'e-w-r', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'lt', value: 10 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'done',
+              isDefault: true,
+            },
+          ],
+        )
+
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => ({
+            status: 'completed',
+            artifacts: [
+              {
+                id: randomUUID(),
+                workflowId,
+                nodeId: ctx.node.id,
+                kind: 'data',
+                format: 'json',
+                title: 'data.json',
+                content: JSON.stringify({ unique: randomUUID() }),
+                metadata: {},
+                createdAt: NOW,
+              },
+            ],
+          }),
+        })
+
+        const run1 = await executor.run({
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+          loopPolicy: {
+            maxIterations: 1,
+            maxRepeatedStates: 5,
+            maxNodeAttempts: 5,
+          },
+        })
+
+        expect(run1.status).toBe('halted')
+        const attemptsBefore = workflowStore.getNodeAttempts(run1.graphRunId, 'worker').length
+        const checkpointsBefore = workflowStore.getGraphCheckpoints(run1.graphRunId).length
+
+        // Replay the halted run
+        const replay = await executor.run({
+          graphRunId: run1.graphRunId,
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        })
+
+        expect(replay.status).toBe('halted')
+        const attemptsAfter = workflowStore.getNodeAttempts(run1.graphRunId, 'worker').length
+        const checkpointsAfter = workflowStore.getGraphCheckpoints(run1.graphRunId).length
+
+        expect(attemptsAfter).toBe(attemptsBefore)
+        expect(checkpointsAfter).toBe(checkpointsBefore)
+      })
+    })
+
+    describe('Replay & Recovery (TC-2B-REC)', () => {
+      it('TC-2B-REC-01: completed multi-iteration replay returns completed status idempotently', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const done = makeNode('done')
+
+        const template = makeTemplate(
+          [worker, router, done],
+          [
+            { id: 'e-w-r', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'eq', value: 1 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'done',
+              isDefault: true,
+            },
+          ],
+        )
+
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => ({
+            status: 'completed',
+            artifacts: [
+              {
+                id: randomUUID(),
+                workflowId,
+                nodeId: ctx.node.id,
+                kind: 'data',
+                format: 'json',
+                title: 'data.json',
+                content: JSON.stringify({ iter: ctx.iteration }),
+                metadata: {},
+                createdAt: NOW,
+              },
+            ],
+          }),
+        })
+
+        const run1 = await executor.run({
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        })
+
+        expect(run1.status).toBe('completed')
+        const workerAttempts1 = workflowStore.getNodeAttempts(run1.graphRunId, 'worker')
+        expect(workerAttempts1).toHaveLength(2)
+
+        // Replay
+        const run2 = await executor.run({
+          graphRunId: run1.graphRunId,
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        })
+
+        expect(run2.status).toBe('completed')
+        const workerAttempts2 = workflowStore.getNodeAttempts(run1.graphRunId, 'worker')
+        expect(workerAttempts2).toHaveLength(2)
+      })
+
+      it('TC-2B-REC-02: crash after iteration transaction before in-memory reset recovers iteration and resumes', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const done = makeNode('done')
+
+        const template = makeTemplate(
+          [worker, router, done],
+          [
+            { id: 'e-w-r', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'eq', value: 1 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'done',
+              isDefault: true,
+            },
+          ],
+        )
+
+        const graphRunId = randomUUID()
+        const now = new Date().toISOString()
+
+        // 1. Graph run started in store
+        workflowStore.startGraphRun(
+          {
+            graphRunId,
+            workflowId,
+            projectId,
+            templateId: template.id,
+            startedAt: now,
+          },
+          'system',
+        )
+
+        // 2. Iteration 1 attempts recorded as completed
+        workflowStore.recordNodeAttempt(
+          {
+            id: randomUUID(),
+            projectId,
+            graphRunId,
+            nodeId: 'worker',
+            attempt: 1,
+            status: 'ready',
+            startedAt: now,
+          },
+          'system',
+        )
+        workflowStore.updateNodeAttempt(
+          {
+            projectId,
+            graphRunId,
+            nodeId: 'worker',
+            attempt: 1,
+            status: 'completed',
+            finishedAt: now,
+            occurredAt: now,
+          },
+          'system',
+        )
+
+        workflowStore.recordNodeAttempt(
+          {
+            id: randomUUID(),
+            projectId,
+            graphRunId,
+            nodeId: 'router',
+            attempt: 1,
+            status: 'ready',
+            startedAt: now,
+          },
+          'system',
+        )
+        workflowStore.updateNodeAttempt(
+          {
+            projectId,
+            graphRunId,
+            nodeId: 'router',
+            attempt: 1,
+            status: 'completed',
+            finishedAt: now,
+            occurredAt: now,
+          },
+          'system',
+        )
+
+        // 3. Iteration transaction committed in store (advance to iteration 2 + checkpoint written)
+        const advExecutor = new GraphExecutor({ workflowStore, worktreeService })
+        advExecutor.advanceLoopIteration({
+          template,
+          graphRunId,
+          sourceNodeId: 'router',
+          sourceAttempt: 1,
+          targetNodeId: 'worker',
+          fromIteration: 1,
+          toIteration: 2,
+          conditionMet: true,
+          checkpointId: null,
+          occurredAt: now,
+          actor: 'system',
+        })
+
+        workflowStore.writeGraphCheckpoint(
+          {
+            id: randomUUID(),
+            projectId,
+            graphRunId,
+            nodeId: 'worker',
+            operation: 'iteration.advanced',
+            stateSnapshot: {
+              readyNodeIds: ['worker'],
+              runningNodeIds: [],
+              completedNodeIds: [],
+              blockedNodeIds: [],
+              skippedNodeIds: [],
+            },
+            occurredAt: now,
+          },
+          'system',
+        )
+
+        // Process resumes execution after crash
+        const resumeExecutor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => ({
+            status: 'completed',
+            artifacts: [
+              {
+                id: randomUUID(),
+                workflowId,
+                nodeId: ctx.node.id,
+                kind: 'data',
+                format: 'json',
+                title: 'data.json',
+                content: JSON.stringify({ iter: ctx.iteration }),
+                metadata: {},
+                createdAt: NOW,
+              },
+            ],
+          }),
+        })
+
+        const resumedRun = await resumeExecutor.run({
+          graphRunId,
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        })
+
+        expect(resumedRun.status).toBe('completed')
+        expect(resumedRun.completedNodeIds).toContain('done')
+
+        // worker executed attempt 2 in resumed iteration 2
+        const workerAttempts = workflowStore.getNodeAttempts(graphRunId, 'worker')
+        expect(workerAttempts).toHaveLength(2)
+        expect(workerAttempts[1]!.attempt).toBe(2)
+        expect(workerAttempts[1]!.status).toBe('completed')
+      })
+
+      it('TC-2B-REC-03: duplicate transition idempotency preserves monotonic attempt counters', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const done = makeNode('done')
+
+        const template = makeTemplate(
+          [worker, router, done],
+          [
+            { id: 'e-w-r', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'eq', value: 1 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'done',
+              isDefault: true,
+            },
+          ],
+        )
+
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => ({
+            status: 'completed',
+            artifacts: [
+              {
+                id: randomUUID(),
+                workflowId,
+                nodeId: ctx.node.id,
+                kind: 'data',
+                format: 'json',
+                title: 'data.json',
+                content: JSON.stringify({ iter: ctx.iteration }),
+                metadata: {},
+                createdAt: NOW,
+              },
+            ],
+          }),
+        })
+
+        const run = await executor.run({
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        })
+
+        expect(run.status).toBe('completed')
+        const attempts = workflowStore.getNodeAttempts(run.graphRunId, 'worker')
+        const attemptNumbers = attempts.map((a) => a.attempt)
+        expect(attemptNumbers).toEqual([1, 2])
+        // Strict uniqueness
+        expect(new Set(attemptNumbers).size).toBe(attemptNumbers.length)
+      })
+
+      it('TC-2B-REC-04: persisted feedback decision remains authoritative after recovery', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const done = makeNode('done')
+
+        const template = makeTemplate(
+          [worker, router, done],
+          [
+            { id: 'e-w-r', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'eq', value: 1 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'done',
+              isDefault: true,
+            },
+          ],
+        )
+
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => ({
+            status: 'completed',
+            artifacts: [
+              {
+                id: randomUUID(),
+                workflowId,
+                nodeId: ctx.node.id,
+                kind: 'data',
+                format: 'json',
+                title: 'data.json',
+                content: JSON.stringify({ iter: ctx.iteration }),
+                metadata: {},
+                createdAt: NOW,
+              },
+            ],
+          }),
+        })
+
+        const run = await executor.run({
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        })
+
+        expect(run.status).toBe('completed')
+
+        // Verify routing decision artifact for feedback transition
+        const decisionArtifact = run.artifacts.find(
+          (a) => a.kind === 'routing-decision' && a.content.includes('"isFeedback": true'),
+        )
+        expect(decisionArtifact).toBeDefined()
+        const parsed = JSON.parse(decisionArtifact!.content) as {
+          selectedEdgeId: string
+          targetNodeId: string
+          isFeedback: boolean
+        }
+        expect(parsed.selectedEdgeId).toBe('e-feedback')
+        expect(parsed.targetNodeId).toBe('worker')
+        expect(parsed.isFeedback).toBe(true)
+      })
+    })
+  })
 })

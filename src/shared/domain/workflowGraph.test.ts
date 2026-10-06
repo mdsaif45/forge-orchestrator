@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   getReadyNodes,
   getTopologicalSort,
+  getLoopBody,
   validateWorkflowGraph,
   WorkflowGraphCycleError,
   workflowNodeSchema,
@@ -347,5 +348,224 @@ describe('workflowGraph domain model', () => {
     }).toThrow(
       /Feedback edge "invalid-fb" targets node "B" which does not precede source node "A" topologically/i,
     )
+  })
+})
+
+describe('getLoopBody (WORK-003 Slice 2B Pure Helper)', () => {
+  const makeNode = (id: string, type: 'agent' | 'router' = 'agent'): WorkflowNode => ({
+    id,
+    title: id,
+    type,
+    runtimeType: type === 'router' ? 'forge-engine' : 'forge-native',
+    config: { skills: [], permissionMode: type === 'router' ? 'read-only' : 'developer' },
+    inputs: [],
+    outputs: [],
+  })
+
+  it('computes exact loop body for a linear loop A -> B -> C -> B', () => {
+    const nodes = [makeNode('A'), makeNode('B'), makeNode('C')]
+    const edges: WorkflowEdge[] = [
+      { id: 'e1', source: 'A', target: 'B' },
+      { id: 'e2', source: 'B', target: 'C' },
+      { id: 'fb', source: 'C', target: 'B', isFeedback: true },
+    ]
+
+    const loopBody = getLoopBody(nodes, edges, 'C', 'B')
+    expect(Array.from(loopBody).sort()).toEqual(['B', 'C'])
+    expect(loopBody.has('A')).toBe(false)
+  })
+
+  it('computes exact loop body for a diamond loop B -> (D1, D2) -> C -> B', () => {
+    const nodes = [makeNode('A'), makeNode('B'), makeNode('D1'), makeNode('D2'), makeNode('C')]
+    const edges: WorkflowEdge[] = [
+      { id: 'e1', source: 'A', target: 'B' },
+      { id: 'e2', source: 'B', target: 'D1' },
+      { id: 'e3', source: 'B', target: 'D2' },
+      { id: 'e4', source: 'D1', target: 'C' },
+      { id: 'e5', source: 'D2', target: 'C' },
+      { id: 'fb', source: 'C', target: 'B', isFeedback: true },
+    ]
+
+    const loopBody = getLoopBody(nodes, edges, 'C', 'B')
+    expect(Array.from(loopBody).sort()).toEqual(['B', 'C', 'D1', 'D2'])
+    expect(loopBody.has('A')).toBe(false)
+  })
+
+  it('excludes branches reachable from target that cannot reach source', () => {
+    const nodes = [makeNode('B'), makeNode('C'), makeNode('ExitBranch')]
+    const edges: WorkflowEdge[] = [
+      { id: 'e1', source: 'B', target: 'C' },
+      { id: 'e2', source: 'B', target: 'ExitBranch' },
+      { id: 'fb', source: 'C', target: 'B', isFeedback: true },
+    ]
+
+    const loopBody = getLoopBody(nodes, edges, 'C', 'B')
+    expect(Array.from(loopBody).sort()).toEqual(['B', 'C'])
+    expect(loopBody.has('ExitBranch')).toBe(false)
+  })
+
+  it('returns empty set if target cannot reach source in forward graph', () => {
+    const nodes = [makeNode('B'), makeNode('C')]
+    const edges: WorkflowEdge[] = [{ id: 'fb', source: 'C', target: 'B', isFeedback: true }]
+
+    const loopBody = getLoopBody(nodes, edges, 'C', 'B')
+    expect(loopBody.size).toBe(0)
+  })
+})
+
+describe('WORK-003 Slice 2B Static Topology Validation', () => {
+  const makeNode = (id: string, type: 'agent' | 'router' = 'agent'): WorkflowNode => ({
+    id,
+    title: id,
+    type,
+    runtimeType: type === 'router' ? 'forge-engine' : 'forge-native',
+    config: { skills: [], permissionMode: type === 'router' ? 'read-only' : 'developer' },
+    inputs: [],
+    outputs: [],
+  })
+
+  // TC-2B-VAL-01: valid feedback loop + exit
+  it('TC-2B-VAL-01: passes validation for valid feedback loop with forward exit', () => {
+    const nodes = [makeNode('A'), makeNode('B'), makeNode('R', 'router'), makeNode('Exit')]
+    const edges: WorkflowEdge[] = [
+      { id: 'e-ab', source: 'A', target: 'B' },
+      { id: 'e-br', source: 'B', target: 'R' },
+      {
+        id: 'e-fb',
+        source: 'R',
+        target: 'B',
+        isFeedback: true,
+        condition: {
+          mode: 'all',
+          predicates: [{ ref: 'context.retry', operator: 'eq', value: 'true' }],
+        },
+      },
+      { id: 'e-exit', source: 'R', target: 'Exit', isDefault: true },
+    ]
+
+    expect(() => {
+      validateWorkflowGraph(nodes, edges)
+    }).not.toThrow()
+  })
+
+  // TC-2B-VAL-02: self-loop rejected
+  it('TC-2B-VAL-02: rejects self-loop feedback edge', () => {
+    const nodes = [makeNode('A')]
+    const edges: WorkflowEdge[] = [{ id: 'self-fb', source: 'A', target: 'A', isFeedback: true }]
+
+    expect(() => {
+      validateWorkflowGraph(nodes, edges)
+    }).toThrow('Feedback edge "self-fb" cannot target itself ("A")')
+  })
+
+  // TC-2B-VAL-03: invalid topological direction rejected
+  it('TC-2B-VAL-03: rejects feedback edge targeting a node that does not precede source', () => {
+    const nodes = [makeNode('A'), makeNode('B')]
+    const edges: WorkflowEdge[] = [
+      { id: 'e-ab', source: 'A', target: 'B' },
+      { id: 'bad-fb', source: 'A', target: 'B', isFeedback: true },
+    ]
+
+    expect(() => {
+      validateWorkflowGraph(nodes, edges)
+    }).toThrow(
+      'Feedback edge "bad-fb" targets node "B" which does not precede source node "A" topologically',
+    )
+  })
+
+  // TC-2B-VAL-04: empty/infinite topology rejected (target cannot reach source in forward graph)
+  it('TC-2B-VAL-04: rejects feedback edge with empty loop body where target cannot reach source', () => {
+    const nodes = [makeNode('A'), makeNode('B'), makeNode('C')]
+    // A -> B and separate node C, feedback from C -> A where C cannot be reached from A
+    const edges: WorkflowEdge[] = [
+      { id: 'e-ab', source: 'A', target: 'B' },
+      { id: 'bad-fb', source: 'C', target: 'A', isFeedback: true },
+    ]
+
+    expect(() => {
+      validateWorkflowGraph(nodes, edges)
+    }).toThrow(
+      'Feedback edge "bad-fb" from "C" to "A" does not form a valid loop body; target cannot reach source in forward graph',
+    )
+  })
+
+  // TC-2B-VAL-05: nested loop rejected
+  it('TC-2B-VAL-05: rejects nested loops where one loop body is subset of another', () => {
+    const nodes = [makeNode('A'), makeNode('B'), makeNode('C'), makeNode('D')]
+    // Outer: B -> C -> D -> B
+    // Inner: C -> D -> C (nested!)
+    const edges: WorkflowEdge[] = [
+      { id: 'e-ab', source: 'A', target: 'B' },
+      { id: 'e-bc', source: 'B', target: 'C' },
+      { id: 'e-cd', source: 'C', target: 'D' },
+      { id: 'fb-outer', source: 'D', target: 'B', isFeedback: true },
+      { id: 'fb-inner', source: 'D', target: 'C', isFeedback: true },
+    ]
+
+    expect(() => {
+      validateWorkflowGraph(nodes, edges)
+    }).toThrow(
+      'Nested loops are not supported in workflow graph: feedback edge "fb-outer" nests with "fb-inner"',
+    )
+  })
+
+  // TC-2B-VAL-06: overlapping loop rejected
+  it('TC-2B-VAL-06: rejects overlapping loops with distinct heads that share intermediate nodes', () => {
+    const nodes = [
+      makeNode('B1'),
+      makeNode('B2'),
+      makeNode('Shared'),
+      makeNode('S1'),
+      makeNode('S2'),
+    ]
+    // Loop 1: B1 -> Shared -> S1 -> B1
+    // Loop 2: B2 -> Shared -> S2 -> B2
+    const edges: WorkflowEdge[] = [
+      { id: 'e-b1-sh', source: 'B1', target: 'Shared' },
+      { id: 'e-b2-sh', source: 'B2', target: 'Shared' },
+      { id: 'e-sh-s1', source: 'Shared', target: 'S1' },
+      { id: 'e-sh-s2', source: 'Shared', target: 'S2' },
+      { id: 'fb1', source: 'S1', target: 'B1', isFeedback: true },
+      { id: 'fb2', source: 'S2', target: 'B2', isFeedback: true },
+    ]
+
+    expect(() => {
+      validateWorkflowGraph(nodes, edges)
+    }).toThrow(
+      'Overlapping loops are not supported in workflow graph: feedback edge "fb1" overlaps with "fb2"',
+    )
+  })
+
+  // TC-2B-VAL-07: invalid loop policy rejected
+  it('TC-2B-VAL-07: rejects invalid loop policy with non-positive or non-integer bounds', () => {
+    const nodes = [makeNode('A'), makeNode('B')]
+    const edges: WorkflowEdge[] = [
+      { id: 'e-ab', source: 'A', target: 'B' },
+      { id: 'fb', source: 'B', target: 'A', isFeedback: true },
+    ]
+
+    expect(() => {
+      validateWorkflowGraph(nodes, edges, {
+        maxIterations: 0,
+        maxRepeatedStates: 1,
+        maxNodeAttempts: 10,
+      })
+    }).toThrow('Invalid loop policy: maxIterations must be a positive integer, got 0')
+
+    expect(() => {
+      validateWorkflowGraph(nodes, edges, {
+        maxIterations: 5,
+        maxRepeatedStates: -1,
+        maxNodeAttempts: 10,
+      })
+    }).toThrow('Invalid loop policy: maxRepeatedStates must be a positive integer, got -1')
+
+    expect(() => {
+      validateWorkflowGraph(nodes, edges, {
+        maxIterations: 5,
+        maxRepeatedStates: 1,
+        maxNodeAttempts: 1.5,
+      })
+    }).toThrow('Invalid loop policy: maxNodeAttempts must be a positive integer, got 1.5')
   })
 })

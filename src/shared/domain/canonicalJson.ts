@@ -1,10 +1,19 @@
 /**
+ * Checks whether a given object is a plain JavaScript object (created via {} or Object.create(null)).
+ */
+function isPlainObject(value: object): boolean {
+  const proto: unknown = Object.getPrototypeOf(value)
+  return proto === null || proto === Object.prototype
+}
+
+/**
  * Pure canonical JSON serializer.
  *
  * Guarantees that semantically identical JSON objects produce identical strings
  * regardless of key insertion order. Preserves explicit array element ordering.
  *
- * Fails closed on unsupported top-level undefined, functions, and symbols.
+ * Fails closed on unsupported top-level undefined, functions, symbols, non-finite
+ * numbers (NaN, Infinity, -Infinity), and non-plain objects (Date, Map, Set, etc.).
  * Omits object properties with undefined values and normalizes array undefined
  * elements to null, strictly conforming to RFC 8259 and standard JSON semantics.
  *
@@ -19,12 +28,21 @@ export function canonicalizeJson(value: unknown): string {
     throw new TypeError(`Cannot canonicalize ${typeof value} as JSON`)
   }
 
+  if (typeof value === 'number' && !Number.isFinite(value)) {
+    throw new TypeError(`Cannot canonicalize non-finite number ${String(value)} as JSON`)
+  }
+
   if (value === null || typeof value !== 'object') {
     return JSON.stringify(value)
   }
 
   if (Array.isArray(value)) {
     return `[${value.map((element: unknown) => (element === undefined ? 'null' : canonicalizeJson(element))).join(',')}]`
+  }
+
+  if (!isPlainObject(value)) {
+    const name = (value as { constructor?: { name?: string } }).constructor?.name ?? 'Object'
+    throw new TypeError(`Cannot canonicalize non-plain object ${name} as JSON`)
   }
 
   const record = value as Record<string, unknown>

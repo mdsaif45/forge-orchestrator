@@ -86,6 +86,70 @@ describe('canonicalizeJson', () => {
     const objWithFunc = { a: 1, fn: () => 'noop', sym: Symbol('s') }
     expect(canonicalizeJson(objWithFunc)).toBe('{"a":1}')
   })
+
+  it('fails closed and throws TypeError on NaN, Infinity, and -Infinity (never silently serializing to null)', () => {
+    // Top-level
+    expect(() => canonicalizeJson(NaN)).toThrow(TypeError)
+    expect(() => canonicalizeJson(NaN)).toThrow('Cannot canonicalize non-finite number NaN as JSON')
+
+    expect(() => canonicalizeJson(Infinity)).toThrow(TypeError)
+    expect(() => canonicalizeJson(Infinity)).toThrow(
+      'Cannot canonicalize non-finite number Infinity as JSON',
+    )
+
+    expect(() => canonicalizeJson(-Infinity)).toThrow(TypeError)
+    expect(() => canonicalizeJson(-Infinity)).toThrow(
+      'Cannot canonicalize non-finite number -Infinity as JSON',
+    )
+
+    // Nested in objects
+    expect(() => canonicalizeJson({ val: NaN })).toThrow(TypeError)
+    expect(() => canonicalizeJson({ val: Infinity })).toThrow(TypeError)
+    expect(() => canonicalizeJson({ val: -Infinity })).toThrow(TypeError)
+
+    // Nested in arrays
+    expect(() => canonicalizeJson([1, NaN, 2])).toThrow(TypeError)
+    expect(() => canonicalizeJson([1, Infinity, 2])).toThrow(TypeError)
+    expect(() => canonicalizeJson([1, -Infinity, 2])).toThrow(TypeError)
+  })
+
+  it('fails closed on non-plain objects such as Date, Map, and Set (never silently serializing to {})', () => {
+    expect(() => canonicalizeJson(new Date())).toThrow(TypeError)
+    expect(() => canonicalizeJson(new Date())).toThrow(
+      'Cannot canonicalize non-plain object Date as JSON',
+    )
+
+    expect(() => canonicalizeJson(new Map())).toThrow(TypeError)
+    expect(() => canonicalizeJson(new Map())).toThrow(
+      'Cannot canonicalize non-plain object Map as JSON',
+    )
+
+    expect(() => canonicalizeJson(new Set())).toThrow(TypeError)
+    expect(() => canonicalizeJson(new Set())).toThrow(
+      'Cannot canonicalize non-plain object Set as JSON',
+    )
+
+    expect(() => canonicalizeJson(new RegExp('test'))).toThrow(TypeError)
+
+    class CustomModel {
+      id = 1
+    }
+    expect(() => canonicalizeJson(new CustomModel())).toThrow(TypeError)
+    expect(() => canonicalizeJson(new CustomModel())).toThrow(
+      'Cannot canonicalize non-plain object CustomModel as JSON',
+    )
+
+    // Nested non-plain objects in objects and arrays
+    expect(() => canonicalizeJson({ created: new Date() })).toThrow(TypeError)
+    expect(() => canonicalizeJson([new Map()])).toThrow(TypeError)
+  })
+
+  it('accepts dictionary objects created with Object.create(null)', () => {
+    const dict = Object.create(null) as Record<string, number>
+    dict.b = 2
+    dict.a = 1
+    expect(canonicalizeJson(dict)).toBe('{"a":1,"b":2}')
+  })
 })
 
 describe('tryCanonicalizeJsonString', () => {

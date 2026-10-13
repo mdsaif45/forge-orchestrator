@@ -1,12 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import {
+  artifactIdSchema,
+  artifactKindSchema,
   changeSetIdSchema,
   evaluateCondition,
   getLoopBody,
   getReadyNodes,
   runIdSchema,
+  stepIdSchema,
   validateWorkflowGraph,
+  workflowArtifactSchema,
   type Actor,
+  type ArtifactKind,
+  type ArtifactMetadata,
   type ChangeSet,
   type GraphNodeRun,
   type GraphRun,
@@ -277,12 +283,31 @@ export class GraphExecutor {
     ) {
       const latestRuns = this.workflowStore.getLatestNodeRuns(graphRunId)
       const resultChangeSets = new Map<string, ChangeSet>()
+      const parsedRunId = runIdSchema.safeParse(graphRunId)
+      const allRunMetas =
+        parsedRunId.success && this.artifactService
+          ? this.artifactService.listArtifacts(parsedRunId.data)
+          : []
+      const artifactsByStepId = new Map<string, ArtifactMetadata[]>()
+      for (const meta of allRunMetas) {
+        if (meta.stepId) {
+          const list = artifactsByStepId.get(meta.stepId) ?? []
+          list.push(meta)
+          artifactsByStepId.set(meta.stepId, list)
+        }
+      }
+
       for (const nodeRun of latestRuns) {
         if (nodeRun.changeSetId && this.changeSetStore) {
           const cs = this.changeSetStore.find(nodeRun.changeSetId)
           if (cs) {
             resultChangeSets.set(nodeRun.nodeId, cs)
           }
+        }
+        if (nodeRun.status === 'completed') {
+          const stepMetas = artifactsByStepId.get(nodeRun.id) ?? []
+          const hydrated = await this.hydrateNodeArtifacts(nodeRun, workflowId, stepMetas)
+          allArtifacts.push(...hydrated)
         }
       }
 
@@ -378,6 +403,20 @@ export class GraphExecutor {
         }
       }
 
+      const parsedRunId = runIdSchema.safeParse(graphRunId)
+      const allRunMetas =
+        parsedRunId.success && this.artifactService
+          ? this.artifactService.listArtifacts(parsedRunId.data)
+          : []
+      const artifactsByStepId = new Map<string, ArtifactMetadata[]>()
+      for (const meta of allRunMetas) {
+        if (meta.stepId) {
+          const list = artifactsByStepId.get(meta.stepId) ?? []
+          list.push(meta)
+          artifactsByStepId.set(meta.stepId, list)
+        }
+      }
+
       for (const nodeRun of latestRuns) {
         if (invalidatedSet.has(nodeRun.nodeId)) {
           continue
@@ -397,11 +436,17 @@ export class GraphExecutor {
           if (nodeRun.changeSetId && this.changeSetStore) {
             cs = this.changeSetStore.find(nodeRun.changeSetId) ?? undefined
           }
+          const stepMetas = artifactsByStepId.get(nodeRun.id) ?? []
+          const hydratedArtifacts = await this.hydrateNodeArtifacts(nodeRun, workflowId, stepMetas)
           currentLineage.set(nodeRun.nodeId, {
             attempt: nodeRun.attempt,
             changeSet: cs,
-            artifacts: [],
+            artifacts: hydratedArtifacts,
           })
+          allArtifacts.push(...hydratedArtifacts)
+          if (nodeRun.iteration === currentIteration) {
+            iterationArtifacts.push(...hydratedArtifacts)
+          }
         } else if (nodeRun.status === 'skipped') {
           skippedNodeIds.add(nodeRun.nodeId)
         } else if (nodeRun.status === 'blocked') {
@@ -1022,7 +1067,7 @@ export class GraphExecutor {
             completedNodeIds.add(node.id)
 
             const finishedAt = new Date().toISOString()
-            this.workflowStore.updateNodeAttempt(
+            const finishedNodeRun = this.workflowStore.updateNodeAttempt(
               {
                 projectId,
                 graphRunId,
@@ -1036,6 +1081,8 @@ export class GraphExecutor {
               },
               actor,
             )
+
+            await this.persistNodeArtifacts(graphRunId, finishedNodeRun.id, artifactsForNode)
 
             this.workflowStore.writeGraphCheckpoint(
               {
@@ -1410,6 +1457,149 @@ export class GraphExecutor {
     await this.worktreeService.reclaimAbandoned()
 
     return recovered
+  }
+
+  /**
+   * Persists leaf node artifacts to disk via ArtifactService and links to the attempt stepId.
+   */
+  private async persistNodeArtifacts(
+    graphRunId: string,
+    nodeRunId: string,
+    artifacts: readonly WorkflowArtifact[],
+  ): Promise<void> {
+    if (!this.artifactService || artifacts.length === 0) {
+      return
+    }
+
+    const parsedRunId = runIdSchema.safeParse(graphRunId)
+    const parsedStepId = stepIdSchema.safeParse(nodeRunId)
+    if (!parsedRunId.success || !parsedStepId.success) {
+      return
+    }
+
+    for (let i = 0; i < artifacts.length; i++) {
+      const art = artifacts[i]
+      if (!art) {
+        continue
+      }
+      const parsedArtId = artifactIdSchema.safeParse(art.id)
+      const metaKind: ArtifactKind = artifactKindSchema.safeParse(art.kind).success
+        ? (art.kind as ArtifactKind)
+        : 'stage-output'
+      const envelope = {
+        ...art,
+        __lineageOrder: i,
+      }
+      await this.artifactService.writeArtifact({
+        ...(parsedArtId.success ? { id: parsedArtId.data } : {}),
+        runId: parsedRunId.data,
+        stepId: parsedStepId.data,
+        kind: metaKind,
+        name: `${art.title || `artifact-${String(i)}`}.workflow-artifact.json`,
+        content: JSON.stringify(envelope),
+        mimeType: 'application/json',
+        createdAt: art.createdAt,
+      })
+    }
+  }
+
+  /**
+   * Hydrates workflow artifacts for a node attempt from physical disk and verifies integrity.
+   */
+  private async hydrateNodeArtifacts(
+    nodeRun: GraphNodeRun,
+    workflowId: string,
+    metas: readonly ArtifactMetadata[],
+  ): Promise<WorkflowArtifact[]> {
+    if (!this.artifactService || metas.length === 0) {
+      return []
+    }
+
+    const hydratedWithOrder: { order: number; artifact: WorkflowArtifact }[] = []
+
+    for (let i = 0; i < metas.length; i++) {
+      const meta = metas[i]
+      if (!meta) {
+        continue
+      }
+      const integrity = await this.artifactService.verifyArtifactIntegrity(meta.id)
+      if (!integrity.valid) {
+        throw new Error(
+          `Artifact integrity check failed for artifact "${meta.id}" (run: "${nodeRun.graphRunId}", node: "${nodeRun.nodeId}"): ${integrity.reason ?? 'Unknown corruption'}`,
+        )
+      }
+
+      const rawText = await this.artifactService.readArtifactText(meta.id)
+      let parsedEnvelope: Record<string, unknown> | null
+      try {
+        parsedEnvelope = JSON.parse(rawText) as Record<string, unknown>
+      } catch {
+        parsedEnvelope = null
+      }
+
+      if (
+        parsedEnvelope &&
+        typeof parsedEnvelope === 'object' &&
+        typeof parsedEnvelope.title === 'string' &&
+        typeof parsedEnvelope.content === 'string'
+      ) {
+        const order =
+          typeof parsedEnvelope.__lineageOrder === 'number' ? parsedEnvelope.__lineageOrder : i
+        const reconstructed: WorkflowArtifact = {
+          id: typeof parsedEnvelope.id === 'string' ? parsedEnvelope.id : meta.id,
+          workflowId:
+            typeof parsedEnvelope.workflowId === 'string' ? parsedEnvelope.workflowId : workflowId,
+          nodeId:
+            typeof parsedEnvelope.nodeId === 'string' ? parsedEnvelope.nodeId : nodeRun.nodeId,
+          stepIndex:
+            typeof parsedEnvelope.stepIndex === 'number'
+              ? parsedEnvelope.stepIndex
+              : nodeRun.attempt,
+          kind: typeof parsedEnvelope.kind === 'string' ? parsedEnvelope.kind : meta.kind,
+          format:
+            parsedEnvelope.format === 'markdown' ||
+            parsedEnvelope.format === 'diff' ||
+            parsedEnvelope.format === 'json' ||
+            parsedEnvelope.format === 'text'
+              ? parsedEnvelope.format
+              : 'text',
+          title: parsedEnvelope.title,
+          content: parsedEnvelope.content,
+          metadata:
+            parsedEnvelope.metadata && typeof parsedEnvelope.metadata === 'object'
+              ? (parsedEnvelope.metadata as Readonly<Record<string, unknown>>)
+              : {},
+          createdAt:
+            typeof parsedEnvelope.createdAt === 'string'
+              ? parsedEnvelope.createdAt
+              : meta.createdAt,
+        }
+        hydratedWithOrder.push({
+          order,
+          artifact: workflowArtifactSchema.parse(reconstructed),
+        })
+      } else {
+        const fallback: WorkflowArtifact = {
+          id: meta.id,
+          workflowId,
+          nodeId: nodeRun.nodeId,
+          stepIndex: nodeRun.attempt,
+          kind: meta.kind,
+          format: 'text',
+          title: meta.name,
+          content: rawText,
+          metadata: {},
+          createdAt: meta.createdAt,
+        }
+        hydratedWithOrder.push({
+          order: i,
+          artifact: workflowArtifactSchema.parse(fallback),
+        })
+      }
+    }
+
+    hydratedWithOrder.sort((a, b) => a.order - b.order)
+    return hydratedWithOrder.map((item) => item.artifact)
   }
 
   private isAborted(signal: AbortSignal): boolean {

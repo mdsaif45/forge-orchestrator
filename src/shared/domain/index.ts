@@ -400,6 +400,9 @@ export {
   type WorkflowEdge,
   type WorkflowNode,
   type WorkflowTemplateV2,
+  getLoopBody,
+  loopPolicySchema,
+  type LoopPolicy,
 } from './workflowGraph'
 
 export {
@@ -407,6 +410,8 @@ export {
   resolveConditionRef,
   type ConditionEvaluationContext,
 } from './conditions'
+
+export { canonicalizeJson, tryCanonicalizeJsonString } from './canonicalJson'
 
 export { compileLinearTemplateToGraph } from './templateCompiler'
 

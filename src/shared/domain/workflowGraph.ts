@@ -205,6 +205,13 @@ export const graphCheckpointSchema = z.strictObject({
 })
 export type GraphCheckpoint = z.infer<typeof graphCheckpointSchema>
 
+export const loopPolicySchema = z.strictObject({
+  maxIterations: z.number().int().positive().default(5),
+  maxRepeatedStates: z.number().int().positive().default(1),
+  maxNodeAttempts: z.number().int().positive().default(10),
+})
+export type LoopPolicy = z.infer<typeof loopPolicySchema>
+
 export const workflowTemplateV2Schema = z.strictObject({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -214,6 +221,7 @@ export const workflowTemplateV2Schema = z.strictObject({
   category: z.string().default('General'),
   nodes: z.array(workflowNodeSchema).min(1).readonly(),
   edges: z.array(workflowEdgeSchema).readonly().default([]),
+  loopPolicy: loopPolicySchema.optional(),
   createdAt: z.string().min(1),
   updatedAt: z.string().min(1),
 })
@@ -244,14 +252,71 @@ export class WorkflowGraphCycleError extends Error {
 }
 
 /**
+ * Calculates the set of node IDs belonging to the loop body for feedback edge s -> t.
+ * Defined as: ReachableFromForward(t) ∩ CanReachForward(s)
+ * in the forward graph G_F (edges where !isFeedback).
+ */
+export function getLoopBody(
+  _nodes: readonly WorkflowNode[],
+  edges: readonly WorkflowEdge[],
+  sourceNodeId: string,
+  targetNodeId: string,
+): ReadonlySet<string> {
+  const forwardEdges = edges.filter((e) => !e.isFeedback)
+
+  // 1. Forward reachability from targetNodeId
+  const reachableFromTarget = new Set<string>()
+  const forwardQueue: string[] = [targetNodeId]
+  while (forwardQueue.length > 0) {
+    const current = forwardQueue.shift()
+    if (current !== undefined && !reachableFromTarget.has(current)) {
+      reachableFromTarget.add(current)
+      for (const edge of forwardEdges) {
+        if (edge.source === current && !reachableFromTarget.has(edge.target)) {
+          forwardQueue.push(edge.target)
+        }
+      }
+    }
+  }
+
+  // 2. Backward reachability from sourceNodeId (nodes that can reach source)
+  const canReachSource = new Set<string>()
+  const backwardQueue: string[] = [sourceNodeId]
+  while (backwardQueue.length > 0) {
+    const current = backwardQueue.shift()
+    if (current !== undefined && !canReachSource.has(current)) {
+      canReachSource.add(current)
+      for (const edge of forwardEdges) {
+        if (edge.target === current && !canReachSource.has(edge.source)) {
+          backwardQueue.push(edge.source)
+        }
+      }
+    }
+  }
+
+  // 3. Intersection
+  const loopBody = new Set<string>()
+  for (const nodeId of reachableFromTarget) {
+    if (canReachSource.has(nodeId)) {
+      loopBody.add(nodeId)
+    }
+  }
+
+  return loopBody
+}
+
+/**
  * Validates a workflow graph:
  * - All edge sources and targets must exist in nodes.
  * - Forward graph must be acyclic (DAG).
  * - Feedback edges must target a node that precedes the source topologically.
+ * - Feedback loops must have valid loop bodies, forward exit paths, and be non-overlapping.
+ * - Router and non-router edge configurations must follow declared branch schemas.
  */
 export function validateWorkflowGraph(
   nodes: readonly WorkflowNode[],
   edges: readonly WorkflowEdge[],
+  loopPolicy?: LoopPolicy,
 ): void {
   const nodeMap = new Map<string, WorkflowNode>(nodes.map((n) => [n.id, n]))
 
@@ -267,9 +332,13 @@ export function validateWorkflowGraph(
   // Detect cycles in forward DAG
   const sortedNodeIds = getTopologicalSort(nodes, edges)
 
-  // Validate feedback edges: target must precede source topologically
+  // Validate feedback edges
   const feedbackEdges = edges.filter((e) => e.isFeedback)
   for (const edge of feedbackEdges) {
+    if (edge.source === edge.target) {
+      throw new Error(`Feedback edge "${edge.id}" cannot target itself ("${edge.source}")`)
+    }
+
     const sourceIndex = sortedNodeIds.indexOf(edge.source)
     const targetIndex = sortedNodeIds.indexOf(edge.target)
     if (targetIndex >= sourceIndex) {
@@ -277,25 +346,88 @@ export function validateWorkflowGraph(
         `Feedback edge "${edge.id}" targets node "${edge.target}" which does not precede source node "${edge.source}" topologically`,
       )
     }
+
+    // Validate loop body existence and reachability
+    const loopBody = getLoopBody(nodes, edges, edge.source, edge.target)
+    if (!loopBody.has(edge.source) || !loopBody.has(edge.target)) {
+      throw new Error(
+        `Feedback edge "${edge.id}" from "${edge.source}" to "${edge.target}" does not form a valid loop body; target cannot reach source in forward graph`,
+      )
+    }
+  }
+
+  // Validate that multiple feedback loops are neither nested nor overlapping
+  for (let i = 0; i < feedbackEdges.length; i++) {
+    for (let j = i + 1; j < feedbackEdges.length; j++) {
+      const e1 = feedbackEdges[i]
+      const e2 = feedbackEdges[j]
+      if (!e1 || !e2) {
+        continue
+      }
+
+      // Same head and same source is allowed (e.g. multiple conditional feedback edges from same router to same target)
+      if (e1.source === e2.source && e1.target === e2.target) {
+        continue
+      }
+
+      const b1 = getLoopBody(nodes, edges, e1.source, e1.target)
+      const b2 = getLoopBody(nodes, edges, e2.source, e2.target)
+
+      const overlap = Array.from(b1).filter((id) => b2.has(id))
+      if (overlap.length > 0) {
+        const isB1SubsetOfB2 = Array.from(b1).every((id) => b2.has(id))
+        const isB2SubsetOfB1 = Array.from(b2).every((id) => b1.has(id))
+
+        if (isB1SubsetOfB2 || isB2SubsetOfB1) {
+          throw new Error(
+            `Nested loops are not supported in workflow graph: feedback edge "${e1.id}" nests with "${e2.id}"`,
+          )
+        } else {
+          throw new Error(
+            `Overlapping loops are not supported in workflow graph: feedback edge "${e1.id}" overlaps with "${e2.id}"`,
+          )
+        }
+      }
+    }
+  }
+
+  // Validate loop policy if provided
+  if (loopPolicy) {
+    if (!Number.isInteger(loopPolicy.maxIterations) || loopPolicy.maxIterations <= 0) {
+      throw new Error(
+        `Invalid loop policy: maxIterations must be a positive integer, got ${String(loopPolicy.maxIterations)}`,
+      )
+    }
+    if (!Number.isInteger(loopPolicy.maxRepeatedStates) || loopPolicy.maxRepeatedStates <= 0) {
+      throw new Error(
+        `Invalid loop policy: maxRepeatedStates must be a positive integer, got ${String(loopPolicy.maxRepeatedStates)}`,
+      )
+    }
+    if (!Number.isInteger(loopPolicy.maxNodeAttempts) || loopPolicy.maxNodeAttempts <= 0) {
+      throw new Error(
+        `Invalid loop policy: maxNodeAttempts must be a positive integer, got ${String(loopPolicy.maxNodeAttempts)}`,
+      )
+    }
   }
 
   // Validate router and non-router edge configurations
   for (const node of nodes) {
-    const outgoingForward = edges.filter((e) => e.source === node.id && !e.isFeedback)
+    const outgoing = edges.filter((e) => e.source === node.id)
+    const outgoingForward = outgoing.filter((e) => !e.isFeedback)
 
     if (node.type === 'router') {
-      if (outgoingForward.length === 0) {
+      if (outgoing.length === 0) {
         throw new Error(`Router node "${node.id}" has no outgoing edges`)
       }
 
-      const defaults = outgoingForward.filter((e) => e.isDefault)
+      const defaults = outgoing.filter((e) => e.isDefault)
       if (defaults.length > 1) {
         throw new Error(
           `Router node "${node.id}" declares multiple default outgoing edges: [${defaults.map((e) => e.id).join(', ')}]. At most one default edge is permitted.`,
         )
       }
 
-      for (const edge of outgoingForward) {
+      for (const edge of outgoing) {
         if (edge.condition && edge.isDefault) {
           throw new Error(
             `Edge "${edge.id}" from router "${node.id}" cannot specify both condition and isDefault: true`,

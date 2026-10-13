@@ -59,6 +59,33 @@ describe('canonicalizeJson', () => {
     // Array ordering must NOT be sorted arbitrarily:
     expect(canonicalizeJson(arr1)).not.toBe(canonicalizeJson(arr3))
   })
+
+  it('omits object properties whose values are undefined, matching standard JSON semantics', () => {
+    const withUndefined = { a: 1, b: undefined, c: 'hello' }
+    const withoutUndefined = { a: 1, c: 'hello' }
+
+    expect(canonicalizeJson(withUndefined)).toBe('{"a":1,"c":"hello"}')
+    expect(canonicalizeJson(withUndefined)).toBe(canonicalizeJson(withoutUndefined))
+  })
+
+  it('normalizes array elements with undefined values to null, matching JSON array semantics', () => {
+    const arr = [1, undefined, 'test']
+    expect(canonicalizeJson(arr)).toBe('[1,null,"test"]')
+  })
+
+  it('fails closed and throws TypeError on top-level undefined', () => {
+    expect(() => canonicalizeJson(undefined)).toThrow(TypeError)
+    expect(() => canonicalizeJson(undefined)).toThrow('Cannot canonicalize undefined as JSON')
+  })
+
+  it('fails closed and throws TypeError on unsupported types (functions, symbols)', () => {
+    expect(() => canonicalizeJson(() => 'noop')).toThrow(TypeError)
+    expect(() => canonicalizeJson(Symbol('test'))).toThrow(TypeError)
+
+    // Properties with function/symbol are omitted in objects
+    const objWithFunc = { a: 1, fn: () => 'noop', sym: Symbol('s') }
+    expect(canonicalizeJson(objWithFunc)).toBe('{"a":1}')
+  })
 })
 
 describe('tryCanonicalizeJsonString', () => {

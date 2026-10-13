@@ -28,6 +28,7 @@ import {
   type WorkflowId,
   type WorkflowNode,
   type WorkflowTemplateV2,
+  type WorkflowArtifact,
 } from '@shared/domain'
 import { ArtifactService } from '../artifacts/artifactService'
 import { ArtifactStore } from '../db/artifactStore'
@@ -3645,6 +3646,67 @@ describe('GraphExecutor', () => {
         expect(attemptsAfter).toBe(attemptsBefore)
         expect(checkpointsAfter).toBe(checkpointsBefore)
       })
+
+      it('TC-2B-BOUND-05: default loopPolicy halts with HALTED_LIMIT: no-progress when loopPolicy option is omitted', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const done = makeNode('done')
+
+        const template = makeTemplate(
+          [worker, router, done],
+          [
+            { id: 'e-w-r', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'lt', value: 5 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'done',
+              isDefault: true,
+            },
+          ],
+        )
+
+        const staticArtifact: WorkflowArtifact = {
+          id: 'static-art-1',
+          workflowId,
+          nodeId: 'worker',
+          kind: 'data',
+          format: 'json',
+          title: 'data.json',
+          content: JSON.stringify({ state: 'constant' }),
+          metadata: {},
+          createdAt: NOW,
+        }
+
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: () => ({
+            status: 'completed',
+            artifacts: [staticArtifact],
+          }),
+        })
+
+        // loopPolicy explicitly omitted to test default maxRepeatedStates: 1
+        const result = await executor.run({
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        })
+
+        expect(result.status).toBe('halted')
+        expect(result.haltReason).toBe('HALTED_LIMIT: no-progress')
+      })
     })
 
     describe('Replay & Recovery (TC-2B-REC)', () => {
@@ -4026,6 +4088,462 @@ describe('GraphExecutor', () => {
         expect(parsed.selectedEdgeId).toBe('e-feedback')
         expect(parsed.targetNodeId).toBe('worker')
         expect(parsed.isFeedback).toBe(true)
+      })
+
+      it('TC-2B-REC-05: recovery when router decision artifact persisted but router completion checkpoint missing', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const done = makeNode('done')
+
+        const template = makeTemplate(
+          [worker, router, done],
+          [
+            { id: 'e-w-r', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'eq', value: 1 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'done',
+              isDefault: true,
+            },
+          ],
+        )
+
+        const graphRunId = randomUUID()
+        const now = new Date().toISOString()
+
+        workflowStore.startGraphRun(
+          {
+            graphRunId,
+            workflowId,
+            projectId,
+            templateId: template.id,
+            startedAt: now,
+          },
+          'system',
+        )
+
+        // Worker completed in iteration 1
+        workflowStore.recordNodeAttempt(
+          {
+            id: randomUUID(),
+            projectId,
+            graphRunId,
+            nodeId: 'worker',
+            attempt: 1,
+            status: 'ready',
+            startedAt: now,
+          },
+          'system',
+        )
+        workflowStore.updateNodeAttempt(
+          {
+            projectId,
+            graphRunId,
+            nodeId: 'worker',
+            attempt: 1,
+            status: 'completed',
+            finishedAt: now,
+            occurredAt: now,
+          },
+          'system',
+        )
+
+        // Router attempt started (running) but crashed before completion checkpoint
+        workflowStore.recordNodeAttempt(
+          {
+            id: randomUUID(),
+            projectId,
+            graphRunId,
+            nodeId: 'router',
+            attempt: 1,
+            status: 'running',
+            startedAt: now,
+          },
+          'system',
+        )
+
+        const executor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => ({
+            status: 'completed',
+            artifacts: [
+              {
+                id: randomUUID(),
+                workflowId,
+                nodeId: ctx.node.id,
+                kind: 'data',
+                format: 'json',
+                title: 'data.json',
+                content: JSON.stringify({ iter: ctx.iteration }),
+                metadata: {},
+                createdAt: NOW,
+              },
+            ],
+          }),
+        })
+
+        // Crash recovery marks in-flight router attempt failed
+        const recovered = await executor.recover(projectId)
+        expect(recovered).toHaveLength(1)
+        expect(recovered[0]!.status).toBe('failed')
+
+        const routerAttemptsAfterCrash = workflowStore.getNodeAttempts(graphRunId, 'router')
+        expect(routerAttemptsAfterCrash[0]!.status).toBe('failed')
+
+        // Graph execution resumes and retries router node
+        const resumed = await executor.run({
+          graphRunId,
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+          invalidatedNodeIds: new Set(['router']),
+        })
+
+        expect(resumed.status).toBe('completed')
+        const finalRouterAttempts = workflowStore.getNodeAttempts(graphRunId, 'router')
+        expect(finalRouterAttempts.length).toBeGreaterThanOrEqual(2)
+        expect(finalRouterAttempts[1]!.attempt).toBe(2)
+        expect(finalRouterAttempts[1]!.status).toBe('completed')
+      })
+
+      it('TC-2B-REC-06: recovery when router completion checkpoint persisted but iteration advancement has not committed', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const done = makeNode('done')
+
+        const template = makeTemplate(
+          [worker, router, done],
+          [
+            { id: 'e-w-r', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'eq', value: 1 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'done',
+              isDefault: true,
+            },
+          ],
+        )
+
+        const graphRunId = randomUUID()
+        const now = new Date().toISOString()
+
+        workflowStore.startGraphRun(
+          {
+            graphRunId,
+            workflowId,
+            projectId,
+            templateId: template.id,
+            startedAt: now,
+          },
+          'system',
+        )
+
+        // Worker completed in iteration 1
+        workflowStore.recordNodeAttempt(
+          {
+            id: randomUUID(),
+            projectId,
+            graphRunId,
+            nodeId: 'worker',
+            attempt: 1,
+            status: 'ready',
+            startedAt: now,
+          },
+          'system',
+        )
+        workflowStore.updateNodeAttempt(
+          {
+            projectId,
+            graphRunId,
+            nodeId: 'worker',
+            attempt: 1,
+            status: 'completed',
+            finishedAt: now,
+            occurredAt: now,
+          },
+          'system',
+        )
+
+        // Router completed in iteration 1 with evidenceId 'e-feedback', but iteration advancement did NOT commit
+        workflowStore.recordNodeAttempt(
+          {
+            id: randomUUID(),
+            projectId,
+            graphRunId,
+            nodeId: 'router',
+            attempt: 1,
+            status: 'ready',
+            startedAt: now,
+          },
+          'system',
+        )
+        workflowStore.updateNodeAttempt(
+          {
+            projectId,
+            graphRunId,
+            nodeId: 'router',
+            attempt: 1,
+            status: 'completed',
+            evidenceId: 'e-feedback',
+            finishedAt: now,
+            occurredAt: now,
+          },
+          'system',
+        )
+        workflowStore.writeGraphCheckpoint(
+          {
+            id: randomUUID(),
+            projectId,
+            graphRunId,
+            nodeId: 'router',
+            operation: 'node.completed',
+            stateSnapshot: {
+              readyNodeIds: [],
+              runningNodeIds: [],
+              completedNodeIds: ['worker', 'router'],
+              blockedNodeIds: [],
+              skippedNodeIds: [],
+            },
+            occurredAt: now,
+          },
+          'system',
+        )
+
+        // Assert transition has not yet been recorded
+        expect(workflowStore.getTransitionsForRun(graphRunId)).toHaveLength(0)
+
+        // Resuming execution must detect the completed router's feedback decision and advance iteration
+        const resumeExecutor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => ({
+            status: 'completed',
+            artifacts: [
+              {
+                id: randomUUID(),
+                workflowId,
+                nodeId: ctx.node.id,
+                kind: 'data',
+                format: 'json',
+                title: 'data.json',
+                content: JSON.stringify({ iter: ctx.iteration }),
+                metadata: {},
+                createdAt: NOW,
+              },
+            ],
+          }),
+        })
+
+        const resumedRun = await resumeExecutor.run({
+          graphRunId,
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        })
+
+        expect(resumedRun.status).toBe('completed')
+        expect(resumedRun.completedNodeIds).toContain('done')
+
+        // Transition was recorded during recovery
+        const transitions = workflowStore.getTransitionsForRun(graphRunId)
+        expect(transitions).toHaveLength(1)
+        expect(transitions[0]!.fromIteration).toBe(1)
+        expect(transitions[0]!.toIteration).toBe(2)
+
+        // Worker executed attempt 2 in iteration 2
+        const workerAttempts = workflowStore.getNodeAttempts(graphRunId, 'worker')
+        expect(workerAttempts).toHaveLength(2)
+        expect(workerAttempts[1]!.attempt).toBe(2)
+        expect(workerAttempts[1]!.status).toBe('completed')
+      })
+
+      it('TC-2B-REC-07: recovery when process resumes with target attempt started in iteration 2 but interrupted', async () => {
+        const worker = makeNode('worker')
+        const router = makeNode('router', { type: 'router' })
+        const done = makeNode('done')
+
+        const template = makeTemplate(
+          [worker, router, done],
+          [
+            { id: 'e-w-r', source: 'worker', target: 'router' },
+            {
+              id: 'e-feedback',
+              source: 'router',
+              target: 'worker',
+              isFeedback: true,
+              condition: {
+                mode: 'all',
+                predicates: [{ ref: 'iteration', operator: 'eq', value: 1 }],
+              },
+            },
+            {
+              id: 'e-exit',
+              source: 'router',
+              target: 'done',
+              isDefault: true,
+            },
+          ],
+        )
+
+        const graphRunId = randomUUID()
+        const now = new Date().toISOString()
+
+        workflowStore.startGraphRun(
+          {
+            graphRunId,
+            workflowId,
+            projectId,
+            templateId: template.id,
+            startedAt: now,
+          },
+          'system',
+        )
+
+        // Iteration 1 worker and router completed
+        workflowStore.recordNodeAttempt(
+          {
+            id: randomUUID(),
+            projectId,
+            graphRunId,
+            nodeId: 'worker',
+            attempt: 1,
+            status: 'ready',
+            startedAt: now,
+          },
+          'system',
+        )
+        workflowStore.updateNodeAttempt(
+          {
+            projectId,
+            graphRunId,
+            nodeId: 'worker',
+            attempt: 1,
+            status: 'completed',
+            finishedAt: now,
+            occurredAt: now,
+          },
+          'system',
+        )
+
+        workflowStore.recordNodeAttempt(
+          {
+            id: randomUUID(),
+            projectId,
+            graphRunId,
+            nodeId: 'router',
+            attempt: 1,
+            status: 'ready',
+            startedAt: now,
+          },
+          'system',
+        )
+        workflowStore.updateNodeAttempt(
+          {
+            projectId,
+            graphRunId,
+            nodeId: 'router',
+            attempt: 1,
+            status: 'completed',
+            finishedAt: now,
+            occurredAt: now,
+          },
+          'system',
+        )
+
+        // Iteration advanced to 2 in store
+        const advExecutor = new GraphExecutor({ workflowStore, worktreeService })
+        advExecutor.advanceLoopIteration({
+          template,
+          graphRunId,
+          sourceNodeId: 'router',
+          sourceAttempt: 1,
+          targetNodeId: 'worker',
+          fromIteration: 1,
+          toIteration: 2,
+          conditionMet: true,
+          checkpointId: null,
+          occurredAt: now,
+          actor: 'system',
+        })
+
+        // Worker attempt 2 recorded in iteration 2, but failed due to process crash
+        workflowStore.updateNodeAttempt(
+          {
+            projectId,
+            graphRunId,
+            nodeId: 'worker',
+            attempt: 2,
+            status: 'failed',
+            error: 'Process crashed during target attempt execution',
+            finishedAt: now,
+            occurredAt: now,
+          },
+          'system',
+        )
+
+        const resumeExecutor = new GraphExecutor({
+          workflowStore,
+          worktreeService,
+          executeLeafNode: (ctx) => ({
+            status: 'completed',
+            artifacts: [
+              {
+                id: randomUUID(),
+                workflowId,
+                nodeId: ctx.node.id,
+                kind: 'data',
+                format: 'json',
+                title: 'data.json',
+                content: JSON.stringify({ iter: ctx.iteration }),
+                metadata: {},
+                createdAt: NOW,
+              },
+            ],
+          }),
+        })
+
+        // Resumed run retries worker as attempt 3 in iteration 2
+        const resumedRun = await resumeExecutor.run({
+          graphRunId,
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+          invalidatedNodeIds: new Set(['worker']),
+        })
+
+        expect(resumedRun.status).toBe('completed')
+        expect(resumedRun.completedNodeIds).toContain('done')
+
+        // Worker attempts: 1 (completed, iter 1), 2 (failed, iter 2), 3 (completed, iter 2)
+        const finalWorkerAttempts = workflowStore.getNodeAttempts(graphRunId, 'worker')
+        expect(finalWorkerAttempts).toHaveLength(3)
+        expect(finalWorkerAttempts.map((a) => a.attempt)).toEqual([1, 2, 3])
+        expect(finalWorkerAttempts[2]!.status).toBe('completed')
+        expect(finalWorkerAttempts[2]!.iteration).toBe(2)
       })
     })
   })

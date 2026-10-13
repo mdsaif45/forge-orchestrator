@@ -4,19 +4,38 @@
  * Guarantees that semantically identical JSON objects produce identical strings
  * regardless of key insertion order. Preserves explicit array element ordering.
  *
+ * Fails closed on unsupported top-level undefined, functions, and symbols.
+ * Omits object properties with undefined values and normalizes array undefined
+ * elements to null, strictly conforming to RFC 8259 and standard JSON semantics.
+ *
  * Adheres to ADR-004 Rule 1: Pure domain module with zero dependencies on Node.js built-ins.
  */
 export function canonicalizeJson(value: unknown): string {
+  if (value === undefined) {
+    throw new TypeError('Cannot canonicalize undefined as JSON')
+  }
+
+  if (typeof value === 'function' || typeof value === 'symbol') {
+    throw new TypeError(`Cannot canonicalize ${typeof value} as JSON`)
+  }
+
   if (value === null || typeof value !== 'object') {
     return JSON.stringify(value)
   }
 
   if (Array.isArray(value)) {
-    return `[${value.map((element: unknown) => canonicalizeJson(element)).join(',')}]`
+    return `[${value.map((element: unknown) => (element === undefined ? 'null' : canonicalizeJson(element))).join(',')}]`
   }
 
   const record = value as Record<string, unknown>
-  const keys = Object.keys(record).sort()
+  const keys = Object.keys(record)
+    .filter(
+      (key) =>
+        record[key] !== undefined &&
+        typeof record[key] !== 'function' &&
+        typeof record[key] !== 'symbol',
+    )
+    .sort()
   const entries = keys.map((key) => `${JSON.stringify(key)}:${canonicalizeJson(record[key])}`)
   return `{${entries.join(',')}}`
 }

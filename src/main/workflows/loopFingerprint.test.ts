@@ -107,6 +107,37 @@ describe('loopFingerprint (WORK-003 Slice 2B Canonical Fingerprint)', () => {
     expect(fp1).toBe(fp2)
   })
 
+  it('produces identical fingerprint when metadata or router decisions have undefined properties vs omitted', () => {
+    const artWithUndef = {
+      ...baseArtifact,
+      metadata: { author: 'evaluator', extra: undefined },
+    }
+    const artWithoutUndef = {
+      ...baseArtifact,
+      metadata: { author: 'evaluator' },
+    }
+
+    const fpArt1 = computeIterationFingerprint({ artifacts: [artWithUndef] })
+    const fpArt2 = computeIterationFingerprint({ artifacts: [artWithoutUndef] })
+    expect(fpArt1).toBe(fpArt2)
+
+    const decWithUndef: RouterDecisionRecord = {
+      routerNodeId: 'r-A',
+      selectedEdgeId: 'e1',
+      targetNodeId: 't1',
+      isFeedback: undefined,
+    }
+    const decWithoutUndef: RouterDecisionRecord = {
+      routerNodeId: 'r-A',
+      selectedEdgeId: 'e1',
+      targetNodeId: 't1',
+    }
+
+    const fpDec1 = computeIterationFingerprint({ routerDecisions: [decWithUndef] })
+    const fpDec2 = computeIterationFingerprint({ routerDecisions: [decWithoutUndef] })
+    expect(fpDec1).toBe(fpDec2)
+  })
+
   it('alters fingerprint when meaningful artifact content changes', () => {
     const artA = { ...baseArtifact, content: JSON.stringify({ score: 95 }) }
     const artB = { ...baseArtifact, content: JSON.stringify({ score: 80 }) }

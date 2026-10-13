@@ -7,6 +7,7 @@ import {
   WorkflowGraphCycleError,
   workflowNodeSchema,
   workflowTemplateV2Schema,
+  loopPolicySchema,
   type WorkflowEdge,
   type WorkflowNode,
 } from './workflowGraph'
@@ -567,5 +568,14 @@ describe('WORK-003 Slice 2B Static Topology Validation', () => {
         maxNodeAttempts: 1.5,
       })
     }).toThrow('Invalid loop policy: maxNodeAttempts must be a positive integer, got 1.5')
+  })
+
+  it('TC-2B-VAL-08: asserts loopPolicySchema default bounds match normative Axiom A5 / ADR-007 contracts', () => {
+    const defaults = loopPolicySchema.parse({})
+    expect(defaults).toEqual({
+      maxIterations: 5,
+      maxRepeatedStates: 1,
+      maxNodeAttempts: 10,
+    })
   })
 })

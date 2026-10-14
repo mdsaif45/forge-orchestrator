@@ -2179,7 +2179,11 @@ export class GraphExecutor {
           }
         }
       }
-      if (!slotMap.has(slot.name) && initialContext[slot.name] !== undefined) {
+      if (
+        !slotMap.has(slot.name) &&
+        !explicitlyBoundSlots.has(slot.name) &&
+        initialContext[slot.name] !== undefined
+      ) {
         const fallbackArtifact: WorkflowArtifact = {
           id: randomUUID(),
           workflowId,

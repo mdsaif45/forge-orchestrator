@@ -9273,5 +9273,489 @@ describe('GraphExecutor', () => {
         `Incompatible artifact kind on edge "e-rec-wrong-kind" from source "nodeA" for target slot "specSlot": expected kind "stage-output", but resolved artifact "${mismatchArtifactId}" has kind "diff"`,
       )
     })
+
+    // TC-2C-REC-35: An edge explicitly references a declared output that the source does not produce.
+    // A same-named initial-context value exists. The explicitly bound target slot must not be satisfied by that context value.
+    it('TC-2C-REC-35: An edge explicitly references a declared output that source does not produce; initial-context must not satisfy it', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'analysis',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'report',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-explicit-analysis-ctx',
+            source: 'nodeA',
+            sourceHandle: 'analysis',
+            target: 'nodeB',
+            targetHandle: 'report',
+          },
+        ],
+      )
+
+      let nodeBExecuted = false
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            // Emits different artifact of kind 'stage-output', does not emit 'analysis'
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'unrelatedReport',
+                  content: JSON.stringify({ other: true }),
+                  metadata: { outputName: 'unrelatedReport' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: {
+          report: JSON.stringify({ fakeContext: true }),
+        },
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.completedNodeIds).toContain('nodeA')
+      expect(run.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      expect(attemptsB).toHaveLength(1)
+      expect(attemptsB[0]?.status).toBe('blocked')
+      expect(attemptsB[0]?.error).toBe(
+        'Explicitly referenced declared output "analysis" from source "nodeA" was not produced for target slot "report" on edge "e-explicit-analysis-ctx"',
+      )
+    })
+
+    // TC-2C-REC-36: Recovery hydration preserves fail-closed blocking when initial-context value exists for missing explicit output.
+    it('TC-2C-REC-36: Recovery hydration preserves fail-closed blocking when initial-context value exists for missing explicit output', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'analysis',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'report',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-rec-analysis-ctx',
+            source: 'nodeA',
+            sourceHandle: 'analysis',
+            target: 'nodeB',
+            targetHandle: 'report',
+          },
+        ],
+      )
+
+      // Step 1: Run Node A to completion, writing unrelatedReport to ArtifactService
+      const executor1 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'unrelatedReport',
+                  content: JSON.stringify({ other: true }),
+                  metadata: { outputName: 'unrelatedReport' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            throw new Error('Interrupted before node B')
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run1 = await executor1.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: {
+          report: JSON.stringify({ fakeContext: true }),
+        },
+      })
+      expect(run1.completedNodeIds).toContain('nodeA')
+
+      // Step 2: Resume with fresh executor after crash
+      let nodeBExecuted = false
+      const executor2 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run2 = await executor2.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        invalidatedNodeIds: new Set(['nodeB']),
+        initialContext: {
+          report: JSON.stringify({ fakeContext: true }),
+        },
+      })
+
+      expect(run2.status).toBe('failed')
+      expect(run2.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      const latestAttemptB = attemptsB.at(-1)
+      expect(latestAttemptB?.status).toBe('blocked')
+      expect(latestAttemptB?.error).toBe(
+        'Explicitly referenced declared output "analysis" from source "nodeA" was not produced for target slot "report" on edge "e-rec-analysis-ctx"',
+      )
+    })
+
+    // TC-2C-REC-37: A valid initial-context value still satisfies an input slot that has no explicit unresolved edge binding.
+    it('TC-2C-REC-37: Valid initial-context value still satisfies an input slot that has no explicit edge binding', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'dataOut',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'dataIn',
+                kind: 'stage-output',
+                required: true,
+              },
+              {
+                name: 'configSlot',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-data',
+            source: 'nodeA',
+            sourceHandle: 'dataOut',
+            target: 'nodeB',
+            targetHandle: 'dataIn',
+          },
+        ],
+      )
+
+      let nodeBIncomingSlots: ReadonlyMap<string, WorkflowArtifact> | undefined
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'dataOut',
+                  content: JSON.stringify({ realData: 42 }),
+                  metadata: { outputName: 'dataOut' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBIncomingSlots = ctx.incomingSlots
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: {
+          configSlot: JSON.stringify({ initialSetting: 'active' }),
+        },
+      })
+
+      expect(run.status).toBe('completed')
+      expect(run.completedNodeIds).toContain('nodeB')
+      expect(nodeBIncomingSlots).toBeDefined()
+      expect(nodeBIncomingSlots!.has('dataIn')).toBe(true)
+      expect(JSON.parse(nodeBIncomingSlots!.get('dataIn')!.content)).toEqual({ realData: 42 })
+      expect(nodeBIncomingSlots!.has('configSlot')).toBe(true)
+      const configArt = nodeBIncomingSlots!.get('configSlot')!
+      expect(JSON.parse(configArt.content)).toEqual({ initialSetting: 'active' })
+      expect(configArt.metadata.isInitialContext).toBe(true)
+    })
+
+    // TC-2C-REC-38: An optional explicitly referenced output that is absent remains optional,
+    // but is never substituted with an initial-context value or another artifact.
+    it('TC-2C-REC-38: Absent optional explicitly referenced output remains optional and is not substituted with initialContext', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'requiredReport',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+              {
+                name: 'optionalAnalysis',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'boundReport',
+                kind: 'stage-output',
+                required: true,
+              },
+              {
+                name: 'boundOptional',
+                kind: 'stage-output',
+                required: false,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-report',
+            source: 'nodeA',
+            sourceHandle: 'requiredReport',
+            target: 'nodeB',
+            targetHandle: 'boundReport',
+          },
+          {
+            id: 'e-opt',
+            source: 'nodeA',
+            sourceHandle: 'optionalAnalysis',
+            target: 'nodeB',
+            targetHandle: 'boundOptional',
+          },
+        ],
+      )
+
+      let nodeBIncomingSlots: ReadonlyMap<string, WorkflowArtifact> | undefined
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            // Produces requiredReport; omits optionalAnalysis
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'requiredReport',
+                  content: JSON.stringify({ r: 1 }),
+                  metadata: { outputName: 'requiredReport' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBIncomingSlots = ctx.incomingSlots
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: {
+          boundOptional: JSON.stringify({ contextInjected: true }),
+        },
+      })
+
+      expect(run.status).toBe('completed')
+      expect(run.completedNodeIds).toContain('nodeB')
+      expect(nodeBIncomingSlots).toBeDefined()
+      expect(nodeBIncomingSlots!.has('boundReport')).toBe(true)
+      expect(JSON.parse(nodeBIncomingSlots!.get('boundReport')!.content)).toEqual({ r: 1 })
+      // Crucial: boundOptional was explicitly bound by edge 'e-opt', so even though optionalAnalysis was absent
+      // and boundOptional is an optional slot, initialContext must NOT substitute into it!
+      expect(nodeBIncomingSlots!.has('boundOptional')).toBe(false)
+    })
   })
 })

@@ -8736,5 +8736,542 @@ describe('GraphExecutor', () => {
         'Ambiguous artifact resolution on edge "e-rec-ambiguous" from source "nodeA" to target slot "slotUnmatched": multiple candidates (2) found of kind "stage-output" without a unique identity match',
       )
     })
+
+    // TC-2C-REC-30: Explicitly referenced declared output is missing while source emits different artifact of same kind; target must be blocked.
+    it('TC-2C-REC-30: Explicitly referenced declared output is missing while source emits different artifact of same kind', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'analysis',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'report',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-explicit-analysis',
+            source: 'nodeA',
+            sourceHandle: 'analysis',
+            target: 'nodeB',
+            targetHandle: 'report',
+          },
+        ],
+      )
+
+      let nodeBExecuted = false
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            // Emits a different artifact of kind 'stage-output', but does not emit 'analysis'
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'unrelatedReport',
+                  content: JSON.stringify({ other: true }),
+                  metadata: { outputName: 'unrelatedReport' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.completedNodeIds).toContain('nodeA')
+      expect(run.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      expect(attemptsB).toHaveLength(1)
+      expect(attemptsB[0]?.status).toBe('blocked')
+      expect(attemptsB[0]?.error).toBe(
+        'Explicitly referenced declared output "analysis" from source "nodeA" was not produced for target slot "report" on edge "e-explicit-analysis"',
+      )
+    })
+
+    // TC-2C-REC-31: Recovery hydration preserves fail-closed blocking when explicitly referenced declared output is missing.
+    it('TC-2C-REC-31: Recovery hydration preserves fail-closed blocking when explicitly referenced declared output is missing', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'analysis',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'report',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-rec-analysis',
+            source: 'nodeA',
+            sourceHandle: 'analysis',
+            target: 'nodeB',
+            targetHandle: 'report',
+          },
+        ],
+      )
+
+      // Step 1: Run Node A to completion, writing unrelatedReport to ArtifactService
+      const executor1 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'unrelatedReport',
+                  content: JSON.stringify({ other: true }),
+                  metadata: { outputName: 'unrelatedReport' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            throw new Error('Interrupted before node B')
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run1 = await executor1.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+      expect(run1.completedNodeIds).toContain('nodeA')
+
+      // Step 2: Resume with fresh executor after process crash
+      let nodeBExecuted = false
+      const executor2 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run2 = await executor2.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        invalidatedNodeIds: new Set(['nodeB']),
+      })
+
+      expect(run2.status).toBe('failed')
+      expect(run2.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      const latestAttemptB = attemptsB.at(-1)
+      expect(latestAttemptB?.status).toBe('blocked')
+      expect(latestAttemptB?.error).toBe(
+        'Explicitly referenced declared output "analysis" from source "nodeA" was not produced for target slot "report" on edge "e-rec-analysis"',
+      )
+    })
+
+    // TC-2C-REC-32: Matching target-handle name but wrong artifact kind fails closed with diagnostic.
+    it('TC-2C-REC-32: Matching target-handle name but wrong artifact kind fails closed with diagnostic', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA'),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'specSlot',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-name-wrong-kind',
+            source: 'nodeA',
+            target: 'nodeB',
+            targetHandle: 'specSlot',
+          },
+        ],
+      )
+
+      let nodeBExecuted = false
+      const mismatchArtifactId = randomUUID()
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: mismatchArtifactId,
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'diff', // wrong kind! Expected 'stage-output', but 'diff' is a valid artifactKindSchema
+                  format: 'diff',
+                  title: 'specSlot',
+                  content: 'plain text data',
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      expect(attemptsB).toHaveLength(1)
+      expect(attemptsB[0]?.status).toBe('blocked')
+      expect(attemptsB[0]?.error).toBe(
+        `Incompatible artifact kind on edge "e-name-wrong-kind" from source "nodeA" for target slot "specSlot": expected kind "stage-output", but resolved artifact "${mismatchArtifactId}" has kind "diff"`,
+      )
+    })
+
+    // TC-2C-REC-33: Matching target-handle name and correct artifact kind succeeds.
+    it('TC-2C-REC-33: Matching target-handle name and correct artifact kind succeeds', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA'),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'specSlot',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-name-correct-kind',
+            source: 'nodeA',
+            target: 'nodeB',
+            targetHandle: 'specSlot',
+          },
+        ],
+      )
+
+      let nodeBReceivedArtifact: WorkflowArtifact | undefined
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'specSlot',
+                  content: JSON.stringify({ verified: true }),
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBReceivedArtifact = ctx.incomingSlots.get('specSlot')
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('completed')
+      expect(run.completedNodeIds).toContain('nodeB')
+      expect(nodeBReceivedArtifact).toBeDefined()
+      expect(JSON.parse(nodeBReceivedArtifact!.content)).toEqual({ verified: true })
+    })
+
+    // TC-2C-REC-34: Recovery hydration preserves fail-closed blocking on incompatible artifact kind for target-handle name match.
+    it('TC-2C-REC-34: Recovery hydration preserves fail-closed blocking on incompatible artifact kind for target-handle match', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA'),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'specSlot',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-rec-wrong-kind',
+            source: 'nodeA',
+            target: 'nodeB',
+            targetHandle: 'specSlot',
+          },
+        ],
+      )
+
+      const mismatchArtifactId = randomUUID()
+
+      // Step 1: Node A completes and persists incompatible artifact to ArtifactService
+      const executor1 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: mismatchArtifactId,
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'diff',
+                  format: 'diff',
+                  title: 'specSlot',
+                  content: 'diff --git ...',
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            throw new Error('Interrupted')
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run1 = await executor1.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+      expect(run1.completedNodeIds).toContain('nodeA')
+
+      // Step 2: Resume with fresh executor
+      let nodeBExecuted = false
+      const executor2 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run2 = await executor2.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        invalidatedNodeIds: new Set(['nodeB']),
+      })
+
+      expect(run2.status).toBe('failed')
+      expect(run2.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      const latestAttemptB = attemptsB.at(-1)
+      expect(latestAttemptB?.status).toBe('blocked')
+      expect(latestAttemptB?.error).toBe(
+        `Incompatible artifact kind on edge "e-rec-wrong-kind" from source "nodeA" for target slot "specSlot": expected kind "stage-output", but resolved artifact "${mismatchArtifactId}" has kind "diff"`,
+      )
+    })
   })
 })

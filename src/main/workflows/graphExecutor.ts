@@ -1831,8 +1831,27 @@ export class GraphExecutor {
       if (declaredOutput && sourceHandle) {
         // Edge explicitly identifies a declared named output:
         // Must resolve strictly by established identity. Never substitute an arbitrary artifact of matching kind.
-        const targetSlotName = edge.targetHandle ?? sourceHandle
+        const targetSlot = edge.targetHandle
+          ? node.inputs.find((s) => s.name === edge.targetHandle)
+          : (node.inputs.find((s) => s.name === sourceHandle) ??
+            (node.inputs.filter((s) => s.kind === declaredOutput.kind).length === 1
+              ? node.inputs.find((s) => s.kind === declaredOutput.kind)
+              : undefined))
+        const targetSlotName = targetSlot?.name ?? edge.targetHandle ?? sourceHandle
         explicitlyBoundSlots.add(targetSlotName)
+        explicitlyBoundSlots.add(sourceHandle)
+        if (edge.targetHandle) {
+          explicitlyBoundSlots.add(edge.targetHandle)
+        }
+
+        // Verify kind compatibility with declared target input slot
+        if (targetSlot && targetSlot.kind !== declaredOutput.kind) {
+          return {
+            inputArtifacts: artifacts,
+            incomingSlots: slotMap,
+            resolutionError: `Incompatible artifact kind on edge "${edge.id}" from source "${edge.source}" for target slot "${targetSlotName}": expected kind "${targetSlot.kind}", but declared output "${sourceHandle}" has kind "${declaredOutput.kind}"`,
+          }
+        }
 
         const matchedCandidates = sourceArtifacts.filter(
           (a) => a.kind === declaredOutput.kind && this.matchesArtifactName(a, sourceHandle),
@@ -1840,6 +1859,13 @@ export class GraphExecutor {
         if (matchedCandidates.length === 1) {
           const matched = matchedCandidates[0]
           if (matched) {
+            if (targetSlot && matched.kind !== targetSlot.kind) {
+              return {
+                inputArtifacts: artifacts,
+                incomingSlots: slotMap,
+                resolutionError: `Incompatible artifact kind on edge "${edge.id}" from source "${edge.source}" for target slot "${targetSlotName}": expected kind "${targetSlot.kind}", but resolved artifact "${matched.id}" has kind "${matched.kind}"`,
+              }
+            }
             slotMap.set(targetSlotName, matched)
             if (!artifacts.some((a) => a.id === matched.id)) {
               artifacts.push(matched)
@@ -1851,11 +1877,28 @@ export class GraphExecutor {
             incomingSlots: slotMap,
             resolutionError: `Ambiguous artifact resolution on edge "${edge.id}" from source "${edge.source}" to target slot "${targetSlotName}": multiple candidates (${String(matchedCandidates.length)}) found of kind "${declaredOutput.kind}" for declared output "${sourceHandle}"`,
           }
+        } else {
+          // matchedCandidates.length === 0: explicitly referenced declared output was not produced
+          if (targetSlot?.required !== false || declaredOutput.required === true) {
+            return {
+              inputArtifacts: artifacts,
+              incomingSlots: slotMap,
+              resolutionError: `Explicitly referenced declared output "${sourceHandle}" from source "${edge.source}" was not produced for target slot "${targetSlotName}" on edge "${edge.id}"`,
+            }
+          }
         }
       } else if (sourceHandle) {
         // edge.sourceHandle is not a declared output name on sourceNode.
         // It could be an undeclared artifact title or an artifact kind.
-        const targetSlotName = edge.targetHandle ?? sourceHandle
+        const targetSlot = edge.targetHandle
+          ? node.inputs.find((s) => s.name === edge.targetHandle)
+          : (node.inputs.find((s) => s.name === sourceHandle) ??
+            (node.inputs.filter((s) => s.kind === sourceHandle).length === 1
+              ? node.inputs.find((s) => s.kind === sourceHandle)
+              : undefined))
+        const targetSlotName = targetSlot?.name ?? edge.targetHandle ?? sourceHandle
+        explicitlyBoundSlots.add(targetSlotName)
+        explicitlyBoundSlots.add(sourceHandle)
         if (edge.targetHandle) {
           explicitlyBoundSlots.add(edge.targetHandle)
         }
@@ -1867,6 +1910,13 @@ export class GraphExecutor {
         if (exactMatches.length === 1) {
           const exactMatch = exactMatches[0]
           if (exactMatch) {
+            if (targetSlot && exactMatch.kind !== targetSlot.kind) {
+              return {
+                inputArtifacts: artifacts,
+                incomingSlots: slotMap,
+                resolutionError: `Incompatible artifact kind on edge "${edge.id}" from source "${edge.source}" for target slot "${targetSlotName}": expected kind "${targetSlot.kind}", but resolved artifact "${exactMatch.id}" has kind "${exactMatch.kind}"`,
+              }
+            }
             slotMap.set(targetSlotName, exactMatch)
             if (!artifacts.some((a) => a.id === exactMatch.id)) {
               artifacts.push(exactMatch)
@@ -1899,8 +1949,17 @@ export class GraphExecutor {
           if (candidateArtifacts.length === 1) {
             const matched = candidateArtifacts[0]
             if (matched) {
+              if (targetSlot && matched.kind !== targetSlot.kind) {
+                return {
+                  inputArtifacts: artifacts,
+                  incomingSlots: slotMap,
+                  resolutionError: `Incompatible artifact kind on edge "${edge.id}" from source "${edge.source}" for target slot "${targetSlotName}": expected kind "${targetSlot.kind}", but resolved artifact "${matched.id}" has kind "${matched.kind}"`,
+                }
+              }
               const finalSlotName =
-                edge.targetHandle ?? (sourceHandle !== matched.kind ? sourceHandle : matched.kind)
+                edge.targetHandle ??
+                targetSlot?.name ??
+                (sourceHandle !== matched.kind ? sourceHandle : matched.kind)
               slotMap.set(finalSlotName, matched)
               if (!artifacts.some((a) => a.id === matched.id)) {
                 artifacts.push(matched)
@@ -1917,6 +1976,13 @@ export class GraphExecutor {
             if (targetMatches.length === 1) {
               const matched = targetMatches[0]
               if (matched && targetHandle) {
+                if (targetSlot && matched.kind !== targetSlot.kind) {
+                  return {
+                    inputArtifacts: artifacts,
+                    incomingSlots: slotMap,
+                    resolutionError: `Incompatible artifact kind on edge "${edge.id}" from source "${edge.source}" for target slot "${targetSlotName}": expected kind "${targetSlot.kind}", but resolved artifact "${matched.id}" has kind "${matched.kind}"`,
+                  }
+                }
                 slotMap.set(targetHandle, matched)
                 if (!artifacts.some((a) => a.id === matched.id)) {
                   artifacts.push(matched)
@@ -1952,6 +2018,13 @@ export class GraphExecutor {
           if (nameMatches.length === 1) {
             const matched = nameMatches[0]
             if (matched) {
+              if (targetSlot && matched.kind !== targetSlot.kind) {
+                return {
+                  inputArtifacts: artifacts,
+                  incomingSlots: slotMap,
+                  resolutionError: `Incompatible artifact kind on edge "${edge.id}" from source "${edge.source}" for target slot "${targetHandle}": expected kind "${targetSlot.kind}", but resolved artifact "${matched.id}" has kind "${matched.kind}"`,
+                }
+              }
               slotMap.set(targetHandle, matched)
               if (!artifacts.some((a) => a.id === matched.id)) {
                 artifacts.push(matched)
@@ -2000,7 +2073,13 @@ export class GraphExecutor {
             if (kindList.length === 1) {
               const art = kindList[0]
               if (art) {
-                slotMap.set(kind, art)
+                const targetSlot =
+                  node.inputs.find((s) => s.name === kind) ??
+                  (node.inputs.filter((s) => s.kind === kind).length === 1
+                    ? node.inputs.find((s) => s.kind === kind)
+                    : undefined)
+                const boundSlot = targetSlot?.name ?? kind
+                slotMap.set(boundSlot, art)
                 if (!artifacts.some((a) => a.id === art.id)) {
                   artifacts.push(art)
                 }
@@ -2031,6 +2110,12 @@ export class GraphExecutor {
         // Do not auto-wire if the slot was explicitly bound by an edge that failed to resolve
         if (!explicitlyBoundSlots.has(slot.name)) {
           for (const edge of incomingEdges) {
+            // If the edge explicitly identified a sourceHandle, that edge's binding was explicit.
+            // Do not use this edge for generic auto-wiring.
+            if (edge.sourceHandle) {
+              continue
+            }
+
             const lineage = currentLineage.get(edge.source)
             const sourceArtifacts = lineage?.artifacts ?? []
             const sourceNode = templateNodes.find((n) => n.id === edge.source)
@@ -2067,6 +2152,18 @@ export class GraphExecutor {
             const sourceKindOutputCount =
               sourceNode?.outputs.filter((o) => o.kind === slot.kind).length ?? 0
             if (sourceKindOutputCount <= 1) {
+              // If source declared an output of that kind, verify it wasn't a declared output that was missing
+              const declaredOutputOfKind = sourceNode?.outputs.find((o) => o.kind === slot.kind)
+              if (declaredOutputOfKind) {
+                const producedDeclared = sourceArtifacts.find(
+                  (a) =>
+                    a.kind === slot.kind && this.matchesArtifactName(a, declaredOutputOfKind.name),
+                )
+                if (!producedDeclared) {
+                  continue
+                }
+              }
+
               const sameKindArtifacts = sourceArtifacts.filter((a) => a.kind === slot.kind)
               if (sameKindArtifacts.length === 1) {
                 const matched = sameKindArtifacts[0]

@@ -1450,6 +1450,7 @@ describe('GraphExecutor', () => {
       const executor = new GraphExecutor({
         workflowStore,
         worktreeService,
+        testOnlyAllowEphemeralArtifacts: true,
         executeLeafNode: () => {
           attemptCounter++
           return {
@@ -1511,6 +1512,7 @@ describe('GraphExecutor', () => {
       const executor = new GraphExecutor({
         workflowStore,
         worktreeService,
+        testOnlyAllowEphemeralArtifacts: true,
         executeLeafNode: (ctx) => {
           if (ctx.node.id === 'A') {
             aCount++
@@ -1593,6 +1595,7 @@ describe('GraphExecutor', () => {
       const executor = new GraphExecutor({
         workflowStore,
         worktreeService,
+        testOnlyAllowEphemeralArtifacts: true,
         executeLeafNode: (ctx) => {
           if (ctx.node.id === 'A') {
             return {
@@ -1677,6 +1680,7 @@ describe('GraphExecutor', () => {
       const executor = new GraphExecutor({
         workflowStore,
         worktreeService,
+        testOnlyAllowEphemeralArtifacts: true,
         executeLeafNode: (ctx) => {
           if (ctx.node.id === 'A') {
             return {
@@ -2252,6 +2256,7 @@ describe('GraphExecutor', () => {
       const executor = new GraphExecutor({
         workflowStore,
         worktreeService,
+        testOnlyAllowEphemeralArtifacts: true,
         executeLeafNode: (ctx) => {
           if (ctx.node.id === 'producer') {
             return {
@@ -2791,6 +2796,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -3008,6 +3014,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -3078,6 +3085,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => {
             if (ctx.node.id === 'worker') {
               if (ctx.iteration === 1) {
@@ -3153,6 +3161,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => {
             if (ctx.node.id === 'worker') {
               if (ctx.iteration === 1) {
@@ -3249,6 +3258,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => {
             if (ctx.node.id === 'worker' && ctx.iteration === 1) {
               return {
@@ -3321,6 +3331,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => {
             if (ctx.worktreePath) {
               worktreePaths.push(ctx.worktreePath)
@@ -3405,6 +3416,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: () => ({
             status: 'completed',
             artifacts: [staticArtifact],
@@ -3463,6 +3475,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -3528,6 +3541,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -3597,6 +3611,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -3691,6 +3706,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: () => ({
             status: 'completed',
             artifacts: [staticArtifact],
@@ -3742,6 +3758,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -3918,6 +3935,7 @@ describe('GraphExecutor', () => {
         const resumeExecutor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -3985,6 +4003,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -4049,6 +4068,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -4176,6 +4196,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -4339,6 +4360,7 @@ describe('GraphExecutor', () => {
         const resumeExecutor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -4508,6 +4530,7 @@ describe('GraphExecutor', () => {
         const resumeExecutor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -7420,6 +7443,741 @@ describe('GraphExecutor', () => {
       expect(checkpoints.some((c) => c.nodeId === 'nodeA' && c.operation === 'node.failed')).toBe(
         true,
       )
+    })
+
+    // TC-2C-REC-19: A named output is missing while another artifact of the same kind exists.
+    it('TC-2C-REC-19: A named output is missing while another artifact of the same kind exists', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'unrelatedOutput',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'expectedSlot',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-a-b',
+            source: 'nodeA',
+            sourceHandle: 'missingNamedOutput',
+            target: 'nodeB',
+            targetHandle: 'expectedSlot',
+          },
+        ],
+      )
+
+      let bRan = false
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'unrelatedOutput',
+                  content: JSON.stringify({ message: 'unrelated' }),
+                  metadata: { outputName: 'unrelatedOutput' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            bRan = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      // Node B must NOT substitute unrelatedOutput into expectedSlot merely because the kind matches
+      expect(run.status).toBe('failed')
+      expect(run.completedNodeIds).toContain('nodeA')
+      expect(run.blockedNodeIds).toContain('nodeB')
+      expect(bRan).toBe(false)
+
+      const bAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      expect(bAttempts).toHaveLength(1)
+      expect(bAttempts[0]!.status).toBe('blocked')
+      expect(bAttempts[0]!.error).toMatch(/Missing required input slot: expectedSlot/i)
+    })
+
+    // TC-2C-REC-20: Two outputs share a kind and each edge must resolve its own artifact.
+    it('TC-2C-REC-20: Two outputs share a kind and each edge must resolve its own artifact', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'artifactAlpha',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+              {
+                name: 'artifactBeta',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'slotAlpha',
+                kind: 'stage-output',
+                required: true,
+              },
+              {
+                name: 'slotBeta',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-alpha',
+            source: 'nodeA',
+            sourceHandle: 'artifactAlpha',
+            target: 'nodeB',
+            targetHandle: 'slotAlpha',
+          },
+          {
+            id: 'e-beta',
+            source: 'nodeA',
+            sourceHandle: 'artifactBeta',
+            target: 'nodeB',
+            targetHandle: 'slotBeta',
+          },
+        ],
+      )
+
+      let receivedSlotAlpha: WorkflowArtifact | undefined
+      let receivedSlotBeta: WorkflowArtifact | undefined
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'artifactAlpha',
+                  content: JSON.stringify({ identity: 'alpha' }),
+                  metadata: { outputName: 'artifactAlpha' },
+                  createdAt: NOW,
+                },
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'artifactBeta',
+                  content: JSON.stringify({ identity: 'beta' }),
+                  metadata: { outputName: 'artifactBeta' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            receivedSlotAlpha = ctx.incomingSlots.get('slotAlpha')
+            receivedSlotBeta = ctx.incomingSlots.get('slotBeta')
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('completed')
+      expect(run.completedNodeIds).toEqual(['nodeA', 'nodeB'])
+
+      expect(receivedSlotAlpha).toBeDefined()
+      expect(receivedSlotBeta).toBeDefined()
+      expect(JSON.parse(receivedSlotAlpha!.content)).toEqual({ identity: 'alpha' })
+      expect(JSON.parse(receivedSlotBeta!.content)).toEqual({ identity: 'beta' })
+    })
+
+    // TC-2C-REC-21: An optional named output is absent and must not receive an unrelated artifact.
+    it('TC-2C-REC-21: An optional named output is absent and must not receive an unrelated artifact', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'requiredReport',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+              {
+                name: 'optionalDiagnostics',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'boundReport',
+                kind: 'stage-output',
+                required: true,
+              },
+              {
+                name: 'boundDiagnostics',
+                kind: 'stage-output',
+                required: false,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-report',
+            source: 'nodeA',
+            sourceHandle: 'requiredReport',
+            target: 'nodeB',
+            targetHandle: 'boundReport',
+          },
+          {
+            id: 'e-diag',
+            source: 'nodeA',
+            sourceHandle: 'optionalDiagnostics',
+            target: 'nodeB',
+            targetHandle: 'boundDiagnostics',
+          },
+        ],
+      )
+
+      let nodeBIncomingSlots: ReadonlyMap<string, WorkflowArtifact> | undefined
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            // Only produces requiredReport; optionalDiagnostics is legitimately omitted
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'requiredReport',
+                  content: JSON.stringify({ type: 'report' }),
+                  metadata: { outputName: 'requiredReport' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBIncomingSlots = ctx.incomingSlots
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('completed')
+      expect(nodeBIncomingSlots).toBeDefined()
+      expect(nodeBIncomingSlots!.has('boundReport')).toBe(true)
+      expect(JSON.parse(nodeBIncomingSlots!.get('boundReport')!.content)).toEqual({
+        type: 'report',
+      })
+      // Crucial: optionalDiagnostics was absent, so boundDiagnostics must remain undefined, NOT substituted with requiredReport
+      expect(nodeBIncomingSlots!.has('boundDiagnostics')).toBe(false)
+    })
+
+    // TC-2C-REC-22: Existing kind-based edge routing remains compatible.
+    it('TC-2C-REC-22: Existing kind-based edge routing remains compatible', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      // Template uses sourceHandle: 'stage-output' as an artifact kind rather than a named output
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'legacyOutput',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'stage-output',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-kind-based',
+            source: 'nodeA',
+            sourceHandle: 'stage-output',
+            target: 'nodeB',
+            targetHandle: 'stage-output',
+          },
+        ],
+      )
+
+      let nodeBReceivedArtifact: WorkflowArtifact | undefined
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'legacyOutput',
+                  content: JSON.stringify({ legacy: true }),
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBReceivedArtifact = ctx.incomingSlots.get('stage-output')
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('completed')
+      expect(nodeBReceivedArtifact).toBeDefined()
+      expect(JSON.parse(nodeBReceivedArtifact!.content)).toEqual({ legacy: true })
+    })
+
+    // TC-2C-REC-23: Recovery hydration and normal execution resolve the same output identity.
+    it('TC-2C-REC-23: Recovery hydration and normal execution resolve the same output identity', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'configReport',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+              {
+                name: 'dataReport',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'resolvedConfig',
+                kind: 'stage-output',
+                required: true,
+              },
+              {
+                name: 'resolvedData',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-cfg',
+            source: 'nodeA',
+            sourceHandle: 'configReport',
+            target: 'nodeB',
+            targetHandle: 'resolvedConfig',
+          },
+          {
+            id: 'e-dat',
+            source: 'nodeA',
+            sourceHandle: 'dataReport',
+            target: 'nodeB',
+            targetHandle: 'resolvedData',
+          },
+        ],
+      )
+
+      // Step 1: Execute Node A to completion, then simulate process termination before Node B executes
+      const executor1 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'configReport',
+                  content: JSON.stringify({ cfgVal: 'cfg-101' }),
+                  metadata: { outputName: 'configReport' },
+                  createdAt: NOW,
+                },
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'dataReport',
+                  content: JSON.stringify({ datVal: 'dat-202' }),
+                  metadata: { outputName: 'dataReport' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            throw new Error('Simulated process crash before Node B execution')
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run1 = await executor1.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+      expect(run1.status).toBe('failed')
+      expect(run1.completedNodeIds).toContain('nodeA')
+
+      // Step 2: Fresh executor simulates process restart and recovery
+      let resumedSlotConfig: WorkflowArtifact | undefined
+      let resumedSlotData: WorkflowArtifact | undefined
+
+      const executor2 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeB') {
+            resumedSlotConfig = ctx.incomingSlots.get('resolvedConfig')
+            resumedSlotData = ctx.incomingSlots.get('resolvedData')
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const resumedRun = await executor2.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        invalidatedNodeIds: new Set(['nodeB']),
+      })
+
+      expect(resumedRun.status).toBe('completed')
+      expect(resumedRun.completedNodeIds).toContain('nodeB')
+
+      // Hydrated slots must resolve exact output identities without swapping or ambiguity
+      expect(resumedSlotConfig).toBeDefined()
+      expect(resumedSlotData).toBeDefined()
+      expect(JSON.parse(resumedSlotConfig!.content)).toEqual({ cfgVal: 'cfg-101' })
+      expect(JSON.parse(resumedSlotData!.content)).toEqual({ datVal: 'dat-202' })
+    })
+
+    // TC-2C-REC-24: Undeclared output emitted without ArtifactService fails closed in production mode, succeeds with testOnlyAllowEphemeralArtifacts.
+    it('TC-2C-REC-24: Undeclared output emitted without ArtifactService follows durability boundary', async () => {
+      const runStore = new RunStore(db)
+
+      // Part A: In default/production mode, emitted undeclared artifact requires ArtifactService and fails closed
+      const graphRunIdA = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunIdA),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const templateA = makeTemplate([
+        makeNode('nodeA', {
+          outputs: [], // Undeclared outputs
+        }),
+      ])
+
+      const executorProduction = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService: undefined, // ArtifactService unavailable
+        executeLeafNode: () => ({
+          status: 'completed',
+          artifacts: [
+            {
+              id: randomUUID(),
+              workflowId,
+              nodeId: 'nodeA',
+              kind: 'stage-output',
+              format: 'json',
+              title: 'undeclaredMetric',
+              content: JSON.stringify({ undeclared: true }),
+              metadata: {},
+              createdAt: NOW,
+            },
+          ],
+        }),
+      })
+
+      const runA = await executorProduction.run({
+        graphRunId: graphRunIdA,
+        workflowId,
+        projectId,
+        template: templateA,
+        forkSha,
+      })
+
+      expect(runA.status).toBe('failed')
+      expect(runA.failedNodeIds).toContain('nodeA')
+      const attemptsA = workflowStore.getNodeAttempts(graphRunIdA, 'nodeA')
+      expect(attemptsA[0]!.status).toBe('failed')
+      expect(attemptsA[0]!.error).toMatch(/ArtifactService is required but not configured/i)
+
+      // Part B: In explicit test mode (testOnlyAllowEphemeralArtifacts: true), in-memory execution succeeds
+      const graphRunIdB = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunIdB),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const executorTestMode = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService: undefined,
+        testOnlyAllowEphemeralArtifacts: true, // Explicit test opt-in
+        executeLeafNode: () => ({
+          status: 'completed',
+          artifacts: [
+            {
+              id: randomUUID(),
+              workflowId,
+              nodeId: 'nodeA',
+              kind: 'stage-output',
+              format: 'json',
+              title: 'ephemeralMetric',
+              content: JSON.stringify({ ephemeral: true }),
+              metadata: {},
+              createdAt: NOW,
+            },
+          ],
+        }),
+      })
+
+      const runB = await executorTestMode.run({
+        graphRunId: graphRunIdB,
+        workflowId,
+        projectId,
+        template: templateA,
+        forkSha,
+      })
+
+      expect(runB.status).toBe('completed')
+      expect(runB.completedNodeIds).toContain('nodeA')
+      const attemptsB = workflowStore.getNodeAttempts(graphRunIdB, 'nodeA')
+      expect(attemptsB[0]!.status).toBe('completed')
     })
   })
 })

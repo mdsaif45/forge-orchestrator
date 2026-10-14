@@ -98,6 +98,15 @@ export interface GraphExecutorOptions {
   readonly actor?: Actor | undefined
   readonly maxConcurrency?: number | undefined
   readonly executeLeafNode?: LeafNodeExecutor | undefined
+  /**
+   * Test-only opt-in allowing leaf nodes to emit artifacts in memory without
+   * durable persistence when ArtifactService is unconfigured.
+   *
+   * In production (default: false), any emitted artifacts (declared or undeclared)
+   * strictly require ArtifactService; attempting to emit artifacts without ArtifactService
+   * fails closed to prevent silent artifact loss.
+   */
+  readonly testOnlyAllowEphemeralArtifacts?: boolean | undefined
 }
 
 export interface RunGraphOptions {
@@ -206,6 +215,7 @@ export class GraphExecutor {
   private readonly defaultActor: Actor
   private readonly maxConcurrency?: number | undefined
   private readonly executeLeafNode?: LeafNodeExecutor | undefined
+  private readonly testOnlyAllowEphemeralArtifacts: boolean
 
   /**
    * Authorizes and persists an iteration advancement via WorkflowStore.
@@ -255,6 +265,7 @@ export class GraphExecutor {
     this.defaultActor = options.actor ?? 'system'
     this.maxConcurrency = options.maxConcurrency
     this.executeLeafNode = options.executeLeafNode
+    this.testOnlyAllowEphemeralArtifacts = options.testOnlyAllowEphemeralArtifacts ?? false
   }
 
   /**
@@ -675,6 +686,7 @@ export class GraphExecutor {
           currentLineage,
           initialContext,
           workflowId,
+          template.nodes,
         )
 
         if (missingRequiredSlot) {
@@ -1048,12 +1060,12 @@ export class GraphExecutor {
               createdAt: a.createdAt || new Date().toISOString(),
             }))
 
+            const isRouterNode = node.type === 'router'
             const requiredOutputs = node.outputs.filter((o) => o.required !== false)
             const hasRequiredOutputs = requiredOutputs.length > 0
-            const hasDeclaredOutputsWithEmittedArtifacts =
-              node.outputs.length > 0 && artifactsForNode.length > 0
+            const hasEmittedArtifacts = !isRouterNode && artifactsForNode.length > 0
             const isArtifactPersistenceRequired =
-              hasRequiredOutputs || hasDeclaredOutputsWithEmittedArtifacts
+              hasRequiredOutputs || (hasEmittedArtifacts && !this.testOnlyAllowEphemeralArtifacts)
 
             if (isArtifactPersistenceRequired && !this.artifactService) {
               throw new Error(
@@ -1075,12 +1087,15 @@ export class GraphExecutor {
             // 1. Durably persist artifacts first while attempt is in 'running' state.
             // If persistence fails, the catch block catches the error and marks the attempt 'failed'.
             // This prevents an attempt from being recorded as 'completed' without its complete output set.
-            await this.persistNodeArtifacts(
-              graphRunId,
-              currentAttemptId,
-              artifactsForNode,
-              isArtifactPersistenceRequired,
-            )
+            // Router decision artifacts are internal control-flow state and not persisted to artifact storage.
+            if (!isRouterNode) {
+              await this.persistNodeArtifacts(
+                graphRunId,
+                currentAttemptId,
+                artifactsForNode,
+                isArtifactPersistenceRequired,
+              )
+            }
 
             // 2. Mark node attempt completed in SQLite once artifact persistence has succeeded.
             const finishedAt = new Date().toISOString()
@@ -1785,6 +1800,7 @@ export class GraphExecutor {
     currentLineage: ReadonlyMap<string, LineageEntry>,
     initialContext: Readonly<Record<string, string>>,
     workflowId: string,
+    templateNodes: readonly WorkflowNode[] = [],
   ): {
     readonly inputArtifacts: readonly WorkflowArtifact[]
     readonly incomingSlots: ReadonlyMap<string, WorkflowArtifact>
@@ -1793,54 +1809,179 @@ export class GraphExecutor {
     const incomingEdges = edges.filter((e) => e.target === node.id && !e.isFeedback)
     const slotMap = new Map<string, WorkflowArtifact>()
     const artifacts: WorkflowArtifact[] = []
+    const explicitlyBoundSlots = new Set<string>()
 
     for (const edge of incomingEdges) {
+      const sourceNode = templateNodes.find((n) => n.id === edge.source)
       const lineage = currentLineage.get(edge.source)
       const sourceArtifacts = lineage?.artifacts ?? []
-      for (const artifact of sourceArtifacts) {
-        if (
-          !edge.sourceHandle ||
-          edge.sourceHandle === artifact.kind ||
-          this.matchesArtifactName(artifact, edge.sourceHandle)
-        ) {
-          const targetSlotName =
-            edge.targetHandle ??
-            (edge.sourceHandle && edge.sourceHandle !== artifact.kind
-              ? edge.sourceHandle
-              : artifact.kind)
-          slotMap.set(targetSlotName, artifact)
-          if (!artifacts.some((a) => a.id === artifact.id)) {
-            artifacts.push(artifact)
+
+      // Check if sourceHandle identifies a declared named output on sourceNode
+      const sourceHandle = edge.sourceHandle
+      const declaredOutput = sourceHandle
+        ? sourceNode?.outputs.find((o) => o.name === sourceHandle)
+        : undefined
+
+      if (declaredOutput && sourceHandle) {
+        // Edge explicitly identifies a declared named output:
+        // Must resolve strictly by established identity. Never substitute an arbitrary artifact of matching kind.
+        const targetSlotName = edge.targetHandle ?? sourceHandle
+        explicitlyBoundSlots.add(targetSlotName)
+
+        const matched = sourceArtifacts.find(
+          (a) => a.kind === declaredOutput.kind && this.matchesArtifactName(a, sourceHandle),
+        )
+        if (matched) {
+          slotMap.set(targetSlotName, matched)
+          if (!artifacts.some((a) => a.id === matched.id)) {
+            artifacts.push(matched)
+          }
+        }
+      } else if (sourceHandle) {
+        // edge.sourceHandle is not a declared output name on sourceNode.
+        // It could be an undeclared artifact title or an artifact kind.
+        const targetSlotName = edge.targetHandle ?? sourceHandle
+        if (edge.targetHandle) {
+          explicitlyBoundSlots.add(edge.targetHandle)
+        }
+
+        // Try exact artifact identity match first
+        const exactMatch = sourceArtifacts.find((a) => this.matchesArtifactName(a, sourceHandle))
+        if (exactMatch) {
+          slotMap.set(targetSlotName, exactMatch)
+          if (!artifacts.some((a) => a.id === exactMatch.id)) {
+            artifacts.push(exactMatch)
+          }
+        } else {
+          // Kind-based fallback:
+          // Check other edges from the same source to avoid claiming artifacts that belong to other edges
+          const otherNamedEdgeHandles = new Set(
+            incomingEdges
+              .filter(
+                (e): e is typeof e & { sourceHandle: string } =>
+                  e.source === edge.source && e !== edge && typeof e.sourceHandle === 'string',
+              )
+              .map((e) => e.sourceHandle),
+          )
+
+          const candidateArtifacts = sourceArtifacts.filter(
+            (a) =>
+              a.kind === sourceHandle &&
+              !Array.from(otherNamedEdgeHandles).some((h) => this.matchesArtifactName(a, h)),
+          )
+
+          const firstCandidate = candidateArtifacts[0]
+          if (candidateArtifacts.length === 1 && firstCandidate) {
+            const matched = firstCandidate
+            const finalSlotName =
+              edge.targetHandle ?? (sourceHandle !== matched.kind ? sourceHandle : matched.kind)
+            slotMap.set(finalSlotName, matched)
+            if (!artifacts.some((a) => a.id === matched.id)) {
+              artifacts.push(matched)
+            }
+          } else if (candidateArtifacts.length > 1) {
+            // If multiple candidates share kind, check if one matches edge.targetHandle
+            const targetHandle = edge.targetHandle
+            const targetMatch = targetHandle
+              ? candidateArtifacts.find((a) => this.matchesArtifactName(a, targetHandle))
+              : undefined
+            const selected =
+              targetMatch ??
+              candidateArtifacts.find(
+                (a) => !Array.from(slotMap.values()).some((mapped) => mapped.id === a.id),
+              )
+            if (selected) {
+              const finalSlotName = edge.targetHandle ?? sourceHandle
+              slotMap.set(finalSlotName, selected)
+              if (!artifacts.some((a) => a.id === selected.id)) {
+                artifacts.push(selected)
+              }
+            }
+          }
+        }
+      } else {
+        // No sourceHandle specified on edge
+        const targetHandle = edge.targetHandle
+        if (targetHandle) {
+          explicitlyBoundSlots.add(targetHandle)
+          const targetSlot = node.inputs.find((s) => s.name === targetHandle)
+          const matched =
+            sourceArtifacts.find((a) => this.matchesArtifactName(a, targetHandle)) ??
+            (targetSlot
+              ? sourceArtifacts.find(
+                  (a) =>
+                    a.kind === targetSlot.kind &&
+                    !sourceNode?.outputs.some((o) => this.matchesArtifactName(a, o.name)),
+                )
+              : undefined)
+          if (matched) {
+            slotMap.set(targetHandle, matched)
+            if (!artifacts.some((a) => a.id === matched.id)) {
+              artifacts.push(matched)
+            }
+          }
+        } else {
+          for (const artifact of sourceArtifacts) {
+            slotMap.set(artifact.kind, artifact)
+            if (!artifacts.some((a) => a.id === artifact.id)) {
+              artifacts.push(artifact)
+            }
           }
         }
       }
     }
 
+    // 2. Unfulfilled declared input slots
     for (const slot of node.inputs) {
       if (!slotMap.has(slot.name)) {
-        for (const edge of incomingEdges) {
-          const lineage = currentLineage.get(edge.source)
-          const sourceArtifacts = lineage?.artifacts ?? []
-          const matching =
-            sourceArtifacts.find(
+        // Do not auto-wire if the slot was explicitly bound by an edge that failed to resolve
+        if (!explicitlyBoundSlots.has(slot.name)) {
+          for (const edge of incomingEdges) {
+            const lineage = currentLineage.get(edge.source)
+            const sourceArtifacts = lineage?.artifacts ?? []
+            const sourceNode = templateNodes.find((n) => n.id === edge.source)
+
+            // Identity match: exact name and kind match
+            const identityMatch = sourceArtifacts.find(
               (a) => a.kind === slot.kind && this.matchesArtifactName(a, slot.name),
-            ) ??
-            sourceArtifacts.find(
-              (a) =>
-                a.kind === slot.kind &&
-                !Array.from(slotMap.values()).some((mapped) => mapped.id === a.id),
-            ) ??
-            sourceArtifacts.find((a) => a.kind === slot.kind)
-          if (matching) {
-            slotMap.set(slot.name, matching)
-            if (!artifacts.some((a) => a.id === matching.id)) {
-              artifacts.push(matching)
+            )
+            if (identityMatch) {
+              slotMap.set(slot.name, identityMatch)
+              if (!artifacts.some((a) => a.id === identityMatch.id)) {
+                artifacts.push(identityMatch)
+              }
+              break
             }
-            break
+
+            // If sourceNode declared an output with slot.name and it was not produced, do not substitute
+            const declaredWithSameName = sourceNode?.outputs.find((o) => o.name === slot.name)
+            if (declaredWithSameName) {
+              continue
+            }
+
+            // Kind fallback: allowed only if kind matching is unambiguous
+            // (source produced exactly 1 unmapped artifact of that kind, and source declared <= 1 output of that kind)
+            const sourceKindOutputCount =
+              sourceNode?.outputs.filter((o) => o.kind === slot.kind).length ?? 0
+            if (sourceKindOutputCount <= 1) {
+              const unmapped = sourceArtifacts.filter(
+                (a) =>
+                  a.kind === slot.kind &&
+                  !node.inputs.some((s) => slotMap.get(s.name)?.id === a.id),
+              )
+              const firstUnmapped = unmapped[0]
+              if (unmapped.length === 1 && firstUnmapped) {
+                const matched = firstUnmapped
+                slotMap.set(slot.name, matched)
+                if (!artifacts.some((a) => a.id === matched.id)) {
+                  artifacts.push(matched)
+                }
+                break
+              }
+            }
           }
         }
       }
-
       if (!slotMap.has(slot.name) && initialContext[slot.name] !== undefined) {
         const fallbackArtifact: WorkflowArtifact = {
           id: randomUUID(),

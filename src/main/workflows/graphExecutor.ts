@@ -11,7 +11,6 @@ import {
   validateWorkflowGraph,
   workflowArtifactSchema,
   type Actor,
-  type ArtifactKind,
   type ArtifactMetadata,
   type ChangeSet,
   type GraphNodeRun,
@@ -755,9 +754,11 @@ export class GraphExecutor {
         const latestAttempt = existingAttempts.at(-1)
         const startedAt = new Date().toISOString()
         let attemptNum: number
+        let currentAttemptId: string
 
         if (latestAttempt?.status === 'ready') {
           attemptNum = latestAttempt.attempt
+          currentAttemptId = latestAttempt.id
           this.workflowStore.writeGraphCheckpoint(
             {
               id: randomUUID(),
@@ -772,6 +773,7 @@ export class GraphExecutor {
           )
         } else {
           attemptNum = existingAttempts.length + 1
+          currentAttemptId = randomUUID()
           this.workflowStore.writeGraphCheckpoint(
             {
               id: randomUUID(),
@@ -787,7 +789,7 @@ export class GraphExecutor {
 
           this.workflowStore.recordNodeAttempt(
             {
-              id: randomUUID(),
+              id: currentAttemptId,
               projectId,
               graphRunId,
               nodeId: node.id,
@@ -1045,6 +1047,36 @@ export class GraphExecutor {
               createdAt: a.createdAt || new Date().toISOString(),
             }))
 
+            const isArtifactPersistenceRequired = node.outputs.length > 0
+
+            // 1. Durably persist artifacts first while attempt is in 'running' state.
+            // If persistence fails, the catch block catches the error and marks the attempt 'failed'.
+            // This prevents an attempt from being recorded as 'completed' without its complete output set.
+            await this.persistNodeArtifacts(
+              graphRunId,
+              currentAttemptId,
+              artifactsForNode,
+              isArtifactPersistenceRequired,
+            )
+
+            // 2. Mark node attempt completed in SQLite once artifact persistence has succeeded.
+            const finishedAt = new Date().toISOString()
+            this.workflowStore.updateNodeAttempt(
+              {
+                projectId,
+                graphRunId,
+                nodeId: node.id,
+                attempt: attemptNum,
+                status: 'completed',
+                changeSetId: capturedChangeSet?.id ?? null,
+                evidenceId: leafResult.evidenceId ?? null,
+                finishedAt,
+                occurredAt: finishedAt,
+              },
+              actor,
+            )
+
+            // 3. Update in-memory state and lineage only after durability boundary succeeds
             currentLineage.set(node.id, {
               attempt: attemptNum,
               changeSet: capturedChangeSet,
@@ -1066,24 +1098,7 @@ export class GraphExecutor {
             }
             completedNodeIds.add(node.id)
 
-            const finishedAt = new Date().toISOString()
-            const finishedNodeRun = this.workflowStore.updateNodeAttempt(
-              {
-                projectId,
-                graphRunId,
-                nodeId: node.id,
-                attempt: attemptNum,
-                status: 'completed',
-                changeSetId: capturedChangeSet?.id ?? null,
-                evidenceId: leafResult.evidenceId ?? null,
-                finishedAt,
-                occurredAt: finishedAt,
-              },
-              actor,
-            )
-
-            await this.persistNodeArtifacts(graphRunId, finishedNodeRun.id, artifactsForNode)
-
+            // 4. Record completion checkpoint
             this.workflowStore.writeGraphCheckpoint(
               {
                 id: randomUUID(),
@@ -1466,36 +1481,78 @@ export class GraphExecutor {
     graphRunId: string,
     nodeRunId: string,
     artifacts: readonly WorkflowArtifact[],
+    isRequired = true,
   ): Promise<void> {
-    if (!this.artifactService || artifacts.length === 0) {
+    if (artifacts.length === 0) {
+      return
+    }
+
+    if (!this.artifactService) {
+      if (isRequired) {
+        throw new Error(
+          `Cannot persist artifacts for node attempt "${nodeRunId}": ArtifactService is required but not configured`,
+        )
+      }
       return
     }
 
     const parsedRunId = runIdSchema.safeParse(graphRunId)
-    const parsedStepId = stepIdSchema.safeParse(nodeRunId)
-    if (!parsedRunId.success || !parsedStepId.success) {
-      return
+    if (!parsedRunId.success) {
+      throw new Error(`Invalid graphRunId "${graphRunId}": must satisfy runIdSchema`)
     }
+    const parsedStepId = stepIdSchema.safeParse(nodeRunId)
+    if (!parsedStepId.success) {
+      throw new Error(`Invalid nodeRunId "${nodeRunId}": must satisfy stepIdSchema`)
+    }
+
+    // Query existing artifacts for this step to make retry/recovery idempotent without duplicates
+    const existingMetas = this.artifactService.listForStep(parsedStepId.data)
+    const existingByName = new Map(existingMetas.map((m) => [m.name, m]))
+    const existingById = new Map(existingMetas.map((m) => [m.id, m]))
 
     for (let i = 0; i < artifacts.length; i++) {
       const art = artifacts[i]
       if (!art) {
         continue
       }
+
+      // Fail closed on invalid artifact kind - never silently coerce to 'stage-output'
+      const parsedKind = artifactKindSchema.safeParse(art.kind)
+      if (!parsedKind.success) {
+        throw new Error(
+          `Invalid artifact kind "${art.kind}" for artifact "${art.id}" in node "${art.nodeId}": must satisfy artifactKindSchema`,
+        )
+      }
+      const metaKind = parsedKind.data
+
+      const expectedName = `${art.title || `artifact-${String(i)}`}.workflow-artifact.json`
       const parsedArtId = artifactIdSchema.safeParse(art.id)
-      const metaKind: ArtifactKind = artifactKindSchema.safeParse(art.kind).success
-        ? (art.kind as ArtifactKind)
-        : 'stage-output'
+
+      // Check if this artifact was already persisted for this step
+      const existing =
+        (parsedArtId.success ? existingById.get(parsedArtId.data) : undefined) ??
+        existingByName.get(expectedName)
+      if (existing) {
+        const integrity = await this.artifactService.verifyArtifactIntegrity(existing.id)
+        if (integrity.valid) {
+          // Already durably persisted and valid on disk; avoid duplicate rows/files
+          continue
+        }
+      }
+
       const envelope = {
         ...art,
+        kind: metaKind,
         __lineageOrder: i,
+        __totalArtifacts: artifacts.length,
       }
+
       await this.artifactService.writeArtifact({
         ...(parsedArtId.success ? { id: parsedArtId.data } : {}),
         runId: parsedRunId.data,
         stepId: parsedStepId.data,
         kind: metaKind,
-        name: `${art.title || `artifact-${String(i)}`}.workflow-artifact.json`,
+        name: expectedName,
         content: JSON.stringify(envelope),
         mimeType: 'application/json',
         createdAt: art.createdAt,
@@ -1511,11 +1568,21 @@ export class GraphExecutor {
     workflowId: string,
     metas: readonly ArtifactMetadata[],
   ): Promise<WorkflowArtifact[]> {
-    if (!this.artifactService || metas.length === 0) {
+    if (metas.length === 0) {
       return []
     }
 
-    const hydratedWithOrder: { order: number; artifact: WorkflowArtifact }[] = []
+    if (!this.artifactService) {
+      throw new Error(
+        `Cannot hydrate artifacts for node "${nodeRun.nodeId}": ArtifactService is required but not configured`,
+      )
+    }
+
+    const hydratedWithOrder: {
+      order: number
+      total?: number | undefined
+      artifact: WorkflowArtifact
+    }[] = []
 
     for (let i = 0; i < metas.length; i++) {
       const meta = metas[i]
@@ -1530,71 +1597,77 @@ export class GraphExecutor {
       }
 
       const rawText = await this.artifactService.readArtifactText(meta.id)
-      let parsedEnvelope: Record<string, unknown> | null
+      let parsedEnvelope: unknown
       try {
-        parsedEnvelope = JSON.parse(rawText) as Record<string, unknown>
-      } catch {
-        parsedEnvelope = null
+        parsedEnvelope = JSON.parse(rawText)
+      } catch (err: unknown) {
+        throw new Error(
+          `Malformed artifact envelope: failed to parse JSON for artifact "${meta.id}" (${meta.name}) in node "${nodeRun.nodeId}": ${err instanceof Error ? err.message : String(err)}`,
+          { cause: err },
+        )
       }
 
-      if (
-        parsedEnvelope &&
-        typeof parsedEnvelope === 'object' &&
-        typeof parsedEnvelope.title === 'string' &&
-        typeof parsedEnvelope.content === 'string'
-      ) {
-        const order =
-          typeof parsedEnvelope.__lineageOrder === 'number' ? parsedEnvelope.__lineageOrder : i
-        const reconstructed: WorkflowArtifact = {
-          id: typeof parsedEnvelope.id === 'string' ? parsedEnvelope.id : meta.id,
-          workflowId:
-            typeof parsedEnvelope.workflowId === 'string' ? parsedEnvelope.workflowId : workflowId,
-          nodeId:
-            typeof parsedEnvelope.nodeId === 'string' ? parsedEnvelope.nodeId : nodeRun.nodeId,
-          stepIndex:
-            typeof parsedEnvelope.stepIndex === 'number'
-              ? parsedEnvelope.stepIndex
-              : nodeRun.attempt,
-          kind: typeof parsedEnvelope.kind === 'string' ? parsedEnvelope.kind : meta.kind,
-          format:
-            parsedEnvelope.format === 'markdown' ||
-            parsedEnvelope.format === 'diff' ||
-            parsedEnvelope.format === 'json' ||
-            parsedEnvelope.format === 'text'
-              ? parsedEnvelope.format
-              : 'text',
-          title: parsedEnvelope.title,
-          content: parsedEnvelope.content,
-          metadata:
-            parsedEnvelope.metadata && typeof parsedEnvelope.metadata === 'object'
-              ? (parsedEnvelope.metadata as Readonly<Record<string, unknown>>)
-              : {},
-          createdAt:
-            typeof parsedEnvelope.createdAt === 'string'
-              ? parsedEnvelope.createdAt
-              : meta.createdAt,
-        }
-        hydratedWithOrder.push({
-          order,
-          artifact: workflowArtifactSchema.parse(reconstructed),
-        })
-      } else {
-        const fallback: WorkflowArtifact = {
-          id: meta.id,
-          workflowId,
-          nodeId: nodeRun.nodeId,
-          stepIndex: nodeRun.attempt,
-          kind: meta.kind,
-          format: 'text',
-          title: meta.name,
-          content: rawText,
-          metadata: {},
-          createdAt: meta.createdAt,
-        }
-        hydratedWithOrder.push({
-          order: i,
-          artifact: workflowArtifactSchema.parse(fallback),
-        })
+      if (!parsedEnvelope || typeof parsedEnvelope !== 'object' || Array.isArray(parsedEnvelope)) {
+        throw new Error(
+          `Malformed artifact envelope for artifact "${meta.id}" (${meta.name}) in node "${nodeRun.nodeId}": missing required envelope fields`,
+        )
+      }
+
+      const envObj = parsedEnvelope as Record<string, unknown>
+      if (typeof envObj.title !== 'string' || typeof envObj.content !== 'string') {
+        throw new Error(
+          `Malformed artifact envelope for artifact "${meta.id}" (${meta.name}) in node "${nodeRun.nodeId}": missing required envelope fields`,
+        )
+      }
+
+      const rawKind = envObj.kind ?? meta.kind
+      const parsedKind = artifactKindSchema.safeParse(rawKind)
+      if (!parsedKind.success) {
+        const displayKind = typeof rawKind === 'string' ? rawKind : JSON.stringify(rawKind)
+        throw new Error(
+          `Invalid artifact kind "${displayKind}" for artifact "${meta.id}" (${meta.name}) in node "${nodeRun.nodeId}": must satisfy artifactKindSchema`,
+        )
+      }
+
+      const order = typeof envObj.__lineageOrder === 'number' ? envObj.__lineageOrder : i
+      const total =
+        typeof envObj.__totalArtifacts === 'number' ? envObj.__totalArtifacts : undefined
+
+      const reconstructed: WorkflowArtifact = {
+        id: typeof envObj.id === 'string' ? envObj.id : meta.id,
+        workflowId: typeof envObj.workflowId === 'string' ? envObj.workflowId : workflowId,
+        nodeId: typeof envObj.nodeId === 'string' ? envObj.nodeId : nodeRun.nodeId,
+        stepIndex: typeof envObj.stepIndex === 'number' ? envObj.stepIndex : nodeRun.attempt,
+        kind: parsedKind.data,
+        format:
+          envObj.format === 'markdown' ||
+          envObj.format === 'diff' ||
+          envObj.format === 'json' ||
+          envObj.format === 'text'
+            ? envObj.format
+            : 'text',
+        title: envObj.title,
+        content: envObj.content,
+        metadata:
+          envObj.metadata && typeof envObj.metadata === 'object'
+            ? (envObj.metadata as Readonly<Record<string, unknown>>)
+            : {},
+        createdAt: typeof envObj.createdAt === 'string' ? envObj.createdAt : meta.createdAt,
+      }
+
+      hydratedWithOrder.push({
+        order,
+        total,
+        artifact: workflowArtifactSchema.parse(reconstructed),
+      })
+    }
+
+    // Verify complete multi-artifact set if total was recorded in envelope
+    for (const item of hydratedWithOrder) {
+      if (item.total !== undefined && hydratedWithOrder.length !== item.total) {
+        throw new Error(
+          `Partial artifact persistence detected for node "${nodeRun.nodeId}" attempt ${String(nodeRun.attempt)}: expected ${String(item.total)} artifacts but found ${String(hydratedWithOrder.length)}`,
+        )
       }
     }
 

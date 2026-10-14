@@ -18,6 +18,7 @@ import {
   type GraphRunStatus,
   type GraphStateSnapshot,
   type LoopPolicy,
+  type OutputDefinition,
   type ProjectId,
   type Sha,
   type StepId,
@@ -1047,7 +1048,8 @@ export class GraphExecutor {
               createdAt: a.createdAt || new Date().toISOString(),
             }))
 
-            const isArtifactPersistenceRequired = node.outputs.length > 0
+            const requiredOutputs = node.outputs.filter((o) => o.required !== false)
+            const isArtifactPersistenceRequired = requiredOutputs.length > 0
 
             // 1. Durably persist artifacts first while attempt is in 'running' state.
             // If persistence fails, the catch block catches the error and marks the attempt 'failed'.
@@ -1057,6 +1059,8 @@ export class GraphExecutor {
               currentAttemptId,
               artifactsForNode,
               isArtifactPersistenceRequired,
+              requiredOutputs,
+              node.id,
             )
 
             // 2. Mark node attempt completed in SQLite once artifact persistence has succeeded.
@@ -1482,17 +1486,36 @@ export class GraphExecutor {
     nodeRunId: string,
     artifacts: readonly WorkflowArtifact[],
     isRequired = true,
+    requiredOutputs: readonly OutputDefinition[] = [],
+    nodeId = '',
   ): Promise<void> {
-    if (artifacts.length === 0) {
-      return
-    }
-
     if (!this.artifactService) {
       if (isRequired) {
         throw new Error(
           `Cannot persist artifacts for node attempt "${nodeRunId}": ArtifactService is required but not configured`,
         )
       }
+      return
+    }
+
+    if (requiredOutputs.length > 0) {
+      if (artifacts.length < requiredOutputs.length) {
+        throw new Error(
+          `Node "${nodeId}" attempt "${nodeRunId}" declared ${String(requiredOutputs.length)} required output(s) but produced only ${String(artifacts.length)} artifact(s)`,
+        )
+      }
+
+      const missingOutputs = requiredOutputs.filter(
+        (req) => !artifacts.some((a) => a.kind === req.kind || a.title === req.name),
+      )
+      if (missingOutputs.length > 0) {
+        throw new Error(
+          `Node "${nodeId}" attempt "${nodeRunId}" missing required output(s): ${missingOutputs.map((o) => o.name).join(', ')}`,
+        )
+      }
+    }
+
+    if (artifacts.length === 0) {
       return
     }
 

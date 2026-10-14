@@ -272,6 +272,7 @@ export const outputDefinitionViewSchema = z.strictObject({
   name: z.string().min(1),
   kind: z.string().min(1),
   format: z.enum(['markdown', 'diff', 'json', 'text']).default('markdown'),
+  required: z.boolean().optional(),
   requiredH1: z.string().optional(),
   requiredSections: z.array(z.string()).readonly().default([]),
   description: z.string().optional(),

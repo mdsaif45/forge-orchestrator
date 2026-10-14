@@ -680,20 +680,25 @@ export class GraphExecutor {
         }
 
         // Validate required input slots
-        const { inputArtifacts, incomingSlots, missingRequiredSlot } = this.resolveNodeInputs(
-          node,
-          template.edges,
-          currentLineage,
-          initialContext,
-          workflowId,
-          template.nodes,
-        )
+        const { inputArtifacts, incomingSlots, missingRequiredSlot, resolutionError } =
+          this.resolveNodeInputs(
+            node,
+            template.edges,
+            currentLineage,
+            initialContext,
+            workflowId,
+            template.nodes,
+          )
 
-        if (missingRequiredSlot) {
+        if (resolutionError || missingRequiredSlot) {
           const existingAttempts = this.workflowStore.getNodeAttempts(graphRunId, node.id)
           const latestAttempt = existingAttempts.at(-1)
           const startedAt = new Date().toISOString()
-          const errMessage = `Missing required input slot: ${missingRequiredSlot}`
+          const errMessage =
+            resolutionError ??
+            (missingRequiredSlot
+              ? `Missing required input slot: ${missingRequiredSlot}`
+              : 'Input slot resolution failed')
           let attemptNum: number
 
           this.workflowStore.writeGraphCheckpoint(
@@ -1805,6 +1810,7 @@ export class GraphExecutor {
     readonly inputArtifacts: readonly WorkflowArtifact[]
     readonly incomingSlots: ReadonlyMap<string, WorkflowArtifact>
     readonly missingRequiredSlot?: string
+    readonly resolutionError?: string
   } {
     const incomingEdges = edges.filter((e) => e.target === node.id && !e.isFeedback)
     const slotMap = new Map<string, WorkflowArtifact>()
@@ -1828,13 +1834,22 @@ export class GraphExecutor {
         const targetSlotName = edge.targetHandle ?? sourceHandle
         explicitlyBoundSlots.add(targetSlotName)
 
-        const matched = sourceArtifacts.find(
+        const matchedCandidates = sourceArtifacts.filter(
           (a) => a.kind === declaredOutput.kind && this.matchesArtifactName(a, sourceHandle),
         )
-        if (matched) {
-          slotMap.set(targetSlotName, matched)
-          if (!artifacts.some((a) => a.id === matched.id)) {
-            artifacts.push(matched)
+        if (matchedCandidates.length === 1) {
+          const matched = matchedCandidates[0]
+          if (matched) {
+            slotMap.set(targetSlotName, matched)
+            if (!artifacts.some((a) => a.id === matched.id)) {
+              artifacts.push(matched)
+            }
+          }
+        } else if (matchedCandidates.length > 1) {
+          return {
+            inputArtifacts: artifacts,
+            incomingSlots: slotMap,
+            resolutionError: `Ambiguous artifact resolution on edge "${edge.id}" from source "${edge.source}" to target slot "${targetSlotName}": multiple candidates (${String(matchedCandidates.length)}) found of kind "${declaredOutput.kind}" for declared output "${sourceHandle}"`,
           }
         }
       } else if (sourceHandle) {
@@ -1846,11 +1861,22 @@ export class GraphExecutor {
         }
 
         // Try exact artifact identity match first
-        const exactMatch = sourceArtifacts.find((a) => this.matchesArtifactName(a, sourceHandle))
-        if (exactMatch) {
-          slotMap.set(targetSlotName, exactMatch)
-          if (!artifacts.some((a) => a.id === exactMatch.id)) {
-            artifacts.push(exactMatch)
+        const exactMatches = sourceArtifacts.filter((a) =>
+          this.matchesArtifactName(a, sourceHandle),
+        )
+        if (exactMatches.length === 1) {
+          const exactMatch = exactMatches[0]
+          if (exactMatch) {
+            slotMap.set(targetSlotName, exactMatch)
+            if (!artifacts.some((a) => a.id === exactMatch.id)) {
+              artifacts.push(exactMatch)
+            }
+          }
+        } else if (exactMatches.length > 1) {
+          return {
+            inputArtifacts: artifacts,
+            incomingSlots: slotMap,
+            resolutionError: `Ambiguous artifact resolution on edge "${edge.id}" from source "${edge.source}" to target slot "${targetSlotName}": multiple candidates (${String(exactMatches.length)}) found matching name "${sourceHandle}"`,
           }
         } else {
           // Kind-based fallback:
@@ -1870,31 +1896,45 @@ export class GraphExecutor {
               !Array.from(otherNamedEdgeHandles).some((h) => this.matchesArtifactName(a, h)),
           )
 
-          const firstCandidate = candidateArtifacts[0]
-          if (candidateArtifacts.length === 1 && firstCandidate) {
-            const matched = firstCandidate
-            const finalSlotName =
-              edge.targetHandle ?? (sourceHandle !== matched.kind ? sourceHandle : matched.kind)
-            slotMap.set(finalSlotName, matched)
-            if (!artifacts.some((a) => a.id === matched.id)) {
-              artifacts.push(matched)
+          if (candidateArtifacts.length === 1) {
+            const matched = candidateArtifacts[0]
+            if (matched) {
+              const finalSlotName =
+                edge.targetHandle ?? (sourceHandle !== matched.kind ? sourceHandle : matched.kind)
+              slotMap.set(finalSlotName, matched)
+              if (!artifacts.some((a) => a.id === matched.id)) {
+                artifacts.push(matched)
+              }
             }
           } else if (candidateArtifacts.length > 1) {
-            // If multiple candidates share kind, check if one matches edge.targetHandle
+            // Multiple same-kind candidates exist:
+            // Check if edge.targetHandle uniquely identifies one candidate by identity
             const targetHandle = edge.targetHandle
-            const targetMatch = targetHandle
-              ? candidateArtifacts.find((a) => this.matchesArtifactName(a, targetHandle))
-              : undefined
-            const selected =
-              targetMatch ??
-              candidateArtifacts.find(
-                (a) => !Array.from(slotMap.values()).some((mapped) => mapped.id === a.id),
-              )
-            if (selected) {
-              const finalSlotName = edge.targetHandle ?? sourceHandle
-              slotMap.set(finalSlotName, selected)
-              if (!artifacts.some((a) => a.id === selected.id)) {
-                artifacts.push(selected)
+            const targetMatches = targetHandle
+              ? candidateArtifacts.filter((a) => this.matchesArtifactName(a, targetHandle))
+              : []
+
+            if (targetMatches.length === 1) {
+              const matched = targetMatches[0]
+              if (matched && targetHandle) {
+                slotMap.set(targetHandle, matched)
+                if (!artifacts.some((a) => a.id === matched.id)) {
+                  artifacts.push(matched)
+                }
+              }
+            } else if (targetMatches.length > 1) {
+              return {
+                inputArtifacts: artifacts,
+                incomingSlots: slotMap,
+                resolutionError: `Ambiguous artifact resolution on edge "${edge.id}" from source "${edge.source}" to target slot "${targetSlotName}": multiple candidates (${String(targetMatches.length)}) of kind "${sourceHandle}" match target handle "${targetSlotName}"`,
+              }
+            } else {
+              // Multiple same-kind candidates remain and neither endpoint identifies a unique candidate:
+              // Under Axiom A2 (Never guess), fail closed. Do NOT choose the first or unmapped artifact.
+              return {
+                inputArtifacts: artifacts,
+                incomingSlots: slotMap,
+                resolutionError: `Ambiguous artifact resolution on edge "${edge.id}" from source "${edge.source}" to target slot "${targetSlotName}": multiple candidates (${String(candidateArtifacts.length)}) found of kind "${sourceHandle}" without a unique identity match`,
               }
             }
           }
@@ -1905,26 +1945,80 @@ export class GraphExecutor {
         if (targetHandle) {
           explicitlyBoundSlots.add(targetHandle)
           const targetSlot = node.inputs.find((s) => s.name === targetHandle)
-          const matched =
-            sourceArtifacts.find((a) => this.matchesArtifactName(a, targetHandle)) ??
-            (targetSlot
-              ? sourceArtifacts.find(
-                  (a) =>
-                    a.kind === targetSlot.kind &&
-                    !sourceNode?.outputs.some((o) => this.matchesArtifactName(a, o.name)),
-                )
-              : undefined)
-          if (matched) {
-            slotMap.set(targetHandle, matched)
-            if (!artifacts.some((a) => a.id === matched.id)) {
-              artifacts.push(matched)
+          const nameMatches = sourceArtifacts.filter((a) =>
+            this.matchesArtifactName(a, targetHandle),
+          )
+
+          if (nameMatches.length === 1) {
+            const matched = nameMatches[0]
+            if (matched) {
+              slotMap.set(targetHandle, matched)
+              if (!artifacts.some((a) => a.id === matched.id)) {
+                artifacts.push(matched)
+              }
+            }
+          } else if (nameMatches.length > 1) {
+            return {
+              inputArtifacts: artifacts,
+              incomingSlots: slotMap,
+              resolutionError: `Ambiguous artifact resolution on edge "${edge.id}" from source "${edge.source}" to target slot "${targetHandle}": multiple candidates (${String(nameMatches.length)}) match target handle "${targetHandle}"`,
+            }
+          } else if (targetSlot) {
+            const kindCandidates = sourceArtifacts.filter(
+              (a) =>
+                a.kind === targetSlot.kind &&
+                !sourceNode?.outputs.some(
+                  (o) => o.name !== targetHandle && this.matchesArtifactName(a, o.name),
+                ),
+            )
+            if (kindCandidates.length === 1) {
+              const matched = kindCandidates[0]
+              if (matched) {
+                slotMap.set(targetHandle, matched)
+                if (!artifacts.some((a) => a.id === matched.id)) {
+                  artifacts.push(matched)
+                }
+              }
+            } else if (kindCandidates.length > 1) {
+              return {
+                inputArtifacts: artifacts,
+                incomingSlots: slotMap,
+                resolutionError: `Ambiguous artifact resolution on edge "${edge.id}" from source "${edge.source}" to target slot "${targetHandle}": multiple candidates (${String(kindCandidates.length)}) found of kind "${targetSlot.kind}" without a unique identity match`,
+              }
             }
           }
         } else {
-          for (const artifact of sourceArtifacts) {
-            slotMap.set(artifact.kind, artifact)
-            if (!artifacts.some((a) => a.id === artifact.id)) {
-              artifacts.push(artifact)
+          // Edge has neither sourceHandle nor targetHandle
+          const byKind = new Map<string, WorkflowArtifact[]>()
+          for (const art of sourceArtifacts) {
+            const list = byKind.get(art.kind) ?? []
+            list.push(art)
+            byKind.set(art.kind, list)
+          }
+
+          for (const [kind, kindList] of byKind.entries()) {
+            if (kindList.length === 1) {
+              const art = kindList[0]
+              if (art) {
+                slotMap.set(kind, art)
+                if (!artifacts.some((a) => a.id === art.id)) {
+                  artifacts.push(art)
+                }
+              }
+            } else {
+              const targetSlotNeedingKind = node.inputs.find((s) => s.kind === kind)
+              if (targetSlotNeedingKind) {
+                return {
+                  inputArtifacts: artifacts,
+                  incomingSlots: slotMap,
+                  resolutionError: `Ambiguous artifact resolution on edge "${edge.id}" from source "${edge.source}" to target node "${node.id}": multiple candidates (${String(kindList.length)}) found of kind "${kind}" on edge without handles`,
+                }
+              }
+              for (const art of kindList) {
+                if (!artifacts.some((a) => a.id === art.id)) {
+                  artifacts.push(art)
+                }
+              }
             }
           }
         }
@@ -1942,15 +2036,24 @@ export class GraphExecutor {
             const sourceNode = templateNodes.find((n) => n.id === edge.source)
 
             // Identity match: exact name and kind match
-            const identityMatch = sourceArtifacts.find(
+            const identityMatches = sourceArtifacts.filter(
               (a) => a.kind === slot.kind && this.matchesArtifactName(a, slot.name),
             )
-            if (identityMatch) {
-              slotMap.set(slot.name, identityMatch)
-              if (!artifacts.some((a) => a.id === identityMatch.id)) {
-                artifacts.push(identityMatch)
+            if (identityMatches.length === 1) {
+              const identityMatch = identityMatches[0]
+              if (identityMatch) {
+                slotMap.set(slot.name, identityMatch)
+                if (!artifacts.some((a) => a.id === identityMatch.id)) {
+                  artifacts.push(identityMatch)
+                }
+                break
               }
-              break
+            } else if (identityMatches.length > 1) {
+              return {
+                inputArtifacts: artifacts,
+                incomingSlots: slotMap,
+                resolutionError: `Ambiguous artifact resolution for input slot "${slot.name}": multiple candidates (${String(identityMatches.length)}) match name "${slot.name}" and kind "${slot.kind}" from source "${edge.source}"`,
+              }
             }
 
             // If sourceNode declared an output with slot.name and it was not produced, do not substitute
@@ -1960,23 +2063,20 @@ export class GraphExecutor {
             }
 
             // Kind fallback: allowed only if kind matching is unambiguous
-            // (source produced exactly 1 unmapped artifact of that kind, and source declared <= 1 output of that kind)
+            // (source produced exactly 1 artifact of that kind, and source declared <= 1 output of that kind)
             const sourceKindOutputCount =
               sourceNode?.outputs.filter((o) => o.kind === slot.kind).length ?? 0
             if (sourceKindOutputCount <= 1) {
-              const unmapped = sourceArtifacts.filter(
-                (a) =>
-                  a.kind === slot.kind &&
-                  !node.inputs.some((s) => slotMap.get(s.name)?.id === a.id),
-              )
-              const firstUnmapped = unmapped[0]
-              if (unmapped.length === 1 && firstUnmapped) {
-                const matched = firstUnmapped
-                slotMap.set(slot.name, matched)
-                if (!artifacts.some((a) => a.id === matched.id)) {
-                  artifacts.push(matched)
+              const sameKindArtifacts = sourceArtifacts.filter((a) => a.kind === slot.kind)
+              if (sameKindArtifacts.length === 1) {
+                const matched = sameKindArtifacts[0]
+                if (matched && !node.inputs.some((s) => slotMap.get(s.name)?.id === matched.id)) {
+                  slotMap.set(slot.name, matched)
+                  if (!artifacts.some((a) => a.id === matched.id)) {
+                    artifacts.push(matched)
+                  }
+                  break
                 }
-                break
               }
             }
           }

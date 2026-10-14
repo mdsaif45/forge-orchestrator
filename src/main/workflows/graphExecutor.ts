@@ -1049,7 +1049,28 @@ export class GraphExecutor {
             }))
 
             const requiredOutputs = node.outputs.filter((o) => o.required !== false)
-            const isArtifactPersistenceRequired = requiredOutputs.length > 0
+            const hasRequiredOutputs = requiredOutputs.length > 0
+            const hasDeclaredOutputsWithEmittedArtifacts =
+              node.outputs.length > 0 && artifactsForNode.length > 0
+            const isArtifactPersistenceRequired =
+              hasRequiredOutputs || hasDeclaredOutputsWithEmittedArtifacts
+
+            if (isArtifactPersistenceRequired && !this.artifactService) {
+              throw new Error(
+                `Cannot persist artifacts for node attempt "${currentAttemptId}": ArtifactService is required but not configured`,
+              )
+            }
+
+            const missingOutputs = this.matchRequiredOutputs(
+              node.outputs,
+              requiredOutputs,
+              artifactsForNode,
+            )
+            if (missingOutputs.length > 0) {
+              throw new Error(
+                `Node "${node.id}" attempt "${currentAttemptId}" missing required output(s): ${missingOutputs.map((o) => o.name).join(', ')}`,
+              )
+            }
 
             // 1. Durably persist artifacts first while attempt is in 'running' state.
             // If persistence fails, the catch block catches the error and marks the attempt 'failed'.
@@ -1059,8 +1080,6 @@ export class GraphExecutor {
               currentAttemptId,
               artifactsForNode,
               isArtifactPersistenceRequired,
-              requiredOutputs,
-              node.id,
             )
 
             // 2. Mark node attempt completed in SQLite once artifact persistence has succeeded.
@@ -1478,6 +1497,72 @@ export class GraphExecutor {
     return recovered
   }
 
+  private matchesArtifactName(art: WorkflowArtifact, name: string): boolean {
+    const meta = art.metadata
+    return art.title === name || meta.outputName === name || meta.name === name || art.id === name
+  }
+
+  /**
+   * Matches required output definitions to produced artifacts according to domain identity rules.
+   * Each required output must be satisfied by a distinct, valid artifact representing that specific output.
+   * Returns any required outputs that were not satisfied.
+   */
+  private matchRequiredOutputs(
+    allDeclaredOutputs: readonly OutputDefinition[],
+    requiredOutputs: readonly OutputDefinition[],
+    artifacts: readonly WorkflowArtifact[],
+  ): readonly OutputDefinition[] {
+    if (requiredOutputs.length === 0) {
+      return []
+    }
+
+    // Count occurrences of each kind across all declared outputs of this node
+    const kindCounts = new Map<string, number>()
+    for (const out of allDeclaredOutputs) {
+      kindCounts.set(out.kind, (kindCounts.get(out.kind) ?? 0) + 1)
+    }
+
+    const availableArtifacts = [...artifacts]
+    const unmatchedRequired: OutputDefinition[] = []
+
+    // Pass 1: Match by exact name / identity (must also match kind)
+    const remainingRequired: OutputDefinition[] = []
+    for (const req of requiredOutputs) {
+      const matchIndex = availableArtifacts.findIndex(
+        (art) => art.kind === req.kind && this.matchesArtifactName(art, req.name),
+      )
+      if (matchIndex !== -1) {
+        // Distinct 1-to-1 matching: consume this artifact so it cannot be reused
+        availableArtifacts.splice(matchIndex, 1)
+      } else {
+        remainingRequired.push(req)
+      }
+    }
+
+    // Pass 2: For remaining unmatched outputs, allow kind-based match ONLY if:
+    // 1. The kind is UNIQUE among all declared outputs of the node (no other output shares this kind)
+    // 2. The artifact does not explicitly match the name of any other declared output
+    for (const req of remainingRequired) {
+      const isUniqueKind = (kindCounts.get(req.kind) ?? 0) === 1
+      if (isUniqueKind) {
+        const matchIndex = availableArtifacts.findIndex(
+          (art) =>
+            art.kind === req.kind &&
+            !allDeclaredOutputs.some(
+              (other) => other.name !== req.name && this.matchesArtifactName(art, other.name),
+            ),
+        )
+        if (matchIndex !== -1) {
+          availableArtifacts.splice(matchIndex, 1)
+          continue
+        }
+      }
+      unmatchedRequired.push(req)
+    }
+
+    return unmatchedRequired
+  }
+
   /**
    * Persists leaf node artifacts to disk via ArtifactService and links to the attempt stepId.
    */
@@ -1486,8 +1571,6 @@ export class GraphExecutor {
     nodeRunId: string,
     artifacts: readonly WorkflowArtifact[],
     isRequired = true,
-    requiredOutputs: readonly OutputDefinition[] = [],
-    nodeId = '',
   ): Promise<void> {
     if (!this.artifactService) {
       if (isRequired) {
@@ -1496,23 +1579,6 @@ export class GraphExecutor {
         )
       }
       return
-    }
-
-    if (requiredOutputs.length > 0) {
-      if (artifacts.length < requiredOutputs.length) {
-        throw new Error(
-          `Node "${nodeId}" attempt "${nodeRunId}" declared ${String(requiredOutputs.length)} required output(s) but produced only ${String(artifacts.length)} artifact(s)`,
-        )
-      }
-
-      const missingOutputs = requiredOutputs.filter(
-        (req) => !artifacts.some((a) => a.kind === req.kind || a.title === req.name),
-      )
-      if (missingOutputs.length > 0) {
-        throw new Error(
-          `Node "${nodeId}" attempt "${nodeRunId}" missing required output(s): ${missingOutputs.map((o) => o.name).join(', ')}`,
-        )
-      }
     }
 
     if (artifacts.length === 0) {
@@ -1732,8 +1798,16 @@ export class GraphExecutor {
       const lineage = currentLineage.get(edge.source)
       const sourceArtifacts = lineage?.artifacts ?? []
       for (const artifact of sourceArtifacts) {
-        if (!edge.sourceHandle || edge.sourceHandle === artifact.kind) {
-          const targetSlotName = edge.targetHandle ?? artifact.kind
+        if (
+          !edge.sourceHandle ||
+          edge.sourceHandle === artifact.kind ||
+          this.matchesArtifactName(artifact, edge.sourceHandle)
+        ) {
+          const targetSlotName =
+            edge.targetHandle ??
+            (edge.sourceHandle && edge.sourceHandle !== artifact.kind
+              ? edge.sourceHandle
+              : artifact.kind)
           slotMap.set(targetSlotName, artifact)
           if (!artifacts.some((a) => a.id === artifact.id)) {
             artifacts.push(artifact)
@@ -1747,7 +1821,16 @@ export class GraphExecutor {
         for (const edge of incomingEdges) {
           const lineage = currentLineage.get(edge.source)
           const sourceArtifacts = lineage?.artifacts ?? []
-          const matching = sourceArtifacts.find((a) => a.kind === slot.kind)
+          const matching =
+            sourceArtifacts.find(
+              (a) => a.kind === slot.kind && this.matchesArtifactName(a, slot.name),
+            ) ??
+            sourceArtifacts.find(
+              (a) =>
+                a.kind === slot.kind &&
+                !Array.from(slotMap.values()).some((mapped) => mapped.id === a.id),
+            ) ??
+            sourceArtifacts.find((a) => a.kind === slot.kind)
           if (matching) {
             slotMap.set(slot.name, matching)
             if (!artifacts.some((a) => a.id === matching.id)) {

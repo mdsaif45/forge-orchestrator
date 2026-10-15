@@ -11,12 +11,13 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   changeSetIdSchema,
   projectIdSchema,
   repositoryIdSchema,
   runIdSchema,
+  stepIdSchema,
   taskIdSchema,
   workflowIdSchema,
   type ChangeSet,
@@ -1449,6 +1450,7 @@ describe('GraphExecutor', () => {
       const executor = new GraphExecutor({
         workflowStore,
         worktreeService,
+        testOnlyAllowEphemeralArtifacts: true,
         executeLeafNode: () => {
           attemptCounter++
           return {
@@ -1510,6 +1512,7 @@ describe('GraphExecutor', () => {
       const executor = new GraphExecutor({
         workflowStore,
         worktreeService,
+        testOnlyAllowEphemeralArtifacts: true,
         executeLeafNode: (ctx) => {
           if (ctx.node.id === 'A') {
             aCount++
@@ -1592,6 +1595,7 @@ describe('GraphExecutor', () => {
       const executor = new GraphExecutor({
         workflowStore,
         worktreeService,
+        testOnlyAllowEphemeralArtifacts: true,
         executeLeafNode: (ctx) => {
           if (ctx.node.id === 'A') {
             return {
@@ -1676,6 +1680,7 @@ describe('GraphExecutor', () => {
       const executor = new GraphExecutor({
         workflowStore,
         worktreeService,
+        testOnlyAllowEphemeralArtifacts: true,
         executeLeafNode: (ctx) => {
           if (ctx.node.id === 'A') {
             return {
@@ -2251,6 +2256,7 @@ describe('GraphExecutor', () => {
       const executor = new GraphExecutor({
         workflowStore,
         worktreeService,
+        testOnlyAllowEphemeralArtifacts: true,
         executeLeafNode: (ctx) => {
           if (ctx.node.id === 'producer') {
             return {
@@ -2790,6 +2796,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -3007,6 +3014,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -3077,6 +3085,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => {
             if (ctx.node.id === 'worker') {
               if (ctx.iteration === 1) {
@@ -3152,6 +3161,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => {
             if (ctx.node.id === 'worker') {
               if (ctx.iteration === 1) {
@@ -3248,6 +3258,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => {
             if (ctx.node.id === 'worker' && ctx.iteration === 1) {
               return {
@@ -3320,6 +3331,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => {
             if (ctx.worktreePath) {
               worktreePaths.push(ctx.worktreePath)
@@ -3404,6 +3416,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: () => ({
             status: 'completed',
             artifacts: [staticArtifact],
@@ -3462,6 +3475,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -3527,6 +3541,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -3596,6 +3611,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -3690,6 +3706,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: () => ({
             status: 'completed',
             artifacts: [staticArtifact],
@@ -3741,6 +3758,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -3917,6 +3935,7 @@ describe('GraphExecutor', () => {
         const resumeExecutor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -3984,6 +4003,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -4048,6 +4068,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -4175,6 +4196,7 @@ describe('GraphExecutor', () => {
         const executor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -4338,6 +4360,7 @@ describe('GraphExecutor', () => {
         const resumeExecutor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -4507,6 +4530,7 @@ describe('GraphExecutor', () => {
         const resumeExecutor = new GraphExecutor({
           workflowStore,
           worktreeService,
+          testOnlyAllowEphemeralArtifacts: true,
           executeLeafNode: (ctx) => ({
             status: 'completed',
             artifacts: [
@@ -4545,6 +4569,5657 @@ describe('GraphExecutor', () => {
         expect(finalWorkerAttempts[2]!.status).toBe('completed')
         expect(finalWorkerAttempts[2]!.iteration).toBe(2)
       })
+    })
+  })
+
+  // 20. Slice 2C-1: Durable Artifact Lineage Hydration
+  describe('Artifact Lineage Hydration (TC-2C-REC)', () => {
+    it('TC-2C-REC-01: Node A completes and records output artifact -> process terminates -> recovery resumes -> Node B resolves slot from A artifact and executes successfully', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'outputA',
+                kind: 'stage-output',
+                format: 'json',
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [{ name: 'inputA', kind: 'stage-output', required: true }],
+          }),
+        ],
+        [
+          {
+            source: 'nodeA',
+            target: 'nodeB',
+            sourceHandle: 'stage-output',
+            targetHandle: 'inputA',
+          },
+        ],
+      )
+
+      let nodeBExecuted = false
+      let nodeBReceivedPayload: string | null = null
+
+      // Executor 1 simulates crash right after Node A completes
+      const executor1 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'nodeA-result',
+                  content: JSON.stringify({ message: 'artifact from A' }),
+                  metadata: { author: 'nodeA' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            throw new Error('Simulated process crash during Node B execution')
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      // Run executor 1: Node A completes, Node B crashes
+      const initialRun = await executor1.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+      expect(initialRun.status).toBe('failed')
+      expect(initialRun.completedNodeIds).toContain('nodeA')
+      expect(initialRun.failedNodeIds).toContain('nodeB')
+
+      // Verify Node A completed in workflow store
+      const nodeARuns = workflowStore.getNodeAttempts(graphRunId, 'nodeA')
+      expect(nodeARuns).toHaveLength(1)
+      expect(nodeARuns[0]!.status).toBe('completed')
+
+      // Verify physical artifact was persisted on disk and in artifactStore
+      const persistedArtifacts = artifactStore.listForRun(runIdSchema.parse(graphRunId))
+      expect(persistedArtifacts.length).toBeGreaterThan(0)
+      const aArtifact = persistedArtifacts.find((a) => a.stepId === nodeARuns[0]!.id)
+      expect(aArtifact).toBeDefined()
+
+      // Executor 2 simulates restart recovery
+      const executor2 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            expect(ctx.incomingSlots.has('inputA')).toBe(true)
+            const resolvedArtifact = ctx.incomingSlots.get('inputA')!
+            expect(resolvedArtifact.nodeId).toBe('nodeA')
+            expect(resolvedArtifact.kind).toBe('stage-output')
+            nodeBReceivedPayload = resolvedArtifact.content
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const resumeResult = await executor2.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        invalidatedNodeIds: new Set(['nodeB']),
+      })
+
+      expect(resumeResult.status).toBe('completed')
+      expect(resumeResult.completedNodeIds).toContain('nodeA')
+      expect(resumeResult.completedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(true)
+      expect(nodeBReceivedPayload).toBe(JSON.stringify({ message: 'artifact from A' }))
+    })
+
+    it('TC-2C-REC-01A: Multiple attempts exist for Node A -> recovery selects only completed attempt artifacts, ignoring failed/stale attempts', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'outputA',
+                kind: 'stage-output',
+                format: 'json',
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [{ name: 'inputA', kind: 'stage-output', required: true }],
+          }),
+        ],
+        [
+          {
+            source: 'nodeA',
+            target: 'nodeB',
+            sourceHandle: 'stage-output',
+            targetHandle: 'inputA',
+          },
+        ],
+      )
+
+      workflowStore.startGraphRun(
+        {
+          graphRunId,
+          workflowId,
+          projectId,
+          templateId: template.id,
+          startedAt: NOW,
+        },
+        'system',
+      )
+
+      // Attempt 1 for Node A failed and wrote a stale artifact
+      const attempt1Id = randomUUID()
+      workflowStore.recordNodeAttempt(
+        {
+          id: attempt1Id,
+          projectId,
+          graphRunId,
+          nodeId: 'nodeA',
+          attempt: 1,
+          status: 'ready',
+          startedAt: NOW,
+        },
+        'system',
+      )
+      workflowStore.updateNodeAttempt(
+        {
+          projectId,
+          graphRunId,
+          nodeId: 'nodeA',
+          attempt: 1,
+          status: 'failed',
+          error: 'Transient error in attempt 1',
+          finishedAt: NOW,
+          occurredAt: NOW,
+        },
+        'system',
+      )
+      // Stale artifact for attempt 1
+      await artifactService.writeArtifact({
+        runId: runIdSchema.parse(graphRunId),
+        stepId: stepIdSchema.parse(attempt1Id),
+        kind: 'stage-output',
+        name: 'stale-artifact.workflow-artifact.json',
+        content: JSON.stringify({
+          id: randomUUID(),
+          workflowId,
+          nodeId: 'nodeA',
+          kind: 'stage-output',
+          format: 'json',
+          title: 'stale',
+          content: 'STALE_DATA_FROM_ATTEMPT_1',
+          metadata: {},
+          createdAt: NOW,
+        }),
+      })
+
+      // Attempt 2 for Node A completed with authoritative artifact
+      const attempt2Id = randomUUID()
+      workflowStore.recordNodeAttempt(
+        {
+          id: attempt2Id,
+          projectId,
+          graphRunId,
+          nodeId: 'nodeA',
+          attempt: 2,
+          status: 'ready',
+          startedAt: NOW,
+        },
+        'system',
+      )
+      workflowStore.updateNodeAttempt(
+        {
+          projectId,
+          graphRunId,
+          nodeId: 'nodeA',
+          attempt: 2,
+          status: 'completed',
+          finishedAt: NOW,
+          occurredAt: NOW,
+        },
+        'system',
+      )
+      // Authoritative artifact for attempt 2
+      await artifactService.writeArtifact({
+        runId: runIdSchema.parse(graphRunId),
+        stepId: stepIdSchema.parse(attempt2Id),
+        kind: 'stage-output',
+        name: 'authoritative.workflow-artifact.json',
+        content: JSON.stringify({
+          id: randomUUID(),
+          workflowId,
+          nodeId: 'nodeA',
+          kind: 'stage-output',
+          format: 'json',
+          title: 'authoritative',
+          content: 'AUTHORITATIVE_DATA_FROM_ATTEMPT_2',
+          metadata: {},
+          createdAt: NOW,
+        }),
+      })
+
+      let receivedContent: string | null = null
+
+      const resumeExecutor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeB') {
+            const slot = ctx.incomingSlots.get('inputA')
+            receivedContent = slot?.content ?? null
+            // Check that inputArtifacts does not contain the stale artifact
+            expect(ctx.inputArtifacts.some((a) => a.content.includes('STALE_DATA'))).toBe(false)
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const result = await resumeExecutor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(result.status).toBe('completed')
+      expect(result.completedNodeIds).toContain('nodeB')
+      expect(receivedContent).toBe('AUTHORITATIVE_DATA_FROM_ATTEMPT_2')
+    })
+
+    it('TC-2C-REC-01B: Missing required artifact causes deterministic blocking/failure, never false success', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'outputA',
+                kind: 'stage-output',
+                format: 'json',
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [{ name: 'inputA', kind: 'stage-output', required: true }],
+          }),
+        ],
+        [
+          {
+            source: 'nodeA',
+            target: 'nodeB',
+            sourceHandle: 'stage-output',
+            targetHandle: 'inputA',
+          },
+        ],
+      )
+
+      workflowStore.startGraphRun(
+        {
+          graphRunId,
+          workflowId,
+          projectId,
+          templateId: template.id,
+          startedAt: NOW,
+        },
+        'system',
+      )
+
+      // Node A completed in the store, but NO artifact was ever recorded for it
+      const nodeAId = randomUUID()
+      workflowStore.recordNodeAttempt(
+        {
+          id: nodeAId,
+          projectId,
+          graphRunId,
+          nodeId: 'nodeA',
+          attempt: 1,
+          status: 'ready',
+          startedAt: NOW,
+        },
+        'system',
+      )
+      workflowStore.updateNodeAttempt(
+        {
+          projectId,
+          graphRunId,
+          nodeId: 'nodeA',
+          attempt: 1,
+          status: 'completed',
+          finishedAt: NOW,
+          occurredAt: NOW,
+        },
+        'system',
+      )
+
+      let nodeBExecuted = false
+      const resumeExecutor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: () => {
+          nodeBExecuted = true
+          return { status: 'completed' }
+        },
+      })
+
+      const result = await resumeExecutor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      // Downstream node B must be blocked because required slot is missing
+      expect(result.status).toBe('failed')
+      expect(result.blockedNodeIds).toContain('nodeB')
+      expect(result.completedNodeIds).not.toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const nodeBAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      expect(nodeBAttempts).toHaveLength(1)
+      expect(nodeBAttempts[0]!.status).toBe('blocked')
+      expect(nodeBAttempts[0]!.error).toContain('Missing required input slot: inputA')
+
+      // Sub-case: Corrupt artifact file on disk fails closed immediately
+      const corruptRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(corruptRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+      workflowStore.startGraphRun(
+        {
+          graphRunId: corruptRunId,
+          workflowId,
+          projectId,
+          templateId: template.id,
+          startedAt: NOW,
+        },
+        'system',
+      )
+      const corruptAttemptId = randomUUID()
+      workflowStore.recordNodeAttempt(
+        {
+          id: corruptAttemptId,
+          projectId,
+          graphRunId: corruptRunId,
+          nodeId: 'nodeA',
+          attempt: 1,
+          status: 'ready',
+          startedAt: NOW,
+        },
+        'system',
+      )
+      workflowStore.updateNodeAttempt(
+        {
+          projectId,
+          graphRunId: corruptRunId,
+          nodeId: 'nodeA',
+          attempt: 1,
+          status: 'completed',
+          finishedAt: NOW,
+          occurredAt: NOW,
+        },
+        'system',
+      )
+      const validMeta = await artifactService.writeArtifact({
+        runId: runIdSchema.parse(corruptRunId),
+        stepId: stepIdSchema.parse(corruptAttemptId),
+        kind: 'stage-output',
+        name: 'corrupt.json',
+        content: 'valid initially',
+      })
+      // Corrupt physical file by overwriting content without updating SQLite hash/size
+      const filePath = artifactService.resolvePath(validMeta)
+      writeFileSync(filePath, 'corrupted content that does not match sha')
+
+      await expect(
+        resumeExecutor.run({
+          graphRunId: corruptRunId,
+          workflowId,
+          projectId,
+          template,
+          forkSha,
+        }),
+      ).rejects.toThrow(/Artifact integrity check failed/)
+    })
+
+    it('TC-2C-REC-01C: Artifacts from another node or graph run cannot leak into the resumed node inputs', async () => {
+      const runStore = new RunStore(db)
+
+      // Run 1: Alien run with an artifact
+      const alienRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(alienRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'completed',
+        startedAt: NOW,
+        finishedAt: NOW,
+        exitCode: 0,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+      const alienAttemptId = randomUUID()
+      await artifactService.writeArtifact({
+        runId: runIdSchema.parse(alienRunId),
+        stepId: stepIdSchema.parse(alienAttemptId),
+        kind: 'stage-output',
+        name: 'alien.workflow-artifact.json',
+        content: JSON.stringify({
+          id: randomUUID(),
+          workflowId,
+          nodeId: 'alienNode',
+          kind: 'stage-output',
+          format: 'json',
+          title: 'alien',
+          content: 'LEAKED_ALIEN_PAYLOAD',
+          metadata: {},
+          createdAt: NOW,
+        }),
+      })
+
+      // Run 2: Target run
+      const targetRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(targetRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'outputA',
+                kind: 'stage-output',
+                format: 'json',
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [{ name: 'inputA', kind: 'stage-output', required: true }],
+          }),
+        ],
+        [
+          {
+            source: 'nodeA',
+            target: 'nodeB',
+            sourceHandle: 'stage-output',
+            targetHandle: 'inputA',
+          },
+        ],
+      )
+
+      workflowStore.startGraphRun(
+        {
+          graphRunId: targetRunId,
+          workflowId,
+          projectId,
+          templateId: template.id,
+          startedAt: NOW,
+        },
+        'system',
+      )
+
+      // Node A in target run completed
+      const nodeAAttemptId = randomUUID()
+      workflowStore.recordNodeAttempt(
+        {
+          id: nodeAAttemptId,
+          projectId,
+          graphRunId: targetRunId,
+          nodeId: 'nodeA',
+          attempt: 1,
+          status: 'ready',
+          startedAt: NOW,
+        },
+        'system',
+      )
+      workflowStore.updateNodeAttempt(
+        {
+          projectId,
+          graphRunId: targetRunId,
+          nodeId: 'nodeA',
+          attempt: 1,
+          status: 'completed',
+          finishedAt: NOW,
+          occurredAt: NOW,
+        },
+        'system',
+      )
+      await artifactService.writeArtifact({
+        runId: runIdSchema.parse(targetRunId),
+        stepId: stepIdSchema.parse(nodeAAttemptId),
+        kind: 'stage-output',
+        name: 'nodeA.workflow-artifact.json',
+        content: JSON.stringify({
+          id: randomUUID(),
+          workflowId,
+          nodeId: 'nodeA',
+          kind: 'stage-output',
+          format: 'json',
+          title: 'nodeA',
+          content: 'LEGIT_NODE_A_PAYLOAD',
+          metadata: {},
+          createdAt: NOW,
+        }),
+      })
+
+      // Also record an unrelated node in target run
+      const otherNodeAttemptId = randomUUID()
+      await artifactService.writeArtifact({
+        runId: runIdSchema.parse(targetRunId),
+        stepId: stepIdSchema.parse(otherNodeAttemptId),
+        kind: 'stage-output',
+        name: 'unrelated.workflow-artifact.json',
+        content: JSON.stringify({
+          id: randomUUID(),
+          workflowId,
+          nodeId: 'unrelatedNode',
+          kind: 'stage-output',
+          format: 'json',
+          title: 'unrelated',
+          content: 'UNRELATED_NODE_PAYLOAD',
+          metadata: {},
+          createdAt: NOW,
+        }),
+      })
+
+      let observedArtifacts: WorkflowArtifact[] = []
+
+      const resumeExecutor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeB') {
+            observedArtifacts = [...ctx.inputArtifacts]
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const result = await resumeExecutor.run({
+        graphRunId: targetRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(result.status).toBe('completed')
+      expect(result.completedNodeIds).toContain('nodeB')
+      expect(observedArtifacts).toHaveLength(1)
+      expect(observedArtifacts[0]!.content).toBe('LEGIT_NODE_A_PAYLOAD')
+      expect(observedArtifacts[0]!.nodeId).toBe('nodeA')
+      expect(observedArtifacts.some((a) => a.content.includes('LEAKED_ALIEN_PAYLOAD'))).toBe(false)
+      expect(observedArtifacts.some((a) => a.content.includes('UNRELATED_NODE_PAYLOAD'))).toBe(
+        false,
+      )
+    })
+
+    it('TC-2C-REC-01D: Repeated recovery produces identical lineage and does not duplicate artifacts', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'outputA',
+                kind: 'stage-output',
+                format: 'json',
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [{ name: 'inputA', kind: 'stage-output', required: true }],
+          }),
+        ],
+        [
+          {
+            source: 'nodeA',
+            target: 'nodeB',
+            sourceHandle: 'stage-output',
+            targetHandle: 'inputA',
+          },
+        ],
+      )
+
+      workflowStore.startGraphRun(
+        {
+          graphRunId,
+          workflowId,
+          projectId,
+          templateId: template.id,
+          startedAt: NOW,
+        },
+        'system',
+      )
+
+      const nodeAAttemptId = randomUUID()
+      workflowStore.recordNodeAttempt(
+        {
+          id: nodeAAttemptId,
+          projectId,
+          graphRunId,
+          nodeId: 'nodeA',
+          attempt: 1,
+          status: 'ready',
+          startedAt: NOW,
+        },
+        'system',
+      )
+      workflowStore.updateNodeAttempt(
+        {
+          projectId,
+          graphRunId,
+          nodeId: 'nodeA',
+          attempt: 1,
+          status: 'completed',
+          finishedAt: NOW,
+          occurredAt: NOW,
+        },
+        'system',
+      )
+      await artifactService.writeArtifact({
+        runId: runIdSchema.parse(graphRunId),
+        stepId: stepIdSchema.parse(nodeAAttemptId),
+        kind: 'stage-output',
+        name: 'art1.workflow-artifact.json',
+        content: JSON.stringify({
+          id: randomUUID(),
+          workflowId,
+          nodeId: 'nodeA',
+          kind: 'stage-output',
+          format: 'json',
+          title: 'art1',
+          content: 'PAYLOAD_A',
+          metadata: {},
+          createdAt: NOW,
+          __lineageOrder: 0,
+        }),
+      })
+
+      const initialArtifactCount = artifactStore.listForRun(runIdSchema.parse(graphRunId)).length
+      expect(initialArtifactCount).toBeGreaterThan(0)
+
+      let resumeCount = 0
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: () => {
+          resumeCount++
+          return { status: 'completed' }
+        },
+      })
+
+      // Run recovery 1
+      const result1 = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(result1.status).toBe('completed')
+      expect(result1.completedNodeIds).toEqual(expect.arrayContaining(['nodeA', 'nodeB']))
+      const artifactCountAfterRun1 = artifactStore.listForRun(runIdSchema.parse(graphRunId)).length
+
+      // Run recovery 2 (idempotent replay of completed run)
+      const result2 = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(result2.status).toBe('completed')
+      expect(result2.completedNodeIds).toEqual(result1.completedNodeIds)
+      expect(result2.artifacts.map((a) => a.content)).toEqual(
+        result1.artifacts.map((a) => a.content),
+      )
+      const artifactCountAfterRun2 = artifactStore.listForRun(runIdSchema.parse(graphRunId)).length
+
+      // Verify that no extra duplicate artifacts were generated across repeated runs
+      expect(artifactCountAfterRun2).toBe(artifactCountAfterRun1)
+      expect(resumeCount).toBe(1) // Node B executed only once, not twice
+    })
+
+    it('TC-2C-REC-02: Process interruption after attempt completion is recorded but before any artifact is persisted', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'outputA',
+                kind: 'stage-output',
+                format: 'json',
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [{ name: 'inputA', kind: 'stage-output', required: true }],
+          }),
+        ],
+        [
+          {
+            source: 'nodeA',
+            target: 'nodeB',
+            sourceHandle: 'stage-output',
+            targetHandle: 'inputA',
+          },
+        ],
+      )
+
+      workflowStore.startGraphRun(
+        {
+          graphRunId,
+          workflowId,
+          projectId,
+          templateId: template.id,
+          startedAt: NOW,
+        },
+        'system',
+      )
+
+      // Simulate interruption: attempt completion recorded in SQLite, but process stopped before any artifact was persisted
+      const nodeAAttemptId = randomUUID()
+      workflowStore.recordNodeAttempt(
+        {
+          id: nodeAAttemptId,
+          projectId,
+          graphRunId,
+          nodeId: 'nodeA',
+          attempt: 1,
+          status: 'ready',
+          startedAt: NOW,
+        },
+        'system',
+      )
+      workflowStore.updateNodeAttempt(
+        {
+          projectId,
+          graphRunId,
+          nodeId: 'nodeA',
+          attempt: 1,
+          status: 'completed',
+          finishedAt: NOW,
+          occurredAt: NOW,
+        },
+        'system',
+      )
+
+      // Assert durable state prior to recovery:
+      // 1. Attempt status in SQLite is 'completed'
+      const attemptsBefore = workflowStore.getNodeAttempts(graphRunId, 'nodeA')
+      expect(attemptsBefore).toHaveLength(1)
+      expect(attemptsBefore[0]!.status).toBe('completed')
+
+      // 2. Artifact rows in SQLite is 0; physical files on disk is 0
+      const artifactsBefore = artifactStore.listForStep(stepIdSchema.parse(nodeAAttemptId))
+      expect(artifactsBefore).toHaveLength(0)
+
+      // 3. No completion checkpoint was recorded for Node A
+      const checkpointsBefore = workflowStore.getGraphCheckpoints(graphRunId)
+      expect(
+        checkpointsBefore.some((c) => c.nodeId === 'nodeA' && c.operation === 'node.completed'),
+      ).toBe(false)
+
+      let nodeBExecuted = false
+      const resumeExecutor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      // Execute resume
+      const result = await resumeExecutor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      // Downstream node B cannot resolve inputA and deterministically blocks, preventing false workflow success
+      expect(result.status).toBe('failed')
+      expect(result.blockedNodeIds).toContain('nodeB')
+      expect(result.completedNodeIds).not.toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      // Check node B attempt was blocked with actionable error
+      const nodeBAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      expect(nodeBAttempts).toHaveLength(1)
+      expect(nodeBAttempts[0]!.status).toBe('blocked')
+      expect(nodeBAttempts[0]!.error).toContain('Missing required input slot: inputA')
+
+      // Resumed lineage for Node A reflects zero artifacts
+      expect(result.artifacts.filter((a) => a.nodeId === 'nodeA')).toHaveLength(0)
+    })
+
+    it('TC-2C-REC-03: Process interruption during persistence of multiple artifacts leaves a recoverable, deterministic state without false completion', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'out1',
+                kind: 'stage-output',
+                format: 'json',
+                requiredSections: [],
+              },
+              {
+                name: 'out2',
+                kind: 'stage-output',
+                format: 'json',
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              { name: 'in1', kind: 'stage-output', required: true },
+              { name: 'in2', kind: 'stage-output', required: true },
+            ],
+          }),
+        ],
+        [
+          {
+            source: 'nodeA',
+            target: 'nodeB',
+            sourceHandle: 'out1',
+            targetHandle: 'in1',
+          },
+          {
+            source: 'nodeA',
+            target: 'nodeB',
+            sourceHandle: 'out2',
+            targetHandle: 'in2',
+          },
+        ],
+      )
+
+      workflowStore.startGraphRun(
+        {
+          graphRunId,
+          workflowId,
+          projectId,
+          templateId: template.id,
+          startedAt: NOW,
+        },
+        'system',
+      )
+
+      // Simulate crash during multi-artifact write:
+      // Node A attempt 1 starts and is in 'running' state
+      const attempt1Id = randomUUID()
+      workflowStore.recordNodeAttempt(
+        {
+          id: attempt1Id,
+          projectId,
+          graphRunId,
+          nodeId: 'nodeA',
+          attempt: 1,
+          status: 'running',
+          startedAt: NOW,
+        },
+        'system',
+      )
+
+      // Only 1 of 2 artifacts gets written before the crash
+      await artifactService.writeArtifact({
+        runId: runIdSchema.parse(graphRunId),
+        stepId: stepIdSchema.parse(attempt1Id),
+        kind: 'stage-output',
+        name: 'partial-out1.workflow-artifact.json',
+        content: JSON.stringify({
+          id: randomUUID(),
+          workflowId,
+          nodeId: 'nodeA',
+          kind: 'stage-output',
+          format: 'json',
+          title: 'out1',
+          content: JSON.stringify({ part: 1 }),
+          metadata: {},
+          createdAt: NOW,
+          __lineageOrder: 0,
+          __totalArtifacts: 2,
+        }),
+      })
+
+      // Assert state right after interruption:
+      // Attempt is still 'running' (NEVER falsely marked completed)
+      const attempt1Before = workflowStore.getNodeAttempt(graphRunId, 'nodeA', 1)
+      expect(attempt1Before?.status).toBe('running')
+      expect(artifactStore.listForStep(stepIdSchema.parse(attempt1Id))).toHaveLength(1)
+      expect(
+        workflowStore.getGraphCheckpoints(graphRunId).some((c) => c.operation === 'node.completed'),
+      ).toBe(false)
+
+      // Crash recovery runs
+      const recoveryExecutor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+      })
+      const recoveredRuns = await recoveryExecutor.recover(projectId)
+      expect(recoveredRuns).toHaveLength(1)
+      expect(recoveredRuns[0]!.status).toBe('failed')
+
+      const attempt1AfterRecover = workflowStore.getNodeAttempt(graphRunId, 'nodeA', 1)
+      expect(attempt1AfterRecover?.status).toBe('failed')
+      expect(attempt1AfterRecover?.error).toContain('Process crashed during node execution')
+
+      // Fresh executor simulates restart recovery and retries Node A
+      let nodeBReceivedIn1: string | null = null
+      let nodeBReceivedIn2: string | null = null
+      const resumeExecutor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'out1',
+                  content: JSON.stringify({ part: 1, attempt: ctx.attempt }),
+                  metadata: {},
+                  createdAt: NOW,
+                },
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'out2',
+                  content: JSON.stringify({ part: 2, attempt: ctx.attempt }),
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBReceivedIn1 = ctx.incomingSlots.get('in1')?.content ?? null
+            nodeBReceivedIn2 = ctx.incomingSlots.get('in2')?.content ?? null
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const resumeResult = await resumeExecutor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        invalidatedNodeIds: new Set(['nodeA']),
+      })
+
+      expect(resumeResult.status).toBe('completed')
+      expect(resumeResult.completedNodeIds).toEqual(expect.arrayContaining(['nodeA', 'nodeB']))
+      expect(nodeBReceivedIn1).toContain('"attempt":2')
+      expect(nodeBReceivedIn2).toContain('"attempt":2')
+
+      // Durable attempts: attempt 1 is failed, attempt 2 is completed
+      const allAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeA')
+      expect(allAttempts).toHaveLength(2)
+      expect(allAttempts[0]!.attempt).toBe(1)
+      expect(allAttempts[0]!.status).toBe('failed')
+      expect(allAttempts[1]!.attempt).toBe(2)
+      expect(allAttempts[1]!.status).toBe('completed')
+
+      // Attempt 2 has exactly 2 artifacts persisted
+      const attempt2Artifacts = artifactStore.listForStep(stepIdSchema.parse(allAttempts[1]!.id))
+      expect(attempt2Artifacts).toHaveLength(2)
+
+      // Completion checkpoint was recorded for Node A attempt 2
+      const checkpointsAfter = workflowStore.getGraphCheckpoints(graphRunId)
+      expect(
+        checkpointsAfter.some((c) => c.nodeId === 'nodeA' && c.operation === 'node.completed'),
+      ).toBe(true)
+    })
+
+    it('TC-2C-REC-04: Artifact persistence throws after the first write; retry/recovery does not duplicate already persisted artifacts', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate([
+        makeNode('nodeA', {
+          outputs: [
+            { name: 'artifact-first', kind: 'stage-output', format: 'json', requiredSections: [] },
+            { name: 'artifact-second', kind: 'stage-output', format: 'json', requiredSections: [] },
+          ],
+        }),
+      ])
+
+      const art1Id = randomUUID()
+      const art2Id = randomUUID()
+
+      // Spy on writeArtifact to simulate throw after the first write
+      let writeCallCount = 0
+      const originalWriteArtifact = artifactService.writeArtifact.bind(artifactService)
+      vi.spyOn(artifactService, 'writeArtifact').mockImplementation(async (opts) => {
+        writeCallCount++
+        if (writeCallCount === 2) {
+          throw new Error('Simulated disk I/O error during second artifact persistence')
+        }
+        return originalWriteArtifact(opts)
+      })
+
+      const executor1 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: () => ({
+          status: 'completed',
+          artifacts: [
+            {
+              id: art1Id,
+              workflowId,
+              nodeId: 'nodeA',
+              kind: 'stage-output',
+              format: 'json',
+              title: 'artifact-first',
+              content: JSON.stringify({ item: 'first' }),
+              metadata: {},
+              createdAt: NOW,
+            },
+            {
+              id: art2Id,
+              workflowId,
+              nodeId: 'nodeA',
+              kind: 'stage-output',
+              format: 'json',
+              title: 'artifact-second',
+              content: JSON.stringify({ item: 'second' }),
+              metadata: {},
+              createdAt: NOW,
+            },
+          ],
+        }),
+      })
+
+      const run1Result = await executor1.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      // Node A attempt 1 threw during persistence of 2nd artifact
+      expect(run1Result.status).toBe('failed')
+      expect(run1Result.failedNodeIds).toContain('nodeA')
+      expect(run1Result.completedNodeIds).not.toContain('nodeA')
+
+      const nodeAAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeA')
+      expect(nodeAAttempts).toHaveLength(1)
+      expect(nodeAAttempts[0]!.status).toBe('failed')
+      expect(nodeAAttempts[0]!.error).toContain(
+        'Simulated disk I/O error during second artifact persistence',
+      )
+
+      // Exactly 1 artifact was written to SQLite and disk for Attempt 1
+      const attempt1StepId = stepIdSchema.parse(nodeAAttempts[0]!.id)
+      const attempt1ArtifactsBeforeRetry = artifactStore.listForStep(attempt1StepId)
+      expect(attempt1ArtifactsBeforeRetry).toHaveLength(1)
+      expect(attempt1ArtifactsBeforeRetry[0]!.name).toBe('artifact-first.workflow-artifact.json')
+
+      // Restore writeArtifact to succeed
+      vi.restoreAllMocks()
+
+      // Retry persistence for attempt 1 (e.g. idempotent retry of persistence on the same step)
+      const executor2 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+      })
+
+      const artifactsToPersist: WorkflowArtifact[] = [
+        {
+          id: art1Id,
+          workflowId,
+          nodeId: 'nodeA',
+          kind: 'stage-output',
+          format: 'json',
+          title: 'artifact-first',
+          content: JSON.stringify({ item: 'first' }),
+          metadata: {},
+          createdAt: NOW,
+        },
+        {
+          id: art2Id,
+          workflowId,
+          nodeId: 'nodeA',
+          kind: 'stage-output',
+          format: 'json',
+          title: 'artifact-second',
+          content: JSON.stringify({ item: 'second' }),
+          metadata: {},
+          createdAt: NOW,
+        },
+      ]
+
+      // Call persistNodeArtifacts for the same step
+      await (
+        executor2 as unknown as {
+          persistNodeArtifacts: (
+            runId: string,
+            stepId: string,
+            arts: WorkflowArtifact[],
+          ) => Promise<void>
+        }
+      ).persistNodeArtifacts(graphRunId, nodeAAttempts[0]!.id, artifactsToPersist)
+
+      // Verify that art1 was NOT duplicated:
+      // Exactly 2 artifacts exist for Attempt 1 in SQLite
+      const attempt1ArtifactsAfterRetry = artifactStore.listForStep(attempt1StepId)
+      expect(attempt1ArtifactsAfterRetry).toHaveLength(2)
+
+      const art1Rows = attempt1ArtifactsAfterRetry.filter(
+        (a) => a.name === 'artifact-first.workflow-artifact.json',
+      )
+      expect(art1Rows).toHaveLength(1) // duplicate count is 0
+
+      const art2Rows = attempt1ArtifactsAfterRetry.filter(
+        (a) => a.name === 'artifact-second.workflow-artifact.json',
+      )
+      expect(art2Rows).toHaveLength(1)
+
+      // Total files for this run on disk is exactly 2
+      const allRunArtifacts = artifactStore.listForRun(runIdSchema.parse(graphRunId))
+      expect(allRunArtifacts).toHaveLength(2)
+    })
+
+    it('TC-2C-REC-05: Required artifact service/configuration is unavailable; the executor does not silently claim durable success', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate([
+        makeNode('nodeA', {
+          outputs: [{ name: 'out1', kind: 'stage-output', format: 'json', requiredSections: [] }],
+        }),
+      ])
+
+      // GraphExecutor configured WITHOUT artifactService
+      const executorWithoutArtifactService = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService: undefined,
+        executeLeafNode: () => ({
+          status: 'completed',
+          artifacts: [
+            {
+              id: randomUUID(),
+              workflowId,
+              nodeId: 'nodeA',
+              kind: 'stage-output',
+              format: 'json',
+              title: 'result',
+              content: '{"data":123}',
+              metadata: {},
+              createdAt: NOW,
+            },
+          ],
+        }),
+      })
+
+      const result = await executorWithoutArtifactService.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      // Must fail closed with actionable error; never claim success
+      expect(result.status).toBe('failed')
+      expect(result.failedNodeIds).toContain('nodeA')
+      expect(result.completedNodeIds).not.toContain('nodeA')
+
+      const nodeAAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeA')
+      expect(nodeAAttempts).toHaveLength(1)
+      expect(nodeAAttempts[0]!.status).toBe('failed')
+      expect(nodeAAttempts[0]!.error).toContain('ArtifactService is required but not configured')
+
+      // Checkpoint state: node.failed was written, never node.completed
+      const checkpoints = workflowStore.getGraphCheckpoints(graphRunId)
+      expect(
+        checkpoints.some((c) => c.nodeId === 'nodeA' && c.operation === 'node.completed'),
+      ).toBe(false)
+      expect(checkpoints.some((c) => c.nodeId === 'nodeA' && c.operation === 'node.failed')).toBe(
+        true,
+      )
+
+      // Artifact store remains untouched
+      expect(artifactStore.listForRun(runIdSchema.parse(graphRunId))).toHaveLength(0)
+    })
+
+    it('TC-2C-REC-06: Invalid artifact kind or malformed persisted envelope is rejected or handled according to the established compatibility contract, never silently promoted to authoritative lineage', async () => {
+      const runStore = new RunStore(db)
+
+      // Sub-case 1: Invalid artifact kind at persistence boundary fails closed
+      const graphRunId1 = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId1),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template1 = makeTemplate([makeNode('nodeA')])
+      const executor1 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: () => ({
+          status: 'completed',
+          artifacts: [
+            {
+              id: randomUUID(),
+              workflowId,
+              nodeId: 'nodeA',
+              kind: 'completely-invalid-artifact-kind',
+              format: 'json',
+              title: 'invalid-kind-art',
+              content: '{"data":1}',
+              metadata: {},
+              createdAt: NOW,
+            },
+          ],
+        }),
+      })
+
+      const result1 = await executor1.run({
+        graphRunId: graphRunId1,
+        workflowId,
+        projectId,
+        template: template1,
+        forkSha,
+      })
+
+      expect(result1.status).toBe('failed')
+      expect(result1.failedNodeIds).toContain('nodeA')
+      const attempts1 = workflowStore.getNodeAttempts(graphRunId1, 'nodeA')
+      expect(attempts1[0]!.status).toBe('failed')
+      expect(attempts1[0]!.error).toContain(
+        'Invalid artifact kind "completely-invalid-artifact-kind"',
+      )
+
+      // Zero artifacts were persisted under coerced kind
+      expect(artifactStore.listForRun(runIdSchema.parse(graphRunId1))).toHaveLength(0)
+
+      // Sub-case 2: Malformed JSON envelope on disk fails closed during hydration, never converted to plain text
+      const graphRunId2 = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId2),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+      workflowStore.startGraphRun(
+        {
+          graphRunId: graphRunId2,
+          workflowId,
+          projectId,
+          templateId: template1.id,
+          startedAt: NOW,
+        },
+        'system',
+      )
+
+      const attempt2Id = randomUUID()
+      workflowStore.recordNodeAttempt(
+        {
+          id: attempt2Id,
+          projectId,
+          graphRunId: graphRunId2,
+          nodeId: 'nodeA',
+          attempt: 1,
+          status: 'ready',
+          startedAt: NOW,
+        },
+        'system',
+      )
+      workflowStore.updateNodeAttempt(
+        {
+          projectId,
+          graphRunId: graphRunId2,
+          nodeId: 'nodeA',
+          attempt: 1,
+          status: 'completed',
+          finishedAt: NOW,
+          occurredAt: NOW,
+        },
+        'system',
+      )
+
+      const validMeta = await artifactService.writeArtifact({
+        runId: runIdSchema.parse(graphRunId2),
+        stepId: stepIdSchema.parse(attempt2Id),
+        kind: 'stage-output',
+        name: 'envelope.workflow-artifact.json',
+        content: JSON.stringify({
+          id: randomUUID(),
+          workflowId,
+          nodeId: 'nodeA',
+          kind: 'stage-output',
+          format: 'json',
+          title: 'valid-envelope',
+          content: 'valid',
+          metadata: {},
+          createdAt: NOW,
+        }),
+      })
+
+      // Corrupt the file content to invalid JSON (while leaving sha/size valid in SQLite to test JSON envelope parser boundary)
+      const absPath = artifactService.resolvePath(validMeta)
+      const malformedJson = '{ "title": "broken", invalid JSON syntax here'
+      writeFileSync(absPath, malformedJson, 'utf-8')
+      const newSha = (await import('node:crypto'))
+        .createHash('sha256')
+        .update(malformedJson)
+        .digest('hex')
+      const { eq } = await import('drizzle-orm')
+      const { artifacts } = await import('../db/schema')
+      db.update(artifacts)
+        .set({ sha256: newSha, sizeBytes: Buffer.byteLength(malformedJson) })
+        .where(eq(artifacts.id, validMeta.id))
+        .run()
+
+      const resumeExecutor2 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+      })
+
+      await expect(
+        resumeExecutor2.run({
+          graphRunId: graphRunId2,
+          workflowId,
+          projectId,
+          template: template1,
+          forkSha,
+        }),
+      ).rejects.toThrow(/Malformed artifact envelope: failed to parse JSON/)
+
+      // Sub-case 3: Invalid artifact kind inside persisted envelope on disk is rejected
+      const graphRunId3 = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId3),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+      workflowStore.startGraphRun(
+        {
+          graphRunId: graphRunId3,
+          workflowId,
+          projectId,
+          templateId: template1.id,
+          startedAt: NOW,
+        },
+        'system',
+      )
+
+      const attempt3Id = randomUUID()
+      workflowStore.recordNodeAttempt(
+        {
+          id: attempt3Id,
+          projectId,
+          graphRunId: graphRunId3,
+          nodeId: 'nodeA',
+          attempt: 1,
+          status: 'ready',
+          startedAt: NOW,
+        },
+        'system',
+      )
+      workflowStore.updateNodeAttempt(
+        {
+          projectId,
+          graphRunId: graphRunId3,
+          nodeId: 'nodeA',
+          attempt: 1,
+          status: 'completed',
+          finishedAt: NOW,
+          occurredAt: NOW,
+        },
+        'system',
+      )
+
+      const bogusKindMeta = await artifactService.writeArtifact({
+        runId: runIdSchema.parse(graphRunId3),
+        stepId: stepIdSchema.parse(attempt3Id),
+        kind: 'stage-output',
+        name: 'envelope-bogus.workflow-artifact.json',
+        content: JSON.stringify({
+          id: randomUUID(),
+          workflowId,
+          nodeId: 'nodeA',
+          kind: 'bogus-alien-kind',
+          format: 'json',
+          title: 'valid-envelope',
+          content: 'some payload',
+          metadata: {},
+          createdAt: NOW,
+        }),
+      })
+      expect(bogusKindMeta).toBeDefined()
+
+      const resumeExecutor3 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+      })
+
+      await expect(
+        resumeExecutor3.run({
+          graphRunId: graphRunId3,
+          workflowId,
+          projectId,
+          template: template1,
+          forkSha,
+        }),
+      ).rejects.toThrow(/Invalid artifact kind "bogus-alien-kind"/)
+    })
+
+    it('TC-2C-REC-07: Recovery after a valid completion checkpoint still hydrates the exact persisted artifact lineage and remains idempotent', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              { name: 'outA', kind: 'stage-output', format: 'json', requiredSections: [] },
+              { name: 'diffA', kind: 'diff', format: 'diff', requiredSections: [] },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              { name: 'inA', kind: 'stage-output', required: true },
+              { name: 'inDiff', kind: 'diff', required: true },
+            ],
+          }),
+        ],
+        [
+          {
+            source: 'nodeA',
+            target: 'nodeB',
+            sourceHandle: 'stage-output',
+            targetHandle: 'inA',
+          },
+          {
+            source: 'nodeA',
+            target: 'nodeB',
+            sourceHandle: 'diff',
+            targetHandle: 'inDiff',
+          },
+        ],
+      )
+
+      // Executor 1 executes Node A completely: writes artifacts, updates attempt to completed, writes checkpoint
+      // and then process interrupts before Node B executes
+      const executor1 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'outA',
+                  content: JSON.stringify({ key: 'valA' }),
+                  metadata: { version: '1.0' },
+                  createdAt: NOW,
+                },
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'diff',
+                  format: 'diff',
+                  title: 'diffA',
+                  content: '--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new\n',
+                  metadata: { author: 'nodeA' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            throw new Error('Process crash before Node B execution')
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const initialRun = await executor1.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(initialRun.status).toBe('failed')
+      expect(initialRun.completedNodeIds).toContain('nodeA')
+      expect(initialRun.failedNodeIds).toContain('nodeB')
+
+      // Assert durable state of Node A after initial run:
+      const nodeAAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeA')
+      expect(nodeAAttempts).toHaveLength(1)
+      expect(nodeAAttempts[0]!.status).toBe('completed')
+
+      const nodeAArtifacts = artifactStore.listForStep(stepIdSchema.parse(nodeAAttempts[0]!.id))
+      expect(nodeAArtifacts).toHaveLength(2)
+
+      const checkpoints = workflowStore.getGraphCheckpoints(graphRunId)
+      expect(
+        checkpoints.some((c) => c.nodeId === 'nodeA' && c.operation === 'node.completed'),
+      ).toBe(true)
+
+      const artifactCountBeforeResume = artifactStore.listForRun(
+        runIdSchema.parse(graphRunId),
+      ).length
+      expect(artifactCountBeforeResume).toBe(2)
+
+      // Fresh Executor 2 resumes after interruption
+      let nodeBReceivedInA: string | null = null
+      let nodeBReceivedInDiff: string | null = null
+      let nodeBExecutionCount = 0
+
+      const executor2 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecutionCount++
+            nodeBReceivedInA = ctx.incomingSlots.get('inA')?.content ?? null
+            nodeBReceivedInDiff = ctx.incomingSlots.get('inDiff')?.content ?? null
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const recoveryResult1 = await executor2.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        invalidatedNodeIds: new Set(['nodeB']),
+      })
+
+      // Node A's artifacts were hydrated and resolved by Node B
+      expect(recoveryResult1.status).toBe('completed')
+      expect(recoveryResult1.completedNodeIds).toEqual(expect.arrayContaining(['nodeA', 'nodeB']))
+      expect(nodeBReceivedInA).toBe(JSON.stringify({ key: 'valA' }))
+      expect(nodeBReceivedInDiff).toContain('+new')
+      expect(nodeBExecutionCount).toBe(1)
+
+      const artifactCountAfterResume1 = artifactStore.listForRun(
+        runIdSchema.parse(graphRunId),
+      ).length
+
+      // Fresh Executor 3 runs repeated recovery (idempotent replay)
+      const executor3 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: () => ({ status: 'completed' }),
+      })
+
+      const recoveryResult2 = await executor3.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(recoveryResult2.status).toBe('completed')
+      expect(recoveryResult2.completedNodeIds).toEqual(recoveryResult1.completedNodeIds)
+      expect(recoveryResult2.artifacts.map((a) => a.id)).toEqual(
+        recoveryResult1.artifacts.map((a) => a.id),
+      )
+      expect(recoveryResult2.artifacts.map((a) => a.content)).toEqual(
+        recoveryResult1.artifacts.map((a) => a.content),
+      )
+
+      // Zero duplicate artifact rows created across repeated recovery
+      const artifactCountAfterResume2 = artifactStore.listForRun(
+        runIdSchema.parse(graphRunId),
+      ).length
+      expect(artifactCountAfterResume2).toBe(artifactCountAfterResume1)
+      expect(nodeBExecutionCount).toBe(1) // Node B was not re-executed in replay
+    })
+
+    it('TC-2C-REC-08: Node declares a required output but returns zero artifacts. It must not be marked completed', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'outA',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [{ name: 'inA', kind: 'stage-output', required: true }],
+          }),
+        ],
+        [
+          {
+            source: 'nodeA',
+            target: 'nodeB',
+            sourceHandle: 'stage-output',
+            targetHandle: 'inA',
+          },
+        ],
+      )
+
+      let nodeBExecuted = false
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            // Unmet required output: returns status completed but zero artifacts
+            return {
+              status: 'completed',
+              artifacts: [],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      // Run must fail, and nodeA must not be marked completed
+      expect(run.status).toBe('failed')
+      expect(run.failedNodeIds).toContain('nodeA')
+      expect(run.completedNodeIds).not.toContain('nodeA')
+      expect(run.completedNodeIds).not.toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const nodeAAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeA')
+      expect(nodeAAttempts).toHaveLength(1)
+      expect(nodeAAttempts[0]!.status).toBe('failed')
+      expect(nodeAAttempts[0]!.error).toMatch(/missing required output\(s\): outA/i)
+
+      const checkpoints = workflowStore.getGraphCheckpoints(graphRunId)
+      expect(
+        checkpoints.some((c) => c.nodeId === 'nodeA' && c.operation === 'node.completed'),
+      ).toBe(false)
+      expect(checkpoints.some((c) => c.nodeId === 'nodeA' && c.operation === 'node.failed')).toBe(
+        true,
+      )
+
+      // Zero artifacts persisted in store
+      expect(artifactStore.listForRun(runIdSchema.parse(graphRunId))).toHaveLength(0)
+    })
+
+    it('TC-2C-REC-09: Node has no declared outputs and returns zero artifacts. Existing valid behavior is preserved', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [makeNode('nodeA', { outputs: [] }), makeNode('nodeB', { inputs: [] })],
+        [{ source: 'nodeA', target: 'nodeB' }],
+      )
+
+      let nodeBExecuted = false
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('completed')
+      expect(run.completedNodeIds).toEqual(expect.arrayContaining(['nodeA', 'nodeB']))
+      expect(nodeBExecuted).toBe(true)
+
+      const nodeAAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeA')
+      expect(nodeAAttempts).toHaveLength(1)
+      expect(nodeAAttempts[0]!.status).toBe('completed')
+
+      const checkpoints = workflowStore.getGraphCheckpoints(graphRunId)
+      expect(
+        checkpoints.some((c) => c.nodeId === 'nodeA' && c.operation === 'node.completed'),
+      ).toBe(true)
+      expect(artifactStore.listForRun(runIdSchema.parse(graphRunId))).toHaveLength(0)
+    })
+
+    it('TC-2C-REC-10: Optional output is absent. Behavior follows the established contract', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'optOut',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [{ name: 'optIn', kind: 'stage-output', required: false }],
+          }),
+        ],
+        [
+          {
+            source: 'nodeA',
+            target: 'nodeB',
+            sourceHandle: 'stage-output',
+            targetHandle: 'optIn',
+          },
+        ],
+      )
+
+      let nodeBObservedSlot: unknown = 'not-called'
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            // Optional output absent: returns zero artifacts
+            return {
+              status: 'completed',
+              artifacts: [],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBObservedSlot = ctx.incomingSlots.get('optIn') ?? null
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('completed')
+      expect(run.completedNodeIds).toEqual(expect.arrayContaining(['nodeA', 'nodeB']))
+      expect(nodeBObservedSlot).toBeNull()
+
+      const nodeAAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeA')
+      expect(nodeAAttempts).toHaveLength(1)
+      expect(nodeAAttempts[0]!.status).toBe('completed')
+
+      const checkpoints = workflowStore.getGraphCheckpoints(graphRunId)
+      expect(
+        checkpoints.some((c) => c.nodeId === 'nodeA' && c.operation === 'node.completed'),
+      ).toBe(true)
+      expect(artifactStore.listForRun(runIdSchema.parse(graphRunId))).toHaveLength(0)
+    })
+
+    it('TC-2C-REC-11: Required output is absent while ArtifactService is unavailable. The executor must fail closed without false completion', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate([
+        makeNode('nodeA', {
+          outputs: [
+            {
+              name: 'reqOut',
+              kind: 'stage-output',
+              format: 'json',
+              required: true,
+              requiredSections: [],
+            },
+          ],
+        }),
+      ])
+
+      // ArtifactService is explicitly undefined
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService: undefined,
+        executeLeafNode: () => ({
+          status: 'completed',
+          artifacts: [],
+        }),
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.failedNodeIds).toContain('nodeA')
+      expect(run.completedNodeIds).not.toContain('nodeA')
+
+      const nodeAAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeA')
+      expect(nodeAAttempts).toHaveLength(1)
+      expect(nodeAAttempts[0]!.status).toBe('failed')
+      expect(nodeAAttempts[0]!.error).toMatch(/ArtifactService is required but not configured/i)
+
+      const checkpoints = workflowStore.getGraphCheckpoints(graphRunId)
+      expect(
+        checkpoints.some((c) => c.nodeId === 'nodeA' && c.operation === 'node.completed'),
+      ).toBe(false)
+      expect(checkpoints.some((c) => c.nodeId === 'nodeA' && c.operation === 'node.failed')).toBe(
+        true,
+      )
+    })
+
+    it('TC-2C-REC-12: Successful persistence of required outputs still completes the attempt and supports recovery', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'reqOut',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [{ name: 'inSlot', kind: 'stage-output', required: true }],
+          }),
+        ],
+        [
+          {
+            source: 'nodeA',
+            target: 'nodeB',
+            sourceHandle: 'stage-output',
+            targetHandle: 'inSlot',
+          },
+        ],
+      )
+
+      // Executor 1 executes Node A successfully, writing required output; fails at Node B
+      const executor1 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'reqOut',
+                  content: JSON.stringify({ verified: true }),
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            throw new Error('Simulated process interruption at Node B')
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const initialRun = await executor1.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(initialRun.status).toBe('failed')
+      expect(initialRun.completedNodeIds).toContain('nodeA')
+      expect(initialRun.failedNodeIds).toContain('nodeB')
+
+      const nodeAAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeA')
+      expect(nodeAAttempts).toHaveLength(1)
+      expect(nodeAAttempts[0]!.status).toBe('completed')
+
+      const nodeAArtifacts = artifactStore.listForStep(stepIdSchema.parse(nodeAAttempts[0]!.id))
+      expect(nodeAArtifacts).toHaveLength(1)
+
+      const checkpoints = workflowStore.getGraphCheckpoints(graphRunId)
+      expect(
+        checkpoints.some((c) => c.nodeId === 'nodeA' && c.operation === 'node.completed'),
+      ).toBe(true)
+
+      // Fresh Executor 2 resumes and recovers Node A's required output
+      let nodeBReceivedContent: string | null = null
+
+      const executor2 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeB') {
+            nodeBReceivedContent = ctx.incomingSlots.get('inSlot')?.content ?? null
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const recoveryRun = await executor2.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        invalidatedNodeIds: new Set(['nodeB']),
+      })
+
+      expect(recoveryRun.status).toBe('completed')
+      expect(recoveryRun.completedNodeIds).toEqual(expect.arrayContaining(['nodeA', 'nodeB']))
+      expect(nodeBReceivedContent).toBe(JSON.stringify({ verified: true }))
+
+      // Idempotency: exact artifact preserved without duplication
+      const finalArtifacts = artifactStore.listForRun(runIdSchema.parse(graphRunId))
+      expect(finalArtifacts).toHaveLength(1)
+    })
+
+    it('TC-2C-REC-13: Two required outputs sharing the same kind, with only one actually produced', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'out1',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+              {
+                name: 'out2',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [{ name: 'in1', kind: 'stage-output', required: true }],
+          }),
+        ],
+        [
+          {
+            source: 'nodeA',
+            target: 'nodeB',
+            sourceHandle: 'out1',
+            targetHandle: 'in1',
+          },
+        ],
+      )
+
+      let nodeBExecuted = false
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            // Only produces out1; out2 is missing
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'out1',
+                  content: JSON.stringify({ part: 1 }),
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.failedNodeIds).toContain('nodeA')
+      expect(run.completedNodeIds).not.toContain('nodeA')
+      expect(nodeBExecuted).toBe(false)
+
+      const nodeAAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeA')
+      expect(nodeAAttempts).toHaveLength(1)
+      expect(nodeAAttempts[0]!.status).toBe('failed')
+      expect(nodeAAttempts[0]!.error).toMatch(/missing required output\(s\): out2/i)
+
+      const checkpoints = workflowStore.getGraphCheckpoints(graphRunId)
+      expect(
+        checkpoints.some((c) => c.nodeId === 'nodeA' && c.operation === 'node.completed'),
+      ).toBe(false)
+      expect(checkpoints.some((c) => c.nodeId === 'nodeA' && c.operation === 'node.failed')).toBe(
+        true,
+      )
+    })
+
+    it('TC-2C-REC-14: Two required outputs sharing the same kind, with both correctly produced', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'out1',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+              {
+                name: 'out2',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              { name: 'in1', kind: 'stage-output', required: true },
+              { name: 'in2', kind: 'stage-output', required: true },
+            ],
+          }),
+        ],
+        [
+          {
+            source: 'nodeA',
+            target: 'nodeB',
+            sourceHandle: 'out1',
+            targetHandle: 'in1',
+          },
+          {
+            source: 'nodeA',
+            target: 'nodeB',
+            sourceHandle: 'out2',
+            targetHandle: 'in2',
+          },
+        ],
+      )
+
+      let nodeBReceivedIn1: string | null = null
+      let nodeBReceivedIn2: string | null = null
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'out1',
+                  content: JSON.stringify({ part: 1 }),
+                  metadata: {},
+                  createdAt: NOW,
+                },
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'out2',
+                  content: JSON.stringify({ part: 2 }),
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBReceivedIn1 = ctx.incomingSlots.get('in1')?.content ?? null
+            nodeBReceivedIn2 = ctx.incomingSlots.get('in2')?.content ?? null
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('completed')
+      expect(run.completedNodeIds).toEqual(expect.arrayContaining(['nodeA', 'nodeB']))
+      expect(nodeBReceivedIn1).toBe(JSON.stringify({ part: 1 }))
+      expect(nodeBReceivedIn2).toBe(JSON.stringify({ part: 2 }))
+
+      const nodeAAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeA')
+      expect(nodeAAttempts).toHaveLength(1)
+      expect(nodeAAttempts[0]!.status).toBe('completed')
+
+      const persistedArtifacts = artifactStore.listForStep(stepIdSchema.parse(nodeAAttempts[0]!.id))
+      expect(persistedArtifacts).toHaveLength(2)
+    })
+
+    it('TC-2C-REC-15: One required output missing while unrelated artifacts are present', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate([
+        makeNode('nodeA', {
+          outputs: [
+            {
+              name: 'requiredSpec',
+              kind: 'stage-output',
+              format: 'json',
+              required: true,
+              requiredSections: [],
+            },
+          ],
+        }),
+      ])
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: () => ({
+          status: 'completed',
+          artifacts: [
+            {
+              id: randomUUID(),
+              workflowId,
+              nodeId: 'nodeA',
+              kind: 'review_report',
+              format: 'markdown',
+              title: 'unrelatedReport',
+              content: '# Unrelated Report',
+              metadata: {},
+              createdAt: NOW,
+            },
+            {
+              id: randomUUID(),
+              workflowId,
+              nodeId: 'nodeA',
+              kind: 'execution_log',
+              format: 'text',
+              title: 'otherLog',
+              content: 'Execution log text',
+              metadata: {},
+              createdAt: NOW,
+            },
+          ],
+        }),
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.failedNodeIds).toContain('nodeA')
+
+      const nodeAAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeA')
+      expect(nodeAAttempts).toHaveLength(1)
+      expect(nodeAAttempts[0]!.status).toBe('failed')
+      expect(nodeAAttempts[0]!.error).toMatch(/missing required output\(s\): requiredSpec/i)
+
+      const checkpoints = workflowStore.getGraphCheckpoints(graphRunId)
+      expect(
+        checkpoints.some((c) => c.nodeId === 'nodeA' && c.operation === 'node.completed'),
+      ).toBe(false)
+    })
+
+    it('TC-2C-REC-16: An unrelated artifact of the expected kind must not satisfy a missing named output', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate([
+        makeNode('nodeA', {
+          outputs: [
+            {
+              name: 'spec',
+              kind: 'stage-output',
+              format: 'json',
+              required: true,
+              requiredSections: [],
+            },
+            {
+              name: 'analysis',
+              kind: 'stage-output',
+              format: 'json',
+              required: true,
+              requiredSections: [],
+            },
+          ],
+        }),
+      ])
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: () => ({
+          status: 'completed',
+          artifacts: [
+            {
+              id: randomUUID(),
+              workflowId,
+              nodeId: 'nodeA',
+              kind: 'stage-output',
+              format: 'json',
+              title: 'unrelated',
+              content: JSON.stringify({ random: true }),
+              metadata: {},
+              createdAt: NOW,
+            },
+          ],
+        }),
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.failedNodeIds).toContain('nodeA')
+
+      const nodeAAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeA')
+      expect(nodeAAttempts).toHaveLength(1)
+      expect(nodeAAttempts[0]!.status).toBe('failed')
+      expect(nodeAAttempts[0]!.error).toMatch(/missing required output\(s\): spec, analysis/i)
+    })
+
+    it('TC-2C-REC-17: Multiple required outputs must not be satisfied by reusing one artifact', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate([
+        makeNode('nodeA', {
+          outputs: [
+            {
+              name: 'primary',
+              kind: 'stage-output',
+              format: 'json',
+              required: true,
+              requiredSections: [],
+            },
+            {
+              name: 'secondary',
+              kind: 'stage-output',
+              format: 'json',
+              required: true,
+              requiredSections: [],
+            },
+          ],
+        }),
+      ])
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: () => ({
+          status: 'completed',
+          artifacts: [
+            // Only 1 artifact produced matching 'primary'
+            {
+              id: randomUUID(),
+              workflowId,
+              nodeId: 'nodeA',
+              kind: 'stage-output',
+              format: 'json',
+              title: 'primary',
+              content: JSON.stringify({ item: 'primary' }),
+              metadata: {},
+              createdAt: NOW,
+            },
+          ],
+        }),
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.failedNodeIds).toContain('nodeA')
+
+      const nodeAAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeA')
+      expect(nodeAAttempts).toHaveLength(1)
+      expect(nodeAAttempts[0]!.status).toBe('failed')
+      expect(nodeAAttempts[0]!.error).toMatch(/missing required output\(s\): secondary/i)
+    })
+
+    it('TC-2C-REC-18: Optional artifact is emitted while ArtifactService is unavailable', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate([
+        makeNode('nodeA', {
+          outputs: [
+            {
+              name: 'optionalMetric',
+              kind: 'stage-output',
+              format: 'json',
+              required: false,
+              requiredSections: [],
+            },
+          ],
+        }),
+      ])
+
+      // ArtifactService explicitly unavailable
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService: undefined,
+        executeLeafNode: () => ({
+          status: 'completed',
+          artifacts: [
+            {
+              id: randomUUID(),
+              workflowId,
+              nodeId: 'nodeA',
+              kind: 'stage-output',
+              format: 'json',
+              title: 'optionalMetric',
+              content: JSON.stringify({ metric: 42 }),
+              metadata: {},
+              createdAt: NOW,
+            },
+          ],
+        }),
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      // Must fail closed rather than silently dropping emitted optional artifacts
+      expect(run.status).toBe('failed')
+      expect(run.failedNodeIds).toContain('nodeA')
+
+      const nodeAAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeA')
+      expect(nodeAAttempts).toHaveLength(1)
+      expect(nodeAAttempts[0]!.status).toBe('failed')
+      expect(nodeAAttempts[0]!.error).toMatch(/ArtifactService is required but not configured/i)
+
+      const checkpoints = workflowStore.getGraphCheckpoints(graphRunId)
+      expect(
+        checkpoints.some((c) => c.nodeId === 'nodeA' && c.operation === 'node.completed'),
+      ).toBe(false)
+      expect(checkpoints.some((c) => c.nodeId === 'nodeA' && c.operation === 'node.failed')).toBe(
+        true,
+      )
+    })
+
+    // TC-2C-REC-19: A named output is missing while another artifact of the same kind exists.
+    it('TC-2C-REC-19: A named output is missing while another artifact of the same kind exists', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'unrelatedOutput',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'expectedSlot',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-a-b',
+            source: 'nodeA',
+            sourceHandle: 'missingNamedOutput',
+            target: 'nodeB',
+            targetHandle: 'expectedSlot',
+          },
+        ],
+      )
+
+      let bRan = false
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'unrelatedOutput',
+                  content: JSON.stringify({ message: 'unrelated' }),
+                  metadata: { outputName: 'unrelatedOutput' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            bRan = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      // Node B must NOT substitute unrelatedOutput into expectedSlot merely because the kind matches
+      expect(run.status).toBe('failed')
+      expect(run.completedNodeIds).toContain('nodeA')
+      expect(run.blockedNodeIds).toContain('nodeB')
+      expect(bRan).toBe(false)
+
+      const bAttempts = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      expect(bAttempts).toHaveLength(1)
+      expect(bAttempts[0]!.status).toBe('blocked')
+      expect(bAttempts[0]!.error).toMatch(/Missing required input slot: expectedSlot/i)
+    })
+
+    // TC-2C-REC-20: Two outputs share a kind and each edge must resolve its own artifact.
+    it('TC-2C-REC-20: Two outputs share a kind and each edge must resolve its own artifact', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'artifactAlpha',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+              {
+                name: 'artifactBeta',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'slotAlpha',
+                kind: 'stage-output',
+                required: true,
+              },
+              {
+                name: 'slotBeta',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-alpha',
+            source: 'nodeA',
+            sourceHandle: 'artifactAlpha',
+            target: 'nodeB',
+            targetHandle: 'slotAlpha',
+          },
+          {
+            id: 'e-beta',
+            source: 'nodeA',
+            sourceHandle: 'artifactBeta',
+            target: 'nodeB',
+            targetHandle: 'slotBeta',
+          },
+        ],
+      )
+
+      let receivedSlotAlpha: WorkflowArtifact | undefined
+      let receivedSlotBeta: WorkflowArtifact | undefined
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'artifactAlpha',
+                  content: JSON.stringify({ identity: 'alpha' }),
+                  metadata: { outputName: 'artifactAlpha' },
+                  createdAt: NOW,
+                },
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'artifactBeta',
+                  content: JSON.stringify({ identity: 'beta' }),
+                  metadata: { outputName: 'artifactBeta' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            receivedSlotAlpha = ctx.incomingSlots.get('slotAlpha')
+            receivedSlotBeta = ctx.incomingSlots.get('slotBeta')
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('completed')
+      expect(run.completedNodeIds).toEqual(['nodeA', 'nodeB'])
+
+      expect(receivedSlotAlpha).toBeDefined()
+      expect(receivedSlotBeta).toBeDefined()
+      expect(JSON.parse(receivedSlotAlpha!.content)).toEqual({ identity: 'alpha' })
+      expect(JSON.parse(receivedSlotBeta!.content)).toEqual({ identity: 'beta' })
+    })
+
+    // TC-2C-REC-21: An optional named output is absent and must not receive an unrelated artifact.
+    it('TC-2C-REC-21: An optional named output is absent and must not receive an unrelated artifact', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'requiredReport',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+              {
+                name: 'optionalDiagnostics',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'boundReport',
+                kind: 'stage-output',
+                required: true,
+              },
+              {
+                name: 'boundDiagnostics',
+                kind: 'stage-output',
+                required: false,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-report',
+            source: 'nodeA',
+            sourceHandle: 'requiredReport',
+            target: 'nodeB',
+            targetHandle: 'boundReport',
+          },
+          {
+            id: 'e-diag',
+            source: 'nodeA',
+            sourceHandle: 'optionalDiagnostics',
+            target: 'nodeB',
+            targetHandle: 'boundDiagnostics',
+          },
+        ],
+      )
+
+      let nodeBIncomingSlots: ReadonlyMap<string, WorkflowArtifact> | undefined
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            // Only produces requiredReport; optionalDiagnostics is legitimately omitted
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'requiredReport',
+                  content: JSON.stringify({ type: 'report' }),
+                  metadata: { outputName: 'requiredReport' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBIncomingSlots = ctx.incomingSlots
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('completed')
+      expect(nodeBIncomingSlots).toBeDefined()
+      expect(nodeBIncomingSlots!.has('boundReport')).toBe(true)
+      expect(JSON.parse(nodeBIncomingSlots!.get('boundReport')!.content)).toEqual({
+        type: 'report',
+      })
+      // Crucial: optionalDiagnostics was absent, so boundDiagnostics must remain undefined, NOT substituted with requiredReport
+      expect(nodeBIncomingSlots!.has('boundDiagnostics')).toBe(false)
+    })
+
+    // TC-2C-REC-22: Existing kind-based edge routing remains compatible.
+    it('TC-2C-REC-22: Existing kind-based edge routing remains compatible', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      // Template uses sourceHandle: 'stage-output' as an artifact kind rather than a named output
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'legacyOutput',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'stage-output',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-kind-based',
+            source: 'nodeA',
+            sourceHandle: 'stage-output',
+            target: 'nodeB',
+            targetHandle: 'stage-output',
+          },
+        ],
+      )
+
+      let nodeBReceivedArtifact: WorkflowArtifact | undefined
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'legacyOutput',
+                  content: JSON.stringify({ legacy: true }),
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBReceivedArtifact = ctx.incomingSlots.get('stage-output')
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('completed')
+      expect(nodeBReceivedArtifact).toBeDefined()
+      expect(JSON.parse(nodeBReceivedArtifact!.content)).toEqual({ legacy: true })
+    })
+
+    // TC-2C-REC-23: Recovery hydration and normal execution resolve the same output identity.
+    it('TC-2C-REC-23: Recovery hydration and normal execution resolve the same output identity', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'configReport',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+              {
+                name: 'dataReport',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'resolvedConfig',
+                kind: 'stage-output',
+                required: true,
+              },
+              {
+                name: 'resolvedData',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-cfg',
+            source: 'nodeA',
+            sourceHandle: 'configReport',
+            target: 'nodeB',
+            targetHandle: 'resolvedConfig',
+          },
+          {
+            id: 'e-dat',
+            source: 'nodeA',
+            sourceHandle: 'dataReport',
+            target: 'nodeB',
+            targetHandle: 'resolvedData',
+          },
+        ],
+      )
+
+      // Step 1: Execute Node A to completion, then simulate process termination before Node B executes
+      const executor1 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'configReport',
+                  content: JSON.stringify({ cfgVal: 'cfg-101' }),
+                  metadata: { outputName: 'configReport' },
+                  createdAt: NOW,
+                },
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'dataReport',
+                  content: JSON.stringify({ datVal: 'dat-202' }),
+                  metadata: { outputName: 'dataReport' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            throw new Error('Simulated process crash before Node B execution')
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run1 = await executor1.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+      expect(run1.status).toBe('failed')
+      expect(run1.completedNodeIds).toContain('nodeA')
+
+      // Step 2: Fresh executor simulates process restart and recovery
+      let resumedSlotConfig: WorkflowArtifact | undefined
+      let resumedSlotData: WorkflowArtifact | undefined
+
+      const executor2 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeB') {
+            resumedSlotConfig = ctx.incomingSlots.get('resolvedConfig')
+            resumedSlotData = ctx.incomingSlots.get('resolvedData')
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const resumedRun = await executor2.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        invalidatedNodeIds: new Set(['nodeB']),
+      })
+
+      expect(resumedRun.status).toBe('completed')
+      expect(resumedRun.completedNodeIds).toContain('nodeB')
+
+      // Hydrated slots must resolve exact output identities without swapping or ambiguity
+      expect(resumedSlotConfig).toBeDefined()
+      expect(resumedSlotData).toBeDefined()
+      expect(JSON.parse(resumedSlotConfig!.content)).toEqual({ cfgVal: 'cfg-101' })
+      expect(JSON.parse(resumedSlotData!.content)).toEqual({ datVal: 'dat-202' })
+    })
+
+    // TC-2C-REC-24: Undeclared output emitted without ArtifactService fails closed in production mode, succeeds with testOnlyAllowEphemeralArtifacts.
+    it('TC-2C-REC-24: Undeclared output emitted without ArtifactService follows durability boundary', async () => {
+      const runStore = new RunStore(db)
+
+      // Part A: In default/production mode, emitted undeclared artifact requires ArtifactService and fails closed
+      const graphRunIdA = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunIdA),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const templateA = makeTemplate([
+        makeNode('nodeA', {
+          outputs: [], // Undeclared outputs
+        }),
+      ])
+
+      const executorProduction = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService: undefined, // ArtifactService unavailable
+        executeLeafNode: () => ({
+          status: 'completed',
+          artifacts: [
+            {
+              id: randomUUID(),
+              workflowId,
+              nodeId: 'nodeA',
+              kind: 'stage-output',
+              format: 'json',
+              title: 'undeclaredMetric',
+              content: JSON.stringify({ undeclared: true }),
+              metadata: {},
+              createdAt: NOW,
+            },
+          ],
+        }),
+      })
+
+      const runA = await executorProduction.run({
+        graphRunId: graphRunIdA,
+        workflowId,
+        projectId,
+        template: templateA,
+        forkSha,
+      })
+
+      expect(runA.status).toBe('failed')
+      expect(runA.failedNodeIds).toContain('nodeA')
+      const attemptsA = workflowStore.getNodeAttempts(graphRunIdA, 'nodeA')
+      expect(attemptsA[0]!.status).toBe('failed')
+      expect(attemptsA[0]!.error).toMatch(/ArtifactService is required but not configured/i)
+
+      // Part B: In explicit test mode (testOnlyAllowEphemeralArtifacts: true), in-memory execution succeeds
+      const graphRunIdB = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunIdB),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const executorTestMode = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService: undefined,
+        testOnlyAllowEphemeralArtifacts: true, // Explicit test opt-in
+        executeLeafNode: () => ({
+          status: 'completed',
+          artifacts: [
+            {
+              id: randomUUID(),
+              workflowId,
+              nodeId: 'nodeA',
+              kind: 'stage-output',
+              format: 'json',
+              title: 'ephemeralMetric',
+              content: JSON.stringify({ ephemeral: true }),
+              metadata: {},
+              createdAt: NOW,
+            },
+          ],
+        }),
+      })
+
+      const runB = await executorTestMode.run({
+        graphRunId: graphRunIdB,
+        workflowId,
+        projectId,
+        template: templateA,
+        forkSha,
+      })
+
+      expect(runB.status).toBe('completed')
+      expect(runB.completedNodeIds).toContain('nodeA')
+      const attemptsB = workflowStore.getNodeAttempts(graphRunIdB, 'nodeA')
+      expect(attemptsB[0]?.status).toBe('completed')
+    })
+
+    // TC-2C-REC-25: Multiple same-kind candidates with a unique target-handle match resolve correctly.
+    it('TC-2C-REC-25: Multiple same-kind candidates with a unique target-handle match resolve correctly', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              { name: 'targetSlotA', kind: 'stage-output', format: 'json', requiredSections: [] },
+              {
+                name: 'otherCandidate',
+                kind: 'stage-output',
+                format: 'json',
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [{ name: 'targetSlotA', kind: 'stage-output', required: true }],
+          }),
+        ],
+        [
+          {
+            id: 'e-unique-target',
+            source: 'nodeA',
+            sourceHandle: 'stage-output',
+            target: 'nodeB',
+            targetHandle: 'targetSlotA',
+          },
+        ],
+      )
+
+      let receivedContent: string | null = null
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'targetSlotA',
+                  content: JSON.stringify({ match: 'targetSlotA' }),
+                  metadata: { outputName: 'targetSlotA' },
+                  createdAt: NOW,
+                },
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'otherCandidate',
+                  content: JSON.stringify({ match: 'otherCandidate' }),
+                  metadata: { outputName: 'otherCandidate' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            receivedContent = ctx.incomingSlots.get('targetSlotA')?.content ?? null
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('completed')
+      expect(run.completedNodeIds).toContain('nodeB')
+      expect(receivedContent).toBe(JSON.stringify({ match: 'targetSlotA' }))
+    })
+
+    // TC-2C-REC-26: Multiple same-kind candidates without a unique identity fail closed with a diagnostic.
+    it('TC-2C-REC-26: Multiple same-kind candidates without a unique identity fail closed with a diagnostic', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              { name: 'report1', kind: 'stage-output', format: 'json', requiredSections: [] },
+              { name: 'report2', kind: 'stage-output', format: 'json', requiredSections: [] },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [{ name: 'unmatchedSlot', kind: 'stage-output', required: true }],
+          }),
+        ],
+        [
+          {
+            id: 'e-ambiguous',
+            source: 'nodeA',
+            sourceHandle: 'stage-output',
+            target: 'nodeB',
+            targetHandle: 'unmatchedSlot',
+          },
+        ],
+      )
+
+      let nodeBExecuted = false
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'report1',
+                  content: JSON.stringify({ r: 1 }),
+                  metadata: { outputName: 'report1' },
+                  createdAt: NOW,
+                },
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'report2',
+                  content: JSON.stringify({ r: 2 }),
+                  metadata: { outputName: 'report2' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      expect(attemptsB).toHaveLength(1)
+      const attemptB = attemptsB[0]
+      expect(attemptB?.status).toBe('blocked')
+      expect(attemptB?.error).toBe(
+        'Ambiguous artifact resolution on edge "e-ambiguous" from source "nodeA" to target slot "unmatchedSlot": multiple candidates (2) found of kind "stage-output" without a unique identity match',
+      )
+    })
+
+    // TC-2C-REC-27: An already-mapped candidate cannot cause an arbitrary fallback to another candidate.
+    it('TC-2C-REC-27: An already-mapped candidate cannot cause an arbitrary fallback to another candidate', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              { name: 'outA', kind: 'stage-output', format: 'json', requiredSections: [] },
+              { name: 'outB', kind: 'stage-output', format: 'json', requiredSections: [] },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              { name: 'outA', kind: 'stage-output', required: true },
+              { name: 'unmatchedSlot', kind: 'stage-output', required: true },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-mapped-1',
+            source: 'nodeA',
+            sourceHandle: 'stage-output',
+            target: 'nodeB',
+            targetHandle: 'outA',
+          },
+          {
+            id: 'e-fallback-2',
+            source: 'nodeA',
+            sourceHandle: 'stage-output',
+            target: 'nodeB',
+            targetHandle: 'unmatchedSlot',
+          },
+        ],
+      )
+
+      let nodeBExecuted = false
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'outA',
+                  content: JSON.stringify({ item: 'A' }),
+                  metadata: { outputName: 'outA' },
+                  createdAt: NOW,
+                },
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'outB',
+                  content: JSON.stringify({ item: 'B' }),
+                  metadata: { outputName: 'outB' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      expect(attemptsB).toHaveLength(1)
+      const attemptB = attemptsB[0]
+      expect(attemptB?.status).toBe('blocked')
+      expect(attemptB?.error).toBe(
+        'Ambiguous artifact resolution on edge "e-fallback-2" from source "nodeA" to target slot "unmatchedSlot": multiple candidates (2) found of kind "stage-output" without a unique identity match',
+      )
+    })
+
+    // TC-2C-REC-28: Multiple candidates of the same kind on an edge without handles fail closed when an input slot requires that kind.
+    it('TC-2C-REC-28: Multiple candidates of the same kind on an edge without handles fail closed', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              { name: 'data1', kind: 'stage-output', format: 'json', requiredSections: [] },
+              { name: 'data2', kind: 'stage-output', format: 'json', requiredSections: [] },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [{ name: 'stage-output', kind: 'stage-output', required: true }],
+          }),
+        ],
+        [
+          {
+            id: 'e-no-handles',
+            source: 'nodeA',
+            target: 'nodeB',
+          },
+        ],
+      )
+
+      let nodeBExecuted = false
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'data1',
+                  content: JSON.stringify({ d: 1 }),
+                  metadata: { outputName: 'data1' },
+                  createdAt: NOW,
+                },
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'data2',
+                  content: JSON.stringify({ d: 2 }),
+                  metadata: { outputName: 'data2' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      expect(attemptsB).toHaveLength(1)
+      const attemptB = attemptsB[0]
+      expect(attemptB?.status).toBe('blocked')
+      expect(attemptB?.error).toBe(
+        'Ambiguous artifact resolution on edge "e-no-handles" from source "nodeA" to target node "nodeB": multiple candidates (2) found of kind "stage-output" on edge without handles',
+      )
+    })
+
+    // TC-2C-REC-29: Recovery hydration preserves ambiguous resolution failure deterministically without array-order tie-breaking.
+    it('TC-2C-REC-29: Recovery hydration preserves ambiguous resolution failure deterministically', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              { name: 'item1', kind: 'stage-output', format: 'json', requiredSections: [] },
+              { name: 'item2', kind: 'stage-output', format: 'json', requiredSections: [] },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [{ name: 'slotUnmatched', kind: 'stage-output', required: true }],
+          }),
+        ],
+        [
+          {
+            id: 'e-rec-ambiguous',
+            source: 'nodeA',
+            sourceHandle: 'stage-output',
+            target: 'nodeB',
+            targetHandle: 'slotUnmatched',
+          },
+        ],
+      )
+
+      // Step 1: Run Node A to completion, writing both artifacts durably to ArtifactService
+      const executor1 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'item1',
+                  content: JSON.stringify({ item: 1 }),
+                  metadata: { outputName: 'item1' },
+                  createdAt: NOW,
+                },
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'item2',
+                  content: JSON.stringify({ item: 2 }),
+                  metadata: { outputName: 'item2' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            throw new Error('Process interrupted before Node B runs')
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run1 = await executor1.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+      expect(run1.completedNodeIds).toContain('nodeA')
+
+      // Step 2: Simulate process crash, restart with fresh executor, and resume Node B
+      let nodeBExecuted = false
+      const executor2 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run2 = await executor2.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        invalidatedNodeIds: new Set(['nodeB']),
+      })
+
+      expect(run2.status).toBe('failed')
+      expect(run2.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      const latestAttemptB = attemptsB.at(-1)
+      expect(latestAttemptB?.status).toBe('blocked')
+      expect(latestAttemptB?.error).toBe(
+        'Ambiguous artifact resolution on edge "e-rec-ambiguous" from source "nodeA" to target slot "slotUnmatched": multiple candidates (2) found of kind "stage-output" without a unique identity match',
+      )
+    })
+
+    // TC-2C-REC-30: Explicitly referenced declared output is missing while source emits different artifact of same kind; target must be blocked.
+    it('TC-2C-REC-30: Explicitly referenced declared output is missing while source emits different artifact of same kind', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'analysis',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'report',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-explicit-analysis',
+            source: 'nodeA',
+            sourceHandle: 'analysis',
+            target: 'nodeB',
+            targetHandle: 'report',
+          },
+        ],
+      )
+
+      let nodeBExecuted = false
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            // Emits a different artifact of kind 'stage-output', but does not emit 'analysis'
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'unrelatedReport',
+                  content: JSON.stringify({ other: true }),
+                  metadata: { outputName: 'unrelatedReport' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.completedNodeIds).toContain('nodeA')
+      expect(run.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      expect(attemptsB).toHaveLength(1)
+      expect(attemptsB[0]?.status).toBe('blocked')
+      expect(attemptsB[0]?.error).toBe(
+        'Explicitly referenced declared output "analysis" from source "nodeA" was not produced for target slot "report" on edge "e-explicit-analysis"',
+      )
+    })
+
+    // TC-2C-REC-31: Recovery hydration preserves fail-closed blocking when explicitly referenced declared output is missing.
+    it('TC-2C-REC-31: Recovery hydration preserves fail-closed blocking when explicitly referenced declared output is missing', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'analysis',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'report',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-rec-analysis',
+            source: 'nodeA',
+            sourceHandle: 'analysis',
+            target: 'nodeB',
+            targetHandle: 'report',
+          },
+        ],
+      )
+
+      // Step 1: Run Node A to completion, writing unrelatedReport to ArtifactService
+      const executor1 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'unrelatedReport',
+                  content: JSON.stringify({ other: true }),
+                  metadata: { outputName: 'unrelatedReport' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            throw new Error('Interrupted before node B')
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run1 = await executor1.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+      expect(run1.completedNodeIds).toContain('nodeA')
+
+      // Step 2: Resume with fresh executor after process crash
+      let nodeBExecuted = false
+      const executor2 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run2 = await executor2.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        invalidatedNodeIds: new Set(['nodeB']),
+      })
+
+      expect(run2.status).toBe('failed')
+      expect(run2.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      const latestAttemptB = attemptsB.at(-1)
+      expect(latestAttemptB?.status).toBe('blocked')
+      expect(latestAttemptB?.error).toBe(
+        'Explicitly referenced declared output "analysis" from source "nodeA" was not produced for target slot "report" on edge "e-rec-analysis"',
+      )
+    })
+
+    // TC-2C-REC-32: Matching target-handle name but wrong artifact kind fails closed with diagnostic.
+    it('TC-2C-REC-32: Matching target-handle name but wrong artifact kind fails closed with diagnostic', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA'),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'specSlot',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-name-wrong-kind',
+            source: 'nodeA',
+            target: 'nodeB',
+            targetHandle: 'specSlot',
+          },
+        ],
+      )
+
+      let nodeBExecuted = false
+      const mismatchArtifactId = randomUUID()
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: mismatchArtifactId,
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'diff', // wrong kind! Expected 'stage-output', but 'diff' is a valid artifactKindSchema
+                  format: 'diff',
+                  title: 'specSlot',
+                  content: 'plain text data',
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      expect(attemptsB).toHaveLength(1)
+      expect(attemptsB[0]?.status).toBe('blocked')
+      expect(attemptsB[0]?.error).toBe(
+        `Incompatible artifact kind on edge "e-name-wrong-kind" from source "nodeA" for target slot "specSlot": expected kind "stage-output", but resolved artifact "${mismatchArtifactId}" has kind "diff"`,
+      )
+    })
+
+    // TC-2C-REC-33: Matching target-handle name and correct artifact kind succeeds.
+    it('TC-2C-REC-33: Matching target-handle name and correct artifact kind succeeds', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA'),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'specSlot',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-name-correct-kind',
+            source: 'nodeA',
+            target: 'nodeB',
+            targetHandle: 'specSlot',
+          },
+        ],
+      )
+
+      let nodeBReceivedArtifact: WorkflowArtifact | undefined
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'specSlot',
+                  content: JSON.stringify({ verified: true }),
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBReceivedArtifact = ctx.incomingSlots.get('specSlot')
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('completed')
+      expect(run.completedNodeIds).toContain('nodeB')
+      expect(nodeBReceivedArtifact).toBeDefined()
+      expect(JSON.parse(nodeBReceivedArtifact!.content)).toEqual({ verified: true })
+    })
+
+    // TC-2C-REC-34: Recovery hydration preserves fail-closed blocking on incompatible artifact kind for target-handle name match.
+    it('TC-2C-REC-34: Recovery hydration preserves fail-closed blocking on incompatible artifact kind for target-handle match', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA'),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'specSlot',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-rec-wrong-kind',
+            source: 'nodeA',
+            target: 'nodeB',
+            targetHandle: 'specSlot',
+          },
+        ],
+      )
+
+      const mismatchArtifactId = randomUUID()
+
+      // Step 1: Node A completes and persists incompatible artifact to ArtifactService
+      const executor1 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: mismatchArtifactId,
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'diff',
+                  format: 'diff',
+                  title: 'specSlot',
+                  content: 'diff --git ...',
+                  metadata: {},
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            throw new Error('Interrupted')
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run1 = await executor1.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+      expect(run1.completedNodeIds).toContain('nodeA')
+
+      // Step 2: Resume with fresh executor
+      let nodeBExecuted = false
+      const executor2 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run2 = await executor2.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        invalidatedNodeIds: new Set(['nodeB']),
+      })
+
+      expect(run2.status).toBe('failed')
+      expect(run2.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      const latestAttemptB = attemptsB.at(-1)
+      expect(latestAttemptB?.status).toBe('blocked')
+      expect(latestAttemptB?.error).toBe(
+        `Incompatible artifact kind on edge "e-rec-wrong-kind" from source "nodeA" for target slot "specSlot": expected kind "stage-output", but resolved artifact "${mismatchArtifactId}" has kind "diff"`,
+      )
+    })
+
+    // TC-2C-REC-35: An edge explicitly references a declared output that the source does not produce.
+    // A same-named initial-context value exists. The explicitly bound target slot must not be satisfied by that context value.
+    it('TC-2C-REC-35: An edge explicitly references a declared output that source does not produce; initial-context must not satisfy it', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'analysis',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'report',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-explicit-analysis-ctx',
+            source: 'nodeA',
+            sourceHandle: 'analysis',
+            target: 'nodeB',
+            targetHandle: 'report',
+          },
+        ],
+      )
+
+      let nodeBExecuted = false
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            // Emits different artifact of kind 'stage-output', does not emit 'analysis'
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'unrelatedReport',
+                  content: JSON.stringify({ other: true }),
+                  metadata: { outputName: 'unrelatedReport' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: {
+          report: JSON.stringify({ fakeContext: true }),
+        },
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.completedNodeIds).toContain('nodeA')
+      expect(run.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      expect(attemptsB).toHaveLength(1)
+      expect(attemptsB[0]?.status).toBe('blocked')
+      expect(attemptsB[0]?.error).toBe(
+        'Explicitly referenced declared output "analysis" from source "nodeA" was not produced for target slot "report" on edge "e-explicit-analysis-ctx"',
+      )
+    })
+
+    // TC-2C-REC-36: Recovery hydration preserves fail-closed blocking when initial-context value exists for missing explicit output.
+    it('TC-2C-REC-36: Recovery hydration preserves fail-closed blocking when initial-context value exists for missing explicit output', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'analysis',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'report',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-rec-analysis-ctx',
+            source: 'nodeA',
+            sourceHandle: 'analysis',
+            target: 'nodeB',
+            targetHandle: 'report',
+          },
+        ],
+      )
+
+      // Step 1: Run Node A to completion, writing unrelatedReport to ArtifactService
+      const executor1 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'unrelatedReport',
+                  content: JSON.stringify({ other: true }),
+                  metadata: { outputName: 'unrelatedReport' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            throw new Error('Interrupted before node B')
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run1 = await executor1.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: {
+          report: JSON.stringify({ fakeContext: true }),
+        },
+      })
+      expect(run1.completedNodeIds).toContain('nodeA')
+
+      // Step 2: Resume with fresh executor after crash
+      let nodeBExecuted = false
+      const executor2 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run2 = await executor2.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        invalidatedNodeIds: new Set(['nodeB']),
+        initialContext: {
+          report: JSON.stringify({ fakeContext: true }),
+        },
+      })
+
+      expect(run2.status).toBe('failed')
+      expect(run2.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      const latestAttemptB = attemptsB.at(-1)
+      expect(latestAttemptB?.status).toBe('blocked')
+      expect(latestAttemptB?.error).toBe(
+        'Explicitly referenced declared output "analysis" from source "nodeA" was not produced for target slot "report" on edge "e-rec-analysis-ctx"',
+      )
+    })
+
+    // TC-2C-REC-37: A valid initial-context value still satisfies an input slot that has no explicit unresolved edge binding.
+    it('TC-2C-REC-37: Valid initial-context value still satisfies an input slot that has no explicit edge binding', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'dataOut',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'dataIn',
+                kind: 'stage-output',
+                required: true,
+              },
+              {
+                name: 'configSlot',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-data',
+            source: 'nodeA',
+            sourceHandle: 'dataOut',
+            target: 'nodeB',
+            targetHandle: 'dataIn',
+          },
+        ],
+      )
+
+      let nodeBIncomingSlots: ReadonlyMap<string, WorkflowArtifact> | undefined
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'dataOut',
+                  content: JSON.stringify({ realData: 42 }),
+                  metadata: { outputName: 'dataOut' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBIncomingSlots = ctx.incomingSlots
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: {
+          configSlot: JSON.stringify({ initialSetting: 'active' }),
+        },
+      })
+
+      expect(run.status).toBe('completed')
+      expect(run.completedNodeIds).toContain('nodeB')
+      expect(nodeBIncomingSlots).toBeDefined()
+      expect(nodeBIncomingSlots!.has('dataIn')).toBe(true)
+      expect(JSON.parse(nodeBIncomingSlots!.get('dataIn')!.content)).toEqual({ realData: 42 })
+      expect(nodeBIncomingSlots!.has('configSlot')).toBe(true)
+      const configArt = nodeBIncomingSlots!.get('configSlot')!
+      expect(JSON.parse(configArt.content)).toEqual({ initialSetting: 'active' })
+      expect(configArt.metadata.isInitialContext).toBe(true)
+    })
+
+    // TC-2C-REC-38: An optional explicitly referenced output that is absent remains optional,
+    // but is never substituted with an initial-context value or another artifact.
+    it('TC-2C-REC-38: Absent optional explicitly referenced output remains optional and is not substituted with initialContext', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'requiredReport',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+              {
+                name: 'optionalAnalysis',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'boundReport',
+                kind: 'stage-output',
+                required: true,
+              },
+              {
+                name: 'boundOptional',
+                kind: 'stage-output',
+                required: false,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-report',
+            source: 'nodeA',
+            sourceHandle: 'requiredReport',
+            target: 'nodeB',
+            targetHandle: 'boundReport',
+          },
+          {
+            id: 'e-opt',
+            source: 'nodeA',
+            sourceHandle: 'optionalAnalysis',
+            target: 'nodeB',
+            targetHandle: 'boundOptional',
+          },
+        ],
+      )
+
+      let nodeBIncomingSlots: ReadonlyMap<string, WorkflowArtifact> | undefined
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            // Produces requiredReport; omits optionalAnalysis
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'requiredReport',
+                  content: JSON.stringify({ r: 1 }),
+                  metadata: { outputName: 'requiredReport' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBIncomingSlots = ctx.incomingSlots
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: {
+          boundOptional: JSON.stringify({ contextInjected: true }),
+        },
+      })
+
+      expect(run.status).toBe('completed')
+      expect(run.completedNodeIds).toContain('nodeB')
+      expect(nodeBIncomingSlots).toBeDefined()
+      expect(nodeBIncomingSlots!.has('boundReport')).toBe(true)
+      expect(JSON.parse(nodeBIncomingSlots!.get('boundReport')!.content)).toEqual({ r: 1 })
+      // Crucial: boundOptional was explicitly bound by edge 'e-opt', so even though optionalAnalysis was absent
+      // and boundOptional is an optional slot, initialContext must NOT substitute into it!
+      expect(nodeBIncomingSlots!.has('boundOptional')).toBe(false)
+    })
+
+    // TC-2C-REC-39: A declared output is explicitly named by sourceHandle, targetHandle is absent,
+    // and multiple target inputs share the output kind. The resolver must fail closed rather than
+    // allowing initial context to satisfy an arbitrary input.
+    it('TC-2C-REC-39: Declared output explicitly named without targetHandle fails closed when target has multiple same-kind inputs', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'analysis',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'slotAlpha',
+                kind: 'stage-output',
+                required: true,
+              },
+              {
+                name: 'slotBeta',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-ambig-target',
+            source: 'nodeA',
+            sourceHandle: 'analysis',
+            target: 'nodeB',
+            // targetHandle is deliberately omitted
+          },
+        ],
+      )
+
+      let nodeBExecuted = false
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'analysis',
+                  content: JSON.stringify({ metrics: [1, 2, 3] }),
+                  metadata: { outputName: 'analysis' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: {
+          slotAlpha: JSON.stringify({ injectedA: true }),
+          slotBeta: JSON.stringify({ injectedB: true }),
+        },
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.completedNodeIds).toContain('nodeA')
+      expect(run.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      expect(attemptsB).toHaveLength(1)
+      expect(attemptsB[0]?.status).toBe('blocked')
+      expect(attemptsB[0]?.error).toContain('Ambiguous target slot on edge "e-ambig-target"')
+      expect(attemptsB[0]?.error).toContain('slotAlpha')
+      expect(attemptsB[0]?.error).toContain('slotBeta')
+    })
+
+    // TC-2C-REC-40: Recovery/hydration preserves the same ambiguity failure.
+    it('TC-2C-REC-40: Recovery hydration preserves ambiguity failure when declared output connected without targetHandle', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'analysis',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'slotAlpha',
+                kind: 'stage-output',
+                required: true,
+              },
+              {
+                name: 'slotBeta',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-ambig-target-rec',
+            source: 'nodeA',
+            sourceHandle: 'analysis',
+            target: 'nodeB',
+            // targetHandle is deliberately omitted
+          },
+        ],
+      )
+
+      // Step 1: Run Node A to completion, writing analysis artifact to ArtifactService
+      const executor1 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'analysis',
+                  content: JSON.stringify({ metrics: [1, 2, 3] }),
+                  metadata: { outputName: 'analysis' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            throw new Error('Interrupted before node B')
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run1 = await executor1.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: {
+          slotAlpha: JSON.stringify({ injectedA: true }),
+        },
+      })
+      expect(run1.completedNodeIds).toContain('nodeA')
+
+      // Step 2: Resume with fresh executor after crash
+      let nodeBExecuted = false
+      const executor2 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run2 = await executor2.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        invalidatedNodeIds: new Set(['nodeB']),
+        initialContext: {
+          slotAlpha: JSON.stringify({ injectedA: true }),
+        },
+      })
+
+      expect(run2.status).toBe('failed')
+      expect(run2.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      const latestAttemptB = attemptsB.at(-1)
+      expect(latestAttemptB?.status).toBe('blocked')
+      expect(latestAttemptB?.error).toContain('Ambiguous target slot on edge "e-ambig-target-rec"')
+      expect(latestAttemptB?.error).toContain('slotAlpha')
+      expect(latestAttemptB?.error).toContain('slotBeta')
+    })
+
+    // TC-2C-REC-41: A missing optional output with a uniquely inferable optional target slot
+    // retains existing optional semantics.
+    it('TC-2C-REC-41: Missing optional output with uniquely inferable optional target slot retains optional semantics', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'optionalSummary',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'inferredOptionalSlot',
+                kind: 'stage-output',
+                required: false,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-opt-unambig',
+            source: 'nodeA',
+            sourceHandle: 'optionalSummary',
+            target: 'nodeB',
+            // targetHandle omitted; inferred uniquely via kind 'stage-output'
+          },
+        ],
+      )
+
+      let nodeBExecuted = false
+      let nodeBIncomingSlots: ReadonlyMap<string, WorkflowArtifact> | undefined
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            // Completes without producing optionalSummary
+            return {
+              status: 'completed',
+              artifacts: [],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            nodeBIncomingSlots = ctx.incomingSlots
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: {
+          inferredOptionalSlot: JSON.stringify({ injectedFallback: true }),
+        },
+      })
+
+      expect(run.status).toBe('completed')
+      expect(run.completedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(true)
+      expect(nodeBIncomingSlots).toBeDefined()
+      // Crucial: inferredOptionalSlot was explicitly bound by edge 'e-opt-unambig',
+      // so even though optionalSummary was absent and inferredOptionalSlot is optional,
+      // initialContext must NOT substitute into it, and node executes without error.
+      expect(nodeBIncomingSlots!.has('inferredOptionalSlot')).toBe(false)
+    })
+
+    // TC-2C-REC-42: A uniquely inferable required target slot continues to resolve correctly.
+    it('TC-2C-REC-42: Uniquely inferable required target slot resolves correctly when targetHandle is omitted', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'requiredMetrics',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'inferredRequiredSlot',
+                kind: 'stage-output',
+                required: true,
+              },
+              {
+                name: 'unrelatedConfig',
+                kind: 'config',
+                required: false,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-req-unambig',
+            source: 'nodeA',
+            sourceHandle: 'requiredMetrics',
+            target: 'nodeB',
+            // targetHandle omitted; inferred uniquely via kind 'stage-output'
+          },
+        ],
+      )
+
+      let nodeBExecuted = false
+      let nodeBIncomingSlots: ReadonlyMap<string, WorkflowArtifact> | undefined
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'requiredMetrics',
+                  content: JSON.stringify({ score: 98 }),
+                  metadata: { outputName: 'requiredMetrics' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            nodeBIncomingSlots = ctx.incomingSlots
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('completed')
+      expect(run.completedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(true)
+      expect(nodeBIncomingSlots).toBeDefined()
+      expect(nodeBIncomingSlots!.has('inferredRequiredSlot')).toBe(true)
+      const boundArt = nodeBIncomingSlots!.get('inferredRequiredSlot')!
+      expect(JSON.parse(boundArt.content)).toEqual({ score: 98 })
+      expect(boundArt.title).toBe('requiredMetrics')
     })
   })
 })

@@ -9757,5 +9757,469 @@ describe('GraphExecutor', () => {
       // and boundOptional is an optional slot, initialContext must NOT substitute into it!
       expect(nodeBIncomingSlots!.has('boundOptional')).toBe(false)
     })
+
+    // TC-2C-REC-39: A declared output is explicitly named by sourceHandle, targetHandle is absent,
+    // and multiple target inputs share the output kind. The resolver must fail closed rather than
+    // allowing initial context to satisfy an arbitrary input.
+    it('TC-2C-REC-39: Declared output explicitly named without targetHandle fails closed when target has multiple same-kind inputs', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'analysis',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'slotAlpha',
+                kind: 'stage-output',
+                required: true,
+              },
+              {
+                name: 'slotBeta',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-ambig-target',
+            source: 'nodeA',
+            sourceHandle: 'analysis',
+            target: 'nodeB',
+            // targetHandle is deliberately omitted
+          },
+        ],
+      )
+
+      let nodeBExecuted = false
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'analysis',
+                  content: JSON.stringify({ metrics: [1, 2, 3] }),
+                  metadata: { outputName: 'analysis' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: {
+          slotAlpha: JSON.stringify({ injectedA: true }),
+          slotBeta: JSON.stringify({ injectedB: true }),
+        },
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.completedNodeIds).toContain('nodeA')
+      expect(run.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      expect(attemptsB).toHaveLength(1)
+      expect(attemptsB[0]?.status).toBe('blocked')
+      expect(attemptsB[0]?.error).toContain('Ambiguous target slot on edge "e-ambig-target"')
+      expect(attemptsB[0]?.error).toContain('slotAlpha')
+      expect(attemptsB[0]?.error).toContain('slotBeta')
+    })
+
+    // TC-2C-REC-40: Recovery/hydration preserves the same ambiguity failure.
+    it('TC-2C-REC-40: Recovery hydration preserves ambiguity failure when declared output connected without targetHandle', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'analysis',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'slotAlpha',
+                kind: 'stage-output',
+                required: true,
+              },
+              {
+                name: 'slotBeta',
+                kind: 'stage-output',
+                required: true,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-ambig-target-rec',
+            source: 'nodeA',
+            sourceHandle: 'analysis',
+            target: 'nodeB',
+            // targetHandle is deliberately omitted
+          },
+        ],
+      )
+
+      // Step 1: Run Node A to completion, writing analysis artifact to ArtifactService
+      const executor1 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'analysis',
+                  content: JSON.stringify({ metrics: [1, 2, 3] }),
+                  metadata: { outputName: 'analysis' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            throw new Error('Interrupted before node B')
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run1 = await executor1.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: {
+          slotAlpha: JSON.stringify({ injectedA: true }),
+        },
+      })
+      expect(run1.completedNodeIds).toContain('nodeA')
+
+      // Step 2: Resume with fresh executor after crash
+      let nodeBExecuted = false
+      const executor2 = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run2 = await executor2.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        invalidatedNodeIds: new Set(['nodeB']),
+        initialContext: {
+          slotAlpha: JSON.stringify({ injectedA: true }),
+        },
+      })
+
+      expect(run2.status).toBe('failed')
+      expect(run2.blockedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(false)
+
+      const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+      const latestAttemptB = attemptsB.at(-1)
+      expect(latestAttemptB?.status).toBe('blocked')
+      expect(latestAttemptB?.error).toContain('Ambiguous target slot on edge "e-ambig-target-rec"')
+      expect(latestAttemptB?.error).toContain('slotAlpha')
+      expect(latestAttemptB?.error).toContain('slotBeta')
+    })
+
+    // TC-2C-REC-41: A missing optional output with a uniquely inferable optional target slot
+    // retains existing optional semantics.
+    it('TC-2C-REC-41: Missing optional output with uniquely inferable optional target slot retains optional semantics', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'optionalSummary',
+                kind: 'stage-output',
+                format: 'json',
+                required: false,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'inferredOptionalSlot',
+                kind: 'stage-output',
+                required: false,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-opt-unambig',
+            source: 'nodeA',
+            sourceHandle: 'optionalSummary',
+            target: 'nodeB',
+            // targetHandle omitted; inferred uniquely via kind 'stage-output'
+          },
+        ],
+      )
+
+      let nodeBExecuted = false
+      let nodeBIncomingSlots: ReadonlyMap<string, WorkflowArtifact> | undefined
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            // Completes without producing optionalSummary
+            return {
+              status: 'completed',
+              artifacts: [],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            nodeBIncomingSlots = ctx.incomingSlots
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        initialContext: {
+          inferredOptionalSlot: JSON.stringify({ injectedFallback: true }),
+        },
+      })
+
+      expect(run.status).toBe('completed')
+      expect(run.completedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(true)
+      expect(nodeBIncomingSlots).toBeDefined()
+      // Crucial: inferredOptionalSlot was explicitly bound by edge 'e-opt-unambig',
+      // so even though optionalSummary was absent and inferredOptionalSlot is optional,
+      // initialContext must NOT substitute into it, and node executes without error.
+      expect(nodeBIncomingSlots!.has('inferredOptionalSlot')).toBe(false)
+    })
+
+    // TC-2C-REC-42: A uniquely inferable required target slot continues to resolve correctly.
+    it('TC-2C-REC-42: Uniquely inferable required target slot resolves correctly when targetHandle is omitted', async () => {
+      const runStore = new RunStore(db)
+      const graphRunId = randomUUID()
+      runStore.createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: NOW,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const template = makeTemplate(
+        [
+          makeNode('nodeA', {
+            outputs: [
+              {
+                name: 'requiredMetrics',
+                kind: 'stage-output',
+                format: 'json',
+                required: true,
+                requiredSections: [],
+              },
+            ],
+          }),
+          makeNode('nodeB', {
+            inputs: [
+              {
+                name: 'inferredRequiredSlot',
+                kind: 'stage-output',
+                required: true,
+              },
+              {
+                name: 'unrelatedConfig',
+                kind: 'config',
+                required: false,
+              },
+            ],
+          }),
+        ],
+        [
+          {
+            id: 'e-req-unambig',
+            source: 'nodeA',
+            sourceHandle: 'requiredMetrics',
+            target: 'nodeB',
+            // targetHandle omitted; inferred uniquely via kind 'stage-output'
+          },
+        ],
+      )
+
+      let nodeBExecuted = false
+      let nodeBIncomingSlots: ReadonlyMap<string, WorkflowArtifact> | undefined
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        executeLeafNode: (ctx) => {
+          if (ctx.node.id === 'nodeA') {
+            return {
+              status: 'completed',
+              artifacts: [
+                {
+                  id: randomUUID(),
+                  workflowId,
+                  nodeId: 'nodeA',
+                  kind: 'stage-output',
+                  format: 'json',
+                  title: 'requiredMetrics',
+                  content: JSON.stringify({ score: 98 }),
+                  metadata: { outputName: 'requiredMetrics' },
+                  createdAt: NOW,
+                },
+              ],
+            }
+          }
+          if (ctx.node.id === 'nodeB') {
+            nodeBExecuted = true
+            nodeBIncomingSlots = ctx.incomingSlots
+            return { status: 'completed' }
+          }
+          return { status: 'completed' }
+        },
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('completed')
+      expect(run.completedNodeIds).toContain('nodeB')
+      expect(nodeBExecuted).toBe(true)
+      expect(nodeBIncomingSlots).toBeDefined()
+      expect(nodeBIncomingSlots!.has('inferredRequiredSlot')).toBe(true)
+      const boundArt = nodeBIncomingSlots!.get('inferredRequiredSlot')!
+      expect(JSON.parse(boundArt.content)).toEqual({ score: 98 })
+      expect(boundArt.title).toBe('requiredMetrics')
+    })
   })
 })

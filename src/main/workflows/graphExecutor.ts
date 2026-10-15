@@ -1831,12 +1831,38 @@ export class GraphExecutor {
       if (declaredOutput && sourceHandle) {
         // Edge explicitly identifies a declared named output:
         // Must resolve strictly by established identity. Never substitute an arbitrary artifact of matching kind.
-        const targetSlot = edge.targetHandle
-          ? node.inputs.find((s) => s.name === edge.targetHandle)
-          : (node.inputs.find((s) => s.name === sourceHandle) ??
-            (node.inputs.filter((s) => s.kind === declaredOutput.kind).length === 1
-              ? node.inputs.find((s) => s.kind === declaredOutput.kind)
-              : undefined))
+        let targetSlot: (typeof node.inputs)[number] | undefined
+        if (edge.targetHandle) {
+          targetSlot = node.inputs.find((s) => s.name === edge.targetHandle)
+        } else {
+          const nameMatches = node.inputs.filter((s) => s.name === sourceHandle)
+          if (nameMatches.length === 1) {
+            targetSlot = nameMatches[0]
+          } else if (nameMatches.length > 1) {
+            return {
+              inputArtifacts: artifacts,
+              incomingSlots: slotMap,
+              resolutionError: `Ambiguous target slot on edge "${edge.id}" from source "${edge.source}" with declared output "${sourceHandle}": multiple candidate target inputs (${nameMatches.map((s) => `"${s.name}"`).join(', ')}) match name "${sourceHandle}" and edge omits targetHandle`,
+            }
+          } else {
+            const kindMatches = node.inputs.filter((s) => s.kind === declaredOutput.kind)
+            if (kindMatches.length === 1) {
+              targetSlot = kindMatches[0]
+            } else if (kindMatches.length > 1) {
+              return {
+                inputArtifacts: artifacts,
+                incomingSlots: slotMap,
+                resolutionError: `Ambiguous target slot on edge "${edge.id}" from source "${edge.source}" with declared output "${sourceHandle}": multiple candidate target inputs (${kindMatches.map((s) => `"${s.name}"`).join(', ')}) match kind "${declaredOutput.kind}" and edge omits targetHandle`,
+              }
+            } else {
+              return {
+                inputArtifacts: artifacts,
+                incomingSlots: slotMap,
+                resolutionError: `Cannot resolve target slot on edge "${edge.id}" from source "${edge.source}" with declared output "${sourceHandle}": target node "${node.id}" has no inputs matching kind "${declaredOutput.kind}" and edge omits targetHandle`,
+              }
+            }
+          }
+        }
         const targetSlotName = targetSlot?.name ?? edge.targetHandle ?? sourceHandle
         explicitlyBoundSlots.add(targetSlotName)
         explicitlyBoundSlots.add(sourceHandle)

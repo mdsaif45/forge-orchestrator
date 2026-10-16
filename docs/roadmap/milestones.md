@@ -2,8 +2,8 @@
 
 **Status:** PROPOSED  
 **Authority:** Planning Truth  
-**Last Updated:** 2026-09-21  
-**Baseline:** `main` @ `5987501` (PR #204 merged)  
+**Last Updated:** 2026-10-16  
+**Baseline:** `main` @ `6f7df99` (PR #221 merged)  
 **Related Architecture:** [architecture-overview.md](../architecture/architecture-overview.md)  
 **Related Progress:** [current-state.md](../project/current-state.md)  
 
@@ -80,7 +80,7 @@
 | **CRIT-001** | NEW | P0 | **DONE** | EVIDENCE-001 | Durable completion criteria evaluation & task loop integration. | Criterion evaluator engine, task loop evaluation, UNKNOWN!=PASS, evidence persistence, policy-halt preservation. | PR #204 (`5987501`) |
 | **VERIFY-001** | NEW | P0 | **DONE** | EVIDENCE-001 | Physical diff reconciliation enhancements (untracked & binary). | `--untracked-files=all` collection, path codepoint sorting, nested & binary scope halts with status `halted`. | PR #206 |
 | **VERIFY-002** | NEW | P1 | **DONE** | EVIDENCE-001 | Independent test & build child process execution runner. | `src/main/evidence/verifier.ts`, 14 tests in `verifier.test.ts`. | merged before this baseline |
-| **VERIFY-003** | NEW | P2 | **IN-PROGRESS** | VERIFY-001 | Adversarial edge-case verifier auditor for boundary regressions & deceptive evidence. | `src/main/evidence/adversarial.ts`, `verify003.adversarial.test.ts` (14 tests), `adversarial.test.ts` (12 tests). Detects contradictory/stale/nonexistent evidence, diff discrepancies, false success claims, and out-of-scope breaches. | feat/verify-003-adversarial-verifier (in review) |
+| **VERIFY-003** | NEW | P2 | **DONE** | VERIFY-001 | Adversarial edge-case verifier auditor for boundary regressions & deceptive evidence. | `src/main/evidence/adversarial.ts`, `verify003.adversarial.test.ts` (14 tests), `adversarial.test.ts` (12 tests). Detects contradictory/stale/nonexistent evidence, diff discrepancies, false success claims, and out-of-scope breaches. | PR #208 |
 
 ---
 
@@ -88,9 +88,12 @@
 
 | ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **WORK-001** | NEW | P0 | **BLOCKED** | CORE-001 | DAG execution engine for Generic Workflow Graphs. | Arbitrary acyclic graph execution. | — |
-| **WORK-002** | #164 | P1 | **BLOCKED** | WORK-001 | Stage run, skip, and re-run interactive controls. | Selective node execution in workflow. | — |
-| **WORK-003** | NEW | P1 | **BLOCKED** | WORK-001 | Conditional branching and loop edges in graph execution. | Loop / retry integration tests. | — |
+| **WORK-001** | NEW | P0 | **DONE** | CORE-001 | DAG execution engine for Generic Workflow Graphs. | Arbitrary acyclic graph execution, branch worktree isolation, and pure fan-in patch materialization. | PR #215, PR #216 |
+| **WORK-002** | #164 | P1 | **DONE** | WORK-001 | Stage run, skip, and re-run interactive controls. | Selective node execution in workflow (`runNode`, `skipNode`, `rerunNode`). | PR #217 |
+| **WORK-003** | NEW | P1 | **DONE** | WORK-001 | Conditional branching, loop edges, bounded iterations, and durable artifact lineage hydration. | Loop / retry integration tests, bounded iterations, and lineage hydration. | PR #218, PR #219, PR #220, PR #221 |
+| **WORK-004** | NEW | P0 | **IN-PROGRESS** | WORK-003 | M6 Phase 5: Graph pause/recovery lifecycle correction and Slice 5A-1 read-model contracts (Batch 1). | 10 lifecycle invariant tests, 25 read model tests. | feat/m6-phase5-batch1-foundation-stabilization |
+| **WORK-005** | NEW | P0 | **READY** | WORK-004 | M6 Phase 5: Generic leaf runner implementation (`leafRunner.ts`, Batch 2). | Injected leaf execution callback tests. | — |
+| **WORK-006** | NEW | P0 | **BLOCKED** | WORK-005 | M6 Phase 5: WorkflowService production cutover and 31-scenario parity verification (Batch 3). | All 31 orchestrator scenarios passing against GraphExecutor. | — |
 
 ---
 
@@ -98,7 +101,7 @@
 
 | ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **HUMAN-001** | #163 | P0 | **BLOCKED** | WORK-001 | Real human approval gate (no auto-approval in production). | FSM pauses for human decision lock. | — |
+| **HUMAN-001** | #163 | P0 | **READY** | WORK-001 | Real human approval gate (no auto-approval in production). | FSM pauses for human decision lock. | — |
 | **HUMAN-002** | #171 | P1 | **BLOCKED** | ADR-003 | Send prompts and mid-run interjections to live PTY session. | Steer running agent without aborting. | — |
 | **HUMAN-003** | #160 | P1 | **BLOCKED** | HUMAN-002 | Master interactive control plane epic. | Interactive control end-to-end tests. | — |
 | **HUMAN-004** | #154 | P1 | **BLOCKED** | HUMAN-002 | Bind UI xterm pane directly to step child process. | UI terminal attachment and input forwarding. | — |

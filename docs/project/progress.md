@@ -2,11 +2,11 @@
 
 ```
 Project:            Forge — AI Engineering Control Plane
-Current milestone:  Milestone M5 Verification & Criteria (VERIFY-003 in progress on feature branch)
-Overall status:     Headless Core, Native Loop, CLI, SQLite persistence, Criteria Evaluation merged; Adversarial Verifier in review.
-Last updated:       2026-09-26
-Evidence baseline:  main @ 7b91d67 (PR #207 merged) | feat/verify-003-adversarial-verifier
-Active branch:      feat/verify-003-adversarial-verifier
+Current milestone:  Milestone M6 Generic Workflow Graph (Phase 5 in progress)
+Overall status:     Headless Core, Native Loop, CLI, SQLite persistence, Criteria Evaluation, and Workflow Graph Engine (WORK-001..003) merged on main; Phase 5 Foundation Stabilization in progress.
+Last updated:       2026-10-16
+Evidence baseline:  main @ 6f7df99 (PR #221 merged) | feat/m6-phase5-batch1-foundation-stabilization
+Active branch:      feat/m6-phase5-batch1-foundation-stabilization
 ```
 
 ---
@@ -24,9 +24,9 @@ M3  Forge CLI 1.0                 ███████░░░  IN PROGRESS PR
         ↓
 M4  State, Events & Persistence   ██████████  DONE        PR #203 merged (STATE-001)
         ↓
-M5  Verification & Criteria       ████████░░  IN PROGRESS PR #204 (CRIT-001) & PR #206 (VERIFY-001) merged; VERIFY-003 in review
+M5  Verification & Criteria       ██████████  DONE        PR #208 merged (VERIFY-003)
         ↓
-M6  Generic Workflow Graph        ░░░░░░░░░░  NOT STARTED Types defined; engine blocked on M5
+M6  Generic Workflow Graph        ████████░░  IN PROGRESS PRs #214-#221 merged (WORK-001..003); Phase 5 in progress
         ↓
 M7  Human Control & Steering      ░░░░░░░░░░  NOT STARTED PTY spawner exists; UI wiring pending
         ↓
@@ -46,8 +46,8 @@ M9  Production Polish & Scale     ░░░░░░░░░░  NOT STARTED
 | **M2 Native Agent** | **DONE** | Native in-process tool loop (`taskRunner.ts`, `agentLoop.ts`), six tools in `providers/tools.ts`, streaming artifact ingestion (`AGENT-002`). | — | Eager concurrent tool execution (`AGENT-003`). |
 | **M3 Forge CLI** | **IN PROGRESS** | Standalone `bin/forge.ts`, NDJSON stream, exit codes 0/1/2. | — no TUI work is in flight; see Q-IL-01. | Terminal TUI (`CLI-004`) not started. |
 | **M4 State & Storage** | **DONE** | SQLite `RunStore`, `EventStore`, `ArtifactStore`, `ArtifactService` including `readWindow()` (PR #203). | — | Typed IPC event streaming. |
-| **M5 Verification** | **IN PROGRESS** | Physical diff reconciliation, `ChangeSet` snapshotting, completion-criteria evaluation & task loop integration, independent build/test runner (`verifier.ts`), untracked/binary reconciliation. | Adversarial edge-case verifier (`VERIFY-003`) on `feat/verify-003-adversarial-verifier` (+31 tests). | Complete forensic review, PR review, and merge. |
-| **M6 Workflow Graph** | **NOT STARTED** | Domain types declared. | — | DAG execution engine. |
+| **M5 Verification** | **DONE** | Physical diff reconciliation, `ChangeSet` snapshotting, completion-criteria evaluation & task loop integration, independent build/test runner (`verifier.ts`), untracked/binary reconciliation, adversarial evidence auditing (`VERIFY-003`, PR #208). | — | — |
+| **M6 Workflow Graph** | **IN PROGRESS** | Generic Workflow Graph engine foundation: DAG execution (`WORK-001`), stage controls (`WORK-002`), conditional routing, bounded loops, and durable artifact lineage hydration (`WORK-003`). | M6 Phase 5: lifecycle correction, Slice 5A-1 read models, generic leaf runner, and parity cutover. | Complete Batch 1 foundation stabilization. |
 | **M7 Human Control** | **NOT STARTED** | ConPTY terminal session spawner validated in spikes. | — | Attach UI pane to running session. |
 | **M8 Provider Ecosystem**| **NOT STARTED** | Claude/Antigravity adapters prototyped. | — | Data-driven provider config. |
 | **M9 Polish & Scale** | **NOT STARTED** | — | — | Enterprise workspace management. |

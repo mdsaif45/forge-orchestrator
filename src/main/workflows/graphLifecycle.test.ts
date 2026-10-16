@@ -1026,4 +1026,281 @@ describe('GraphExecutor Lifecycle & Recovery Invariants (M6 Phase 5)', () => {
     expect(recovered[0]?.status).toBe('failed')
     expect(recovered[0]?.finishedAt).not.toBeNull()
   })
+
+  // 15. A previously blocked attempt superseded by a completed attempt is not treated as currently paused
+  it('invariant 15: a previously blocked attempt is superseded by a completed attempt; recovery must not treat the historical block as current', async () => {
+    const graphRunId = randomUUID()
+    const now = new Date().toISOString()
+
+    workflowStore.startGraphRun(
+      {
+        graphRunId,
+        workflowId,
+        projectId,
+        templateId: 'test-template',
+        startedAt: now,
+      },
+      'system',
+    )
+
+    // Attempt 1 for nodeA was blocked awaiting user
+    workflowStore.recordNodeAttempt(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId,
+        nodeId: 'nodeA',
+        attempt: 1,
+        status: 'running',
+        startedAt: now,
+      },
+      'system',
+    )
+    workflowStore.updateNodeAttempt(
+      {
+        projectId,
+        graphRunId,
+        nodeId: 'nodeA',
+        attempt: 1,
+        status: 'blocked',
+        error: 'Awaiting user decision',
+        finishedAt: now,
+        occurredAt: now,
+      },
+      'system',
+    )
+    workflowStore.writeGraphCheckpoint(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId,
+        nodeId: 'nodeA',
+        operation: 'node.blocked',
+        stateSnapshot: {
+          readyNodeIds: [],
+          runningNodeIds: [],
+          completedNodeIds: [],
+          blockedNodeIds: ['nodeA'],
+          skippedNodeIds: [],
+        },
+        occurredAt: now,
+      },
+      'system',
+    )
+
+    // User provided input: attempt 2 was dispatched and completed
+    workflowStore.recordNodeAttempt(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId,
+        nodeId: 'nodeA',
+        attempt: 2,
+        status: 'running',
+        startedAt: now,
+      },
+      'system',
+    )
+    workflowStore.updateNodeAttempt(
+      {
+        projectId,
+        graphRunId,
+        nodeId: 'nodeA',
+        attempt: 2,
+        status: 'completed',
+        finishedAt: now,
+        occurredAt: now,
+      },
+      'system',
+    )
+    workflowStore.writeGraphCheckpoint(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId,
+        nodeId: 'nodeA',
+        operation: 'node.completed',
+        stateSnapshot: {
+          readyNodeIds: ['nodeB'],
+          runningNodeIds: [],
+          completedNodeIds: ['nodeA'],
+          blockedNodeIds: [],
+          skippedNodeIds: [],
+        },
+        occurredAt: now,
+      },
+      'system',
+    )
+
+    // Process crashed before nodeB attempt was created.
+    // In attempts table: attempt 1 is blocked, attempt 2 is completed.
+    // In latestNodeRuns: nodeA is completed.
+    expect(workflowStore.getNodeAttempts(graphRunId)).toHaveLength(2)
+    const latestRuns = workflowStore.getLatestNodeRuns(graphRunId)
+    expect(latestRuns).toHaveLength(1)
+    expect(latestRuns[0]?.status).toBe('completed')
+
+    const executor = new GraphExecutor({
+      workflowStore,
+      worktreeService,
+    })
+
+    // Recovery must NOT treat the historical blocked attempt as current; must fail closed
+    const recovered = await executor.recover(projectId)
+    expect(recovered).toHaveLength(1)
+    expect(recovered[0]?.id).toBe(graphRunId)
+    expect(recovered[0]?.status).toBe('failed')
+    expect(recovered[0]?.error).toContain('between node dispatches')
+    expect(recovered[0]?.finishedAt).not.toBeNull()
+
+    // Subsequent discovery returns 0 interrupted runs
+    expect(workflowStore.findInterruptedGraphRuns(projectId)).toHaveLength(0)
+
+    // Repeated recovery is idempotent
+    const recovered2 = await executor.recover(projectId)
+    expect(recovered2).toHaveLength(0)
+  })
+
+  // 16. Contradictory state between blocked attempts and checkpoint snapshot fails closed
+  it('invariant 16: a blocked attempt and checkpoint refer to different nodes; recovery must not accept the contradictory state as a valid pause', async () => {
+    const graphRunId = randomUUID()
+    const now = new Date().toISOString()
+
+    workflowStore.startGraphRun(
+      {
+        graphRunId,
+        workflowId,
+        projectId,
+        templateId: 'test-template',
+        startedAt: now,
+      },
+      'system',
+    )
+
+    // Node A attempt is blocked in graph_node_runs
+    workflowStore.recordNodeAttempt(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId,
+        nodeId: 'nodeA',
+        attempt: 1,
+        status: 'running',
+        startedAt: now,
+      },
+      'system',
+    )
+    workflowStore.updateNodeAttempt(
+      {
+        projectId,
+        graphRunId,
+        nodeId: 'nodeA',
+        attempt: 1,
+        status: 'blocked',
+        error: 'Awaiting user',
+        finishedAt: now,
+        occurredAt: now,
+      },
+      'system',
+    )
+
+    // Contradictory checkpoint on disk: records nodeB as blocked instead of nodeA
+    workflowStore.writeGraphCheckpoint(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId,
+        nodeId: 'nodeB',
+        operation: 'node.blocked',
+        stateSnapshot: {
+          readyNodeIds: [],
+          runningNodeIds: [],
+          completedNodeIds: [],
+          blockedNodeIds: ['nodeB'],
+          skippedNodeIds: [],
+        },
+        occurredAt: now,
+      },
+      'system',
+    )
+
+    const executor = new GraphExecutor({
+      workflowStore,
+      worktreeService,
+    })
+
+    // Recovery must detect the contradiction and fail closed
+    const recovered = await executor.recover(projectId)
+    expect(recovered).toHaveLength(1)
+    expect(recovered[0]?.id).toBe(graphRunId)
+    expect(recovered[0]?.status).toBe('failed')
+    expect(recovered[0]?.error).toContain('contradictory')
+    expect(recovered[0]?.finishedAt).not.toBeNull()
+  })
+
+  // 17. One parallel branch blocks awaiting a user decision while another completes; recovery must preserve the valid pause
+  it('invariant 17: one parallel branch blocks awaiting a user decision while another completes; recovery must preserve the valid pause', async () => {
+    const userGate = makeNode('gate', { type: 'user_gate' })
+    const worker = makeNode('worker')
+    const template = makeTemplate([userGate, worker]) // parallel independent branches
+
+    const executor = new GraphExecutor({
+      workflowStore,
+      worktreeService,
+      executeLeafNode: (ctx) => {
+        if (ctx.node.id === 'gate') {
+          return {
+            status: 'blocked',
+            awaitingUser: true,
+            resumable: true,
+            error: 'Awaiting user approval',
+          }
+        }
+        return { status: 'completed' }
+      },
+    })
+
+    // Run execution: gate blocks, worker completes in the same batch
+    const result = await executor.run({
+      workflowId,
+      projectId,
+      template,
+      forkSha,
+    })
+
+    expect(result.status).toBe('running')
+    expect(result.blockedNodeIds).toEqual(['gate'])
+    expect(result.completedNodeIds).toEqual(['worker'])
+
+    // In SQLite, verify the latest checkpoint is worker's node.completed, but snapshot has blockedNodeIds: ['gate']
+    const latestCheckpoint = workflowStore.getLatestGraphCheckpoint(result.graphRunId)
+    expect(latestCheckpoint?.operation).toBe('node.completed')
+    expect(latestCheckpoint?.stateSnapshot.blockedNodeIds).toContain('gate')
+    expect(latestCheckpoint?.stateSnapshot.completedNodeIds).toContain('worker')
+    const runningAttempts = workflowStore
+      .getNodeAttempts(result.graphRunId)
+      .filter((a) => a.status === 'running')
+    expect(runningAttempts).toHaveLength(0)
+
+    // Recovery invocation: must preserve the legitimate pause even though latest checkpoint was node.completed
+    const recovered = await executor.recover(projectId)
+    expect(recovered).toHaveLength(0)
+
+    const runInDb = workflowStore.getGraphRun(result.graphRunId)
+    expect(runInDb?.status).toBe('running')
+    expect(runInDb?.finishedAt).toBeNull()
+
+    // Discoverable in interrupted runs
+    const interrupted = workflowStore.findInterruptedGraphRuns(projectId)
+    expect(interrupted).toHaveLength(1)
+    expect(interrupted[0]?.id).toBe(result.graphRunId)
+
+    // Projection rebuild reproduces the paused run state identically from events
+    const projectStore = new ProjectStore(db)
+    projectStore.rebuild(projectId)
+
+    const runAfterRebuild = workflowStore.getGraphRun(result.graphRunId)
+    expect(runAfterRebuild?.status).toBe('running')
+    expect(runAfterRebuild?.finishedAt).toBeNull()
+  })
 })

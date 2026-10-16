@@ -1646,14 +1646,20 @@ export class GraphExecutor {
       const runningAttempts = attempts.filter((a) => a.status === 'running')
       const failedAttempts = attempts.filter((a) => a.status === 'failed')
       const cancelledAttempts = attempts.filter((a) => a.status === 'cancelled')
-      const blockedAttempts = attempts.filter((a) => a.status === 'blocked')
+
+      // Derive current logical status per node (filters out superseded historical attempts)
+      const latestNodeRuns = this.workflowStore.getLatestNodeRuns(run.id)
+      const currentBlockedRuns = latestNodeRuns.filter(
+        (r) => r.status === 'blocked' && r.iteration === run.iteration,
+      )
+
       const latestCheckpoint = this.workflowStore.getLatestGraphCheckpoint(run.id)
       const now = new Date().toISOString()
 
       // A blocked attempt only represents a valid resumable pause if it satisfies
       // the resumable-pause contract (e.g. user gate / decision lock, not missing input slots or fatal errors)
-      const hasNonResumableBlockedAttempt = blockedAttempts.some((a) => {
-        const err = a.error ?? ''
+      const hasNonResumableBlockedAttempt = currentBlockedRuns.some((r) => {
+        const err = r.error ?? ''
         return (
           err.includes('Missing required input slot') ||
           err.includes('Input slot resolution failed') ||
@@ -1661,21 +1667,43 @@ export class GraphExecutor {
         )
       })
 
+      // Strict identity and snapshot correspondence:
+      // - Checkpoint must exist and its stateSnapshot must record blockedNodeIds
+      // - Every currently blocked node must be present in stateSnapshot.blockedNodeIds
+      // - Every node in stateSnapshot.blockedNodeIds must correspond to a current blocked attempt
+      const snapshotBlockedIds = latestCheckpoint
+        ? latestCheckpoint.stateSnapshot.blockedNodeIds
+        : []
+
+      const hasStrictIdentityAgreement =
+        currentBlockedRuns.length > 0 &&
+        snapshotBlockedIds.length > 0 &&
+        currentBlockedRuns.every((r) => snapshotBlockedIds.includes(r.nodeId)) &&
+        snapshotBlockedIds.every((id) => currentBlockedRuns.some((r) => r.nodeId === id))
+
+      // Operation agreement:
+      // The latest checkpoint must either be 'node.blocked' OR preserve the blocked state
+      // from a concurrent completion in the same batch ('node.completed' / 'node.skipped')
+      const hasValidCheckpointOperation =
+        latestCheckpoint !== null &&
+        (latestCheckpoint.operation === 'node.blocked' ||
+          latestCheckpoint.operation === 'node.completed' ||
+          latestCheckpoint.operation === 'node.skipped')
+
       // Axiom A4: A run is legitimately paused awaiting human action ONLY if:
-      // 1. It has at least one recorded attempt and at least one checkpoint.
-      // 2. It has NO in-flight running attempts (which indicate process death during execution).
-      // 3. It has NO failed or cancelled attempts.
-      // 4. It has at least one blocked attempt, NONE of which are non-resumable.
-      // 5. Its latest durable checkpoint is explicitly 'node.blocked' with blocked nodes recorded.
+      // 1. It has recorded attempts in the active iteration.
+      // 2. Exactly zero attempts are running, failed, or cancelled.
+      // 3. Current blocked nodes exist in the active iteration and none are non-resumable.
+      // 4. Current blocked nodes strictly agree with the latest checkpoint's blockedNodeIds.
+      // 5. The latest checkpoint confirms no in-flight running nodes and a compatible operation.
       const isLegitimatelyPaused =
         attempts.length > 0 &&
         runningAttempts.length === 0 &&
         failedAttempts.length === 0 &&
         cancelledAttempts.length === 0 &&
-        blockedAttempts.length > 0 &&
         !hasNonResumableBlockedAttempt &&
-        latestCheckpoint?.operation === 'node.blocked' &&
-        latestCheckpoint.stateSnapshot.blockedNodeIds.length > 0
+        hasStrictIdentityAgreement &&
+        hasValidCheckpointOperation
 
       if (isLegitimatelyPaused) {
         continue
@@ -1699,14 +1727,25 @@ export class GraphExecutor {
         )
       }
 
-      const nonResumable = blockedAttempts.find((a) => {
-        const err = a.error ?? ''
-        return (
-          err.includes('Missing required input slot') ||
-          err.includes('Input slot resolution failed') ||
-          err.toLowerCase().includes('non-resumable')
-        )
-      })
+      const nonResumable =
+        currentBlockedRuns.find((r) => {
+          const err = r.error ?? ''
+          return (
+            err.includes('Missing required input slot') ||
+            err.includes('Input slot resolution failed') ||
+            err.toLowerCase().includes('non-resumable')
+          )
+        }) ??
+        attempts
+          .filter((a) => a.status === 'blocked')
+          .find((a) => {
+            const err = a.error ?? ''
+            return (
+              err.includes('Missing required input slot') ||
+              err.includes('Input slot resolution failed') ||
+              err.toLowerCase().includes('non-resumable')
+            )
+          })
 
       const failureReason =
         runningAttempts.length > 0
@@ -1719,7 +1758,9 @@ export class GraphExecutor {
                 ? `Graph execution interrupted with failed node: ${failedAttempts[0]?.nodeId ?? 'unknown'}`
                 : cancelledAttempts.length > 0
                   ? `Graph execution interrupted with cancelled node: ${cancelledAttempts[0]?.nodeId ?? 'unknown'}`
-                  : 'Graph execution interrupted by process termination between node dispatches'
+                  : !hasStrictIdentityAgreement && currentBlockedRuns.length > 0
+                    ? 'Graph execution state contradictory: blocked node runs do not match checkpoint state'
+                    : 'Graph execution interrupted by process termination between node dispatches'
 
       const updated = this.workflowStore.updateGraphRunStatus(
         {

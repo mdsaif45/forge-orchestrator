@@ -700,4 +700,330 @@ describe('GraphExecutor Lifecycle & Recovery Invariants (M6 Phase 5)', () => {
     expect(attemptsAfter).toEqual(attemptsBefore)
     expect(checkpointsAfter).toEqual(checkpointsBefore)
   })
+
+  // 11. Crash immediately after startGraphRun with zero attempts or checkpoints fails closed
+  it('invariant 11: crash immediately after startGraphRun with no attempts or checkpoints fails closed upon recovery', async () => {
+    const graphRunId = randomUUID()
+    const now = new Date().toISOString()
+
+    workflowStore.startGraphRun(
+      {
+        graphRunId,
+        workflowId,
+        projectId,
+        templateId: 'test-template',
+        startedAt: now,
+      },
+      'system',
+    )
+
+    // Pre-condition: run is running, but 0 attempts and 0 checkpoints exist
+    const runBefore = workflowStore.getGraphRun(graphRunId)
+    expect(runBefore?.status).toBe('running')
+    expect(runBefore?.finishedAt).toBeNull()
+    expect(workflowStore.getNodeAttempts(graphRunId)).toHaveLength(0)
+    expect(workflowStore.getLatestGraphCheckpoint(graphRunId)).toBeNull()
+
+    const executor = new GraphExecutor({
+      workflowStore,
+      worktreeService,
+    })
+
+    // Recovery must detect the pre-attempt crash and fail closed
+    const recovered = await executor.recover(projectId)
+    expect(recovered).toHaveLength(1)
+    expect(recovered[0]?.id).toBe(graphRunId)
+    expect(recovered[0]?.status).toBe('failed')
+    expect(recovered[0]?.error).toContain('before initial node dispatch')
+    expect(recovered[0]?.finishedAt).not.toBeNull()
+
+    // Subsequent discovery returns 0 interrupted runs
+    const interrupted = workflowStore.findInterruptedGraphRuns(projectId)
+    expect(interrupted).toHaveLength(0)
+
+    // Repeated recovery is idempotent
+    const recovered2 = await executor.recover(projectId)
+    expect(recovered2).toHaveLength(0)
+
+    // Projection rebuild reproduces the failed run state identically
+    const projectStore = new ProjectStore(db)
+    projectStore.rebuild(projectId)
+
+    const runRebuilt = workflowStore.getGraphRun(graphRunId)
+    expect(runRebuilt?.status).toBe('failed')
+    expect(runRebuilt?.finishedAt).not.toBeNull()
+    expect(runRebuilt?.error).toContain('before initial node dispatch')
+  })
+
+  // 12. Crash between node dispatches fails closed without leaving an orphaned running run
+  it('invariant 12: crash between node dispatches fails closed without leaving an orphaned running run', async () => {
+    const graphRunId = randomUUID()
+    const now = new Date().toISOString()
+
+    workflowStore.startGraphRun(
+      {
+        graphRunId,
+        workflowId,
+        projectId,
+        templateId: 'test-template',
+        startedAt: now,
+      },
+      'system',
+    )
+
+    // Node A completed successfully
+    workflowStore.recordNodeAttempt(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId,
+        nodeId: 'nodeA',
+        attempt: 1,
+        status: 'running',
+        startedAt: now,
+      },
+      'system',
+    )
+    workflowStore.updateNodeAttempt(
+      {
+        projectId,
+        graphRunId,
+        nodeId: 'nodeA',
+        attempt: 1,
+        status: 'completed',
+        finishedAt: now,
+        occurredAt: now,
+      },
+      'system',
+    )
+    workflowStore.writeGraphCheckpoint(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId,
+        nodeId: 'nodeA',
+        operation: 'node.completed',
+        stateSnapshot: {
+          readyNodeIds: ['nodeB'],
+          runningNodeIds: [],
+          completedNodeIds: ['nodeA'],
+          blockedNodeIds: [],
+          skippedNodeIds: [],
+        },
+        occurredAt: now,
+      },
+      'system',
+    )
+
+    // Process crashed before nodeB attempt was created.
+    // Pre-condition: run is running, 0 running attempts, 0 blocked attempts, latest checkpoint is node.completed
+    const runBefore = workflowStore.getGraphRun(graphRunId)
+    expect(runBefore?.status).toBe('running')
+    expect(runBefore?.finishedAt).toBeNull()
+
+    const executor = new GraphExecutor({
+      workflowStore,
+      worktreeService,
+    })
+
+    const recovered = await executor.recover(projectId)
+    expect(recovered).toHaveLength(1)
+    expect(recovered[0]?.id).toBe(graphRunId)
+    expect(recovered[0]?.status).toBe('failed')
+    expect(recovered[0]?.error).toContain('between node dispatches')
+    expect(recovered[0]?.finishedAt).not.toBeNull()
+
+    // Node A attempt remains completed
+    const attemptsA = workflowStore.getNodeAttempts(graphRunId, 'nodeA')
+    expect(attemptsA[0]?.status).toBe('completed')
+
+    // Subsequent discovery returns 0 interrupted runs
+    expect(workflowStore.findInterruptedGraphRuns(projectId)).toHaveLength(0)
+  })
+
+  // 13. A blocked attempt that does not satisfy the resumable-pause contract fails closed
+  it('invariant 13: a blocked attempt that does not satisfy the resumable-pause contract fails closed upon recovery', async () => {
+    const graphRunId = randomUUID()
+    const now = new Date().toISOString()
+
+    workflowStore.startGraphRun(
+      {
+        graphRunId,
+        workflowId,
+        projectId,
+        templateId: 'test-template',
+        startedAt: now,
+      },
+      'system',
+    )
+
+    // Node B blocked due to missing required input slot (non-resumable failure)
+    workflowStore.recordNodeAttempt(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId,
+        nodeId: 'nodeB',
+        attempt: 1,
+        status: 'running',
+        startedAt: now,
+      },
+      'system',
+    )
+    workflowStore.updateNodeAttempt(
+      {
+        projectId,
+        graphRunId,
+        nodeId: 'nodeB',
+        attempt: 1,
+        status: 'blocked',
+        error: 'Missing required input slot: spec',
+        finishedAt: now,
+        occurredAt: now,
+      },
+      'system',
+    )
+    workflowStore.writeGraphCheckpoint(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId,
+        nodeId: 'nodeB',
+        operation: 'node.blocked',
+        stateSnapshot: {
+          readyNodeIds: [],
+          runningNodeIds: [],
+          completedNodeIds: [],
+          blockedNodeIds: ['nodeB'],
+          skippedNodeIds: [],
+        },
+        occurredAt: now,
+      },
+      'system',
+    )
+
+    // Process crashed before updateGraphRunStatus was called, leaving finishedAt null
+    const runBefore = workflowStore.getGraphRun(graphRunId)
+    expect(runBefore?.status).toBe('running')
+    expect(runBefore?.finishedAt).toBeNull()
+
+    const executor = new GraphExecutor({
+      workflowStore,
+      worktreeService,
+    })
+
+    // Recovery must recognize this is a non-resumable block and fail the run closed
+    const recovered = await executor.recover(projectId)
+    expect(recovered).toHaveLength(1)
+    expect(recovered[0]?.id).toBe(graphRunId)
+    expect(recovered[0]?.status).toBe('failed')
+    expect(recovered[0]?.error).toContain('Missing required input slot: spec')
+    expect(recovered[0]?.finishedAt).not.toBeNull()
+
+    // Node B attempt remains blocked (immutable terminal attempt)
+    const attemptsB = workflowStore.getNodeAttempts(graphRunId, 'nodeB')
+    expect(attemptsB[0]?.status).toBe('blocked')
+
+    expect(workflowStore.findInterruptedGraphRuns(projectId)).toHaveLength(0)
+  })
+
+  // 14. Contradictory state with failed attempt fails closed upon recovery
+  it('invariant 14: contradictory state with failed attempt fails closed upon recovery', async () => {
+    const graphRunId = randomUUID()
+    const now = new Date().toISOString()
+
+    workflowStore.startGraphRun(
+      {
+        graphRunId,
+        workflowId,
+        projectId,
+        templateId: 'test-template',
+        startedAt: now,
+      },
+      'system',
+    )
+
+    // Node A is blocked awaiting user
+    workflowStore.recordNodeAttempt(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId,
+        nodeId: 'nodeA',
+        attempt: 1,
+        status: 'running',
+        startedAt: now,
+      },
+      'system',
+    )
+    workflowStore.updateNodeAttempt(
+      {
+        projectId,
+        graphRunId,
+        nodeId: 'nodeA',
+        attempt: 1,
+        status: 'blocked',
+        error: 'Awaiting user decision',
+        finishedAt: now,
+        occurredAt: now,
+      },
+      'system',
+    )
+
+    // Node B failed
+    workflowStore.recordNodeAttempt(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId,
+        nodeId: 'nodeB',
+        attempt: 1,
+        status: 'running',
+        startedAt: now,
+      },
+      'system',
+    )
+    workflowStore.updateNodeAttempt(
+      {
+        projectId,
+        graphRunId,
+        nodeId: 'nodeB',
+        attempt: 1,
+        status: 'failed',
+        error: 'Task execution failed',
+        finishedAt: now,
+        occurredAt: now,
+      },
+      'system',
+    )
+
+    workflowStore.writeGraphCheckpoint(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId,
+        nodeId: 'nodeB',
+        operation: 'node.failed',
+        stateSnapshot: {
+          readyNodeIds: [],
+          runningNodeIds: [],
+          completedNodeIds: [],
+          blockedNodeIds: ['nodeA'],
+          skippedNodeIds: [],
+        },
+        occurredAt: now,
+      },
+      'system',
+    )
+
+    const executor = new GraphExecutor({
+      workflowStore,
+      worktreeService,
+    })
+
+    const recovered = await executor.recover(projectId)
+    expect(recovered).toHaveLength(1)
+    expect(recovered[0]?.status).toBe('failed')
+    expect(recovered[0]?.finishedAt).not.toBeNull()
+  })
 })

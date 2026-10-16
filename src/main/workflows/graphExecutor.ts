@@ -1633,44 +1633,107 @@ export class GraphExecutor {
     const recovered: GraphRun[] = []
 
     for (const run of interrupted) {
+      let runProjectId = projectId
+      if (!runProjectId) {
+        try {
+          runProjectId = this.workflowStore.projectIdOf(run.workflowId)
+        } catch {
+          runProjectId = 'default-project' as ProjectId
+        }
+      }
+
       const attempts = this.workflowStore.getNodeAttempts(run.id)
       const runningAttempts = attempts.filter((a) => a.status === 'running')
+      const failedAttempts = attempts.filter((a) => a.status === 'failed')
+      const cancelledAttempts = attempts.filter((a) => a.status === 'cancelled')
+      const blockedAttempts = attempts.filter((a) => a.status === 'blocked')
+      const latestCheckpoint = this.workflowStore.getLatestGraphCheckpoint(run.id)
       const now = new Date().toISOString()
 
-      // Only fail runs that had actual in-flight running attempts when process crashed.
-      // A run whose attempts are all completed or blocked (e.g. waiting for user input)
-      // is not a crashed execution — it is paused awaiting user action (Axiom A4).
-      if (runningAttempts.length > 0) {
-        for (const attempt of runningAttempts) {
-          this.workflowStore.updateNodeAttempt(
-            {
-              projectId: projectId ?? ('default-project' as ProjectId),
-              graphRunId: run.id,
-              nodeId: attempt.nodeId,
-              attempt: attempt.attempt,
-              status: 'failed',
-              error: 'Process crashed during node execution',
-              finishedAt: now,
-              occurredAt: now,
-            },
-            actor,
-          )
-        }
+      // A blocked attempt only represents a valid resumable pause if it satisfies
+      // the resumable-pause contract (e.g. user gate / decision lock, not missing input slots or fatal errors)
+      const hasNonResumableBlockedAttempt = blockedAttempts.some((a) => {
+        const err = a.error ?? ''
+        return (
+          err.includes('Missing required input slot') ||
+          err.includes('Input slot resolution failed') ||
+          err.toLowerCase().includes('non-resumable')
+        )
+      })
 
-        const updated = this.workflowStore.updateGraphRunStatus(
+      // Axiom A4: A run is legitimately paused awaiting human action ONLY if:
+      // 1. It has at least one recorded attempt and at least one checkpoint.
+      // 2. It has NO in-flight running attempts (which indicate process death during execution).
+      // 3. It has NO failed or cancelled attempts.
+      // 4. It has at least one blocked attempt, NONE of which are non-resumable.
+      // 5. Its latest durable checkpoint is explicitly 'node.blocked' with blocked nodes recorded.
+      const isLegitimatelyPaused =
+        attempts.length > 0 &&
+        runningAttempts.length === 0 &&
+        failedAttempts.length === 0 &&
+        cancelledAttempts.length === 0 &&
+        blockedAttempts.length > 0 &&
+        !hasNonResumableBlockedAttempt &&
+        latestCheckpoint?.operation === 'node.blocked' &&
+        latestCheckpoint.stateSnapshot.blockedNodeIds.length > 0
+
+      if (isLegitimatelyPaused) {
+        continue
+      }
+
+      // Otherwise, the run was interrupted by process death or left in an invalid/non-resumable state.
+      // Fail closed per Axiom A3.
+      for (const attempt of runningAttempts) {
+        this.workflowStore.updateNodeAttempt(
           {
-            projectId: projectId ?? ('default-project' as ProjectId),
+            projectId: runProjectId,
             graphRunId: run.id,
+            nodeId: attempt.nodeId,
+            attempt: attempt.attempt,
             status: 'failed',
-            error: 'Graph execution interrupted by process termination',
+            error: 'Process crashed during node execution',
             finishedAt: now,
             occurredAt: now,
           },
           actor,
         )
-
-        recovered.push(updated)
       }
+
+      const nonResumable = blockedAttempts.find((a) => {
+        const err = a.error ?? ''
+        return (
+          err.includes('Missing required input slot') ||
+          err.includes('Input slot resolution failed') ||
+          err.toLowerCase().includes('non-resumable')
+        )
+      })
+
+      const failureReason =
+        runningAttempts.length > 0
+          ? 'Graph execution interrupted by process termination'
+          : attempts.length === 0
+            ? 'Graph execution interrupted by process termination before initial node dispatch'
+            : nonResumable
+              ? `Graph execution blocked at node "${nonResumable.nodeId}": ${nonResumable.error ?? 'Non-resumable failure'}`
+              : failedAttempts.length > 0
+                ? `Graph execution interrupted with failed node: ${failedAttempts[0]?.nodeId ?? 'unknown'}`
+                : cancelledAttempts.length > 0
+                  ? `Graph execution interrupted with cancelled node: ${cancelledAttempts[0]?.nodeId ?? 'unknown'}`
+                  : 'Graph execution interrupted by process termination between node dispatches'
+
+      const updated = this.workflowStore.updateGraphRunStatus(
+        {
+          projectId: runProjectId,
+          graphRunId: run.id,
+          status: 'failed',
+          error: failureReason,
+          finishedAt: now,
+          occurredAt: now,
+        },
+        actor,
+      )
+
+      recovered.push(updated)
     }
 
     // Reclaim any orphaned branch worktrees left behind on disk

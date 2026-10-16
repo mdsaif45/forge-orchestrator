@@ -2,10 +2,10 @@
 
 **Status:** IMPLEMENTED
 **Authority:** Implementation truth (see [documentation-policy.md](../meta/documentation-policy.md))
-**Last Updated:** 2026-10-16  
-**Baseline:** `main` @ `6f7df99` (PR #221 merged) | Active Branch: `feat/m6-phase5-batch1-foundation-stabilization`  
-**Verification Baseline:** [verification-baseline.md](verification-baseline.md)  
-**Related Roadmap:** [roadmap.md](../roadmap/roadmap.md)  
+**Last Updated:** 2026-10-16
+**Baseline:** `main` @ `6f7df99` (PR #221 merged) | Active Branch: `feat/m6-phase5-batch1-foundation-stabilization`
+**Verification Baseline:** [verification-baseline.md](verification-baseline.md)
+**Related Roadmap:** [roadmap.md](../roadmap/roadmap.md)
 
 This document answers one question: **what does Forge actually do today?**
 

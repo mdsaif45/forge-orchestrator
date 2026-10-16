@@ -1,11 +1,11 @@
 # Milestones & Implementation Tasks
 
-**Status:** PROPOSED  
-**Authority:** Planning Truth  
-**Last Updated:** 2026-10-16  
-**Baseline:** `main` @ `6f7df99` (PR #221 merged)  
-**Related Architecture:** [architecture-overview.md](../architecture/architecture-overview.md)  
-**Related Progress:** [current-state.md](../project/current-state.md)  
+**Status:** PROPOSED
+**Authority:** Planning Truth
+**Last Updated:** 2026-10-16
+**Baseline:** `main` @ `6f7df99` (PR #221 merged)
+**Related Architecture:** [architecture-overview.md](../architecture/architecture-overview.md)
+**Related Progress:** [current-state.md](../project/current-state.md)
 
 ---
 

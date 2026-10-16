@@ -68,11 +68,13 @@ export interface NodeExecutionContext {
  * Result returned by a leaf node execution primitive.
  */
 export interface NodeExecutionResult {
-  readonly status: 'completed' | 'failed' | 'blocked'
+  readonly status: 'completed' | 'failed' | 'blocked' | 'cancelled'
   readonly changeSet?: ChangeSet | undefined
   readonly evidenceId?: string | undefined
   readonly error?: string | undefined
   readonly artifacts?: readonly WorkflowArtifact[] | undefined
+  readonly awaitingUser?: boolean | undefined
+  readonly resumable?: boolean | undefined
 }
 
 export type LeafNodeExecutor = (
@@ -119,6 +121,7 @@ export interface RunGraphOptions {
   readonly signal?: AbortSignal | undefined
   readonly skipNodeIds?: ReadonlySet<string> | readonly string[] | undefined
   readonly invalidatedNodeIds?: ReadonlySet<string> | undefined
+  readonly resumeNodeIds?: ReadonlySet<string> | readonly string[] | undefined
   readonly loopPolicy?: LoopPolicy | undefined
 }
 
@@ -288,8 +291,10 @@ export class GraphExecutor {
     if (
       existingRun &&
       (existingRun.status === 'completed' ||
+        existingRun.status === 'failed' ||
         existingRun.status === 'halted' ||
         existingRun.status === 'cancelled') &&
+      existingRun.finishedAt !== null &&
       (!options.invalidatedNodeIds || options.invalidatedNodeIds.size === 0)
     ) {
       const latestRuns = this.workflowStore.getLatestNodeRuns(graphRunId)
@@ -377,6 +382,9 @@ export class GraphExecutor {
     const runningNodeIds = new Set<string>()
     const failedNodeIds = new Set<string>()
     const blockedNodeIds = new Set<string>()
+    const resumableBlockedNodeIds = new Set<string>()
+    const nonResumableBlockedNodeIds = new Set<string>()
+    const cancelledNodeIds = new Set<string>()
     const skippedNodeIds = new Set<string>()
     const deactivatedForwardEdgeIds = new Set<string>()
     const activeWorktrees = new Map<string, PreparedWorktree>()
@@ -385,6 +393,7 @@ export class GraphExecutor {
 
     const skipSet = new Set(options.skipNodeIds ?? [])
     const invalidatedSet = options.invalidatedNodeIds ?? new Set<string>()
+    const resumeSet = options.resumeNodeIds ? new Set(options.resumeNodeIds) : undefined
 
     // Hydrate existing latest state if run existed previously
     if (existingRun) {
@@ -461,7 +470,19 @@ export class GraphExecutor {
         } else if (nodeRun.status === 'skipped') {
           skippedNodeIds.add(nodeRun.nodeId)
         } else if (nodeRun.status === 'blocked') {
-          blockedNodeIds.add(nodeRun.nodeId)
+          const isExplicitlyResumed = resumeSet?.has(nodeRun.nodeId)
+          const nodeDef = template.nodes.find((n) => n.id === nodeRun.nodeId)
+          const isResumable =
+            nodeDef?.type === 'user_gate' ||
+            nodeDef?.config.role === 'user' ||
+            !nodeRun.error?.includes('Missing required input slot')
+
+          if (isExplicitlyResumed || (!existingRun.finishedAt && isResumable)) {
+            // Node is unblocked to execute its next attempt upon resume
+          } else {
+            blockedNodeIds.add(nodeRun.nodeId)
+            nonResumableBlockedNodeIds.add(nodeRun.nodeId)
+          }
         } else if (nodeRun.status === 'failed') {
           failedNodeIds.add(nodeRun.nodeId)
         }
@@ -572,10 +593,15 @@ export class GraphExecutor {
 
     // Main execution scheduling loop
     while (
-      completedNodeIds.size + skippedNodeIds.size + failedNodeIds.size + blockedNodeIds.size <
+      completedNodeIds.size +
+        skippedNodeIds.size +
+        failedNodeIds.size +
+        blockedNodeIds.size +
+        cancelledNodeIds.size <
         template.nodes.length &&
       !loopState.isHalted &&
-      !abortSignal.aborted
+      !abortSignal.aborted &&
+      cancelledNodeIds.size === 0
     ) {
       const candidateNodes = getReadyNodes(
         template.nodes,
@@ -587,6 +613,7 @@ export class GraphExecutor {
           !runningNodeIds.has(node.id) &&
           !failedNodeIds.has(node.id) &&
           !blockedNodeIds.has(node.id) &&
+          !cancelledNodeIds.has(node.id) &&
           !skippedNodeIds.has(node.id),
       )
 
@@ -735,6 +762,7 @@ export class GraphExecutor {
           }
 
           blockedNodeIds.add(node.id)
+          nonResumableBlockedNodeIds.add(node.id)
 
           const finishedAt = new Date().toISOString()
           this.workflowStore.updateNodeAttempt(
@@ -1287,6 +1315,16 @@ export class GraphExecutor {
             }
           } else if (leafResult.status === 'blocked') {
             blockedNodeIds.add(node.id)
+            if (
+              leafResult.awaitingUser === true ||
+              leafResult.resumable === true ||
+              node.type === 'user_gate' ||
+              node.config.role === 'user'
+            ) {
+              resumableBlockedNodeIds.add(node.id)
+            } else {
+              nonResumableBlockedNodeIds.add(node.id)
+            }
             const finishedAt = new Date().toISOString()
 
             this.workflowStore.updateNodeAttempt(
@@ -1310,6 +1348,36 @@ export class GraphExecutor {
                 graphRunId,
                 nodeId: node.id,
                 operation: 'node.blocked',
+                stateSnapshot: getSnapshot(),
+                occurredAt: finishedAt,
+              },
+              actor,
+            )
+          } else if (leafResult.status === 'cancelled') {
+            cancelledNodeIds.add(node.id)
+            const finishedAt = new Date().toISOString()
+
+            this.workflowStore.updateNodeAttempt(
+              {
+                projectId,
+                graphRunId,
+                nodeId: node.id,
+                attempt: attemptNum,
+                status: 'cancelled',
+                error: leafResult.error ?? 'Node execution cancelled',
+                finishedAt,
+                occurredAt: finishedAt,
+              },
+              actor,
+            )
+
+            this.workflowStore.writeGraphCheckpoint(
+              {
+                id: randomUUID(),
+                projectId,
+                graphRunId,
+                nodeId: node.id,
+                operation: 'node.cancelled',
                 stateSnapshot: getSnapshot(),
                 occurredAt: finishedAt,
               },
@@ -1398,16 +1466,36 @@ export class GraphExecutor {
       }
     }
 
-    // Handle cancellation
-    if (abortSignal.aborted) {
-      await this.handleCancellation(
-        graphRunId,
-        projectId,
-        forkSha,
-        activeWorktrees,
-        runningNodeIds,
-        actor,
-      )
+    // Handle cancellation (signal abort or explicit node cancellation)
+    if (abortSignal.aborted || cancelledNodeIds.size > 0) {
+      if (abortSignal.aborted) {
+        await this.handleCancellation(
+          graphRunId,
+          projectId,
+          forkSha,
+          activeWorktrees,
+          runningNodeIds,
+          actor,
+        )
+      } else {
+        const finishedAt = new Date().toISOString()
+        for (const [, worktree] of activeWorktrees.entries()) {
+          await worktree.dispose().catch(() => undefined)
+        }
+        const cancelReason = loopState.runError ?? 'Execution cancelled by user'
+        this.workflowStore.updateGraphRunStatus(
+          {
+            projectId,
+            graphRunId,
+            status: 'cancelled',
+            haltReason: cancelReason,
+            error: cancelReason,
+            finishedAt,
+            occurredAt: finishedAt,
+          },
+          actor,
+        )
+      }
 
       return {
         graphRunId,
@@ -1416,7 +1504,7 @@ export class GraphExecutor {
         failedNodeIds: Array.from(failedNodeIds),
         blockedNodeIds: Array.from(blockedNodeIds),
         skippedNodeIds: Array.from(skippedNodeIds),
-        haltReason: 'Execution cancelled by signal',
+        haltReason: 'Execution cancelled',
         error: 'Execution cancelled',
         changeSets: resultChangeSets,
         artifacts: allArtifacts,
@@ -1426,15 +1514,84 @@ export class GraphExecutor {
     // Determine terminal graph run status with locked precedence:
     // 1. cancelled (handled above)
     // 2. halted
-    // 3. failed (if failedNodeIds.size > 0 || blockedNodeIds.size > 0)
-    // 4. completed (only when all reachable nodes are completed or skipped, with zero failed/blocked nodes)
-    let finalStatus: GraphRunStatus = 'completed'
+    // 3. failed (if failedNodeIds.size > 0 || nonResumableBlockedNodeIds.size > 0)
+    // 4. running (if resumableBlockedNodeIds.size > 0: nonterminal pause awaiting user)
+    // 5. completed (only when all reachable nodes are completed or skipped, with zero failed/blocked nodes)
+
     if (loopState.isHalted) {
-      finalStatus = 'halted'
-    } else if (failedNodeIds.size > 0 || blockedNodeIds.size > 0) {
-      finalStatus = 'failed'
-      if (!loopState.runError && blockedNodeIds.size > 0) {
-        loopState.runError = `Graph execution blocked at nodes: ${Array.from(blockedNodeIds).join(', ')}`
+      const finishedAt = new Date().toISOString()
+      this.workflowStore.updateGraphRunStatus(
+        {
+          projectId,
+          graphRunId,
+          status: 'halted',
+          haltReason: loopState.haltedReason,
+          error: loopState.runError,
+          finishedAt,
+          occurredAt: finishedAt,
+        },
+        actor,
+      )
+
+      return {
+        graphRunId,
+        status: 'halted',
+        completedNodeIds: Array.from(completedNodeIds),
+        failedNodeIds: Array.from(failedNodeIds),
+        blockedNodeIds: Array.from(blockedNodeIds),
+        skippedNodeIds: Array.from(skippedNodeIds),
+        haltReason: loopState.haltedReason,
+        error: loopState.runError,
+        changeSets: resultChangeSets,
+        artifacts: allArtifacts,
+      }
+    }
+
+    if (failedNodeIds.size > 0 || nonResumableBlockedNodeIds.size > 0) {
+      if (!loopState.runError && nonResumableBlockedNodeIds.size > 0) {
+        loopState.runError = `Graph execution blocked at nodes: ${Array.from(nonResumableBlockedNodeIds).join(', ')}`
+      }
+      const finishedAt = new Date().toISOString()
+      this.workflowStore.updateGraphRunStatus(
+        {
+          projectId,
+          graphRunId,
+          status: 'failed',
+          haltReason: loopState.haltedReason,
+          error: loopState.runError,
+          finishedAt,
+          occurredAt: finishedAt,
+        },
+        actor,
+      )
+
+      return {
+        graphRunId,
+        status: 'failed',
+        completedNodeIds: Array.from(completedNodeIds),
+        failedNodeIds: Array.from(failedNodeIds),
+        blockedNodeIds: Array.from(blockedNodeIds),
+        skippedNodeIds: Array.from(skippedNodeIds),
+        haltReason: loopState.haltedReason,
+        error: loopState.runError,
+        changeSets: resultChangeSets,
+        artifacts: allArtifacts,
+      }
+    }
+
+    if (resumableBlockedNodeIds.size > 0) {
+      // Nonterminal pause awaiting human action: preserve running status and leave finishedAt null
+      return {
+        graphRunId,
+        status: 'running',
+        completedNodeIds: Array.from(completedNodeIds),
+        failedNodeIds: Array.from(failedNodeIds),
+        blockedNodeIds: Array.from(blockedNodeIds),
+        skippedNodeIds: Array.from(skippedNodeIds),
+        haltReason: null,
+        error: null,
+        changeSets: resultChangeSets,
+        artifacts: allArtifacts,
       }
     }
 
@@ -1443,9 +1600,9 @@ export class GraphExecutor {
       {
         projectId,
         graphRunId,
-        status: finalStatus,
-        haltReason: loopState.haltedReason,
-        error: loopState.runError,
+        status: 'completed',
+        haltReason: null,
+        error: null,
         finishedAt,
         occurredAt: finishedAt,
       },
@@ -1454,13 +1611,13 @@ export class GraphExecutor {
 
     return {
       graphRunId,
-      status: finalStatus,
+      status: 'completed',
       completedNodeIds: Array.from(completedNodeIds),
       failedNodeIds: Array.from(failedNodeIds),
       blockedNodeIds: Array.from(blockedNodeIds),
       skippedNodeIds: Array.from(skippedNodeIds),
-      haltReason: loopState.haltedReason,
-      error: loopState.runError,
+      haltReason: null,
+      error: null,
       changeSets: resultChangeSets,
       artifacts: allArtifacts,
     }
@@ -1480,35 +1637,40 @@ export class GraphExecutor {
       const runningAttempts = attempts.filter((a) => a.status === 'running')
       const now = new Date().toISOString()
 
-      for (const attempt of runningAttempts) {
-        this.workflowStore.updateNodeAttempt(
+      // Only fail runs that had actual in-flight running attempts when process crashed.
+      // A run whose attempts are all completed or blocked (e.g. waiting for user input)
+      // is not a crashed execution — it is paused awaiting user action (Axiom A4).
+      if (runningAttempts.length > 0) {
+        for (const attempt of runningAttempts) {
+          this.workflowStore.updateNodeAttempt(
+            {
+              projectId: projectId ?? ('default-project' as ProjectId),
+              graphRunId: run.id,
+              nodeId: attempt.nodeId,
+              attempt: attempt.attempt,
+              status: 'failed',
+              error: 'Process crashed during node execution',
+              finishedAt: now,
+              occurredAt: now,
+            },
+            actor,
+          )
+        }
+
+        const updated = this.workflowStore.updateGraphRunStatus(
           {
             projectId: projectId ?? ('default-project' as ProjectId),
             graphRunId: run.id,
-            nodeId: attempt.nodeId,
-            attempt: attempt.attempt,
             status: 'failed',
-            error: 'Process crashed during node execution',
+            error: 'Graph execution interrupted by process termination',
             finishedAt: now,
             occurredAt: now,
           },
           actor,
         )
+
+        recovered.push(updated)
       }
-
-      const updated = this.workflowStore.updateGraphRunStatus(
-        {
-          projectId: projectId ?? ('default-project' as ProjectId),
-          graphRunId: run.id,
-          status: 'failed',
-          error: 'Graph execution interrupted by process termination',
-          finishedAt: now,
-          occurredAt: now,
-        },
-        actor,
-      )
-
-      recovered.push(updated)
     }
 
     // Reclaim any orphaned branch worktrees left behind on disk
@@ -2261,6 +2423,8 @@ export class GraphExecutor {
             return {
               status: 'blocked',
               error: `User gate blocked: no locked decisions found for project "${ctx.projectId}"`,
+              awaitingUser: true,
+              resumable: true,
             }
           }
         }

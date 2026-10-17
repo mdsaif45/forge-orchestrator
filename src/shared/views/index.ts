@@ -343,6 +343,79 @@ export const workflowArtifactViewSchema = z.strictObject({
 })
 export type WorkflowArtifactView = z.infer<typeof workflowArtifactViewSchema>
 
+export const graphRunStatusViewSchema = z.enum([
+  'running',
+  'completed',
+  'failed',
+  'halted',
+  'cancelled',
+])
+export type GraphRunStatusView = z.infer<typeof graphRunStatusViewSchema>
+
+export const graphNodeStatusViewSchema = z.enum([
+  'pending',
+  'ready',
+  'running',
+  'completed',
+  'failed',
+  'skipped',
+  'blocked',
+  'cancelled',
+])
+export type GraphNodeStatusView = z.infer<typeof graphNodeStatusViewSchema>
+
+export const graphNodeRunViewSchema = z.strictObject({
+  id: z.string().min(1),
+  graphRunId: z.string().min(1),
+  nodeId: z.string().min(1),
+  attempt: z.number().int().positive(),
+  iteration: z.number().int().positive(),
+  status: graphNodeStatusViewSchema,
+  role: z.string().nullable(),
+  runtimeId: z.string().nullable(),
+  contextRef: z.string().nullable(),
+  changeSetId: z.string().nullable(),
+  evidenceId: z.string().nullable(),
+  error: z.string().nullable(),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+})
+export type GraphNodeRunView = z.infer<typeof graphNodeRunViewSchema>
+
+export const graphStateSnapshotViewSchema = z.strictObject({
+  readyNodeIds: z.array(z.string()).readonly().default([]),
+  runningNodeIds: z.array(z.string()).readonly().default([]),
+  completedNodeIds: z.array(z.string()).readonly().default([]),
+  blockedNodeIds: z.array(z.string()).readonly().default([]),
+  skippedNodeIds: z.array(z.string()).readonly().optional(),
+})
+export type GraphStateSnapshotView = z.infer<typeof graphStateSnapshotViewSchema>
+
+export const graphCheckpointViewSchema = z.strictObject({
+  id: z.string().min(1),
+  graphRunId: z.string().min(1),
+  nodeId: z.string().min(1),
+  operation: z.string().min(1),
+  stateSnapshot: graphStateSnapshotViewSchema,
+  occurredAt: z.string().min(1),
+})
+export type GraphCheckpointView = z.infer<typeof graphCheckpointViewSchema>
+
+export const graphRunViewSchema = z.strictObject({
+  id: z.string().min(1),
+  workflowId: z.string().min(1),
+  templateId: z.string().min(1),
+  status: graphRunStatusViewSchema,
+  iteration: z.number().int().positive(),
+  startedAt: z.string().min(1),
+  finishedAt: z.string().nullable(),
+  haltReason: z.string().nullable(),
+  error: z.string().nullable(),
+  nodeRuns: z.array(graphNodeRunViewSchema).readonly().default([]),
+  checkpoint: graphCheckpointViewSchema.nullable().default(null),
+})
+export type GraphRunView = z.infer<typeof graphRunViewSchema>
+
 export const artifactKindViewSchema = z.enum([
   'stdout',
   'stderr',

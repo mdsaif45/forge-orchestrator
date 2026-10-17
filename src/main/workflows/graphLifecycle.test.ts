@@ -1303,4 +1303,266 @@ describe('GraphExecutor Lifecycle & Recovery Invariants (M6 Phase 5)', () => {
     expect(runAfterRebuild?.status).toBe('running')
     expect(runAfterRebuild?.finishedAt).toBeNull()
   })
+
+  // 18. Multi-iteration loop pause recovery: loop advances to iteration N+1, user gate blocks, recovery preserves pause, projections rebuild consistently, and run resumes to completion
+  it('invariant 18: feedback loop advances to iteration N+1 and blocks at user gate; recovery preserves pause and resumes after decision lock', async () => {
+    const worker = makeNode('worker')
+    const router = makeNode('router', { type: 'router' })
+    const userGate = makeNode('gate', { type: 'user_gate' })
+    const exitNode = makeNode('exitNode')
+
+    const template = makeTemplate(
+      [worker, router, userGate, exitNode],
+      [
+        { id: 'e-worker-router', source: 'worker', target: 'router' },
+        {
+          id: 'e-router-worker',
+          source: 'router',
+          target: 'worker',
+          isFeedback: true,
+          condition: {
+            mode: 'all',
+            predicates: [{ ref: 'iteration', operator: 'lt', value: 2 }],
+          },
+        },
+        {
+          id: 'e-router-gate',
+          source: 'router',
+          target: 'gate',
+          isDefault: true,
+        },
+        {
+          id: 'e-gate-exit',
+          source: 'gate',
+          target: 'exitNode',
+        },
+      ],
+    )
+
+    let workerExecutions = 0
+    let gateExecutions = 0
+    let exitExecutions = 0
+
+    const executeLeafNode = (ctx: { node: { id: string }; projectId: ProjectId }) => {
+      if (ctx.node.id === 'worker') {
+        workerExecutions++
+        return { status: 'completed' as const }
+      }
+      if (ctx.node.id === 'gate') {
+        gateExecutions++
+        const locked = decisionStore.listLocked(ctx.projectId)
+        if (locked.length === 0) {
+          return {
+            status: 'blocked' as const,
+            awaitingUser: true,
+            resumable: true,
+            error: `User gate blocked: no locked decisions found for project "${ctx.projectId}"`,
+          }
+        }
+        return { status: 'completed' as const }
+      }
+      if (ctx.node.id === 'exitNode') {
+        exitExecutions++
+        return { status: 'completed' as const }
+      }
+      return { status: 'completed' as const }
+    }
+
+    const executor = new GraphExecutor({
+      workflowStore,
+      worktreeService,
+      decisionStore,
+      executeLeafNode,
+    })
+
+    // Step 1: Initial execution
+    // Iteration 1: worker executes, router takes feedback edge e-router-worker, loop advances to iteration 2
+    // Iteration 2: worker executes, router takes default edge e-router-gate, gate blocks awaiting user decision
+    const run1 = await executor.run({
+      workflowId,
+      projectId,
+      template,
+      forkSha,
+    })
+
+    expect(run1.status).toBe('running')
+    expect(run1.blockedNodeIds).toEqual(['gate'])
+    expect(run1.completedNodeIds).toContain('worker')
+    expect(run1.completedNodeIds).toContain('router')
+
+    // Invocations before pause: worker ran in iter 1 and iter 2; gate ran once in iter 2 and blocked; exitNode did not run
+    expect(workerExecutions).toBe(2)
+    expect(gateExecutions).toBe(1)
+    expect(exitExecutions).toBe(0)
+
+    // Verify durable state at pause in iteration 2
+    const runInDb = workflowStore.getGraphRun(run1.graphRunId)
+    expect(runInDb?.status).toBe('running')
+    expect(runInDb?.iteration).toBe(2)
+    expect(runInDb?.finishedAt).toBeNull()
+
+    const latestCheckpoint = workflowStore.getLatestGraphCheckpoint(run1.graphRunId)
+    expect(latestCheckpoint?.operation).toBe('node.blocked')
+    expect(latestCheckpoint?.nodeId).toBe('gate')
+    expect(latestCheckpoint?.stateSnapshot.blockedNodeIds).toEqual(['gate'])
+
+    // Verify historical and current attempts per iteration
+    const workerAttempts = workflowStore.getNodeAttempts(run1.graphRunId, 'worker')
+    expect(workerAttempts).toHaveLength(2)
+    expect(workerAttempts[0]?.attempt).toBe(1)
+    expect(workerAttempts[0]?.iteration).toBe(1)
+    expect(workerAttempts[0]?.status).toBe('completed')
+    expect(workerAttempts[1]?.attempt).toBe(2)
+    expect(workerAttempts[1]?.iteration).toBe(2)
+    expect(workerAttempts[1]?.status).toBe('completed')
+
+    const routerAttempts = workflowStore.getNodeAttempts(run1.graphRunId, 'router')
+    expect(routerAttempts).toHaveLength(2)
+    expect(routerAttempts[0]?.attempt).toBe(1)
+    expect(routerAttempts[0]?.iteration).toBe(1)
+    expect(routerAttempts[0]?.status).toBe('completed')
+    expect(routerAttempts[1]?.attempt).toBe(2)
+    expect(routerAttempts[1]?.iteration).toBe(2)
+    expect(routerAttempts[1]?.status).toBe('completed')
+
+    const gateAttemptsInitial = workflowStore.getNodeAttempts(run1.graphRunId, 'gate')
+    expect(gateAttemptsInitial).toHaveLength(1)
+    expect(gateAttemptsInitial[0]?.attempt).toBe(1)
+    expect(gateAttemptsInitial[0]?.iteration).toBe(2)
+    expect(gateAttemptsInitial[0]?.status).toBe('blocked')
+
+    const latestRunsAtPause = workflowStore.getLatestNodeRuns(run1.graphRunId)
+    expect(latestRunsAtPause).toHaveLength(3)
+    const workerLatest = latestRunsAtPause.find((r) => r.nodeId === 'worker')
+    expect(workerLatest?.iteration).toBe(2)
+    expect(workerLatest?.status).toBe('completed')
+    const routerLatest = latestRunsAtPause.find((r) => r.nodeId === 'router')
+    expect(routerLatest?.iteration).toBe(2)
+    expect(routerLatest?.status).toBe('completed')
+    const gateLatest = latestRunsAtPause.find((r) => r.nodeId === 'gate')
+    expect(gateLatest?.iteration).toBe(2)
+    expect(gateLatest?.status).toBe('blocked')
+
+    // Step 2: Reconstruct executor and recover (simulating process restart)
+    const reconstructedExecutor = new GraphExecutor({
+      workflowStore,
+      worktreeService,
+      decisionStore,
+      executeLeafNode,
+    })
+
+    const eventStore = new EventStore(db)
+    const eventsBeforeRecovery = eventStore.read(projectId)
+    const attemptsBeforeRecovery = workflowStore.getNodeAttempts(run1.graphRunId)
+
+    const recovered = await reconstructedExecutor.recover(projectId)
+    expect(recovered).toHaveLength(0) // Legitimately paused run is preserved, NOT failed
+
+    const eventsAfterRecovery = eventStore.read(projectId)
+    const attemptsAfterRecovery = workflowStore.getNodeAttempts(run1.graphRunId)
+
+    const interrupted = workflowStore.findInterruptedGraphRuns(projectId)
+    expect(interrupted).toHaveLength(1)
+    expect(interrupted[0]?.id).toBe(run1.graphRunId)
+    expect(interrupted[0]?.iteration).toBe(2)
+    expect(interrupted[0]?.status).toBe('running')
+
+    // Step 3: Repeated recovery idempotency check
+    const recoveredAgain = await reconstructedExecutor.recover(projectId)
+    expect(recoveredAgain).toHaveLength(0)
+
+    const eventsAfterSecondRecovery = eventStore.read(projectId)
+    const attemptsAfterSecondRecovery = workflowStore.getNodeAttempts(run1.graphRunId)
+
+    expect(eventsAfterRecovery.length).toBe(eventsBeforeRecovery.length)
+    expect(eventsAfterSecondRecovery.length).toBe(eventsBeforeRecovery.length)
+    expect(attemptsAfterRecovery.length).toBe(attemptsBeforeRecovery.length)
+    expect(attemptsAfterSecondRecovery.length).toBe(attemptsBeforeRecovery.length)
+
+    // Step 4: Rebuild projections from event ledger alone
+    const runBeforeRebuild = workflowStore.getGraphRun(run1.graphRunId)
+    const attemptsBeforeRebuild = workflowStore.getNodeAttempts(run1.graphRunId)
+    const checkpointsBeforeRebuild = workflowStore.getGraphCheckpoints(run1.graphRunId)
+
+    const projectStore = new ProjectStore(db)
+    projectStore.rebuild(projectId)
+
+    const runAfterRebuild = workflowStore.getGraphRun(run1.graphRunId)
+    const attemptsAfterRebuild = workflowStore.getNodeAttempts(run1.graphRunId)
+    const checkpointsAfterRebuild = workflowStore.getGraphCheckpoints(run1.graphRunId)
+
+    expect(runAfterRebuild).toEqual(runBeforeRebuild)
+    expect(attemptsAfterRebuild).toEqual(attemptsBeforeRebuild)
+    expect(checkpointsAfterRebuild).toEqual(checkpointsBeforeRebuild)
+
+    const recoveredAfterRebuild = await reconstructedExecutor.recover(projectId)
+    expect(recoveredAfterRebuild).toHaveLength(0)
+
+    // Step 5: User resolves gate by locking decision and resuming execution
+    const decId = decisionIdSchema.parse(randomUUID())
+    decisionStore.propose(
+      {
+        id: decId,
+        statement: 'Approval for final stage in iteration 2',
+        rationale: 'Approved for test verification',
+        status: 'proposed',
+        proposedBy: 'user',
+        proposedAt: NOW,
+        lockedAt: null,
+        lockedBy: null,
+        supersededBy: null,
+        originQuestionId: null,
+      },
+      projectId,
+      'user',
+      NOW,
+    )
+    decisionStore.lock(decId, 'user', new Date().toISOString())
+
+    const resumedResult = await reconstructedExecutor.run({
+      graphRunId: run1.graphRunId,
+      workflowId,
+      projectId,
+      template,
+      forkSha,
+    })
+
+    expect(resumedResult.status).toBe('completed')
+    expect(resumedResult.completedNodeIds).toContain('worker')
+    expect(resumedResult.completedNodeIds).toContain('router')
+    expect(resumedResult.completedNodeIds).toContain('gate')
+    expect(resumedResult.completedNodeIds).toContain('exitNode')
+
+    // Invariants on resumption: worker was NOT re-executed (remains 2); gate ran attempt 2 and completed (2); exitNode completed (1)
+    expect(workerExecutions).toBe(2)
+    expect(gateExecutions).toBe(2)
+    expect(exitExecutions).toBe(1)
+
+    const finalRunInDb = workflowStore.getGraphRun(run1.graphRunId)
+    expect(finalRunInDb?.status).toBe('completed')
+    expect(finalRunInDb?.finishedAt).not.toBeNull()
+    expect(finalRunInDb?.iteration).toBe(2)
+
+    // Verify attempt counts after resumption: worker & router remained at 2 (not rerun)
+    const finalWorkerAttempts = workflowStore.getNodeAttempts(run1.graphRunId, 'worker')
+    expect(finalWorkerAttempts).toHaveLength(2)
+
+    const finalRouterAttempts = workflowStore.getNodeAttempts(run1.graphRunId, 'router')
+    expect(finalRouterAttempts).toHaveLength(2)
+
+    const finalGateAttempts = workflowStore.getNodeAttempts(run1.graphRunId, 'gate')
+    expect(finalGateAttempts).toHaveLength(2)
+    expect(finalGateAttempts[0]?.attempt).toBe(1)
+    expect(finalGateAttempts[0]?.iteration).toBe(2)
+    expect(finalGateAttempts[0]?.status).toBe('blocked')
+    expect(finalGateAttempts[1]?.attempt).toBe(2)
+    expect(finalGateAttempts[1]?.iteration).toBe(2)
+    expect(finalGateAttempts[1]?.status).toBe('completed')
+
+    const exitAttempts = workflowStore.getNodeAttempts(run1.graphRunId, 'exitNode')
+    expect(exitAttempts).toHaveLength(1)
+    expect(exitAttempts[0]?.attempt).toBe(1)
+    expect(exitAttempts[0]?.iteration).toBe(2)
+    expect(exitAttempts[0]?.status).toBe('completed')
+  })
 })

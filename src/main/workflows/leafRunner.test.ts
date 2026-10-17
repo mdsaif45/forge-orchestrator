@@ -52,10 +52,12 @@ function mockRuntime(overrides: Partial<IAgentRuntime> = {}): IAgentRuntime {
     instructionFilenames: [],
     start: vi.fn().mockResolvedValue({ sessionId: 'test-session-1' }),
     send: vi.fn().mockResolvedValue(undefined),
-    events: vi.fn().mockReturnValue((async function* () {
-      await Promise.resolve()
-      yield* []
-    })()),
+    events: vi.fn().mockReturnValue(
+      (async function* () {
+        await Promise.resolve()
+        yield* []
+      })(),
+    ),
     status: vi.fn().mockResolvedValue({ state: 'idle' }),
     cancel: vi.fn().mockResolvedValue(undefined),
     dispose: vi.fn().mockResolvedValue(undefined),
@@ -80,7 +82,10 @@ function makeNode(id: string, overrides: Partial<WorkflowNode> = {}): WorkflowNo
   }
 }
 
-function makeContext(node: WorkflowNode, overrides: Partial<NodeExecutionContext> = {}): NodeExecutionContext {
+function makeContext(
+  node: WorkflowNode,
+  overrides: Partial<NodeExecutionContext> = {},
+): NodeExecutionContext {
   return {
     graphRunId: randomUUID(),
     workflowId: workflowIdSchema.parse(randomUUID()),
@@ -460,7 +465,7 @@ describe('LeafRunner', () => {
     expect(result.error).toContain('awaiting human approval')
   })
 
-  it('11. user_gate explicit resume: completes and emits approval artifact on attempt > 1', async () => {
+  it('11. user_gate regression: attempt 2 without approval remains blocked (attempt number is not approval)', async () => {
     const registry = new RuntimeRegistry()
     const runner = new LeafRunner({ registry })
 
@@ -477,20 +482,132 @@ describe('LeafRunner', () => {
         },
       ],
     })
-    // Attempt 2 represents an explicit resume following a human pause
+    // Attempt 2 without approval signal must stay blocked
     const ctx = makeContext(node, { attempt: 2 })
 
     const result = await runner.execute(ctx)
 
-    expect(result.status).toBe('completed')
-    const firstArtifact = result.artifacts?.[0]
-    expect(firstArtifact).toBeDefined()
-    expect(firstArtifact?.kind).toBe('stage-output')
-    const parsed = JSON.parse(firstArtifact?.content ?? '{}') as { approved: boolean }
-    expect(parsed.approved).toBe(true)
+    expect(result.status).toBe('blocked')
+    expect(result.awaitingUser).toBe(true)
+    expect(result.resumable).toBe(true)
+    expect(result.error).toContain('awaiting human approval')
   })
 
-  it('12. user_gate explicit rejection: returns cancelled', async () => {
+  it('12. user_gate regression: unrelated locked decision in DecisionStore cannot unblock gate', async () => {
+    const { db, close } = initialiseDatabase(':memory:')
+    try {
+      const eventStore = new EventStore(db)
+      const decisionStore = new DecisionStore(db, eventStore)
+      const projectId = projectIdSchema.parse(randomUUID())
+      const now = new Date().toISOString()
+
+      new ProjectStore(db).create(
+        {
+          id: projectId,
+          name: 'Test Project',
+          repository: {
+            id: repositoryIdSchema.parse(randomUUID()),
+            absolutePath: '/dummy/repo',
+            defaultBranch: 'main',
+            buildCommand: null,
+            testCommand: null,
+            tech: [],
+          },
+          createdAt: now,
+          updatedAt: now,
+        },
+        'user',
+      )
+
+      // Seed an unrelated locked decision
+      const decId = decisionIdSchema.parse(randomUUID())
+      decisionStore.propose(
+        {
+          id: decId,
+          statement: 'Unrelated architectural choice: use Postgres for analytics',
+          rationale: 'Long-term analytics storage',
+          status: 'proposed',
+          proposedBy: 'user',
+          proposedAt: now,
+          lockedAt: null,
+          lockedBy: null,
+          supersededBy: null,
+          originQuestionId: null,
+        },
+        projectId,
+        'user',
+        now,
+      )
+      decisionStore.lock(decId, 'user', now)
+
+      expect(decisionStore.listLocked(projectId)).toHaveLength(1)
+
+      const registry = new RuntimeRegistry()
+      const runner = new LeafRunner({ registry, decisionStore })
+
+      const node = makeNode('gate-1', {
+        type: 'user_gate',
+        runtimeType: 'human',
+      })
+      const ctx = makeContext(node, {
+        projectId,
+        attempt: 2, // Even on attempt 2 with a locked decision in the project, it must remain blocked
+      })
+
+      const result = await runner.execute(ctx)
+
+      expect(result.status).toBe('blocked')
+      expect(result.awaitingUser).toBe(true)
+      expect(result.resumable).toBe(true)
+      expect(result.error).toContain('awaiting human approval')
+    } finally {
+      close()
+    }
+  })
+
+  it('13. user_gate regression: explicit approval in initialContext unblocks and emits declared output artifacts', async () => {
+    const registry = new RuntimeRegistry()
+    const runner = new LeafRunner({ registry })
+
+    const node = makeNode('gate-1', {
+      type: 'user_gate',
+      runtimeType: 'human',
+      outputs: [
+        {
+          name: 'approved_plan',
+          kind: 'stage-output',
+          format: 'json',
+          required: true,
+          requiredSections: [],
+        },
+      ],
+    })
+
+    // 1. General explicit approval signal
+    const ctxGeneral = makeContext(node, {
+      attempt: 2,
+      initialContext: { approval: 'approved' },
+    })
+
+    const resultGeneral = await runner.execute(ctxGeneral)
+    expect(resultGeneral.status).toBe('completed')
+    expect(resultGeneral.artifacts).toHaveLength(1)
+    expect(resultGeneral.artifacts?.[0]?.kind).toBe('stage-output')
+    const parsedGeneral = JSON.parse(resultGeneral.artifacts?.[0]?.content ?? '{}') as {
+      approved: boolean
+    }
+    expect(parsedGeneral.approved).toBe(true)
+
+    // 2. Node-scoped explicit approval signal ('gate-1.approval': 'approved')
+    const ctxScoped = makeContext(node, {
+      attempt: 2,
+      initialContext: { 'gate-1.approval': 'approved' },
+    })
+    const resultScoped = await runner.execute(ctxScoped)
+    expect(resultScoped.status).toBe('completed')
+  })
+
+  it('14. user_gate regression: explicit rejection in initialContext returns cancelled', async () => {
     const registry = new RuntimeRegistry()
     const runner = new LeafRunner({ registry })
 
@@ -499,7 +616,7 @@ describe('LeafRunner', () => {
       runtimeType: 'human',
     })
     const ctx = makeContext(node, {
-      attempt: 1,
+      attempt: 2,
       initialContext: { approval: 'rejected' },
     })
 
@@ -507,9 +624,18 @@ describe('LeafRunner', () => {
 
     expect(result.status).toBe('cancelled')
     expect(result.error).toBe('User declined approval')
+
+    // Also verify node-scoped rejection ('gate-1.approval': 'rejected')
+    const ctxScoped = makeContext(node, {
+      attempt: 2,
+      initialContext: { 'gate-1.approval': 'rejected' },
+    })
+    const resultScoped = await runner.execute(ctxScoped)
+    expect(resultScoped.status).toBe('cancelled')
+    expect(resultScoped.error).toBe('User declined approval')
   })
 
-  it('13. router node dispatch refusal: fails closed because routers belong to GraphExecutor', async () => {
+  it('15. router node dispatch refusal: fails closed because routers belong to GraphExecutor', async () => {
     const registry = new RuntimeRegistry()
     const runner = new LeafRunner({ registry })
 
@@ -524,7 +650,7 @@ describe('LeafRunner', () => {
     expect(result.error).toContain('Router nodes are graph control-flow nodes')
   })
 
-  it('14. createLeafRunner factory: returns a LeafNodeExecutor function', async () => {
+  it('16. createLeafRunner factory: returns a LeafNodeExecutor function', async () => {
     const registry = new RuntimeRegistry()
     const executor = createLeafRunner({ registry })
 
@@ -536,7 +662,7 @@ describe('LeafRunner', () => {
     expect(result.awaitingUser).toBe(true)
   })
 
-  it('15. GraphExecutor integration: agent -> user_gate -> verification pipeline with human pause and resume', async () => {
+  it('17. GraphExecutor integration: agent -> user_gate -> verification pipeline with repeated recovery and explicit approval', async () => {
     const dirsToCleanup: string[] = []
     const tempDbDir = mkdtempSync(join(tmpdir(), 'forge-lr-db-'))
     dirsToCleanup.push(tempDbDir)
@@ -816,7 +942,7 @@ describe('LeafRunner', () => {
       expect(attempts).toHaveLength(1)
       expect(attempts[0]?.status).toBe('blocked')
 
-      // Run 2: Reconstruct executor and resume with gate unblocked
+      // Step 2: Reconstruct executor and test repeated recovery
       const executor2 = new GraphExecutor({
         workflowStore,
         worktreeService,
@@ -825,6 +951,20 @@ describe('LeafRunner', () => {
         executeLeafNode: leafExecutor,
       })
 
+      const rec1 = await executor2.recover(projectId)
+      expect(rec1).toHaveLength(0) // Legitimately paused run is preserved
+
+      const rec2 = await executor2.recover(projectId)
+      expect(rec2).toHaveLength(0)
+
+      // Recovery must not create duplicate attempts or execute downstream nodes prematurely
+      const gateAttemptsAfterRec = workflowStore.getNodeAttempts(run1.graphRunId, 'gate')
+      expect(gateAttemptsAfterRec).toHaveLength(1)
+      expect(gateAttemptsAfterRec[0]?.status).toBe('blocked')
+      const verifierAttemptsAfterRec = workflowStore.getNodeAttempts(run1.graphRunId, 'verifier')
+      expect(verifierAttemptsAfterRec).toHaveLength(0)
+
+      // Step 3: Run 2 - Resume WITHOUT approval signal: gate executes attempt 2 and MUST REMAIN BLOCKED
       const run2 = await executor2.run({
         graphRunId: run1.graphRunId,
         workflowId,
@@ -834,14 +974,44 @@ describe('LeafRunner', () => {
         resumeNodeIds: ['gate'],
       })
 
-      expect(run2.status).toBe('completed')
-      expect(run2.completedNodeIds).toContain('planner')
-      expect(run2.completedNodeIds).toContain('gate')
-      expect(run2.completedNodeIds).toContain('verifier')
-      expect(run2.blockedNodeIds).toHaveLength(0)
+      expect(run2.status).toBe('running')
+      expect(run2.blockedNodeIds).toEqual(['gate'])
+      expect(run2.completedNodeIds).toEqual(['planner'])
 
-      // Invariant 9 check: planner was NOT re-executed
+      const gateAttemptsAfterRun2 = workflowStore.getNodeAttempts(run1.graphRunId, 'gate')
+      expect(gateAttemptsAfterRun2).toHaveLength(2)
+      expect(gateAttemptsAfterRun2[1]?.status).toBe('blocked')
+      expect(workflowStore.getNodeAttempts(run1.graphRunId, 'verifier')).toHaveLength(0)
+
+      // Step 4: Run 3 - Resume WITH explicit approval signal: gate completes, verifier completes
+      const run3 = await executor2.run({
+        graphRunId: run1.graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        resumeNodeIds: ['gate'],
+        initialContext: { approval: 'approved' },
+      })
+
+      expect(run3.status).toBe('completed')
+      expect(run3.completedNodeIds).toContain('planner')
+      expect(run3.completedNodeIds).toContain('gate')
+      expect(run3.completedNodeIds).toContain('verifier')
+      expect(run3.blockedNodeIds).toHaveLength(0)
+
+      // Invariant 9 check: planner was NOT re-executed (remains 1)
       expect(plannerExecutions).toBe(1)
+
+      const finalGateAttempts = workflowStore.getNodeAttempts(run1.graphRunId, 'gate')
+      expect(finalGateAttempts).toHaveLength(3)
+      expect(finalGateAttempts[0]?.status).toBe('blocked')
+      expect(finalGateAttempts[1]?.status).toBe('blocked')
+      expect(finalGateAttempts[2]?.status).toBe('completed')
+
+      const finalVerifierAttempts = workflowStore.getNodeAttempts(run1.graphRunId, 'verifier')
+      expect(finalVerifierAttempts).toHaveLength(1)
+      expect(finalVerifierAttempts[0]?.status).toBe('completed')
     } finally {
       closeDb()
       for (const dir of dirsToCleanup) {
@@ -854,7 +1024,189 @@ describe('LeafRunner', () => {
     }
   })
 
-  it('16. Provider-neutrality boundary check: LeafRunner source contains no provider literals (Axiom A6)', () => {
+  it('18. GraphExecutor integration: user gate explicit rejection cancels run and prevents downstream execution', async () => {
+    const dirsToCleanup: string[] = []
+    const { db, close: closeDb } = initialiseDatabase(':memory:')
+
+    try {
+      const repoDir = mkdtempSync(join(tmpdir(), 'forge-gate-reject-repo-'))
+      dirsToCleanup.push(repoDir)
+      execFileSync('git', ['init', '-b', 'main'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.name', 'Forge Test'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.email', 'forge@test.local'], { cwd: repoDir })
+      writeFileSync(join(repoDir, 'README.md'), '# Test Repo\n')
+      execFileSync('git', ['add', '.'], { cwd: repoDir })
+      execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: repoDir })
+
+      const worktreeParentDir = mkdtempSync(join(tmpdir(), 'forge-gate-reject-wt-'))
+      dirsToCleanup.push(worktreeParentDir)
+      const artifactsDir = mkdtempSync(join(tmpdir(), 'forge-gate-reject-art-'))
+      dirsToCleanup.push(artifactsDir)
+
+      const eventStore = new EventStore(db)
+      const workflowStore = new WorkflowStore(db)
+      const artifactStore = new ArtifactStore(db)
+      const decisionStore = new DecisionStore(db, eventStore)
+      const worktreeService = new WorktreeService({
+        repositoryPath: repoDir,
+        root: worktreeParentDir,
+      })
+      const artifactService = new ArtifactService(artifactsDir, artifactStore)
+
+      const forkSha = shaSchema.parse(
+        execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoDir }).toString().trim(),
+      )
+
+      const projectId = projectIdSchema.parse(randomUUID())
+      const workflowId = workflowIdSchema.parse(randomUUID())
+
+      new ProjectStore(db).create(
+        {
+          id: projectId,
+          name: 'Test Project',
+          repository: {
+            id: repositoryIdSchema.parse(randomUUID()),
+            absolutePath: repoDir,
+            defaultBranch: 'main',
+            buildCommand: null,
+            testCommand: null,
+            tech: [],
+          },
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        'user',
+      )
+
+      const taskId = taskIdSchema.parse(randomUUID())
+      const now = new Date().toISOString()
+      const taskEvent = eventStore.append(
+        {
+          type: 'task.created',
+          payload: {
+            task: {
+              id: taskId,
+              objective: 'Plan and verify task',
+              constraints: [],
+              completionCriteria: [
+                { kind: 'tests', description: 'the test suite passes', params: {} },
+              ],
+              scope: { allowedPaths: [], forbiddenPaths: [] },
+              lockedDecisionIds: [],
+              correctsTaskId: null,
+              createdAt: now,
+            },
+          },
+        },
+        { projectId, actor: 'user', occurredAt: now },
+      )
+      applyEvent(db, taskEvent)
+
+      workflowStore.start(
+        {
+          workflowId,
+          projectId,
+          taskId,
+          templateId: 'test-template-reject',
+          startedAt: now,
+        },
+        'user',
+      )
+
+      const graphRunId = randomUUID()
+      new RunStore(db).createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: now,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const gateNode = makeNode('gate', {
+        type: 'user_gate',
+        runtimeType: 'human',
+      })
+      const verifierNode = makeNode('verifier', {
+        type: 'verification',
+      })
+
+      const template: WorkflowTemplateV2 = {
+        id: 'test-template-reject',
+        name: 'Reject Template',
+        description: 'Test template for user gate rejection',
+        version: 1,
+        status: 'published',
+        category: 'Test',
+        nodes: [gateNode, verifierNode],
+        edges: [{ id: 'e1', source: 'gate', target: 'verifier', isFeedback: false }],
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      const registry = new RuntimeRegistry()
+      const leafExecutor = createLeafRunner({ registry })
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        decisionStore,
+        executeLeafNode: leafExecutor,
+      })
+
+      // Run 1: Gate starts and blocks awaiting approval
+      const run1 = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run1.status).toBe('running')
+      expect(run1.blockedNodeIds).toEqual(['gate'])
+
+      // Run 2: Resume with explicit rejection signal
+      const run2 = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        resumeNodeIds: ['gate'],
+        initialContext: { approval: 'rejected' },
+      })
+
+      expect(run2.status).toBe('cancelled')
+      expect(run2.completedNodeIds).not.toContain('verifier')
+      expect(workflowStore.getNodeAttempts(graphRunId, 'verifier')).toHaveLength(0)
+
+      const gateAttempts = workflowStore.getNodeAttempts(graphRunId, 'gate')
+      expect(gateAttempts).toHaveLength(2)
+      expect(gateAttempts[1]?.status).toBe('cancelled')
+      expect(gateAttempts[1]?.error).toBe('User declined approval')
+
+      const runInDb = workflowStore.getGraphRun(graphRunId)
+      expect(runInDb?.status).toBe('cancelled')
+    } finally {
+      closeDb()
+      for (const dir of dirsToCleanup) {
+        try {
+          rmSync(dir, { recursive: true, force: true })
+        } catch {
+          // ignore
+        }
+      }
+    }
+  })
+
+  it('19. Provider-neutrality boundary check: LeafRunner source contains no provider literals (Axiom A6)', () => {
     const sourceCode = readFileSync(join(__dirname, 'leafRunner.ts'), 'utf8')
     const forbiddenProviders = ['claude', 'antigravity', 'gemini', 'openai']
 
@@ -864,4 +1216,3 @@ describe('LeafRunner', () => {
     }
   })
 })
-

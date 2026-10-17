@@ -20,11 +20,7 @@ import { verifyStep } from '../evidence/verifier'
 import type { GitService } from '../git'
 import { exchange, type ExchangeOutcome } from '../runtimes/exchange'
 import type { RuntimeRegistry } from '../runtimes/registry'
-import type {
-  LeafNodeExecutor,
-  NodeExecutionContext,
-  NodeExecutionResult,
-} from './graphExecutor'
+import type { LeafNodeExecutor, NodeExecutionContext, NodeExecutionResult } from './graphExecutor'
 
 /**
  * Options for configuring the generic LeafRunner.
@@ -36,8 +32,7 @@ export interface LeafRunnerOptions {
   readonly decisionStore?: DecisionStore | undefined
   readonly actor?: Actor | undefined
   readonly compilePacket?:
-    | ((ctx: NodeExecutionContext, role: Role) => Promise<PromptPacket> | PromptPacket)
-    | undefined
+    ((ctx: NodeExecutionContext, role: Role) => Promise<PromptPacket> | PromptPacket) | undefined
   readonly exchangeFn?: typeof exchange | undefined
   readonly verifyFn?: typeof verifyStep | undefined
   readonly onEvent?: ((event: RuntimeEvent) => void) | undefined
@@ -164,6 +159,14 @@ export class LeafRunner {
     try {
       const exchangeFn = this.options.exchangeFn ?? exchange
       outcome = await exchangeFn(runtime, session, packet, this.options.onEvent)
+    } catch (err: unknown) {
+      if (ctx.signal.aborted) {
+        return { status: 'cancelled', error: 'Execution cancelled by signal' }
+      }
+      return {
+        status: 'failed',
+        error: err instanceof Error ? err.message : String(err),
+      }
     } finally {
       ctx.signal.removeEventListener('abort', abortHandler)
       await runtime.dispose(session)
@@ -191,10 +194,10 @@ export class LeafRunner {
       }
     }
 
-    // Reconcile git diff for developer permission mode
+    // Reconcile git diff for non-read-only permission modes
     let changeSet: ChangeSet | undefined
     if (
-      ctx.node.config.permissionMode === 'developer' &&
+      ctx.node.config.permissionMode !== 'read-only' &&
       ctx.worktreePath &&
       this.options.gitServiceFactory
     ) {
@@ -230,7 +233,9 @@ export class LeafRunner {
   private buildDefaultPacket(ctx: NodeExecutionContext, role: Role): PromptPacket {
     const incomingTextParts: string[] = []
     for (const [name, artifact] of ctx.incomingSlots.entries()) {
-      incomingTextParts.push(`--- Input Slot "${name}" (${artifact.title}) ---\n${artifact.content}`)
+      incomingTextParts.push(
+        `--- Input Slot "${name}" (${artifact.title}) ---\n${artifact.content}`,
+      )
     }
     if (ctx.initialContext) {
       for (const [k, v] of Object.entries(ctx.initialContext)) {
@@ -241,8 +246,7 @@ export class LeafRunner {
     }
 
     const objective =
-      ctx.node.title +
-      (incomingTextParts.length > 0 ? `\n\n${incomingTextParts.join('\n\n')}` : '')
+      ctx.node.title + (incomingTextParts.length > 0 ? `\n\n${incomingTextParts.join('\n\n')}` : '')
 
     return {
       role,
@@ -262,10 +266,7 @@ export class LeafRunner {
     }
   }
 
-  private buildAgentArtifacts(
-    ctx: NodeExecutionContext,
-    report: AgentReport,
-  ): WorkflowArtifact[] {
+  private buildAgentArtifacts(ctx: NodeExecutionContext, report: AgentReport): WorkflowArtifact[] {
     const artifacts: WorkflowArtifact[] = []
     const now = new Date().toISOString()
 
@@ -356,6 +357,26 @@ export class LeafRunner {
       }
     })
 
+    if (artifacts.length === 0 && ctx.node.outputs.length > 0) {
+      for (const outDef of ctx.node.outputs) {
+        artifacts.push({
+          id: randomUUID(),
+          workflowId: ctx.workflowId,
+          nodeId: ctx.node.id,
+          kind: outDef.kind,
+          format: outDef.format,
+          title: `${ctx.node.title} - ${outDef.name}`,
+          content: `Verification completed: ${result.detail || 'passed'}`,
+          metadata: {
+            passed: result.passed,
+            detail: result.detail,
+            outputName: outDef.name,
+          },
+          createdAt: now,
+        })
+      }
+    }
+
     if (!result.passed) {
       return {
         status: 'failed',
@@ -376,10 +397,18 @@ export class LeafRunner {
   // ---------------------------------------------------------------------------
 
   private executeUserGate(ctx: NodeExecutionContext): NodeExecutionResult {
-    // 1. Check for explicit rejection signal
+    // Resolve any explicit approval or rejection signal for this gate
+    const gateApprovalSignal =
+      ctx.initialContext?.[`${ctx.node.id}.approval`] ??
+      ctx.initialContext?.[ctx.node.id] ??
+      ctx.initialContext?.approval ??
+      ctx.initialContext?.user_decision
+
+    // 1. Explicit rejection: follows established cancellation semantics (transitions graph to cancelled)
     if (
-      ctx.initialContext?.approval === 'rejected' ||
-      ctx.initialContext?.user_decision === 'rejected'
+      gateApprovalSignal === 'rejected' ||
+      gateApprovalSignal === 'declined' ||
+      gateApprovalSignal === 'denied'
     ) {
       return {
         status: 'cancelled',
@@ -387,61 +416,57 @@ export class LeafRunner {
       }
     }
 
-    // 2. Check for explicit resume / approval
-    // A gate unblocks when explicitly resumed by the user (attempt > 1 or explicit approval signal)
-    const isExplicitlyApproved =
-      ctx.attempt > 1 ||
-      ctx.initialContext?.approval === 'approved' ||
-      ctx.initialContext?.user_decision === 'approved'
+    // 2. Explicit approval: completes and emits declared approval artifacts
+    if (gateApprovalSignal === 'approved' || gateApprovalSignal === 'accepted') {
+      const now = new Date().toISOString()
+      const artifacts: WorkflowArtifact[] = []
 
-    if (!isExplicitlyApproved) {
-      // Deterministic human-in-the-loop pause: NEVER auto-pass on arbitrary project decisions
+      for (const outDef of ctx.node.outputs) {
+        artifacts.push({
+          id: randomUUID(),
+          workflowId: ctx.workflowId,
+          nodeId: ctx.node.id,
+          kind: outDef.kind,
+          format: outDef.format,
+          title: `${ctx.node.title} - ${outDef.name}`,
+          content: JSON.stringify({ approved: true, approvedAt: now }),
+          metadata: {
+            approved: true,
+            outputName: outDef.name,
+          },
+          createdAt: now,
+        })
+      }
+
+      if (artifacts.length === 0) {
+        artifacts.push({
+          id: randomUUID(),
+          workflowId: ctx.workflowId,
+          nodeId: ctx.node.id,
+          kind: 'stage-output',
+          format: 'json',
+          title: `${ctx.node.title} - approval`,
+          content: JSON.stringify({ approved: true, approvedAt: now }),
+          metadata: { approved: true },
+          createdAt: now,
+        })
+      }
+
       return {
-        status: 'blocked',
-        awaitingUser: true,
-        resumable: true,
-        error: `User gate "${ctx.node.title}" awaiting human approval`,
+        status: 'completed',
+        artifacts,
       }
     }
 
-    // 3. User has approved: emit declared outputs in-memory
-    const now = new Date().toISOString()
-    const artifacts: WorkflowArtifact[] = []
-
-    for (const outDef of ctx.node.outputs) {
-      artifacts.push({
-        id: randomUUID(),
-        workflowId: ctx.workflowId,
-        nodeId: ctx.node.id,
-        kind: outDef.kind,
-        format: outDef.format,
-        title: `${ctx.node.title} - ${outDef.name}`,
-        content: JSON.stringify({ approved: true, approvedAt: now }),
-        metadata: {
-          approved: true,
-          outputName: outDef.name,
-        },
-        createdAt: now,
-      })
-    }
-
-    if (artifacts.length === 0) {
-      artifacts.push({
-        id: randomUUID(),
-        workflowId: ctx.workflowId,
-        nodeId: ctx.node.id,
-        kind: 'stage-output',
-        format: 'json',
-        title: `${ctx.node.title} - approval`,
-        content: JSON.stringify({ approved: true, approvedAt: now }),
-        metadata: { approved: true },
-        createdAt: now,
-      })
-    }
-
+    // 3. In the absence of an explicit approval/rejection signal supported by the existing contract,
+    // the gate remains deterministically and resumably blocked.
+    // An attempt number (attempt > 1) is NOT evidence of human approval.
+    // An unrelated project-wide locked decision does NOT satisfy or unblock this gate.
     return {
-      status: 'completed',
-      artifacts,
+      status: 'blocked',
+      awaitingUser: true,
+      resumable: true,
+      error: `User gate "${ctx.node.title}" awaiting human approval`,
     }
   }
 }

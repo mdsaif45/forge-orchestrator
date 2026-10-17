@@ -447,6 +447,125 @@ describe('LeafRunner', () => {
     expect(result.artifacts).toHaveLength(1)
   })
 
+  it('9b. verification evidence integrity: zero evidence artifacts does NOT fabricate placeholder artifacts', async () => {
+    const registry = new RuntimeRegistry()
+    const verifyFn = vi.fn().mockResolvedValue({
+      passed: true,
+      findings: [],
+      falseClaims: [],
+      detail: 'all criteria satisfied in abstract',
+      criteria: [],
+      artifacts: [], // Zero evidence artifacts produced
+    })
+
+    const runner = new LeafRunner({
+      registry,
+      verifyFn,
+    })
+
+    const node = makeNode('verify-no-ev', {
+      type: 'verification',
+      runtimeType: 'forge-engine',
+      outputs: [
+        {
+          name: 'verification_report',
+          kind: 'stage-output',
+          format: 'text',
+          required: true,
+          requiredSections: [],
+        },
+      ],
+    })
+    const ctx = makeContext(node, { worktreePath: '/mock-worktree' })
+
+    const result = await runner.execute(ctx)
+
+    // Axiom A3: must NOT fabricate synthetic evidence artifact
+    expect(result.status).toBe('completed')
+    expect(result.artifacts).toEqual([])
+    expect(result.evidenceId).toBeUndefined()
+  })
+
+  it('9c. verification failure integrity: failed verification without evidence does not emit success-shaped artifacts', async () => {
+    const registry = new RuntimeRegistry()
+    const verifyFn = vi.fn().mockResolvedValue({
+      passed: false,
+      findings: ['Build failed to start'],
+      falseClaims: [],
+      detail: 'no compiler found',
+      criteria: [],
+      artifacts: [], // Zero evidence
+    })
+
+    const runner = new LeafRunner({
+      registry,
+      verifyFn,
+    })
+
+    const node = makeNode('verify-fail-no-ev', {
+      type: 'verification',
+      runtimeType: 'forge-engine',
+      outputs: [
+        {
+          name: 'verification_report',
+          kind: 'stage-output',
+          format: 'text',
+          required: true,
+          requiredSections: [],
+        },
+      ],
+    })
+    const ctx = makeContext(node, { worktreePath: '/mock-worktree' })
+
+    const result = await runner.execute(ctx)
+
+    expect(result.status).toBe('failed')
+    expect(result.error).toContain('Build failed to start')
+    expect(result.artifacts).toEqual([])
+  })
+
+  it('9d. verification explicit verdict contract: node declaring verdict output emits structured verdict artifact', async () => {
+    const registry = new RuntimeRegistry()
+    const verifyFn = vi.fn().mockResolvedValue({
+      passed: true,
+      verdict: 'pass',
+      findings: [],
+      falseClaims: [],
+      detail: 'all checks clean',
+      criteria: [],
+      artifacts: [],
+    })
+
+    const runner = new LeafRunner({
+      registry,
+      verifyFn,
+    })
+
+    const node = makeNode('verify-verdict-only', {
+      type: 'verification',
+      runtimeType: 'forge-engine',
+      outputs: [
+        {
+          name: 'verdict',
+          kind: 'verdict',
+          format: 'json',
+          required: true,
+          requiredSections: [],
+        },
+      ],
+    })
+    const ctx = makeContext(node, { worktreePath: '/mock-worktree' })
+
+    const result = await runner.execute(ctx)
+
+    expect(result.status).toBe('completed')
+    expect(result.artifacts).toHaveLength(1)
+    expect(result.artifacts![0]!.kind).toBe('verdict')
+    const parsed = JSON.parse(result.artifacts![0]!.content) as { passed: boolean; verdict: string }
+    expect(parsed.passed).toBe(true)
+    expect(parsed.verdict).toBe('pass')
+  })
+
   it('10. user_gate initial execution: deterministically pauses awaiting human approval', async () => {
     const registry = new RuntimeRegistry()
     const runner = new LeafRunner({ registry })
@@ -565,9 +684,9 @@ describe('LeafRunner', () => {
     }
   })
 
-  it('13. user_gate regression: explicit approval in initialContext unblocks and emits declared output artifacts', async () => {
+  it('13. user_gate regression: explicit approval in initialContext unblocks and emits declared output artifacts (with test seam)', async () => {
     const registry = new RuntimeRegistry()
-    const runner = new LeafRunner({ registry })
+    const runner = new LeafRunner({ registry, allowContextApproval: true })
 
     const node = makeNode('gate-1', {
       type: 'user_gate',
@@ -605,6 +724,37 @@ describe('LeafRunner', () => {
     })
     const resultScoped = await runner.execute(ctxScoped)
     expect(resultScoped.status).toBe('completed')
+  })
+
+  it('13b. user_gate trust boundary: caller-supplied approval in initialContext without allowContextApproval fails closed and remains blocked', async () => {
+    const registry = new RuntimeRegistry()
+    // Production default: allowContextApproval is undefined/false
+    const runner = new LeafRunner({ registry })
+
+    const node = makeNode('gate-1', {
+      type: 'user_gate',
+      runtimeType: 'human',
+      outputs: [
+        {
+          name: 'approved_plan',
+          kind: 'stage-output',
+          format: 'json',
+          required: true,
+          requiredSections: [],
+        },
+      ],
+    })
+
+    const ctx = makeContext(node, {
+      attempt: 2,
+      initialContext: { approval: 'approved', 'gate-1.approval': 'approved' },
+    })
+
+    const result = await runner.execute(ctx)
+    expect(result.status).toBe('blocked')
+    expect(result.awaitingUser).toBe(true)
+    expect(result.resumable).toBe(true)
+    expect(result.error).toContain('cannot be satisfied by unauthenticated context approval')
   })
 
   it('14. user_gate regression: explicit rejection in initialContext returns cancelled', async () => {
@@ -914,6 +1064,7 @@ describe('LeafRunner', () => {
         exchangeFn,
         verifyFn,
         decisionStore,
+        allowContextApproval: true,
       })
 
       const executor1 = new GraphExecutor({
@@ -1213,6 +1364,188 @@ describe('LeafRunner', () => {
     for (const provider of forbiddenProviders) {
       const regex = new RegExp(`\\b${provider}\\b`, 'i')
       expect(regex.test(sourceCode)).toBe(false)
+    }
+  })
+
+  it('20. GraphExecutor integration: verification node declaring required evidence output fails closed when zero evidence artifacts are produced (no placeholder fabrication)', async () => {
+    const dirsToCleanup: string[] = []
+    const { db, close: closeDb } = initialiseDatabase(':memory:')
+
+    try {
+      const repoDir = mkdtempSync(join(tmpdir(), 'forge-no-ev-repo-'))
+      dirsToCleanup.push(repoDir)
+      execFileSync('git', ['init', '-b', 'main'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.name', 'Forge Test'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.email', 'forge@test.local'], { cwd: repoDir })
+      writeFileSync(join(repoDir, 'README.md'), '# Test Repo\n')
+      execFileSync('git', ['add', '.'], { cwd: repoDir })
+      execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: repoDir })
+
+      const worktreeParentDir = mkdtempSync(join(tmpdir(), 'forge-no-ev-wt-'))
+      dirsToCleanup.push(worktreeParentDir)
+      const artifactsDir = mkdtempSync(join(tmpdir(), 'forge-no-ev-art-'))
+      dirsToCleanup.push(artifactsDir)
+
+      const eventStore = new EventStore(db)
+      const workflowStore = new WorkflowStore(db)
+      const artifactStore = new ArtifactStore(db)
+      const decisionStore = new DecisionStore(db, eventStore)
+      const worktreeService = new WorktreeService({
+        repositoryPath: repoDir,
+        root: worktreeParentDir,
+      })
+      const artifactService = new ArtifactService(artifactsDir, artifactStore)
+
+      const forkSha = shaSchema.parse(
+        execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoDir }).toString().trim(),
+      )
+
+      const projectId = projectIdSchema.parse(randomUUID())
+      const workflowId = workflowIdSchema.parse(randomUUID())
+      const now = new Date().toISOString()
+
+      new ProjectStore(db).create(
+        {
+          id: projectId,
+          name: 'Test Project',
+          repository: {
+            id: repositoryIdSchema.parse(randomUUID()),
+            absolutePath: repoDir,
+            defaultBranch: 'main',
+            buildCommand: null,
+            testCommand: null,
+            tech: [],
+          },
+          createdAt: now,
+          updatedAt: now,
+        },
+        'user',
+      )
+
+      const taskId = taskIdSchema.parse(randomUUID())
+      const taskEvent = eventStore.append(
+        {
+          type: 'task.created',
+          payload: {
+            task: {
+              id: taskId,
+              objective: 'Verify task',
+              constraints: [],
+              completionCriteria: [
+                { kind: 'tests', description: 'the test suite passes', params: {} },
+              ],
+              scope: { allowedPaths: [], forbiddenPaths: [] },
+              lockedDecisionIds: [],
+              correctsTaskId: null,
+              createdAt: now,
+            },
+          },
+        },
+        { projectId, actor: 'user', occurredAt: now },
+      )
+      applyEvent(db, taskEvent)
+
+      workflowStore.start(
+        {
+          workflowId,
+          projectId,
+          taskId,
+          templateId: 'test-template-no-ev',
+          startedAt: now,
+        },
+        'user',
+      )
+
+      const graphRunId = randomUUID()
+      new RunStore(db).createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: now,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      // Verification node declares required 'verification_report'
+      const verifierNode = makeNode('verifier', {
+        type: 'verification',
+        runtimeType: 'forge-engine',
+        outputs: [
+          {
+            name: 'verification_report',
+            kind: 'stage-output',
+            format: 'text',
+            required: true,
+            requiredSections: [],
+          },
+        ],
+      })
+
+      const template: WorkflowTemplateV2 = {
+        id: 'test-template-no-ev',
+        name: 'No Evidence Template',
+        description: 'Template with verifier requiring evidence',
+        version: 1,
+        status: 'published',
+        category: 'Test',
+        nodes: [verifierNode],
+        edges: [],
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      // verifyFn returns passed: true, but artifacts: [] (no evidence produced)
+      const verifyFn = vi.fn().mockResolvedValue({
+        passed: true,
+        findings: [],
+        falseClaims: [],
+        detail: 'clean',
+        criteria: [],
+        artifacts: [],
+      })
+
+      const registry = new RuntimeRegistry()
+      const leafExecutor = createLeafRunner({ registry, verifyFn })
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        decisionStore,
+        executeLeafNode: leafExecutor,
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      // GraphExecutor detects missing required output and fails the node attempt closed!
+      // Axiom A3: No placeholder artifacts are fabricated to bypass required output checks.
+      expect(run.status).toBe('failed')
+      expect(run.failedNodeIds).toContain('verifier')
+
+      const attempts = workflowStore.getNodeAttempts(graphRunId, 'verifier')
+      expect(attempts).toHaveLength(1)
+      expect(attempts[0]?.status).toBe('failed')
+      expect(attempts[0]?.error).toContain('missing required output(s): verification_report')
+    } finally {
+      closeDb()
+      for (const dir of dirsToCleanup) {
+        try {
+          rmSync(dir, { recursive: true, force: true })
+        } catch {
+          // ignore
+        }
+      }
     }
   })
 })

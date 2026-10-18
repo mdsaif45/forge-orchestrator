@@ -20,6 +20,20 @@ export class ArtifactStore {
   constructor(private readonly db: ForgeDatabase) {}
 
   /**
+   * Verifies whether this ArtifactStore instance is backed by the exact database instance supplied.
+   */
+  isBoundToDatabase(db: ForgeDatabase): boolean {
+    return this.db === db
+  }
+
+  /**
+   * Returns the underlying ForgeDatabase backing this ArtifactStore.
+   */
+  getDatabase(): ForgeDatabase {
+    return this.db
+  }
+
+  /**
    * Records metadata for an artifact stored on disk.
    */
   record(metadata: ArtifactMetadata): ArtifactMetadata {

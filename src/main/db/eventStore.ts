@@ -35,6 +35,21 @@ export class EventStore {
   constructor(private readonly db: ForgeDatabase) {}
 
   /**
+   * Verifies whether this EventStore instance is backed by the exact database instance supplied.
+   * Ensures transactional consistency across event emission and projection read models.
+   */
+  isBoundToDatabase(db: ForgeDatabase): boolean {
+    return this.db === db
+  }
+
+  /**
+   * Returns the underlying ForgeDatabase backing this EventStore.
+   */
+  getDatabase(): ForgeDatabase {
+    return this.db
+  }
+
+  /**
    * Appends one event and returns it with its assigned sequence number.
    *
    * The payload is validated against the schema for its type before anything is

@@ -13,6 +13,7 @@ import {
   type StepId,
 } from '@shared/domain'
 import type { ArtifactStore } from '../db/artifactStore'
+import type { ForgeDatabase } from '../db/connection'
 
 export interface WriteArtifactOptions {
   readonly runId: RunId
@@ -62,6 +63,20 @@ export class ArtifactService {
     private readonly baseDir: string,
     private readonly store: ArtifactStore,
   ) {}
+
+  /**
+   * Verifies whether this ArtifactService's metadata store is backed by the exact database instance supplied.
+   */
+  isBoundToDatabase(db: ForgeDatabase): boolean {
+    return this.store.isBoundToDatabase(db)
+  }
+
+  /**
+   * Returns the underlying ArtifactStore backing this ArtifactService.
+   */
+  getStore(): ArtifactStore {
+    return this.store
+  }
 
   /**
    * Resolves the absolute path on disk for a given relative path or metadata.

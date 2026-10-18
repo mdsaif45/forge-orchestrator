@@ -1,6 +1,6 @@
 import { isAbsolute, normalize, resolve } from 'node:path'
 import type { Actor } from '@shared/domain'
-import type { ArtifactService } from '../artifacts/artifactService'
+import { ArtifactService } from '../artifacts/artifactService'
 import type { ForgeDatabase } from '../db/connection'
 import { ChangeSetStore } from '../db/changeSetStore'
 import { DecisionStore } from '../db/decisionStore'
@@ -10,7 +10,7 @@ import { WorkflowStore } from '../db/workflowStore'
 import { GitService, WorktreeService } from '../git'
 import type { RuntimeRegistry } from '../runtimes/registry'
 import { GraphExecutor, type LeafNodeExecutor } from './graphExecutor'
-import { createLeafRunner, type LeafRunnerOptions } from './leafRunner'
+import { createLeafRunner } from './leafRunner'
 
 /**
  * Production options required to compose GraphExecutor with LeafRunner.
@@ -34,22 +34,9 @@ export interface ProductionGraphCompositionOptions {
   /** Maximum concurrent node scheduling limit. */
   readonly maxConcurrency?: number | undefined
   /**
-   * Optional custom prompt packet compiler for leaf runner.
-   * If omitted, LeafRunner uses its standard default packet builder.
-   */
-  readonly compilePacket?: LeafRunnerOptions['compilePacket'] | undefined
-  /**
    * Optional default runtime ID for leaf agent execution.
    */
   readonly defaultRuntimeId?: string | undefined
-  /**
-   * Optional verification function override. Defaults to production verifyStep.
-   */
-  readonly verifyFn?: LeafRunnerOptions['verifyFn'] | undefined
-  /**
-   * Optional exchange function override. Defaults to production exchange.
-   */
-  readonly exchangeFn?: LeafRunnerOptions['exchangeFn'] | undefined
 }
 
 /**
@@ -97,9 +84,21 @@ export function validateCompositionOptions(
     throw new GraphCompositionError('Valid EventStore instance is required for graph composition')
   }
 
-  if (!options.artifactService) {
+  if (!options.eventStore.isBoundToDatabase(options.db)) {
+    throw new GraphCompositionError(
+      'EventStore must be bound to the exact ForgeDatabase instance supplied as db',
+    )
+  }
+
+  if (!options.artifactService || !(options.artifactService instanceof ArtifactService)) {
     throw new GraphCompositionError(
       'Valid ArtifactService instance is required for graph composition',
+    )
+  }
+
+  if (!options.artifactService.isBoundToDatabase(options.db)) {
+    throw new GraphCompositionError(
+      'ArtifactService metadata store must be bound to the exact ForgeDatabase instance supplied as db',
     )
   }
 
@@ -175,9 +174,6 @@ export function createGraphExecutorWithLeafRunner(
     projectStore,
     actor,
     defaultRuntimeId: options.defaultRuntimeId,
-    compilePacket: options.compilePacket,
-    verifyFn: options.verifyFn,
-    exchangeFn: options.exchangeFn,
   })
 
   // 4. Construct GraphExecutor wiring real stores, worktree service, artifact service, and leafRunner

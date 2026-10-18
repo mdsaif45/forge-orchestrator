@@ -2596,6 +2596,140 @@ describe('LeafRunner', () => {
     expect(result.error).toContain('cannot build changeset: authoritative task is unavailable')
   })
 
+  it('28b. agent changeSet reconciliation availability: writable agent fails closed when gitServiceFactory is missing', async () => {
+    const runtime = mockRuntime()
+    const registry = new RuntimeRegistry()
+    registry.register(runtime)
+
+    const report: AgentReport = {
+      status: 'completed',
+      summary: 'Done',
+      filesChanged: ['src/a.ts'],
+      commandsRun: [],
+      testsRun: false,
+      openQuestions: [],
+      assumptions: [],
+    }
+    const exchangeFn = vi.fn().mockResolvedValue({
+      ok: true,
+      report,
+      assessment: { status: 'completed' },
+      retried: false,
+      transcript: [],
+    })
+
+    // gitServiceFactory omitted on purpose
+    const runner = new LeafRunner({
+      registry,
+      defaultRuntimeId: 'mock-runtime',
+      exchangeFn,
+    })
+
+    const node = makeNode('agent-node', {
+      type: 'agent',
+      config: { role: 'implementer', skills: [], permissionMode: 'developer' },
+    })
+
+    const ctx = makeContext(node, {
+      worktreePath: '/mock/worktree',
+    })
+
+    const result = await runner.execute(ctx)
+    expect(result.status).toBe('failed')
+    expect(result.error).toContain(
+      'cannot build changeset: Git service factory is required for writable execution with worktree',
+    )
+  })
+
+  it('28c. agent changeSet reconciliation failure: writable agent fails closed when reconciliation throws an error', async () => {
+    const runtime = mockRuntime()
+    const registry = new RuntimeRegistry()
+    registry.register(runtime)
+
+    const report: AgentReport = {
+      status: 'completed',
+      summary: 'Done',
+      filesChanged: ['src/a.ts'],
+      commandsRun: [],
+      testsRun: false,
+      openQuestions: [],
+      assumptions: [],
+    }
+    const exchangeFn = vi.fn().mockResolvedValue({
+      ok: true,
+      report,
+      assessment: { status: 'completed' },
+      retried: false,
+      transcript: [],
+    })
+
+    const mockGit = {
+      diffWorktree: vi.fn().mockRejectedValue(new Error('git diff failed')),
+    } as unknown as GitService
+
+    const runner = new LeafRunner({
+      registry,
+      defaultRuntimeId: 'mock-runtime',
+      exchangeFn,
+      gitServiceFactory: () => mockGit,
+    })
+
+    const node = makeNode('agent-node', {
+      type: 'agent',
+      config: { role: 'implementer', skills: [], permissionMode: 'developer' },
+    })
+
+    const ctx = makeContext(node, {
+      worktreePath: '/mock/worktree',
+    })
+
+    const result = await runner.execute(ctx)
+    expect(result.status).toBe('failed')
+    expect(result.error).toContain('failed to capture or reconcile changeset: git diff failed')
+  })
+
+  it('28d. read-only agent execution: read-only agent with worktree completes successfully without gitServiceFactory or changeSet reconciliation', async () => {
+    const runtime = mockRuntime()
+    const registry = new RuntimeRegistry()
+    registry.register(runtime)
+
+    const report: AgentReport = {
+      status: 'completed',
+      summary: 'Inspected files',
+      filesChanged: [],
+      commandsRun: [],
+      testsRun: false,
+      openQuestions: [],
+      assumptions: [],
+    }
+    const exchangeFn = vi.fn().mockResolvedValue({
+      ok: true,
+      report,
+      assessment: { status: 'completed' },
+      retried: false,
+      transcript: [],
+    })
+
+    const runner = new LeafRunner({
+      registry,
+      defaultRuntimeId: 'mock-runtime',
+      exchangeFn,
+    })
+
+    const node = makeNode('read-only-agent', {
+      type: 'agent',
+      config: { role: 'reviewer', skills: [], permissionMode: 'read-only' },
+    })
+
+    const ctx = makeContext(node, {
+      worktreePath: '/mock/worktree',
+    })
+
+    const result = await runner.execute(ctx)
+    expect(result.status).toBe('completed')
+    expect(result.changeSet).toBeUndefined()
+  })
+
   it('29. test-seam elimination: production LeafRunner contains no approval bypass and strictly fails closed against caller-supplied context', async () => {
     const registry = new RuntimeRegistry()
     const leafExecutor = createLeafRunner({ registry })
@@ -2631,5 +2765,649 @@ describe('LeafRunner', () => {
     expect(resRejection.status).toBe('blocked')
     expect(resRejection.resumable).toBe(true)
     expect(resRejection.error).toContain('cannot be decided by untrusted context input')
+  })
+
+  it('30. verification evidence mapping: test evidence is never relabeled as an unrelated required output (e.g. lint_report) and fails closed in GraphExecutor', async () => {
+    const dirsToCleanup: string[] = []
+    const { db, close: closeDb } = initialiseDatabase(':memory:')
+
+    try {
+      const repoDir = mkdtempSync(join(tmpdir(), 'forge-verify-lint-mismatch-repo-'))
+      dirsToCleanup.push(repoDir)
+      execFileSync('git', ['init', '-b', 'main'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.name', 'Forge Test'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.email', 'forge@test.local'], { cwd: repoDir })
+      writeFileSync(join(repoDir, 'README.md'), '# Test Repo\n')
+      execFileSync('git', ['add', '.'], { cwd: repoDir })
+      execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: repoDir })
+
+      const worktreeParentDir = mkdtempSync(join(tmpdir(), 'forge-verify-lint-mismatch-wt-'))
+      dirsToCleanup.push(worktreeParentDir)
+      const artifactsDir = mkdtempSync(join(tmpdir(), 'forge-verify-lint-mismatch-art-'))
+      dirsToCleanup.push(artifactsDir)
+
+      const eventStore = new EventStore(db)
+      const workflowStore = new WorkflowStore(db)
+      const artifactStore = new ArtifactStore(db)
+      const decisionStore = new DecisionStore(db, eventStore)
+      const worktreeService = new WorktreeService({
+        repositoryPath: repoDir,
+        root: worktreeParentDir,
+      })
+      const artifactService = new ArtifactService(artifactsDir, artifactStore)
+
+      const forkSha = shaSchema.parse(
+        execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoDir }).toString().trim(),
+      )
+
+      const projectId = projectIdSchema.parse(randomUUID())
+      const workflowId = workflowIdSchema.parse(randomUUID())
+      const now = new Date().toISOString()
+
+      const projectStore = new ProjectStore(db)
+      projectStore.create(
+        {
+          id: projectId,
+          name: 'Test Project',
+          repository: {
+            id: repositoryIdSchema.parse(randomUUID()),
+            absolutePath: repoDir,
+            defaultBranch: 'main',
+            buildCommand: null,
+            testCommand: 'npm test',
+            tech: [],
+          },
+          createdAt: now,
+          updatedAt: now,
+        },
+        'user',
+      )
+
+      const taskId = taskIdSchema.parse(randomUUID())
+      const task: Task = {
+        id: taskId,
+        objective: 'Verify strict output mapping',
+        constraints: [],
+        completionCriteria: [{ kind: 'tests', description: 'tests pass', params: {} }],
+        scope: { allowedPaths: [], forbiddenPaths: [] },
+        lockedDecisionIds: [],
+        correctsTaskId: null,
+        createdAt: now,
+      }
+      const taskEvent = eventStore.append(
+        {
+          type: 'task.created',
+          payload: { task },
+        },
+        { projectId, actor: 'user', occurredAt: now },
+      )
+      applyEvent(db, taskEvent)
+
+      workflowStore.start(
+        {
+          workflowId,
+          projectId,
+          taskId,
+          templateId: 'test-template-mismatch',
+          startedAt: now,
+        },
+        'user',
+      )
+
+      const graphRunId = randomUUID()
+      new RunStore(db).createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: now,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      // Verifier declares required 'lint_report' output
+      const verifierNode = makeNode('verifier', {
+        type: 'verification',
+        runtimeType: 'forge-engine',
+        outputs: [
+          {
+            name: 'lint_report',
+            kind: 'stage-output',
+            format: 'text',
+            required: true,
+            requiredSections: [],
+          },
+        ],
+      })
+
+      const template: WorkflowTemplateV2 = {
+        id: 'test-template-mismatch',
+        name: 'Mismatch Template',
+        description: 'Template with mismatched evidence kind',
+        version: 1,
+        status: 'published',
+        category: 'Test',
+        nodes: [verifierNode],
+        edges: [],
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      // verifyFn returns only a 'tests' evidence artifact (no lint was executed)
+      const verifyFn = vi.fn().mockResolvedValue({
+        passed: true,
+        verdict: 'pass',
+        findings: [],
+        falseClaims: [],
+        detail: 'tests passed',
+        criteria: [],
+        artifacts: [
+          {
+            id: 'ev-test-1',
+            workflowId,
+            stepId: stepIdSchema.parse(randomUUID()),
+            kind: 'tests',
+            command: 'npm test',
+            cwd: repoDir,
+            outcome: 'completed',
+            exitCode: 0,
+            durationMs: 45,
+            stdout: 'PASS all tests',
+            stderr: '',
+            truncated: false,
+            counts: { total: 5, passed: 5, failed: 0, skipped: 0 },
+            failure: null,
+            recordedAt: now,
+          },
+        ],
+      })
+
+      const registry = new RuntimeRegistry()
+      const leafExecutor = createLeafRunner({ registry, verifyFn })
+
+      // First: direct LeafRunner execution test
+      const directCtx = makeContext(verifierNode, { worktreePath: repoDir, task, workflowId })
+      const directResult = await leafExecutor(directCtx)
+      expect(directResult.status).toBe('completed')
+      expect(directResult.artifacts).toHaveLength(1)
+      // Genuine evidence is preserved with its own kind 'tests', NOT relabeled as 'stage-output' or named 'lint_report'
+      expect(directResult.artifacts![0]!.kind).toBe('tests')
+      expect(directResult.artifacts![0]!.title).toContain('tests evidence')
+      expect(directResult.artifacts![0]!.metadata.outputName).toBeUndefined()
+
+      // Second: GraphExecutor execution test — fails closed because required lint_report was not satisfied
+      const executor = new GraphExecutor({
+        workflowStore,
+        projectStore,
+        worktreeService,
+        artifactService,
+        decisionStore,
+        executeLeafNode: leafExecutor,
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.failedNodeIds).toEqual(['verifier'])
+      const attempts = workflowStore.getNodeAttempts(graphRunId, 'verifier')
+      expect(attempts).toHaveLength(1)
+      expect(attempts[0]?.status).toBe('failed')
+      expect(attempts[0]?.error).toContain('missing required output(s): lint_report')
+    } finally {
+      closeDb()
+      for (const dir of dirsToCleanup) {
+        try {
+          rmSync(dir, { recursive: true, force: true })
+        } catch {
+          // ignore
+        }
+      }
+    }
+  })
+
+  it('31. verification evidence mapping: test evidence is never relabeled as build evidence and fails closed when build evidence is missing', async () => {
+    const dirsToCleanup: string[] = []
+    const { db, close: closeDb } = initialiseDatabase(':memory:')
+
+    try {
+      const repoDir = mkdtempSync(join(tmpdir(), 'forge-verify-build-mismatch-repo-'))
+      dirsToCleanup.push(repoDir)
+      execFileSync('git', ['init', '-b', 'main'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.name', 'Forge Test'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.email', 'forge@test.local'], { cwd: repoDir })
+      writeFileSync(join(repoDir, 'README.md'), '# Test Repo\n')
+      execFileSync('git', ['add', '.'], { cwd: repoDir })
+      execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: repoDir })
+
+      const worktreeParentDir = mkdtempSync(join(tmpdir(), 'forge-verify-build-mismatch-wt-'))
+      dirsToCleanup.push(worktreeParentDir)
+      const artifactsDir = mkdtempSync(join(tmpdir(), 'forge-verify-build-mismatch-art-'))
+      dirsToCleanup.push(artifactsDir)
+
+      const eventStore = new EventStore(db)
+      const workflowStore = new WorkflowStore(db)
+      const artifactStore = new ArtifactStore(db)
+      const decisionStore = new DecisionStore(db, eventStore)
+      const worktreeService = new WorktreeService({
+        repositoryPath: repoDir,
+        root: worktreeParentDir,
+      })
+      const artifactService = new ArtifactService(artifactsDir, artifactStore)
+
+      const forkSha = shaSchema.parse(
+        execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoDir }).toString().trim(),
+      )
+
+      const projectId = projectIdSchema.parse(randomUUID())
+      const workflowId = workflowIdSchema.parse(randomUUID())
+      const now = new Date().toISOString()
+
+      const projectStore = new ProjectStore(db)
+      projectStore.create(
+        {
+          id: projectId,
+          name: 'Test Project',
+          repository: {
+            id: repositoryIdSchema.parse(randomUUID()),
+            absolutePath: repoDir,
+            defaultBranch: 'main',
+            buildCommand: 'npm run build',
+            testCommand: 'npm test',
+            tech: [],
+          },
+          createdAt: now,
+          updatedAt: now,
+        },
+        'user',
+      )
+
+      const taskId = taskIdSchema.parse(randomUUID())
+      const taskEvent = eventStore.append(
+        {
+          type: 'task.created',
+          payload: {
+            task: {
+              id: taskId,
+              objective: 'Verify build evidence mismatch',
+              constraints: [],
+              completionCriteria: [{ kind: 'build', description: 'build succeeds', params: {} }],
+              scope: { allowedPaths: [], forbiddenPaths: [] },
+              lockedDecisionIds: [],
+              correctsTaskId: null,
+              createdAt: now,
+            },
+          },
+        },
+        { projectId, actor: 'user', occurredAt: now },
+      )
+      applyEvent(db, taskEvent)
+
+      workflowStore.start(
+        {
+          workflowId,
+          projectId,
+          taskId,
+          templateId: 'test-template-build-mismatch',
+          startedAt: now,
+        },
+        'user',
+      )
+
+      const graphRunId = randomUUID()
+      new RunStore(db).createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: now,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      // Verifier declares required 'build_evidence' output
+      const verifierNode = makeNode('verifier', {
+        type: 'verification',
+        runtimeType: 'forge-engine',
+        outputs: [
+          {
+            name: 'build_evidence',
+            kind: 'stage-output',
+            format: 'text',
+            required: true,
+            requiredSections: [],
+          },
+        ],
+      })
+
+      const template: WorkflowTemplateV2 = {
+        id: 'test-template-build-mismatch',
+        name: 'Build Mismatch Template',
+        description: 'Template with verifier requiring build evidence',
+        version: 1,
+        status: 'published',
+        category: 'Test',
+        nodes: [verifierNode],
+        edges: [],
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      // verifyFn returns only a 'tests' artifact (no build was executed)
+      const verifyFn = vi.fn().mockResolvedValue({
+        passed: true,
+        verdict: 'pass',
+        findings: [],
+        falseClaims: [],
+        detail: 'only tests ran',
+        criteria: [],
+        artifacts: [
+          {
+            id: 'ev-test-only',
+            workflowId,
+            stepId: stepIdSchema.parse(randomUUID()),
+            kind: 'tests',
+            command: 'npm test',
+            cwd: repoDir,
+            outcome: 'completed',
+            exitCode: 0,
+            durationMs: 30,
+            stdout: 'PASS tests',
+            stderr: '',
+            truncated: false,
+            counts: { total: 2, passed: 2, failed: 0, skipped: 0 },
+            failure: null,
+            recordedAt: now,
+          },
+        ],
+      })
+
+      const registry = new RuntimeRegistry()
+      const leafExecutor = createLeafRunner({ registry, verifyFn })
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        projectStore,
+        worktreeService,
+        artifactService,
+        decisionStore,
+        executeLeafNode: leafExecutor,
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.failedNodeIds).toEqual(['verifier'])
+      const attempts = workflowStore.getNodeAttempts(graphRunId, 'verifier')
+      expect(attempts).toHaveLength(1)
+      expect(attempts[0]?.status).toBe('failed')
+      expect(attempts[0]?.error).toContain('missing required output(s): build_evidence')
+    } finally {
+      closeDb()
+      for (const dir of dirsToCleanup) {
+        try {
+          rmSync(dir, { recursive: true, force: true })
+        } catch {
+          // ignore
+        }
+      }
+    }
+  })
+
+  it('32. verification evidence mapping: multi-evidence verification cleanly maps distinct artifacts to compatible declared outputs', async () => {
+    const dirsToCleanup: string[] = []
+    const { db, close: closeDb } = initialiseDatabase(':memory:')
+
+    try {
+      const repoDir = mkdtempSync(join(tmpdir(), 'forge-verify-multi-repo-'))
+      dirsToCleanup.push(repoDir)
+      execFileSync('git', ['init', '-b', 'main'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.name', 'Forge Test'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.email', 'forge@test.local'], { cwd: repoDir })
+      writeFileSync(join(repoDir, 'README.md'), '# Test Repo\n')
+      execFileSync('git', ['add', '.'], { cwd: repoDir })
+      execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: repoDir })
+
+      const worktreeParentDir = mkdtempSync(join(tmpdir(), 'forge-verify-multi-wt-'))
+      dirsToCleanup.push(worktreeParentDir)
+      const artifactsDir = mkdtempSync(join(tmpdir(), 'forge-verify-multi-art-'))
+      dirsToCleanup.push(artifactsDir)
+
+      const eventStore = new EventStore(db)
+      const workflowStore = new WorkflowStore(db)
+      const artifactStore = new ArtifactStore(db)
+      const decisionStore = new DecisionStore(db, eventStore)
+      const worktreeService = new WorktreeService({
+        repositoryPath: repoDir,
+        root: worktreeParentDir,
+      })
+      const artifactService = new ArtifactService(artifactsDir, artifactStore)
+
+      const forkSha = shaSchema.parse(
+        execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoDir }).toString().trim(),
+      )
+
+      const projectId = projectIdSchema.parse(randomUUID())
+      const workflowId = workflowIdSchema.parse(randomUUID())
+      const now = new Date().toISOString()
+
+      const projectStore = new ProjectStore(db)
+      projectStore.create(
+        {
+          id: projectId,
+          name: 'Test Project',
+          repository: {
+            id: repositoryIdSchema.parse(randomUUID()),
+            absolutePath: repoDir,
+            defaultBranch: 'main',
+            buildCommand: 'npm run build',
+            testCommand: 'npm test',
+            tech: ['typescript'],
+          },
+          createdAt: now,
+          updatedAt: now,
+        },
+        'user',
+      )
+
+      const taskId = taskIdSchema.parse(randomUUID())
+      const taskEvent = eventStore.append(
+        {
+          type: 'task.created',
+          payload: {
+            task: {
+              id: taskId,
+              objective: 'Verify multi-output contract',
+              constraints: [],
+              completionCriteria: [
+                { kind: 'build', description: 'build passes', params: {} },
+                { kind: 'tests', description: 'tests pass', params: {} },
+              ],
+              scope: { allowedPaths: [], forbiddenPaths: [] },
+              lockedDecisionIds: [],
+              correctsTaskId: null,
+              createdAt: now,
+            },
+          },
+        },
+        { projectId, actor: 'user', occurredAt: now },
+      )
+      applyEvent(db, taskEvent)
+
+      workflowStore.start(
+        {
+          workflowId,
+          projectId,
+          taskId,
+          templateId: 'test-template-multi',
+          startedAt: now,
+        },
+        'user',
+      )
+
+      const graphRunId = randomUUID()
+      new RunStore(db).createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: now,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const verifierNode = makeNode('verifier', {
+        type: 'verification',
+        runtimeType: 'forge-engine',
+        outputs: [
+          {
+            name: 'build_evidence',
+            kind: 'stage-output',
+            format: 'text',
+            required: true,
+            requiredSections: [],
+          },
+          {
+            name: 'test_evidence',
+            kind: 'stage-output',
+            format: 'text',
+            required: true,
+            requiredSections: [],
+          },
+          {
+            name: 'verdict',
+            kind: 'stage-output',
+            format: 'json',
+            required: true,
+            requiredSections: [],
+          },
+        ],
+      })
+
+      const template: WorkflowTemplateV2 = {
+        id: 'test-template-multi',
+        name: 'Multi Evidence Template',
+        description: 'Template with verifier requiring build, test, and verdict',
+        version: 1,
+        status: 'published',
+        category: 'Test',
+        nodes: [verifierNode],
+        edges: [],
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      const verifyFn = vi.fn().mockResolvedValue({
+        passed: true,
+        verdict: 'pass',
+        findings: [],
+        falseClaims: [],
+        detail: 'all build and tests clean',
+        criteria: [],
+        artifacts: [
+          {
+            id: 'ev-build-1',
+            workflowId,
+            stepId: stepIdSchema.parse(randomUUID()),
+            kind: 'build',
+            command: 'npm run build',
+            cwd: repoDir,
+            outcome: 'completed',
+            exitCode: 0,
+            durationMs: 120,
+            stdout: 'Build success',
+            stderr: '',
+            truncated: false,
+            counts: null,
+            failure: null,
+            recordedAt: now,
+          },
+          {
+            id: 'ev-test-1',
+            workflowId,
+            stepId: stepIdSchema.parse(randomUUID()),
+            kind: 'tests',
+            command: 'npm test',
+            cwd: repoDir,
+            outcome: 'completed',
+            exitCode: 0,
+            durationMs: 80,
+            stdout: 'PASS test suite',
+            stderr: '',
+            truncated: false,
+            counts: { total: 10, passed: 10, failed: 0, skipped: 0 },
+            failure: null,
+            recordedAt: now,
+          },
+        ],
+      })
+
+      const registry = new RuntimeRegistry()
+      const leafExecutor = createLeafRunner({ registry, verifyFn })
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        projectStore,
+        worktreeService,
+        artifactService,
+        decisionStore,
+        executeLeafNode: leafExecutor,
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      expect(run.status).toBe('completed')
+      expect(run.completedNodeIds).toContain('verifier')
+      expect(run.artifacts).toHaveLength(3)
+
+      const buildArt = run.artifacts.find((a) => a.metadata.outputName === 'build_evidence')
+      const testArt = run.artifacts.find((a) => a.metadata.outputName === 'test_evidence')
+      const verdictArt = run.artifacts.find((a) => a.metadata.outputName === 'verdict')
+
+      expect(buildArt).toBeDefined()
+      expect(buildArt?.content).toContain('Build success')
+      expect(testArt).toBeDefined()
+      expect(testArt?.content).toContain('PASS test suite')
+      expect(verdictArt).toBeDefined()
+      expect(verdictArt?.kind).toBe('stage-output')
+    } finally {
+      closeDb()
+      for (const dir of dirsToCleanup) {
+        try {
+          rmSync(dir, { recursive: true, force: true })
+        } catch {
+          // ignore
+        }
+      }
+    }
   })
 })

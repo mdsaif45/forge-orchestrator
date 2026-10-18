@@ -5,6 +5,7 @@ import {
   type Actor,
   type AgentReport,
   type ChangeSet,
+  type EvidenceArtifact,
   type IAgentRuntime,
   type OutputDefinition,
   type PromptPacket,
@@ -19,7 +20,7 @@ import {
 import type { DecisionStore } from '../db/decisionStore'
 import type { ProjectStore } from '../db/projectStore'
 import type { WorkflowStore } from '../db/workflowStore'
-import { buildChangeSet } from '../evidence/changeSetBuilder'
+import { buildChangeSet, type BuiltChangeSet } from '../evidence/changeSetBuilder'
 import { verifyStep } from '../evidence/verifier'
 import type { GitService } from '../git'
 import { exchange, type ExchangeOutcome } from '../runtimes/exchange'
@@ -51,6 +52,167 @@ function isExplicitVerdictOutput(outDef: OutputDefinition): boolean {
   return (
     outDef.kind === 'verdict' || outDef.name === 'verdict' || outDef.name === 'verification_verdict'
   )
+}
+
+const INCOMPATIBLE_DOMAINS: Record<string, readonly string[]> = {
+  tests: [
+    'build',
+    'compile',
+    'lint',
+    'eslint',
+    'stylelint',
+    'rubocop',
+    'flake8',
+    'ruff',
+    'typecheck',
+    'type-check',
+    'tsc',
+    'mypy',
+    'pyright',
+    'diff',
+    'patch',
+    'changeset',
+  ],
+  build: [
+    'test',
+    'tests',
+    'spec',
+    'jest',
+    'vitest',
+    'pytest',
+    'mocha',
+    'lint',
+    'eslint',
+    'stylelint',
+    'rubocop',
+    'flake8',
+    'ruff',
+    'typecheck',
+    'type-check',
+    'tsc',
+    'mypy',
+    'pyright',
+    'diff',
+    'patch',
+    'changeset',
+  ],
+  'custom-command': ['diff', 'patch', 'changeset'],
+}
+
+function textMatchesAny(text: string, keywords: readonly string[]): boolean {
+  const lower = text.toLowerCase()
+  return keywords.some((kw) => lower.includes(kw))
+}
+
+function isEvidenceCompatible(
+  ea: EvidenceArtifact,
+  outDef: OutputDefinition,
+  allArtifacts: readonly EvidenceArtifact[],
+): boolean {
+  // 1. Reject if outDef semantics or identity belong to an incompatible domain
+  const incompatibleKeywords = INCOMPATIBLE_DOMAINS[ea.kind]
+  if (
+    incompatibleKeywords &&
+    (textMatchesAny(outDef.name, incompatibleKeywords) ||
+      textMatchesAny(outDef.kind, incompatibleKeywords))
+  ) {
+    return false
+  }
+
+  // 2. Direct kind match
+  if (outDef.kind === ea.kind) {
+    return true
+  }
+
+  const nameLower = outDef.name.toLowerCase()
+  const kindLower = outDef.kind.toLowerCase()
+
+  if (ea.kind === 'tests') {
+    if (
+      nameLower === 'tests' ||
+      nameLower === 'test' ||
+      nameLower === 'tests_evidence' ||
+      nameLower === 'test_evidence' ||
+      nameLower === 'test_report' ||
+      nameLower === 'tests_report' ||
+      nameLower === 'test_results' ||
+      nameLower === 'tests_results' ||
+      nameLower === 'test_output' ||
+      nameLower === 'tests_output' ||
+      kindLower === 'test' ||
+      kindLower === 'test_evidence' ||
+      kindLower === 'verification_results'
+    ) {
+      return true
+    }
+
+    // Generic verification outputs: 'verification_report', 'verification_evidence', 'verification_results', etc.
+    if (
+      nameLower === 'verification_report' ||
+      nameLower === 'verification_evidence' ||
+      nameLower === 'verification_results' ||
+      nameLower === 'verification_log' ||
+      nameLower === 'verification_output' ||
+      (kindLower === 'stage-output' && nameLower.includes('verification'))
+    ) {
+      return true
+    }
+  }
+
+  if (ea.kind === 'build') {
+    if (
+      nameLower === 'build' ||
+      nameLower === 'build_evidence' ||
+      nameLower === 'build_log' ||
+      nameLower === 'build_output' ||
+      nameLower === 'build_report' ||
+      nameLower === 'build_results' ||
+      kindLower === 'build_evidence' ||
+      kindLower === 'build_output'
+    ) {
+      return true
+    }
+
+    // Generic verification output can match build ONLY IF no test artifacts were produced
+    const hasTestsArtifact = allArtifacts.some((a) => a.kind === 'tests')
+    if (
+      !hasTestsArtifact &&
+      (nameLower === 'verification_report' ||
+        nameLower === 'verification_evidence' ||
+        nameLower === 'verification_results' ||
+        nameLower === 'verification_log' ||
+        nameLower === 'verification_output' ||
+        (kindLower === 'stage-output' && nameLower.includes('verification')))
+    ) {
+      return true
+    }
+  }
+
+  if (ea.kind === 'custom-command') {
+    if (
+      nameLower === 'custom-command' ||
+      nameLower === 'custom_command' ||
+      nameLower === 'command_evidence' ||
+      nameLower === 'command_output' ||
+      kindLower === 'custom-command' ||
+      kindLower === 'command_evidence'
+    ) {
+      return true
+    }
+
+    const cmdLower = ea.command.toLowerCase()
+    if (cmdLower.includes('lint') && textMatchesAny(nameLower, ['lint'])) {
+      return true
+    }
+    if (
+      (cmdLower.includes('type') || cmdLower.includes('tsc')) &&
+      textMatchesAny(nameLower, ['type', 'tsc'])
+    ) {
+      return true
+    }
+  }
+
+  return false
 }
 
 /**
@@ -209,13 +371,18 @@ export class LeafRunner {
       }
     }
 
-    // Reconcile git diff for non-read-only permission modes
+    // Reconcile git diff for writable execution with a worktree
     let changeSet: ChangeSet | undefined
-    if (
-      ctx.node.config.permissionMode !== 'read-only' &&
-      ctx.worktreePath &&
-      this.options.gitServiceFactory
-    ) {
+    const isWritable = ctx.node.config.permissionMode !== 'read-only'
+
+    if (isWritable && ctx.worktreePath) {
+      if (!this.options.gitServiceFactory) {
+        return {
+          status: 'failed',
+          error: `Agent node "${ctx.node.id}" cannot build changeset: Git service factory is required for writable execution with worktree`,
+        }
+      }
+
       const task = this.resolveTask(ctx)
       if (!task) {
         return {
@@ -231,15 +398,23 @@ export class LeafRunner {
         ? (ctx.node.id as StepId)
         : stepIdSchema.parse(randomUUID())
 
-      const built = await buildChangeSet(git, {
-        baseSha: ctx.forkSha,
-        report,
-        scope: task.scope,
-        authorActor: this.options.actor ?? 'system',
-        stepId: validStepId,
-        taskId: task.id,
-        capturedAt: new Date().toISOString(),
-      })
+      let built: BuiltChangeSet
+      try {
+        built = await buildChangeSet(git, {
+          baseSha: ctx.forkSha,
+          report,
+          scope: task.scope,
+          authorActor: this.options.actor ?? 'system',
+          stepId: validStepId,
+          taskId: task.id,
+          capturedAt: new Date().toISOString(),
+        })
+      } catch (err: unknown) {
+        return {
+          status: 'failed',
+          error: `Agent node "${ctx.node.id}" failed to capture or reconcile changeset: ${err instanceof Error ? err.message : String(err)}`,
+        }
+      }
 
       if (!built.reconciliation.inScope) {
         return {
@@ -394,25 +569,38 @@ export class LeafRunner {
     const evidenceOutputs = ctx.node.outputs.filter((o) => !isExplicitVerdictOutput(o))
     const verdictOutputs = ctx.node.outputs.filter((o) => isExplicitVerdictOutput(o))
 
-    // 1. Map genuine EvidenceArtifacts produced by verifyStep()
-    for (let idx = 0; idx < result.artifacts.length; idx++) {
-      const ea = result.artifacts[idx]
-      if (!ea) continue
-      const declaredOutput =
-        evidenceOutputs.find(
-          (o) => o.kind === ea.kind || o.name === ea.kind || o.name === `${ea.kind}_evidence`,
-        ) ??
-        evidenceOutputs[idx] ??
-        evidenceOutputs[0]
+    const unclaimedEvidenceOutputs = [...evidenceOutputs]
 
-      const kind = declaredOutput?.kind ?? 'stage-output'
-      const title = declaredOutput?.name ?? `${ea.kind} verification evidence`
+    // 1. Map genuine EvidenceArtifacts produced by verifyStep()
+    for (const ea of result.artifacts) {
+      // Find compatible declared output from unclaimed evidence outputs:
+      // Priority 1: Specific name/kind matches (not generic 'verification_*')
+      // Priority 2: Generic verification outputs
+      let matchIndex = unclaimedEvidenceOutputs.findIndex(
+        (o) =>
+          isEvidenceCompatible(ea, o, result.artifacts) &&
+          !o.name.toLowerCase().includes('verification'),
+      )
+      if (matchIndex === -1) {
+        matchIndex = unclaimedEvidenceOutputs.findIndex((o) =>
+          isEvidenceCompatible(ea, o, result.artifacts),
+        )
+      }
+
+      const declaredOutput =
+        matchIndex !== -1 ? unclaimedEvidenceOutputs.splice(matchIndex, 1)[0] : undefined
+
+      const kind = declaredOutput ? declaredOutput.kind : ea.kind
+      const title = declaredOutput
+        ? `${ctx.node.title} - ${declaredOutput.name}`
+        : `${ctx.node.title} - ${ea.kind} evidence`
+
       artifacts.push({
         id: randomUUID(),
         workflowId: ctx.workflowId,
         nodeId: ctx.node.id,
         kind,
-        format: 'text',
+        format: declaredOutput?.format === 'json' ? 'json' : 'text',
         title,
         content: `[Command: ${ea.command}]\n[ExitCode: ${String(ea.exitCode)}]\n${ea.stdout}\n${ea.stderr}`,
         metadata: {
@@ -423,7 +611,7 @@ export class LeafRunner {
           durationMs: ea.durationMs,
           counts: ea.counts,
           evidenceKind: ea.kind,
-          outputName: declaredOutput?.name,
+          ...(declaredOutput ? { outputName: declaredOutput.name } : {}),
         },
         createdAt: now,
       })

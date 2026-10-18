@@ -11,3 +11,10 @@ export {
   type SkipNodeOptions,
 } from './graphExecutor'
 export { LeafRunner, createLeafRunner, type LeafRunnerOptions } from './leafRunner'
+export {
+  createGraphExecutorWithLeafRunner,
+  validateCompositionOptions,
+  GraphCompositionError,
+  type ProductionGraphComposition,
+  type ProductionGraphCompositionOptions,
+} from './graphFactory'

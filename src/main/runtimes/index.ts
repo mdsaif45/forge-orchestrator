@@ -12,6 +12,7 @@
 export { IncapableRuntimeError, RuntimeRegistry, UnknownRuntimeError } from './registry'
 
 export {
+  AmbiguousRoleBindingError,
   bindRole,
   BindingSet,
   permits,

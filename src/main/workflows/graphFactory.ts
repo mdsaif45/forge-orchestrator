@@ -1,6 +1,7 @@
 import { isAbsolute, normalize, resolve } from 'node:path'
 import type { Actor } from '@shared/domain'
 import { ArtifactService } from '../artifacts/artifactService'
+import { BindingStore } from '../db/bindingStore'
 import type { ForgeDatabase } from '../db/connection'
 import { ChangeSetStore } from '../db/changeSetStore'
 import { DecisionStore } from '../db/decisionStore'
@@ -8,6 +9,7 @@ import { EventStore } from '../db/eventStore'
 import { ProjectStore } from '../db/projectStore'
 import { WorkflowStore } from '../db/workflowStore'
 import { GitService, WorktreeService } from '../git'
+import type { BindingSet } from '../runtimes/bindings'
 import type { RuntimeRegistry } from '../runtimes/registry'
 import { GraphExecutor, type LeafNodeExecutor } from './graphExecutor'
 import { createLeafRunner } from './leafRunner'
@@ -37,6 +39,10 @@ export interface ProductionGraphCompositionOptions {
    * Optional default runtime ID for leaf agent execution.
    */
   readonly defaultRuntimeId?: string | undefined
+  /**
+   * Optional composition-level agent role bindings.
+   */
+  readonly bindings?: BindingSet | undefined
 }
 
 /**
@@ -52,6 +58,7 @@ export interface ProductionGraphComposition {
     readonly projectStore: ProjectStore
     readonly decisionStore: DecisionStore
     readonly changeSetStore: ChangeSetStore
+    readonly bindingStore: BindingStore
   }
 }
 
@@ -156,6 +163,7 @@ export function createGraphExecutorWithLeafRunner(
   const projectStore = new ProjectStore(options.db)
   const decisionStore = new DecisionStore(options.db, options.eventStore)
   const changeSetStore = new ChangeSetStore(options.db, options.eventStore)
+  const bindingStore = new BindingStore(options.db, options.eventStore)
 
   // 2. Construct production worktree isolation and git service factory
   const worktreeService = new WorktreeService({
@@ -172,6 +180,8 @@ export function createGraphExecutorWithLeafRunner(
     decisionStore,
     workflowStore,
     projectStore,
+    bindingStore,
+    bindings: options.bindings,
     actor,
     defaultRuntimeId: options.defaultRuntimeId,
   })
@@ -185,6 +195,10 @@ export function createGraphExecutorWithLeafRunner(
     decisionStore,
     projectStore,
     changeSetStore,
+    bindingStore,
+    bindings: options.bindings,
+    registry: options.registry,
+    defaultRuntimeId: options.defaultRuntimeId,
     actor,
     maxConcurrency: options.maxConcurrency,
     executeLeafNode: leafRunner,
@@ -200,6 +214,7 @@ export function createGraphExecutorWithLeafRunner(
       projectStore,
       decisionStore,
       changeSetStore,
+      bindingStore,
     },
   }
 }

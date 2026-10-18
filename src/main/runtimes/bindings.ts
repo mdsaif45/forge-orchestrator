@@ -9,6 +9,7 @@ import {
   type Capability,
   type Role,
 } from '@shared/domain'
+export type { AgentBinding }
 import { IncapableRuntimeError, type RuntimeRegistry } from './registry'
 
 /**
@@ -108,6 +109,21 @@ export class UnboundRoleError extends Error {
       }`,
     )
     this.name = 'UnboundRoleError'
+  }
+}
+
+/** Raised when multiple candidate runtimes can hold a role but no binding or default is configured. */
+export class AmbiguousRoleBindingError extends Error {
+  constructor(
+    readonly role: Role,
+    readonly candidates: readonly string[],
+  ) {
+    super(
+      `Ambiguous role binding for "${role}": multiple runtimes (${candidates.join(
+        ', ',
+      )}) can hold role, but no explicit binding or default is configured`,
+    )
+    this.name = 'AmbiguousRoleBindingError'
   }
 }
 

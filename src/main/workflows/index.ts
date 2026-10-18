@@ -18,3 +18,11 @@ export {
   type ProductionGraphComposition,
   type ProductionGraphCompositionOptions,
 } from './graphFactory'
+export {
+  resolveRoleRuntime,
+  validateNodeCapabilities,
+  type BindingSource,
+  type ResolveRoleRuntimeOptions,
+  type ResolvedRoleRuntime,
+} from './roleResolution'
+export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

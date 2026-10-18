@@ -37,6 +37,7 @@ import {
   type RouterDecisionRecord,
 } from './loopFingerprint'
 import type { ArtifactService } from '../artifacts/artifactService'
+import type { BindingStore } from '../db/bindingStore'
 import type { ChangeSetStore } from '../db/changeSetStore'
 import type { DecisionStore } from '../db/decisionStore'
 import type { ProjectStore } from '../db/projectStore'
@@ -47,6 +48,9 @@ import {
 } from '../db/workflowStore'
 import { mergeChangeSets, type ChangeSetMergeResult } from '../evidence/changeSetMerger'
 import { GitService, type PreparedWorktree, type WorktreeService } from '../git'
+import type { BindingSet } from '../runtimes/bindings'
+import type { RuntimeRegistry } from '../runtimes/registry'
+import { resolveRoleRuntime } from './roleResolution'
 
 /**
  * Execution context supplied to a leaf node during execution.
@@ -60,6 +64,8 @@ export interface NodeExecutionContext {
   readonly repository?: Repository | undefined
   readonly node: WorkflowNode
   readonly attempt: number
+  readonly runtimeId?: string | undefined
+  readonly bindings?: BindingSet | undefined
   readonly worktreePath?: string | undefined
   readonly forkSha: Sha
   readonly signal: AbortSignal
@@ -75,6 +81,7 @@ export interface NodeExecutionContext {
  */
 export interface NodeExecutionResult {
   readonly status: 'completed' | 'failed' | 'blocked' | 'cancelled'
+  readonly runtimeId?: string | undefined
   readonly changeSet?: ChangeSet | undefined
   readonly evidenceId?: string | undefined
   readonly error?: string | undefined
@@ -104,6 +111,10 @@ export interface GraphExecutorOptions {
   readonly decisionStore?: DecisionStore | undefined
   readonly changeSetStore?: ChangeSetStore | undefined
   readonly projectStore?: ProjectStore | undefined
+  readonly bindingStore?: BindingStore | undefined
+  readonly bindings?: BindingSet | undefined
+  readonly registry?: RuntimeRegistry | undefined
+  readonly defaultRuntimeId?: string | undefined
   readonly actor?: Actor | undefined
   readonly maxConcurrency?: number | undefined
   readonly executeLeafNode?: LeafNodeExecutor | undefined
@@ -128,6 +139,7 @@ export interface RunGraphOptions {
   readonly template: WorkflowTemplateV2
   readonly forkSha: Sha
   readonly initialContext?: Readonly<Record<string, string>> | undefined
+  readonly bindings?: BindingSet | undefined
   readonly signal?: AbortSignal | undefined
   readonly skipNodeIds?: ReadonlySet<string> | readonly string[] | undefined
   readonly invalidatedNodeIds?: ReadonlySet<string> | undefined
@@ -226,6 +238,10 @@ export class GraphExecutor {
   private readonly decisionStore?: DecisionStore | undefined
   private readonly changeSetStore?: ChangeSetStore | undefined
   private readonly projectStore?: ProjectStore | undefined
+  private readonly bindingStore?: BindingStore | undefined
+  private readonly bindings?: BindingSet | undefined
+  private readonly registry?: RuntimeRegistry | undefined
+  private readonly defaultRuntimeId?: string | undefined
   private readonly defaultActor: Actor
   private readonly maxConcurrency?: number | undefined
   private readonly executeLeafNode?: LeafNodeExecutor | undefined
@@ -277,6 +293,10 @@ export class GraphExecutor {
     this.decisionStore = options.decisionStore
     this.changeSetStore = options.changeSetStore
     this.projectStore = options.projectStore
+    this.bindingStore = options.bindingStore
+    this.bindings = options.bindings
+    this.registry = options.registry
+    this.defaultRuntimeId = options.defaultRuntimeId
     this.defaultActor = options.actor ?? 'system'
     this.maxConcurrency = options.maxConcurrency
     this.executeLeafNode = options.executeLeafNode
@@ -822,6 +842,89 @@ export class GraphExecutor {
         let attemptNum: number
         let currentAttemptId: string
 
+        let resolvedRuntimeId: string | null = null
+        if (node.type === 'agent' && this.registry) {
+          try {
+            const resolved = resolveRoleRuntime({
+              node,
+              projectId,
+              executionBindings: options.bindings,
+              compositionBindings: this.bindings,
+              bindingStore: this.bindingStore,
+              registry: this.registry,
+              defaultRuntimeId: this.defaultRuntimeId,
+            })
+            resolvedRuntimeId = resolved.runtimeId
+          } catch (err: unknown) {
+            attemptNum = existingAttempts.length + 1
+            currentAttemptId = randomUUID()
+            const errorMsg = err instanceof Error ? err.message : String(err)
+            const finishedAt = new Date().toISOString()
+
+            this.workflowStore.writeGraphCheckpoint(
+              {
+                id: randomUUID(),
+                projectId,
+                graphRunId,
+                nodeId: node.id,
+                operation: 'node.started',
+                stateSnapshot: getSnapshot(),
+                occurredAt: startedAt,
+              },
+              actor,
+            )
+
+            this.workflowStore.recordNodeAttempt(
+              {
+                id: currentAttemptId,
+                projectId,
+                graphRunId,
+                nodeId: node.id,
+                attempt: attemptNum,
+                iteration: currentIteration,
+                status: 'running',
+                role: node.config.role ?? null,
+                runtimeId: null,
+                startedAt,
+              },
+              actor,
+            )
+
+            this.workflowStore.updateNodeAttempt(
+              {
+                projectId,
+                graphRunId,
+                nodeId: node.id,
+                attempt: attemptNum,
+                status: 'failed',
+                error: errorMsg,
+                finishedAt,
+                occurredAt: finishedAt,
+              },
+              actor,
+            )
+
+            this.workflowStore.writeGraphCheckpoint(
+              {
+                id: randomUUID(),
+                projectId,
+                graphRunId,
+                nodeId: node.id,
+                operation: 'node.failed',
+                stateSnapshot: getSnapshot(),
+                occurredAt: finishedAt,
+              },
+              actor,
+            )
+
+            failedNodeIds.add(node.id)
+            loopState.runError = errorMsg
+            return
+          }
+        } else if (node.type === 'agent' && node.config.providerId) {
+          resolvedRuntimeId = node.config.providerId
+        }
+
         if (latestAttempt?.status === 'ready') {
           attemptNum = latestAttempt.attempt
           currentAttemptId = latestAttempt.id
@@ -863,6 +966,7 @@ export class GraphExecutor {
               iteration: currentIteration,
               status: 'running',
               role: node.config.role ?? null,
+              runtimeId: resolvedRuntimeId,
               startedAt,
             },
             actor,
@@ -1015,6 +1119,8 @@ export class GraphExecutor {
             repository: resolvedRepository,
             node,
             attempt: attemptNum,
+            runtimeId: resolvedRuntimeId ?? undefined,
+            bindings: options.bindings,
             worktreePath: branchWorktree?.path,
             forkSha,
             signal: abortSignal,
@@ -1060,6 +1166,7 @@ export class GraphExecutor {
                 nodeId: node.id,
                 attempt: attemptNum,
                 status: 'cancelled',
+                runtimeId: resolvedRuntimeId ?? leafResult.runtimeId ?? null,
                 error: 'Execution cancelled by signal',
                 finishedAt,
                 occurredAt: finishedAt,
@@ -1162,6 +1269,7 @@ export class GraphExecutor {
                 nodeId: node.id,
                 attempt: attemptNum,
                 status: 'completed',
+                runtimeId: resolvedRuntimeId ?? leafResult.runtimeId ?? null,
                 changeSetId: capturedChangeSet?.id ?? null,
                 evidenceId: leafResult.evidenceId ?? null,
                 finishedAt,
@@ -1357,6 +1465,7 @@ export class GraphExecutor {
                 nodeId: node.id,
                 attempt: attemptNum,
                 status: 'blocked',
+                runtimeId: resolvedRuntimeId ?? leafResult.runtimeId ?? null,
                 error: leafResult.error ?? 'Node execution blocked',
                 finishedAt,
                 occurredAt: finishedAt,
@@ -1387,6 +1496,7 @@ export class GraphExecutor {
                 nodeId: node.id,
                 attempt: attemptNum,
                 status: 'cancelled',
+                runtimeId: resolvedRuntimeId ?? leafResult.runtimeId ?? null,
                 error: leafResult.error ?? 'Node execution cancelled',
                 finishedAt,
                 occurredAt: finishedAt,
@@ -1418,6 +1528,7 @@ export class GraphExecutor {
                 nodeId: node.id,
                 attempt: attemptNum,
                 status: 'failed',
+                runtimeId: resolvedRuntimeId ?? leafResult.runtimeId ?? null,
                 error: loopState.runError,
                 finishedAt,
                 occurredAt: finishedAt,
@@ -1451,6 +1562,7 @@ export class GraphExecutor {
               nodeId: node.id,
               attempt: attemptNum,
               status: abortSignal.aborted ? 'cancelled' : 'failed',
+              runtimeId: resolvedRuntimeId ?? null,
               error: errorMsg,
               finishedAt,
               occurredAt: finishedAt,

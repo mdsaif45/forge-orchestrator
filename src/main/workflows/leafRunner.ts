@@ -6,7 +6,6 @@ import {
   type AgentReport,
   type ChangeSet,
   type EvidenceArtifact,
-  type IAgentRuntime,
   type OutputDefinition,
   type PromptPacket,
   type Repository,
@@ -17,15 +16,18 @@ import {
   type WorkflowArtifact,
   permissionForRole,
 } from '@shared/domain'
+import type { BindingStore } from '../db/bindingStore'
 import type { DecisionStore } from '../db/decisionStore'
 import type { ProjectStore } from '../db/projectStore'
 import type { WorkflowStore } from '../db/workflowStore'
 import { buildChangeSet, type BuiltChangeSet } from '../evidence/changeSetBuilder'
 import { verifyStep } from '../evidence/verifier'
 import type { GitService } from '../git'
+import type { BindingSet } from '../runtimes/bindings'
 import { exchange, type ExchangeOutcome } from '../runtimes/exchange'
 import type { RuntimeRegistry } from '../runtimes/registry'
 import type { LeafNodeExecutor, NodeExecutionContext, NodeExecutionResult } from './graphExecutor'
+import { resolveRoleRuntime } from './roleResolution'
 
 /**
  * Production options for configuring the generic LeafRunner.
@@ -34,6 +36,8 @@ import type { LeafNodeExecutor, NodeExecutionContext, NodeExecutionResult } from
 export interface LeafRunnerOptions {
   readonly registry: RuntimeRegistry
   readonly defaultRuntimeId?: string | undefined
+  readonly bindingStore?: BindingStore | undefined
+  readonly bindings?: BindingSet | undefined
   readonly gitServiceFactory?: ((path: string) => GitService) | undefined
   readonly decisionStore?: DecisionStore | undefined
   readonly workflowStore?: WorkflowStore | undefined
@@ -277,29 +281,25 @@ export class LeafRunner {
 
   private async executeAgent(ctx: NodeExecutionContext): Promise<NodeExecutionResult> {
     const role: Role = ctx.node.config.role ?? 'implementer'
-    let runtimeId = ctx.node.config.providerId ?? this.options.defaultRuntimeId
-
-    if (!runtimeId) {
-      const candidates = this.options.registry.candidatesForRole(role)
-      const firstCandidate = candidates[0]
-      if (!firstCandidate) {
-        return {
-          status: 'failed',
-          error: `No runtime registered capable of holding role "${role}"`,
-        }
-      }
-      runtimeId = firstCandidate.id
-    }
-
-    let runtime: IAgentRuntime
+    let resolved: ReturnType<typeof resolveRoleRuntime>
     try {
-      runtime = this.options.registry.resolveForRole(runtimeId, role)
+      resolved = resolveRoleRuntime({
+        node: ctx.node,
+        projectId: ctx.projectId,
+        executionBindings: ctx.bindings,
+        compositionBindings: this.options.bindings,
+        bindingStore: this.options.bindingStore,
+        registry: this.options.registry,
+        defaultRuntimeId: ctx.runtimeId ?? this.options.defaultRuntimeId,
+      })
     } catch (err: unknown) {
       return {
         status: 'failed',
         error: err instanceof Error ? err.message : String(err),
       }
     }
+
+    const { runtime, runtimeId } = resolved
 
     // Assemble PromptPacket
     let packet: PromptPacket
@@ -355,9 +355,9 @@ export class LeafRunner {
 
     if (!outcome.ok) {
       if (outcome.providerLimit) {
-        return { status: 'failed', error: `provider-limit: ${outcome.message}` }
+        return { status: 'failed', runtimeId, error: `provider-limit: ${outcome.message}` }
       }
-      return { status: 'failed', error: outcome.message }
+      return { status: 'failed', runtimeId, error: outcome.message }
     }
 
     const { report } = outcome
@@ -365,6 +365,7 @@ export class LeafRunner {
     if (report.status === 'blocked' || report.status === 'question') {
       return {
         status: 'blocked',
+        runtimeId,
         error: report.summary,
         awaitingUser: true,
         resumable: true,
@@ -379,6 +380,7 @@ export class LeafRunner {
       if (!this.options.gitServiceFactory) {
         return {
           status: 'failed',
+          runtimeId,
           error: `Agent node "${ctx.node.id}" cannot build changeset: Git service factory is required for writable execution with worktree`,
         }
       }
@@ -387,6 +389,7 @@ export class LeafRunner {
       if (!task) {
         return {
           status: 'failed',
+          runtimeId,
           error: `Agent node "${ctx.node.id}" cannot build changeset: authoritative task is unavailable`,
         }
       }
@@ -412,6 +415,7 @@ export class LeafRunner {
       } catch (err: unknown) {
         return {
           status: 'failed',
+          runtimeId,
           error: `Agent node "${ctx.node.id}" failed to capture or reconcile changeset: ${err instanceof Error ? err.message : String(err)}`,
         }
       }
@@ -419,6 +423,7 @@ export class LeafRunner {
       if (!built.reconciliation.inScope) {
         return {
           status: 'failed',
+          runtimeId,
           error: `Policy violation: ${String(built.reconciliation.outOfScope.length)} file(s) modified outside scope (${built.reconciliation.outOfScope.join(', ')})`,
           changeSet: built.changeSet,
         }
@@ -432,6 +437,7 @@ export class LeafRunner {
 
     return {
       status: 'completed',
+      runtimeId,
       changeSet,
       artifacts,
     }

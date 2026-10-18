@@ -566,6 +566,46 @@ describe('LeafRunner', () => {
     expect(parsed.verdict).toBe('pass')
   })
 
+  it('9e. verification artifact separation: verdict is never treated as report, log, or evidence merely because name or kind matches', async () => {
+    const registry = new RuntimeRegistry()
+    const verifyFn = vi.fn().mockResolvedValue({
+      passed: true,
+      verdict: 'pass',
+      findings: [],
+      falseClaims: [],
+      detail: 'all checks clean',
+      criteria: [],
+      artifacts: [], // No evidence artifacts produced
+    })
+
+    const runner = new LeafRunner({
+      registry,
+      verifyFn,
+    })
+
+    // Node declares an evidence report output (not a verdict output)
+    const node = makeNode('verify-report-only', {
+      type: 'verification',
+      runtimeType: 'forge-engine',
+      outputs: [
+        {
+          name: 'verification_report',
+          kind: 'stage-output',
+          format: 'text',
+          required: true,
+          requiredSections: [],
+        },
+      ],
+    })
+    const ctx = makeContext(node, { worktreePath: '/mock-worktree' })
+
+    const result = await runner.execute(ctx)
+
+    // Must NOT emit a verdict artifact disguised as 'verification_report'
+    expect(result.status).toBe('completed')
+    expect(result.artifacts).toEqual([])
+  })
+
   it('10. user_gate initial execution: deterministically pauses awaiting human approval', async () => {
     const registry = new RuntimeRegistry()
     const runner = new LeafRunner({ registry })
@@ -686,7 +726,7 @@ describe('LeafRunner', () => {
 
   it('13. user_gate regression: explicit approval in initialContext unblocks and emits declared output artifacts (with test seam)', async () => {
     const registry = new RuntimeRegistry()
-    const runner = new LeafRunner({ registry, allowContextApproval: true })
+    const runner = new LeafRunner({ registry, testOnlyAllowContextDecision: true })
 
     const node = makeNode('gate-1', {
       type: 'user_gate',
@@ -726,9 +766,9 @@ describe('LeafRunner', () => {
     expect(resultScoped.status).toBe('completed')
   })
 
-  it('13b. user_gate trust boundary: caller-supplied approval in initialContext without allowContextApproval fails closed and remains blocked', async () => {
+  it('13b. user_gate trust boundary: caller-supplied approval in initialContext without test seam fails closed and remains blocked', async () => {
     const registry = new RuntimeRegistry()
-    // Production default: allowContextApproval is undefined/false
+    // Production default: testOnlyAllowContextDecision is undefined/false
     const runner = new LeafRunner({ registry })
 
     const node = makeNode('gate-1', {
@@ -754,12 +794,45 @@ describe('LeafRunner', () => {
     expect(result.status).toBe('blocked')
     expect(result.awaitingUser).toBe(true)
     expect(result.resumable).toBe(true)
-    expect(result.error).toContain('cannot be satisfied by unauthenticated context approval')
+    expect(result.error).toContain('cannot be decided by untrusted context input')
   })
 
-  it('14. user_gate regression: explicit rejection in initialContext returns cancelled', async () => {
+  it('14. user_gate trust boundary: caller-supplied rejection in initialContext without test seam fails closed and remains blocked', async () => {
     const registry = new RuntimeRegistry()
+    // Production default: testOnlyAllowContextDecision is undefined/false
     const runner = new LeafRunner({ registry })
+
+    const node = makeNode('gate-1', {
+      type: 'user_gate',
+      runtimeType: 'human',
+    })
+    const ctx = makeContext(node, {
+      attempt: 2,
+      initialContext: { approval: 'rejected' },
+    })
+
+    const result = await runner.execute(ctx)
+
+    expect(result.status).toBe('blocked')
+    expect(result.awaitingUser).toBe(true)
+    expect(result.resumable).toBe(true)
+    expect(result.error).toContain('cannot be decided by untrusted context input')
+
+    // Also verify node-scoped rejection ('gate-1.approval': 'rejected') fails closed in production
+    const ctxScoped = makeContext(node, {
+      attempt: 2,
+      initialContext: { 'gate-1.approval': 'rejected' },
+    })
+    const resultScoped = await runner.execute(ctxScoped)
+    expect(resultScoped.status).toBe('blocked')
+    expect(resultScoped.awaitingUser).toBe(true)
+    expect(resultScoped.resumable).toBe(true)
+    expect(resultScoped.error).toContain('cannot be decided by untrusted context input')
+  })
+
+  it('14b. user_gate test seam: explicit rejection in initialContext returns cancelled when test seam is enabled', async () => {
+    const registry = new RuntimeRegistry()
+    const runner = new LeafRunner({ registry, testOnlyAllowContextDecision: true })
 
     const node = makeNode('gate-1', {
       type: 'user_gate',
@@ -783,6 +856,25 @@ describe('LeafRunner', () => {
     const resultScoped = await runner.execute(ctxScoped)
     expect(resultScoped.status).toBe('cancelled')
     expect(resultScoped.error).toBe('User declined approval')
+  })
+
+  it('14c. user_gate legitimate cancellation: AbortSignal cancellation returns cancelled in production without test seam', async () => {
+    const registry = new RuntimeRegistry()
+    const runner = new LeafRunner({ registry })
+
+    const controller = new AbortController()
+    controller.abort()
+
+    const node = makeNode('gate-1', {
+      type: 'user_gate',
+      runtimeType: 'human',
+    })
+    const ctx = makeContext(node, { signal: controller.signal })
+
+    const result = await runner.execute(ctx)
+
+    expect(result.status).toBe('cancelled')
+    expect(result.error).toContain('Execution cancelled by signal')
   })
 
   it('15. router node dispatch refusal: fails closed because routers belong to GraphExecutor', async () => {
@@ -1064,7 +1156,7 @@ describe('LeafRunner', () => {
         exchangeFn,
         verifyFn,
         decisionStore,
-        allowContextApproval: true,
+        testOnlyAllowContextDecision: true,
       })
 
       const executor1 = new GraphExecutor({
@@ -1323,7 +1415,7 @@ describe('LeafRunner', () => {
       expect(run1.status).toBe('running')
       expect(run1.blockedNodeIds).toEqual(['gate'])
 
-      // Run 2: Resume with explicit rejection signal
+      // Run 2: Resume with untrusted rejection signal in production (must fail closed and remain blocked)
       const run2 = await executor.run({
         graphRunId,
         workflowId,
@@ -1334,15 +1426,209 @@ describe('LeafRunner', () => {
         initialContext: { approval: 'rejected' },
       })
 
-      expect(run2.status).toBe('cancelled')
+      expect(run2.status).toBe('running')
+      expect(run2.blockedNodeIds).toEqual(['gate'])
       expect(run2.completedNodeIds).not.toContain('verifier')
       expect(workflowStore.getNodeAttempts(graphRunId, 'verifier')).toHaveLength(0)
 
-      const gateAttempts = workflowStore.getNodeAttempts(graphRunId, 'gate')
-      expect(gateAttempts).toHaveLength(2)
-      expect(gateAttempts[1]?.status).toBe('cancelled')
-      expect(gateAttempts[1]?.error).toBe('User declined approval')
+      const gateAttemptsRun2 = workflowStore.getNodeAttempts(graphRunId, 'gate')
+      expect(gateAttemptsRun2).toHaveLength(2)
+      expect(gateAttemptsRun2[1]?.status).toBe('blocked')
+      expect(gateAttemptsRun2[1]?.error).toContain('cannot be decided by untrusted context input')
 
+      // Run 3: Resume with explicit test seam enabled allows test rejection to cancel run
+      const testSeamLeafExecutor = createLeafRunner({
+        registry,
+        testOnlyAllowContextDecision: true,
+      })
+      const executorWithSeam = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        decisionStore,
+        executeLeafNode: testSeamLeafExecutor,
+      })
+
+      const run3 = await executorWithSeam.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        resumeNodeIds: ['gate'],
+        initialContext: { approval: 'rejected' },
+      })
+
+      expect(run3.status).toBe('cancelled')
+      expect(run3.completedNodeIds).not.toContain('verifier')
+      expect(workflowStore.getNodeAttempts(graphRunId, 'verifier')).toHaveLength(0)
+
+      const gateAttemptsRun3 = workflowStore.getNodeAttempts(graphRunId, 'gate')
+      expect(gateAttemptsRun3).toHaveLength(3)
+      expect(gateAttemptsRun3[2]?.status).toBe('cancelled')
+      expect(gateAttemptsRun3[2]?.error).toBe('User declined approval')
+
+      const runInDb = workflowStore.getGraphRun(graphRunId)
+      expect(runInDb?.status).toBe('cancelled')
+    } finally {
+      closeDb()
+      for (const dir of dirsToCleanup) {
+        try {
+          rmSync(dir, { recursive: true, force: true })
+        } catch {
+          // ignore
+        }
+      }
+    }
+  })
+
+  it('18b. GraphExecutor integration: authoritative AbortSignal cancellation cancels graph run in production', async () => {
+    const dirsToCleanup: string[] = []
+    const { db, close: closeDb } = initialiseDatabase(':memory:')
+
+    try {
+      const repoDir = mkdtempSync(join(tmpdir(), 'forge-gate-abort-repo-'))
+      dirsToCleanup.push(repoDir)
+      execFileSync('git', ['init', '-b', 'main'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.name', 'Forge Test'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.email', 'forge@test.local'], { cwd: repoDir })
+      writeFileSync(join(repoDir, 'README.md'), '# Test Repo\n')
+      execFileSync('git', ['add', '.'], { cwd: repoDir })
+      execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: repoDir })
+
+      const worktreeParentDir = mkdtempSync(join(tmpdir(), 'forge-gate-abort-wt-'))
+      dirsToCleanup.push(worktreeParentDir)
+      const artifactsDir = mkdtempSync(join(tmpdir(), 'forge-gate-abort-art-'))
+      dirsToCleanup.push(artifactsDir)
+
+      const eventStore = new EventStore(db)
+      const workflowStore = new WorkflowStore(db)
+      const artifactStore = new ArtifactStore(db)
+      const decisionStore = new DecisionStore(db, eventStore)
+      const worktreeService = new WorktreeService({
+        repositoryPath: repoDir,
+        root: worktreeParentDir,
+      })
+      const artifactService = new ArtifactService(artifactsDir, artifactStore)
+
+      const forkSha = shaSchema.parse(
+        execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoDir }).toString().trim(),
+      )
+
+      const projectId = projectIdSchema.parse(randomUUID())
+      const workflowId = workflowIdSchema.parse(randomUUID())
+      const now = new Date().toISOString()
+
+      new ProjectStore(db).create(
+        {
+          id: projectId,
+          name: 'Test Project',
+          repository: {
+            id: repositoryIdSchema.parse(randomUUID()),
+            absolutePath: repoDir,
+            defaultBranch: 'main',
+            buildCommand: null,
+            testCommand: null,
+            tech: [],
+          },
+          createdAt: now,
+          updatedAt: now,
+        },
+        'user',
+      )
+
+      const taskId = taskIdSchema.parse(randomUUID())
+      const taskEvent = eventStore.append(
+        {
+          type: 'task.created',
+          payload: {
+            task: {
+              id: taskId,
+              objective: 'Cancel test task',
+              constraints: [],
+              completionCriteria: [
+                { kind: 'tests', description: 'the test suite passes', params: {} },
+              ],
+              scope: { allowedPaths: [], forbiddenPaths: [] },
+              lockedDecisionIds: [],
+              correctsTaskId: null,
+              createdAt: now,
+            },
+          },
+        },
+        { projectId, actor: 'user', occurredAt: now },
+      )
+      applyEvent(db, taskEvent)
+
+      workflowStore.start(
+        {
+          workflowId,
+          projectId,
+          taskId,
+          templateId: 'test-template-abort',
+          startedAt: now,
+        },
+        'user',
+      )
+
+      const graphRunId = randomUUID()
+      new RunStore(db).createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: now,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      const gateNode = makeNode('gate', {
+        type: 'user_gate',
+        runtimeType: 'human',
+      })
+
+      const template: WorkflowTemplateV2 = {
+        id: 'test-template-abort',
+        name: 'Abort Template',
+        description: 'Test template for AbortSignal cancellation',
+        version: 1,
+        status: 'published',
+        category: 'Test',
+        nodes: [gateNode],
+        edges: [],
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      const registry = new RuntimeRegistry()
+      // Production executor without test seam
+      const leafExecutor = createLeafRunner({ registry })
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        decisionStore,
+        executeLeafNode: leafExecutor,
+      })
+
+      const controller = new AbortController()
+      controller.abort()
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+        signal: controller.signal,
+      })
+
+      expect(run.status).toBe('cancelled')
       const runInDb = workflowStore.getGraphRun(graphRunId)
       expect(runInDb?.status).toBe('cancelled')
     } finally {
@@ -1530,6 +1816,196 @@ describe('LeafRunner', () => {
 
       // GraphExecutor detects missing required output and fails the node attempt closed!
       // Axiom A3: No placeholder artifacts are fabricated to bypass required output checks.
+      expect(run.status).toBe('failed')
+      expect(run.failedNodeIds).toContain('verifier')
+
+      const attempts = workflowStore.getNodeAttempts(graphRunId, 'verifier')
+      expect(attempts).toHaveLength(1)
+      expect(attempts[0]?.status).toBe('failed')
+      expect(attempts[0]?.error).toContain('missing required output(s): verification_report')
+    } finally {
+      closeDb()
+      for (const dir of dirsToCleanup) {
+        try {
+          rmSync(dir, { recursive: true, force: true })
+        } catch {
+          // ignore
+        }
+      }
+    }
+  })
+
+  it('21. GraphExecutor integration: explicit verdict artifact cannot satisfy required evidence report output when evidence is missing', async () => {
+    const dirsToCleanup: string[] = []
+    const { db, close: closeDb } = initialiseDatabase(':memory:')
+
+    try {
+      const repoDir = mkdtempSync(join(tmpdir(), 'forge-verdict-not-ev-repo-'))
+      dirsToCleanup.push(repoDir)
+      execFileSync('git', ['init', '-b', 'main'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.name', 'Forge Test'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.email', 'forge@test.local'], { cwd: repoDir })
+      writeFileSync(join(repoDir, 'README.md'), '# Test Repo\n')
+      execFileSync('git', ['add', '.'], { cwd: repoDir })
+      execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: repoDir })
+
+      const worktreeParentDir = mkdtempSync(join(tmpdir(), 'forge-verdict-not-ev-wt-'))
+      dirsToCleanup.push(worktreeParentDir)
+      const artifactsDir = mkdtempSync(join(tmpdir(), 'forge-verdict-not-ev-art-'))
+      dirsToCleanup.push(artifactsDir)
+
+      const eventStore = new EventStore(db)
+      const workflowStore = new WorkflowStore(db)
+      const artifactStore = new ArtifactStore(db)
+      const decisionStore = new DecisionStore(db, eventStore)
+      const worktreeService = new WorktreeService({
+        repositoryPath: repoDir,
+        root: worktreeParentDir,
+      })
+      const artifactService = new ArtifactService(artifactsDir, artifactStore)
+
+      const forkSha = shaSchema.parse(
+        execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoDir }).toString().trim(),
+      )
+
+      const projectId = projectIdSchema.parse(randomUUID())
+      const workflowId = workflowIdSchema.parse(randomUUID())
+      const now = new Date().toISOString()
+
+      new ProjectStore(db).create(
+        {
+          id: projectId,
+          name: 'Test Project',
+          repository: {
+            id: repositoryIdSchema.parse(randomUUID()),
+            absolutePath: repoDir,
+            defaultBranch: 'main',
+            buildCommand: null,
+            testCommand: null,
+            tech: [],
+          },
+          createdAt: now,
+          updatedAt: now,
+        },
+        'user',
+      )
+
+      const taskId = taskIdSchema.parse(randomUUID())
+      const taskEvent = eventStore.append(
+        {
+          type: 'task.created',
+          payload: {
+            task: {
+              id: taskId,
+              objective: 'Verify task',
+              constraints: [],
+              completionCriteria: [
+                { kind: 'tests', description: 'the test suite passes', params: {} },
+              ],
+              scope: { allowedPaths: [], forbiddenPaths: [] },
+              lockedDecisionIds: [],
+              correctsTaskId: null,
+              createdAt: now,
+            },
+          },
+        },
+        { projectId, actor: 'user', occurredAt: now },
+      )
+      applyEvent(db, taskEvent)
+
+      workflowStore.start(
+        {
+          workflowId,
+          projectId,
+          taskId,
+          templateId: 'test-template-verdict-not-ev',
+          startedAt: now,
+        },
+        'user',
+      )
+
+      const graphRunId = randomUUID()
+      new RunStore(db).createRun({
+        id: runIdSchema.parse(graphRunId),
+        projectId,
+        taskId,
+        type: 'workflow',
+        status: 'running',
+        startedAt: now,
+        finishedAt: null,
+        exitCode: null,
+        summary: null,
+        error: null,
+        metadata: {},
+      })
+
+      // Verification node declares BOTH an explicit verdict output AND a required evidence report output
+      const verifierNode = makeNode('verifier', {
+        type: 'verification',
+        runtimeType: 'forge-engine',
+        outputs: [
+          {
+            name: 'verdict',
+            kind: 'stage-output',
+            format: 'json',
+            required: true,
+            requiredSections: [],
+          },
+          {
+            name: 'verification_report',
+            kind: 'stage-output',
+            format: 'text',
+            required: true,
+            requiredSections: [],
+          },
+        ],
+      })
+
+      const template: WorkflowTemplateV2 = {
+        id: 'test-template-verdict-not-ev',
+        name: 'Verdict Not Evidence Template',
+        description: 'Template with verifier requiring both verdict and evidence',
+        version: 1,
+        status: 'published',
+        category: 'Test',
+        nodes: [verifierNode],
+        edges: [],
+        createdAt: now,
+        updatedAt: now,
+      }
+
+      // verifyFn returns passed: true, verdict: 'pass', but artifacts: [] (no evidence produced)
+      const verifyFn = vi.fn().mockResolvedValue({
+        passed: true,
+        verdict: 'pass',
+        findings: [],
+        falseClaims: [],
+        detail: 'clean',
+        criteria: [],
+        artifacts: [],
+      })
+
+      const registry = new RuntimeRegistry()
+      const leafExecutor = createLeafRunner({ registry, verifyFn })
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        artifactService,
+        decisionStore,
+        executeLeafNode: leafExecutor,
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template,
+        forkSha,
+      })
+
+      // GraphExecutor detects missing required evidence output 'verification_report' and fails closed!
+      // The emitted verdict artifact MUST NOT satisfy the required evidence output.
       expect(run.status).toBe('failed')
       expect(run.failedNodeIds).toContain('verifier')
 

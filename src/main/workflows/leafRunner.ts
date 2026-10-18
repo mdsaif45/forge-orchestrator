@@ -38,14 +38,16 @@ export interface LeafRunnerOptions {
   readonly verifyFn?: typeof verifyStep | undefined
   readonly onEvent?: ((event: RuntimeEvent) => void) | undefined
   /**
-   * TEST SEAM ONLY: When true, allows unauthenticated approval strings in `initialContext`
-   * to satisfy user gates.
+   * TEST SEAM ONLY: When true, allows unauthenticated approval or rejection strings in `initialContext`
+   * to satisfy or cancel user gates in isolated tests.
    *
    * In production (default: false/undefined), `initialContext` is untrusted caller-controlled
-   * input and MUST NEVER be treated as proof of human approval. User gates remain strictly
+   * input and MUST NEVER be treated as proof of human approval or rejection. User gates remain strictly
    * fail-closed (resumably blocked) until an authenticated human-decision mechanism (Axiom A4)
    * is formally integrated into the workflow node schema.
    */
+  readonly testOnlyAllowContextDecision?: boolean | undefined
+  /** Backward-compatible alias for testOnlyAllowContextDecision */
   readonly allowContextApproval?: boolean | undefined
 }
 
@@ -351,18 +353,20 @@ export class LeafRunner {
     const now = new Date().toISOString()
     const artifacts: WorkflowArtifact[] = []
 
+    // Separate declared outputs into evidence deliverables vs. explicit verdict outputs
+    const evidenceOutputs = ctx.node.outputs.filter((o) => !isExplicitVerdictOutput(o))
+    const verdictOutputs = ctx.node.outputs.filter((o) => isExplicitVerdictOutput(o))
+
     // 1. Map genuine EvidenceArtifacts produced by verifyStep()
     for (let idx = 0; idx < result.artifacts.length; idx++) {
       const ea = result.artifacts[idx]
       if (!ea) continue
       const declaredOutput =
-        ctx.node.outputs.find(
-          (o) =>
-            !isExplicitVerdictOutput(o) &&
-            (o.kind === ea.kind || o.name === ea.kind || o.name === `${ea.kind}_evidence`),
+        evidenceOutputs.find(
+          (o) => o.kind === ea.kind || o.name === ea.kind || o.name === `${ea.kind}_evidence`,
         ) ??
-        ctx.node.outputs.filter((o) => !isExplicitVerdictOutput(o))[idx] ??
-        ctx.node.outputs[0]
+        evidenceOutputs[idx] ??
+        evidenceOutputs[0]
 
       const kind = declaredOutput?.kind ?? 'stage-output'
       const title = declaredOutput?.name ?? `${ea.kind} verification evidence`
@@ -388,44 +392,42 @@ export class LeafRunner {
       })
     }
 
-    // 2. Map explicit verdict outputs if declared by the node contract
-    for (const outDef of ctx.node.outputs) {
-      if (isExplicitVerdictOutput(outDef)) {
-        const content =
-          outDef.format === 'json'
-            ? JSON.stringify(
-                {
-                  passed: result.passed,
-                  verdict: result.verdict,
-                  detail: result.detail,
-                  findings: result.findings,
-                  falseClaims: result.falseClaims,
-                },
-                null,
-                2,
-              )
-            : result.passed
-              ? `Verification passed: ${result.detail || 'all checks passed'}`
-              : `Verification failed: ${result.findings.join('; ') || result.detail || 'checks failed'}`
+    // 2. Map explicit verdict outputs ONLY if declared by the node contract
+    for (const outDef of verdictOutputs) {
+      const content =
+        outDef.format === 'json'
+          ? JSON.stringify(
+              {
+                passed: result.passed,
+                verdict: result.verdict,
+                detail: result.detail,
+                findings: result.findings,
+                falseClaims: result.falseClaims,
+              },
+              null,
+              2,
+            )
+          : result.passed
+            ? `Verification passed: ${result.detail || 'all checks passed'}`
+            : `Verification failed: ${result.findings.join('; ') || result.detail || 'checks failed'}`
 
-        artifacts.push({
-          id: randomUUID(),
-          workflowId: ctx.workflowId,
-          nodeId: ctx.node.id,
-          kind: outDef.kind,
-          format: outDef.format,
-          title: `${ctx.node.title} - ${outDef.name}`,
-          content,
-          metadata: {
-            outputName: outDef.name,
-            passed: result.passed,
-            verdict: result.verdict,
-            detail: result.detail,
-            findings: result.findings,
-          },
-          createdAt: now,
-        })
-      }
+      artifacts.push({
+        id: randomUUID(),
+        workflowId: ctx.workflowId,
+        nodeId: ctx.node.id,
+        kind: outDef.kind,
+        format: outDef.format,
+        title: `${ctx.node.title} - ${outDef.name}`,
+        content,
+        metadata: {
+          outputName: outDef.name,
+          passed: result.passed,
+          verdict: result.verdict,
+          detail: result.detail,
+          findings: result.findings,
+        },
+        createdAt: now,
+      })
     }
 
     // Axiom A3: Never fabricate placeholder evidence artifacts!
@@ -452,89 +454,98 @@ export class LeafRunner {
   // ---------------------------------------------------------------------------
 
   private executeUserGate(ctx: NodeExecutionContext): NodeExecutionResult {
-    // Resolve any explicit approval or rejection signal for this gate
-    const gateApprovalSignal =
+    // 1. Authoritative cancellation: check abort signal
+    if (ctx.signal.aborted) {
+      return {
+        status: 'cancelled',
+        error: 'Execution cancelled by signal',
+      }
+    }
+
+    const allowContextDecision =
+      this.options.testOnlyAllowContextDecision === true ||
+      this.options.allowContextApproval === true
+
+    // 2. Isolated test seam: if explicitly enabled, evaluate initialContext decision signals
+    if (allowContextDecision) {
+      const gateSignal =
+        ctx.initialContext?.[`${ctx.node.id}.approval`] ??
+        ctx.initialContext?.[ctx.node.id] ??
+        ctx.initialContext?.approval ??
+        ctx.initialContext?.user_decision
+
+      // TEST SEAM ONLY: explicit rejection in initialContext returns cancelled
+      if (gateSignal === 'rejected' || gateSignal === 'declined' || gateSignal === 'denied') {
+        return {
+          status: 'cancelled',
+          error: 'User declined approval',
+        }
+      }
+
+      // TEST SEAM ONLY: explicit approval in initialContext completes gate
+      if (gateSignal === 'approved' || gateSignal === 'accepted') {
+        const now = new Date().toISOString()
+        const artifacts: WorkflowArtifact[] = []
+
+        for (const outDef of ctx.node.outputs) {
+          artifacts.push({
+            id: randomUUID(),
+            workflowId: ctx.workflowId,
+            nodeId: ctx.node.id,
+            kind: outDef.kind,
+            format: outDef.format,
+            title: `${ctx.node.title} - ${outDef.name}`,
+            content: JSON.stringify({ approved: true, approvedAt: now }),
+            metadata: {
+              approved: true,
+              outputName: outDef.name,
+            },
+            createdAt: now,
+          })
+        }
+
+        if (artifacts.length === 0) {
+          artifacts.push({
+            id: randomUUID(),
+            workflowId: ctx.workflowId,
+            nodeId: ctx.node.id,
+            kind: 'stage-output',
+            format: 'json',
+            title: `${ctx.node.title} - approval`,
+            content: JSON.stringify({ approved: true, approvedAt: now }),
+            metadata: { approved: true },
+            createdAt: now,
+          })
+        }
+
+        return {
+          status: 'completed',
+          artifacts,
+        }
+      }
+    }
+
+    // 3. In production (or when test seam is disabled/omitted), any caller-supplied string in initialContext
+    // (whether 'approved', 'rejected', etc.) is untrusted and CANNOT authorize a human decision or cancel the graph.
+    // Without an authenticated, gate-scoped human decision (Axiom A4), the gate remains resumably blocked.
+    // - An attempt number (attempt > 1) is NOT evidence of human approval.
+    // - An unrelated project-wide locked decision does NOT satisfy or unblock this gate.
+    // - An unauthenticated string in initialContext does NOT unblock or cancel the gate in production.
+    const untrustedSignal =
       ctx.initialContext?.[`${ctx.node.id}.approval`] ??
       ctx.initialContext?.[ctx.node.id] ??
       ctx.initialContext?.approval ??
       ctx.initialContext?.user_decision
 
-    // 1. Explicit rejection: follows established cancellation semantics (transitions graph to cancelled).
-    // Failing closed upon an explicit decline is always safe, even from invocation context.
-    if (
-      gateApprovalSignal === 'rejected' ||
-      gateApprovalSignal === 'declined' ||
-      gateApprovalSignal === 'denied'
-    ) {
-      return {
-        status: 'cancelled',
-        error: 'User declined approval',
-      }
-    }
-
-    // 2. Explicit approval: ONLY permitted when the test seam `allowContextApproval` is explicitly enabled.
-    // In production, `initialContext` is untrusted caller-supplied input without cryptographic or Axiom A4
-    // provenance. Treating a caller string alone as human approval violates the trust boundary.
-    if (
-      (gateApprovalSignal === 'approved' || gateApprovalSignal === 'accepted') &&
-      this.options.allowContextApproval === true
-    ) {
-      const now = new Date().toISOString()
-      const artifacts: WorkflowArtifact[] = []
-
-      for (const outDef of ctx.node.outputs) {
-        artifacts.push({
-          id: randomUUID(),
-          workflowId: ctx.workflowId,
-          nodeId: ctx.node.id,
-          kind: outDef.kind,
-          format: outDef.format,
-          title: `${ctx.node.title} - ${outDef.name}`,
-          content: JSON.stringify({ approved: true, approvedAt: now }),
-          metadata: {
-            approved: true,
-            outputName: outDef.name,
-          },
-          createdAt: now,
-        })
-      }
-
-      if (artifacts.length === 0) {
-        artifacts.push({
-          id: randomUUID(),
-          workflowId: ctx.workflowId,
-          nodeId: ctx.node.id,
-          kind: 'stage-output',
-          format: 'json',
-          title: `${ctx.node.title} - approval`,
-          content: JSON.stringify({ approved: true, approvedAt: now }),
-          metadata: { approved: true },
-          createdAt: now,
-        })
-      }
-
-      return {
-        status: 'completed',
-        artifacts,
-      }
-    }
-
-    // 3. In production (or when allowContextApproval is false/omitted), or in the absence of an explicit signal,
-    // the gate remains deterministically and resumably blocked.
-    // - An attempt number (attempt > 1) is NOT evidence of human approval.
-    // - An unrelated project-wide locked decision does NOT satisfy or unblock this gate.
-    // - An unauthenticated string in initialContext does NOT unblock the gate in production.
-    const reason =
-      (gateApprovalSignal === 'approved' || gateApprovalSignal === 'accepted') &&
-      !this.options.allowContextApproval
-        ? `User gate "${ctx.node.title}" cannot be satisfied by unauthenticated context approval (requires authenticated human decision)`
-        : `User gate "${ctx.node.title}" awaiting human approval`
+    const errorMsg = untrustedSignal
+      ? `User gate "${ctx.node.title}" cannot be decided by untrusted context input (requires authenticated human decision)`
+      : `User gate "${ctx.node.title}" awaiting human approval`
 
     return {
       status: 'blocked',
       awaitingUser: true,
       resumable: true,
-      error: reason,
+      error: errorMsg,
     }
   }
 }

@@ -20,8 +20,10 @@ import {
   type LoopPolicy,
   type OutputDefinition,
   type ProjectId,
+  type Repository,
   type Sha,
   type StepId,
+  type Task,
   type TaskId,
   type WorkflowArtifact,
   type WorkflowEdge,
@@ -37,6 +39,7 @@ import {
 import type { ArtifactService } from '../artifacts/artifactService'
 import type { ChangeSetStore } from '../db/changeSetStore'
 import type { DecisionStore } from '../db/decisionStore'
+import type { ProjectStore } from '../db/projectStore'
 import {
   WorkflowDomainError,
   type AdvanceLoopIterationResult,
@@ -52,6 +55,9 @@ export interface NodeExecutionContext {
   readonly graphRunId: string
   readonly workflowId: WorkflowId
   readonly projectId: ProjectId
+  readonly taskId?: TaskId | undefined
+  readonly task?: Task | undefined
+  readonly repository?: Repository | undefined
   readonly node: WorkflowNode
   readonly attempt: number
   readonly worktreePath?: string | undefined
@@ -97,6 +103,7 @@ export interface GraphExecutorOptions {
   readonly artifactService?: ArtifactService | undefined
   readonly decisionStore?: DecisionStore | undefined
   readonly changeSetStore?: ChangeSetStore | undefined
+  readonly projectStore?: ProjectStore | undefined
   readonly actor?: Actor | undefined
   readonly maxConcurrency?: number | undefined
   readonly executeLeafNode?: LeafNodeExecutor | undefined
@@ -115,6 +122,9 @@ export interface RunGraphOptions {
   readonly graphRunId?: string | undefined
   readonly workflowId: WorkflowId
   readonly projectId: ProjectId
+  readonly taskId?: TaskId | undefined
+  readonly task?: Task | undefined
+  readonly repository?: Repository | undefined
   readonly template: WorkflowTemplateV2
   readonly forkSha: Sha
   readonly initialContext?: Readonly<Record<string, string>> | undefined
@@ -215,6 +225,7 @@ export class GraphExecutor {
   private readonly artifactService?: ArtifactService | undefined
   private readonly decisionStore?: DecisionStore | undefined
   private readonly changeSetStore?: ChangeSetStore | undefined
+  private readonly projectStore?: ProjectStore | undefined
   private readonly defaultActor: Actor
   private readonly maxConcurrency?: number | undefined
   private readonly executeLeafNode?: LeafNodeExecutor | undefined
@@ -265,6 +276,7 @@ export class GraphExecutor {
     this.artifactService = options.artifactService
     this.decisionStore = options.decisionStore
     this.changeSetStore = options.changeSetStore
+    this.projectStore = options.projectStore
     this.defaultActor = options.actor ?? 'system'
     this.maxConcurrency = options.maxConcurrency
     this.executeLeafNode = options.executeLeafNode
@@ -279,6 +291,14 @@ export class GraphExecutor {
     const { workflowId, projectId, template, forkSha, initialContext = {} } = options
     const abortSignal = options.signal ?? new AbortController().signal
     const actor = this.defaultActor
+
+    const workflow = this.workflowStore.find(workflowId)
+    const resolvedTaskId = options.taskId ?? workflow?.taskId
+    const resolvedTask =
+      options.task ??
+      (resolvedTaskId ? (this.workflowStore.getTask(resolvedTaskId) ?? undefined) : undefined)
+    const resolvedRepository =
+      options.repository ?? this.projectStore?.findById(projectId)?.repository ?? undefined
 
     // 1. Static validation: forward DAG must be acyclic and feedback loops valid
     validateWorkflowGraph(template.nodes, template.edges, template.loopPolicy ?? options.loopPolicy)
@@ -990,6 +1010,9 @@ export class GraphExecutor {
             graphRunId,
             workflowId,
             projectId,
+            taskId: resolvedTask?.id ?? resolvedTaskId,
+            task: resolvedTask,
+            repository: resolvedRepository,
             node,
             attempt: attemptNum,
             worktreePath: branchWorktree?.path,

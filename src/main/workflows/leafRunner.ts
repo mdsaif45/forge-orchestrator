@@ -8,14 +8,17 @@ import {
   type IAgentRuntime,
   type OutputDefinition,
   type PromptPacket,
+  type Repository,
   type Role,
   type RuntimeEvent,
   type StepId,
-  type TaskId,
+  type Task,
   type WorkflowArtifact,
   permissionForRole,
 } from '@shared/domain'
 import type { DecisionStore } from '../db/decisionStore'
+import type { ProjectStore } from '../db/projectStore'
+import type { WorkflowStore } from '../db/workflowStore'
 import { buildChangeSet } from '../evidence/changeSetBuilder'
 import { verifyStep } from '../evidence/verifier'
 import type { GitService } from '../git'
@@ -24,31 +27,40 @@ import type { RuntimeRegistry } from '../runtimes/registry'
 import type { LeafNodeExecutor, NodeExecutionContext, NodeExecutionResult } from './graphExecutor'
 
 /**
- * Options for configuring the generic LeafRunner.
+ * Production options for configuring the generic LeafRunner.
+ * Structurally free of testing seams.
  */
 export interface LeafRunnerOptions {
   readonly registry: RuntimeRegistry
   readonly defaultRuntimeId?: string | undefined
   readonly gitServiceFactory?: ((path: string) => GitService) | undefined
   readonly decisionStore?: DecisionStore | undefined
+  readonly workflowStore?: WorkflowStore | undefined
+  readonly projectStore?: ProjectStore | undefined
+  readonly task?: Task | undefined
+  readonly repository?: Repository | undefined
   readonly actor?: Actor | undefined
   readonly compilePacket?:
     ((ctx: NodeExecutionContext, role: Role) => Promise<PromptPacket> | PromptPacket) | undefined
   readonly exchangeFn?: typeof exchange | undefined
   readonly verifyFn?: typeof verifyStep | undefined
   readonly onEvent?: ((event: RuntimeEvent) => void) | undefined
+}
+
+/**
+ * Test-only options extending production LeafRunnerOptions with testing seams.
+ * Structurally segregated so production factories and configuration types
+ * do not expose or accept testing seams.
+ */
+export interface TestLeafRunnerOptions extends LeafRunnerOptions {
   /**
    * TEST SEAM ONLY: When true, allows unauthenticated approval or rejection strings in `initialContext`
    * to satisfy or cancel user gates in isolated tests.
    *
-   * In production (default: false/undefined), `initialContext` is untrusted caller-controlled
-   * input and MUST NEVER be treated as proof of human approval or rejection. User gates remain strictly
-   * fail-closed (resumably blocked) until an authenticated human-decision mechanism (Axiom A4)
-   * is formally integrated into the workflow node schema.
+   * In production, `initialContext` is untrusted caller-controlled input and MUST NEVER be treated
+   * as proof of human approval or rejection. User gates remain strictly fail-closed (resumably blocked).
    */
   readonly testOnlyAllowContextDecision?: boolean | undefined
-  /** Backward-compatible alias for testOnlyAllowContextDecision */
-  readonly allowContextApproval?: boolean | undefined
 }
 
 function isExplicitVerdictOutput(outDef: OutputDefinition): boolean {
@@ -64,7 +76,7 @@ function isExplicitVerdictOutput(outDef: OutputDefinition): boolean {
  * without owning DAG scheduling, worktree allocation/disposal, or durable persistence.
  */
 export class LeafRunner {
-  constructor(private readonly options: LeafRunnerOptions) {}
+  constructor(private readonly options: LeafRunnerOptions | TestLeafRunnerOptions) {}
 
   /**
    * Main execution seam satisfying `LeafNodeExecutor`.
@@ -220,6 +232,14 @@ export class LeafRunner {
       ctx.worktreePath &&
       this.options.gitServiceFactory
     ) {
+      const task = this.resolveTask(ctx)
+      if (!task) {
+        return {
+          status: 'failed',
+          error: `Agent node "${ctx.node.id}" cannot build changeset: authoritative task is unavailable`,
+        }
+      }
+
       const git = this.options.gitServiceFactory(ctx.worktreePath)
       const validStepId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
         ctx.node.id,
@@ -230,12 +250,21 @@ export class LeafRunner {
       const built = await buildChangeSet(git, {
         baseSha: ctx.forkSha,
         report,
-        scope: { allowedPaths: [], forbiddenPaths: [] },
+        scope: task.scope,
         authorActor: this.options.actor ?? 'system',
         stepId: validStepId,
-        taskId: 'default-task' as TaskId,
+        taskId: task.id,
         capturedAt: new Date().toISOString(),
       })
+
+      if (!built.reconciliation.inScope) {
+        return {
+          status: 'failed',
+          error: `Policy violation: ${String(built.reconciliation.outOfScope.length)} file(s) modified outside scope (${built.reconciliation.outOfScope.join(', ')})`,
+          changeSet: built.changeSet,
+        }
+      }
+
       changeSet = built.changeSet
     }
 
@@ -328,6 +357,29 @@ export class LeafRunner {
       }
     }
 
+    const repoConfig = this.resolveRepository(ctx)
+    if (!repoConfig) {
+      return {
+        status: 'failed',
+        error: `Verification configuration unavailable: repository configuration for project "${ctx.projectId}" not found`,
+      }
+    }
+
+    const task = this.resolveTask(ctx)
+    if (!task) {
+      return {
+        status: 'failed',
+        error: `Verification configuration unavailable: task for workflow "${ctx.workflowId}" not found`,
+      }
+    }
+
+    if (!repoConfig.buildCommand && !repoConfig.testCommand) {
+      return {
+        status: 'failed',
+        error: `Verification configuration error: repository has neither buildCommand nor testCommand configured`,
+      }
+    }
+
     const verifyFn = this.options.verifyFn ?? verifyStep
     const validStepId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
       ctx.node.id,
@@ -337,16 +389,17 @@ export class LeafRunner {
 
     const result = await verifyFn({
       repository: {
-        id: repositoryIdSchema.parse(randomUUID()),
+        id: repositoryIdSchema.parse(repoConfig.id),
         absolutePath: ctx.worktreePath,
-        defaultBranch: 'main',
-        buildCommand: null,
-        testCommand: null,
-        tech: [],
+        defaultBranch: repoConfig.defaultBranch,
+        buildCommand: repoConfig.buildCommand,
+        testCommand: repoConfig.testCommand,
+        tech: repoConfig.tech,
       },
       workflowId: ctx.workflowId,
       stepId: validStepId,
       report: null,
+      task,
       signal: ctx.signal,
     })
 
@@ -463,8 +516,8 @@ export class LeafRunner {
     }
 
     const allowContextDecision =
-      this.options.testOnlyAllowContextDecision === true ||
-      this.options.allowContextApproval === true
+      'testOnlyAllowContextDecision' in this.options &&
+      this.options.testOnlyAllowContextDecision === true
 
     // 2. Isolated test seam: if explicitly enabled, evaluate initialContext decision signals
     if (allowContextDecision) {
@@ -548,12 +601,50 @@ export class LeafRunner {
       error: errorMsg,
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Store Resolution Helpers
+  // ---------------------------------------------------------------------------
+
+  private resolveTask(ctx: NodeExecutionContext): Task | null {
+    if (ctx.task) return ctx.task
+    const taskId = ctx.taskId ?? this.options.task?.id
+    if (taskId && this.options.workflowStore) {
+      const fromStore = this.options.workflowStore.getTask(taskId)
+      if (fromStore) return fromStore
+    }
+    if (ctx.workflowId && this.options.workflowStore) {
+      const workflow = this.options.workflowStore.find(ctx.workflowId)
+      if (workflow?.taskId) {
+        const fromStore = this.options.workflowStore.getTask(workflow.taskId)
+        if (fromStore) return fromStore
+      }
+    }
+    return this.options.task ?? null
+  }
+
+  private resolveRepository(ctx: NodeExecutionContext): Repository | null {
+    if (ctx.repository) return ctx.repository
+    if (this.options.projectStore && ctx.projectId) {
+      const project = this.options.projectStore.findById(ctx.projectId)
+      if (project?.repository) return project.repository
+    }
+    return this.options.repository ?? null
+  }
 }
 
 /**
  * Creates a LeafNodeExecutor function suitable for passing to GraphExecutorOptions.
  */
 export function createLeafRunner(options: LeafRunnerOptions): LeafNodeExecutor {
+  const runner = new LeafRunner(options)
+  return (ctx: NodeExecutionContext) => runner.execute(ctx)
+}
+
+/**
+ * Creates a LeafNodeExecutor function with test-only options for isolated testing seams.
+ */
+export function createTestLeafRunner(options: TestLeafRunnerOptions): LeafNodeExecutor {
   const runner = new LeafRunner(options)
   return (ctx: NodeExecutionContext) => runner.execute(ctx)
 }

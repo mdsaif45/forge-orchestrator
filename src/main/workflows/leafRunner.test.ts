@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/unbound-method */
 import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -17,7 +17,9 @@ import {
   type AgentReport,
   type Capability,
   type IAgentRuntime,
+  type Repository,
   type RuntimeId,
+  type Task,
   type WorkflowNode,
   type WorkflowTemplateV2,
 } from '@shared/domain'
@@ -30,10 +32,10 @@ import { ProjectStore } from '../db/projectStore'
 import { applyEvent } from '../db/projections'
 import { RunStore } from '../db/runStore'
 import { WorkflowStore } from '../db/workflowStore'
-import { WorktreeService } from '../git'
+import { GitService, WorktreeService } from '../git'
 import { RuntimeRegistry } from '../runtimes/registry'
 import { GraphExecutor } from './graphExecutor'
-import { LeafRunner, createLeafRunner } from './leafRunner'
+import { LeafRunner, createLeafRunner, createTestLeafRunner } from './leafRunner'
 import type { NodeExecutionContext } from './graphExecutor'
 
 function mockRuntime(overrides: Partial<IAgentRuntime> = {}): IAgentRuntime {
@@ -86,10 +88,34 @@ function makeContext(
   node: WorkflowNode,
   overrides: Partial<NodeExecutionContext> = {},
 ): NodeExecutionContext {
+  const taskId = taskIdSchema.parse(randomUUID())
+  const defaultTask: Task = {
+    id: taskId,
+    objective: 'Test task objective',
+    constraints: [],
+    completionCriteria: [{ kind: 'tests', description: 'the test suite passes', params: {} }],
+    scope: { allowedPaths: [], forbiddenPaths: [] },
+    lockedDecisionIds: [],
+    correctsTaskId: null,
+    createdAt: new Date().toISOString(),
+  }
+
+  const defaultRepository: Repository = {
+    id: repositoryIdSchema.parse(randomUUID()),
+    absolutePath: 'C:\\fake\\repo',
+    defaultBranch: 'main',
+    buildCommand: 'npm run build',
+    testCommand: 'npm test',
+    tech: ['typescript'],
+  }
+
   return {
     graphRunId: randomUUID(),
     workflowId: workflowIdSchema.parse(randomUUID()),
     projectId: projectIdSchema.parse(randomUUID()),
+    taskId,
+    task: defaultTask,
+    repository: defaultRepository,
     node,
     attempt: 1,
     forkSha: shaSchema.parse('a'.repeat(40)),
@@ -944,7 +970,8 @@ describe('LeafRunner', () => {
       const projectId = projectIdSchema.parse(randomUUID())
       const workflowId = workflowIdSchema.parse(randomUUID())
 
-      new ProjectStore(db).create(
+      const projectStore = new ProjectStore(db)
+      projectStore.create(
         {
           id: projectId,
           name: 'Test Project',
@@ -952,8 +979,8 @@ describe('LeafRunner', () => {
             id: repositoryIdSchema.parse(randomUUID()),
             absolutePath: repoDir,
             defaultBranch: 'main',
-            buildCommand: null,
-            testCommand: null,
+            buildCommand: 'npm run build',
+            testCommand: 'npm test',
             tech: [],
           },
           createdAt: new Date().toISOString(),
@@ -1150,7 +1177,7 @@ describe('LeafRunner', () => {
         ],
       })
 
-      const leafExecutor = createLeafRunner({
+      const leafExecutor = createTestLeafRunner({
         registry,
         defaultRuntimeId: 'test-runtime',
         exchangeFn,
@@ -1161,6 +1188,7 @@ describe('LeafRunner', () => {
 
       const executor1 = new GraphExecutor({
         workflowStore,
+        projectStore,
         worktreeService,
         artifactService,
         decisionStore,
@@ -1188,6 +1216,7 @@ describe('LeafRunner', () => {
       // Step 2: Reconstruct executor and test repeated recovery
       const executor2 = new GraphExecutor({
         workflowStore,
+        projectStore,
         worktreeService,
         artifactService,
         decisionStore,
@@ -1437,7 +1466,7 @@ describe('LeafRunner', () => {
       expect(gateAttemptsRun2[1]?.error).toContain('cannot be decided by untrusted context input')
 
       // Run 3: Resume with explicit test seam enabled allows test rejection to cancel run
-      const testSeamLeafExecutor = createLeafRunner({
+      const testSeamLeafExecutor = createTestLeafRunner({
         registry,
         testOnlyAllowContextDecision: true,
       })
@@ -1690,7 +1719,8 @@ describe('LeafRunner', () => {
       const workflowId = workflowIdSchema.parse(randomUUID())
       const now = new Date().toISOString()
 
-      new ProjectStore(db).create(
+      const projectStore = new ProjectStore(db)
+      projectStore.create(
         {
           id: projectId,
           name: 'Test Project',
@@ -1698,8 +1728,8 @@ describe('LeafRunner', () => {
             id: repositoryIdSchema.parse(randomUUID()),
             absolutePath: repoDir,
             defaultBranch: 'main',
-            buildCommand: null,
-            testCommand: null,
+            buildCommand: 'npm run build',
+            testCommand: 'npm test',
             tech: [],
           },
           createdAt: now,
@@ -1800,6 +1830,7 @@ describe('LeafRunner', () => {
 
       const executor = new GraphExecutor({
         workflowStore,
+        projectStore,
         worktreeService,
         artifactService,
         decisionStore,
@@ -1872,7 +1903,8 @@ describe('LeafRunner', () => {
       const workflowId = workflowIdSchema.parse(randomUUID())
       const now = new Date().toISOString()
 
-      new ProjectStore(db).create(
+      const projectStore = new ProjectStore(db)
+      projectStore.create(
         {
           id: projectId,
           name: 'Test Project',
@@ -1880,8 +1912,8 @@ describe('LeafRunner', () => {
             id: repositoryIdSchema.parse(randomUUID()),
             absolutePath: repoDir,
             defaultBranch: 'main',
-            buildCommand: null,
-            testCommand: null,
+            buildCommand: 'npm run build',
+            testCommand: 'npm test',
             tech: [],
           },
           createdAt: now,
@@ -1990,6 +2022,7 @@ describe('LeafRunner', () => {
 
       const executor = new GraphExecutor({
         workflowStore,
+        projectStore,
         worktreeService,
         artifactService,
         decisionStore,
@@ -2023,5 +2056,585 @@ describe('LeafRunner', () => {
         }
       }
     }
+  })
+  it('22. verification execution: default verifier runs against real repository commands and evaluates task completionCriteria', async () => {
+    const dirsToCleanup: string[] = []
+    try {
+      const repoDir = mkdtempSync(join(tmpdir(), 'forge-verify-real-'))
+      dirsToCleanup.push(repoDir)
+      execFileSync('git', ['init', '-b', 'main'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.name', 'Forge Test'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.email', 'forge@test.local'], { cwd: repoDir })
+      writeFileSync(join(repoDir, 'README.md'), '# Test Repo\n')
+      execFileSync('git', ['add', '.'], { cwd: repoDir })
+      execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: repoDir })
+
+      const registry = new RuntimeRegistry()
+      // Default verifier (verifyFn not provided)
+      const runner = new LeafRunner({ registry })
+
+      const node = makeNode('verify-node', {
+        type: 'verification',
+        runtimeType: 'forge-engine',
+        outputs: [
+          {
+            name: 'verification_report',
+            kind: 'stage-output',
+            format: 'text',
+            required: true,
+            requiredSections: [],
+          },
+        ],
+      })
+
+      const taskId = taskIdSchema.parse(randomUUID())
+      const task: Task = {
+        id: taskId,
+        objective: 'Pass test verification',
+        constraints: [],
+        completionCriteria: [{ kind: 'tests', description: 'the test suite passes', params: {} }],
+        scope: { allowedPaths: [], forbiddenPaths: [] },
+        lockedDecisionIds: [],
+        correctsTaskId: null,
+        createdAt: new Date().toISOString(),
+      }
+
+      writeFileSync(join(repoDir, 'test-pass.js'), 'console.log("tests passed")\nprocess.exit(0)\n')
+      writeFileSync(
+        join(repoDir, 'test-fail.js'),
+        'console.error("tests failed")\nprocess.exit(1)\n',
+      )
+
+      // Case 1: command succeeds -> verifier evaluates criterion to pass
+      const passRepo: Repository = {
+        id: repositoryIdSchema.parse(randomUUID()),
+        absolutePath: repoDir,
+        defaultBranch: 'main',
+        buildCommand: null,
+        testCommand: 'node test-pass.js',
+        tech: ['node'],
+      }
+
+      const passCtx = makeContext(node, {
+        worktreePath: repoDir,
+        task,
+        repository: passRepo,
+      })
+
+      const passResult = await runner.execute(passCtx)
+      expect(passResult.status).toBe('completed')
+      expect(passResult.artifacts).toHaveLength(1)
+      expect(passResult.artifacts![0]!.content).toContain('[Command:')
+      expect(passResult.artifacts![0]!.content).toContain('[ExitCode: 0]')
+
+      // Case 2: command fails -> verifier evaluates criterion to fail
+      const failRepo: Repository = {
+        id: repositoryIdSchema.parse(randomUUID()),
+        absolutePath: repoDir,
+        defaultBranch: 'main',
+        buildCommand: null,
+        testCommand: 'node test-fail.js',
+        tech: ['node'],
+      }
+
+      const failCtx = makeContext(node, {
+        worktreePath: repoDir,
+        task,
+        repository: failRepo,
+      })
+
+      const failResult = await runner.execute(failCtx)
+      expect(failResult.status).toBe('failed')
+      expect(failResult.error).toContain('Verification failed')
+    } finally {
+      for (const dir of dirsToCleanup) {
+        try {
+          rmSync(dir, { recursive: true, force: true })
+        } catch {
+          // ignore
+        }
+      }
+    }
+  })
+
+  it('23. verification configuration integrity: fails closed with actionable error when configuration is missing or invalid', async () => {
+    const registry = new RuntimeRegistry()
+    const runner = new LeafRunner({ registry })
+    const node = makeNode('verify-node', {
+      type: 'verification',
+      runtimeType: 'forge-engine',
+    })
+
+    // 23a. Repository configuration unavailable
+    const ctxNoRepo = makeContext(node, {
+      worktreePath: '/tmp/worktree',
+      repository: undefined,
+    })
+    const resNoRepo = await runner.execute(ctxNoRepo)
+    expect(resNoRepo.status).toBe('failed')
+    expect(resNoRepo.error).toContain(
+      'Verification configuration unavailable: repository configuration for project',
+    )
+
+    // 23b. Task configuration unavailable
+    const repoWithCommands: Repository = {
+      id: repositoryIdSchema.parse(randomUUID()),
+      absolutePath: '/tmp/repo',
+      defaultBranch: 'main',
+      buildCommand: 'npm run build',
+      testCommand: 'npm test',
+      tech: [],
+    }
+    const ctxNoTask = makeContext(node, {
+      worktreePath: '/tmp/worktree',
+      repository: repoWithCommands,
+      task: undefined,
+      taskId: undefined,
+    })
+    const resNoTask = await runner.execute(ctxNoTask)
+    expect(resNoTask.status).toBe('failed')
+    expect(resNoTask.error).toContain('Verification configuration unavailable: task for workflow')
+
+    // 23c. Repository has neither buildCommand nor testCommand configured
+    const repoNoCommands: Repository = {
+      id: repositoryIdSchema.parse(randomUUID()),
+      absolutePath: '/tmp/repo',
+      defaultBranch: 'main',
+      buildCommand: null,
+      testCommand: null,
+      tech: [],
+    }
+    const ctxNoCmds = makeContext(node, {
+      worktreePath: '/tmp/worktree',
+      repository: repoNoCommands,
+    })
+    const resNoCmds = await runner.execute(ctxNoCmds)
+    expect(resNoCmds.status).toBe('failed')
+    expect(resNoCmds.error).toContain(
+      'Verification configuration error: repository has neither buildCommand nor testCommand configured',
+    )
+  })
+
+  it('24. agent changeSet: builds ChangeSet with schema-valid UUID task.id and authoritative task scope', async () => {
+    const dirsToCleanup: string[] = []
+    try {
+      const repoDir = mkdtempSync(join(tmpdir(), 'forge-agent-cs-valid-'))
+      dirsToCleanup.push(repoDir)
+      execFileSync('git', ['init', '-b', 'main'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.name', 'Forge Test'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.email', 'forge@test.local'], { cwd: repoDir })
+      mkdirSync(join(repoDir, 'src'), { recursive: true })
+      writeFileSync(join(repoDir, 'src', 'index.ts'), '// initial\n')
+      execFileSync('git', ['add', '.'], { cwd: repoDir })
+      execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: repoDir })
+      const forkSha = shaSchema.parse(
+        execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoDir }).toString().trim(),
+      )
+
+      writeFileSync(join(repoDir, 'src', 'index.ts'), 'export const hello = "world"\n')
+
+      const runtime = mockRuntime()
+      const registry = new RuntimeRegistry()
+      registry.register(runtime)
+
+      const report: AgentReport = {
+        status: 'completed',
+        summary: 'Updated index.ts',
+        filesChanged: ['src/index.ts'],
+        commandsRun: [],
+        testsRun: false,
+        openQuestions: [],
+        assumptions: [],
+      }
+      const exchangeFn = vi.fn().mockResolvedValue({
+        ok: true,
+        report,
+        assessment: { status: 'completed' },
+        retried: false,
+        transcript: [],
+      })
+
+      const runner = new LeafRunner({
+        registry,
+        defaultRuntimeId: 'mock-runtime',
+        exchangeFn,
+        gitServiceFactory: (path: string) => new GitService({ repositoryPath: path }),
+      })
+
+      const node = makeNode('agent-node', {
+        type: 'agent',
+        config: { role: 'implementer', skills: [], permissionMode: 'developer' },
+      })
+
+      const expectedTaskId = taskIdSchema.parse(randomUUID())
+      const task: Task = {
+        id: expectedTaskId,
+        objective: 'Implement feature',
+        constraints: [],
+        completionCriteria: [{ kind: 'tests', description: 'tests pass', params: {} }],
+        scope: { allowedPaths: ['src/**'], forbiddenPaths: [] },
+        lockedDecisionIds: [],
+        correctsTaskId: null,
+        createdAt: new Date().toISOString(),
+      }
+
+      const ctx = makeContext(node, {
+        worktreePath: repoDir,
+        forkSha,
+        task,
+        taskId: expectedTaskId,
+      })
+
+      const result = await runner.execute(ctx)
+      expect(result.status).toBe('completed')
+      expect(result.changeSet).toBeDefined()
+      expect(result.changeSet?.taskId).toBe(expectedTaskId)
+      expect(taskIdSchema.safeParse(result.changeSet?.taskId).success).toBe(true)
+      expect(result.changeSet?.taskId).not.toBe('default-task')
+    } finally {
+      for (const dir of dirsToCleanup) {
+        try {
+          rmSync(dir, { recursive: true, force: true })
+        } catch {
+          // ignore
+        }
+      }
+    }
+  })
+
+  it('25. agent changeSet: in-scope modification completes successfully with staged changeSet', async () => {
+    const dirsToCleanup: string[] = []
+    try {
+      const repoDir = mkdtempSync(join(tmpdir(), 'forge-agent-cs-inscope-'))
+      dirsToCleanup.push(repoDir)
+      execFileSync('git', ['init', '-b', 'main'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.name', 'Forge Test'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.email', 'forge@test.local'], { cwd: repoDir })
+      mkdirSync(join(repoDir, 'src'), { recursive: true })
+      writeFileSync(join(repoDir, 'src', 'feature.ts'), '// feature\n')
+      execFileSync('git', ['add', '.'], { cwd: repoDir })
+      execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: repoDir })
+      const forkSha = shaSchema.parse(
+        execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoDir }).toString().trim(),
+      )
+
+      writeFileSync(join(repoDir, 'src', 'feature.ts'), '// feature implemented\n')
+
+      const runtime = mockRuntime()
+      const registry = new RuntimeRegistry()
+      registry.register(runtime)
+
+      const report: AgentReport = {
+        status: 'completed',
+        summary: 'Implemented feature',
+        filesChanged: ['src/feature.ts'],
+        commandsRun: [],
+        testsRun: false,
+        openQuestions: [],
+        assumptions: [],
+      }
+      const exchangeFn = vi.fn().mockResolvedValue({
+        ok: true,
+        report,
+        assessment: { status: 'completed' },
+        retried: false,
+        transcript: [],
+      })
+
+      const runner = new LeafRunner({
+        registry,
+        defaultRuntimeId: 'mock-runtime',
+        exchangeFn,
+        gitServiceFactory: (path: string) => new GitService({ repositoryPath: path }),
+      })
+
+      const node = makeNode('agent-node', {
+        type: 'agent',
+        config: { role: 'implementer', skills: [], permissionMode: 'developer' },
+      })
+
+      const task: Task = {
+        id: taskIdSchema.parse(randomUUID()),
+        objective: 'In-scope task',
+        constraints: [],
+        completionCriteria: [{ kind: 'tests', description: 'tests pass', params: {} }],
+        scope: { allowedPaths: ['src/**'], forbiddenPaths: [] },
+        lockedDecisionIds: [],
+        correctsTaskId: null,
+        createdAt: new Date().toISOString(),
+      }
+
+      const ctx = makeContext(node, {
+        worktreePath: repoDir,
+        forkSha,
+        task,
+      })
+
+      const result = await runner.execute(ctx)
+      expect(result.status).toBe('completed')
+      expect(result.changeSet).toBeDefined()
+      expect(result.changeSet?.files).toHaveLength(1)
+      expect(result.changeSet?.files[0]?.path).toBe('src/feature.ts')
+      expect(result.changeSet?.patch).toContain('feature implemented')
+    } finally {
+      for (const dir of dirsToCleanup) {
+        try {
+          rmSync(dir, { recursive: true, force: true })
+        } catch {
+          // ignore
+        }
+      }
+    }
+  })
+
+  it('26. agent changeSet scope enforcement: out-of-scope modification fails closed with policy violation error', async () => {
+    const dirsToCleanup: string[] = []
+    try {
+      const repoDir = mkdtempSync(join(tmpdir(), 'forge-agent-cs-scope-'))
+      dirsToCleanup.push(repoDir)
+      execFileSync('git', ['init', '-b', 'main'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.name', 'Forge Test'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.email', 'forge@test.local'], { cwd: repoDir })
+      mkdirSync(join(repoDir, 'src'), { recursive: true })
+      writeFileSync(join(repoDir, 'src', 'index.ts'), '// initial\n')
+      writeFileSync(join(repoDir, 'config.json'), '{"auth": true}\n')
+      execFileSync('git', ['add', '.'], { cwd: repoDir })
+      execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: repoDir })
+      const forkSha = shaSchema.parse(
+        execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoDir }).toString().trim(),
+      )
+
+      writeFileSync(join(repoDir, 'config.json'), '{"auth": false}\n')
+
+      const runtime = mockRuntime()
+      const registry = new RuntimeRegistry()
+      registry.register(runtime)
+
+      const report: AgentReport = {
+        status: 'completed',
+        summary: 'Modified config',
+        filesChanged: ['config.json'],
+        commandsRun: [],
+        testsRun: false,
+        openQuestions: [],
+        assumptions: [],
+      }
+      const exchangeFn = vi.fn().mockResolvedValue({
+        ok: true,
+        report,
+        assessment: { status: 'completed' },
+        retried: false,
+        transcript: [],
+      })
+
+      const runner = new LeafRunner({
+        registry,
+        defaultRuntimeId: 'mock-runtime',
+        exchangeFn,
+        gitServiceFactory: (path: string) => new GitService({ repositoryPath: path }),
+      })
+
+      const node = makeNode('agent-node', {
+        type: 'agent',
+        config: { role: 'implementer', skills: [], permissionMode: 'developer' },
+      })
+
+      const task: Task = {
+        id: taskIdSchema.parse(randomUUID()),
+        objective: 'Scoped feature',
+        constraints: [],
+        completionCriteria: [{ kind: 'tests', description: 'tests pass', params: {} }],
+        scope: { allowedPaths: ['src/**'], forbiddenPaths: [] },
+        lockedDecisionIds: [],
+        correctsTaskId: null,
+        createdAt: new Date().toISOString(),
+      }
+
+      const ctx = makeContext(node, {
+        worktreePath: repoDir,
+        forkSha,
+        task,
+      })
+
+      const result = await runner.execute(ctx)
+      expect(result.status).toBe('failed')
+      expect(result.error).toContain(
+        'Policy violation: 1 file(s) modified outside scope (config.json)',
+      )
+      expect(result.changeSet).toBeDefined()
+    } finally {
+      for (const dir of dirsToCleanup) {
+        try {
+          rmSync(dir, { recursive: true, force: true })
+        } catch {
+          // ignore
+        }
+      }
+    }
+  })
+
+  it('27. agent changeSet discrepancy preservation: claimed-vs-actual discrepancy is preserved on changeSet without failing if in-scope', async () => {
+    const dirsToCleanup: string[] = []
+    try {
+      const repoDir = mkdtempSync(join(tmpdir(), 'forge-agent-cs-discrepancy-'))
+      dirsToCleanup.push(repoDir)
+      execFileSync('git', ['init', '-b', 'main'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.name', 'Forge Test'], { cwd: repoDir })
+      execFileSync('git', ['config', 'user.email', 'forge@test.local'], { cwd: repoDir })
+      mkdirSync(join(repoDir, 'src'), { recursive: true })
+      writeFileSync(join(repoDir, 'src', 'a.ts'), '// a\n')
+      writeFileSync(join(repoDir, 'src', 'b.ts'), '// b\n')
+      execFileSync('git', ['add', '.'], { cwd: repoDir })
+      execFileSync('git', ['commit', '-m', 'Initial commit'], { cwd: repoDir })
+      const forkSha = shaSchema.parse(
+        execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoDir }).toString().trim(),
+      )
+
+      writeFileSync(join(repoDir, 'src', 'b.ts'), '// modified b\n')
+
+      const runtime = mockRuntime()
+      const registry = new RuntimeRegistry()
+      registry.register(runtime)
+
+      const report: AgentReport = {
+        status: 'completed',
+        summary: 'Claimed to modify a.ts',
+        filesChanged: ['src/a.ts'],
+        commandsRun: [],
+        testsRun: false,
+        openQuestions: [],
+        assumptions: [],
+      }
+      const exchangeFn = vi.fn().mockResolvedValue({
+        ok: true,
+        report,
+        assessment: { status: 'completed' },
+        retried: false,
+        transcript: [],
+      })
+
+      const runner = new LeafRunner({
+        registry,
+        defaultRuntimeId: 'mock-runtime',
+        exchangeFn,
+        gitServiceFactory: (path: string) => new GitService({ repositoryPath: path }),
+      })
+
+      const node = makeNode('agent-node', {
+        type: 'agent',
+        config: { role: 'implementer', skills: [], permissionMode: 'developer' },
+      })
+
+      const task: Task = {
+        id: taskIdSchema.parse(randomUUID()),
+        objective: 'Scoped task',
+        constraints: [],
+        completionCriteria: [{ kind: 'tests', description: 'tests pass', params: {} }],
+        scope: { allowedPaths: ['src/**'], forbiddenPaths: [] },
+        lockedDecisionIds: [],
+        correctsTaskId: null,
+        createdAt: new Date().toISOString(),
+      }
+
+      const ctx = makeContext(node, {
+        worktreePath: repoDir,
+        forkSha,
+        task,
+      })
+
+      const result = await runner.execute(ctx)
+      expect(result.status).toBe('completed')
+      expect(result.changeSet).toBeDefined()
+      expect(result.changeSet?.discrepancies.length).toBeGreaterThan(0)
+    } finally {
+      for (const dir of dirsToCleanup) {
+        try {
+          rmSync(dir, { recursive: true, force: true })
+        } catch {
+          // ignore
+        }
+      }
+    }
+  })
+
+  it('28. agent changeSet task availability: fails closed when authoritative task is unavailable', async () => {
+    const runtime = mockRuntime()
+    const registry = new RuntimeRegistry()
+    registry.register(runtime)
+
+    const report: AgentReport = {
+      status: 'completed',
+      summary: 'Done',
+      filesChanged: ['src/index.ts'],
+      commandsRun: [],
+      testsRun: false,
+      openQuestions: [],
+      assumptions: [],
+    }
+    const exchangeFn = vi.fn().mockResolvedValue({
+      ok: true,
+      report,
+      assessment: { status: 'completed' },
+      retried: false,
+      transcript: [],
+    })
+
+    const runner = new LeafRunner({
+      registry,
+      defaultRuntimeId: 'mock-runtime',
+      exchangeFn,
+      gitServiceFactory: (path: string) => new GitService({ repositoryPath: path }),
+    })
+
+    const node = makeNode('agent-node', {
+      type: 'agent',
+      config: { role: 'implementer', skills: [], permissionMode: 'developer' },
+    })
+
+    const ctx = makeContext(node, {
+      worktreePath: '/mock/path',
+      task: undefined,
+      taskId: undefined,
+    })
+
+    const result = await runner.execute(ctx)
+    expect(result.status).toBe('failed')
+    expect(result.error).toContain('cannot build changeset: authoritative task is unavailable')
+  })
+
+  it('29. test-seam structural isolation: production createLeafRunner does not permit test seam activation and fails closed', async () => {
+    const registry = new RuntimeRegistry()
+    const leafExecutor = createLeafRunner({ registry })
+
+    const node = makeNode('gate-node', {
+      type: 'user_gate',
+      runtimeType: 'human',
+      outputs: [
+        {
+          name: 'approved',
+          kind: 'stage-output',
+          format: 'json',
+          required: true,
+          requiredSections: [],
+        },
+      ],
+    })
+
+    // Untrusted approval in initialContext
+    const ctxApproval = makeContext(node, {
+      initialContext: { approval: 'approved' },
+    })
+    const resApproval = await leafExecutor(ctxApproval)
+    expect(resApproval.status).toBe('blocked')
+    expect(resApproval.resumable).toBe(true)
+
+    // Untrusted rejection in initialContext
+    const ctxRejection = makeContext(node, {
+      initialContext: { approval: 'rejected' },
+    })
+    const resRejection = await leafExecutor(ctxRejection)
+    expect(resRejection.status).toBe('blocked')
+    expect(resRejection.resumable).toBe(true)
+    expect(resRejection.error).toContain('cannot be decided by untrusted context input')
   })
 })

@@ -47,22 +47,6 @@ export interface LeafRunnerOptions {
   readonly onEvent?: ((event: RuntimeEvent) => void) | undefined
 }
 
-/**
- * Test-only options extending production LeafRunnerOptions with testing seams.
- * Structurally segregated so production factories and configuration types
- * do not expose or accept testing seams.
- */
-export interface TestLeafRunnerOptions extends LeafRunnerOptions {
-  /**
-   * TEST SEAM ONLY: When true, allows unauthenticated approval or rejection strings in `initialContext`
-   * to satisfy or cancel user gates in isolated tests.
-   *
-   * In production, `initialContext` is untrusted caller-controlled input and MUST NEVER be treated
-   * as proof of human approval or rejection. User gates remain strictly fail-closed (resumably blocked).
-   */
-  readonly testOnlyAllowContextDecision?: boolean | undefined
-}
-
 function isExplicitVerdictOutput(outDef: OutputDefinition): boolean {
   return (
     outDef.kind === 'verdict' || outDef.name === 'verdict' || outDef.name === 'verification_verdict'
@@ -76,7 +60,7 @@ function isExplicitVerdictOutput(outDef: OutputDefinition): boolean {
  * without owning DAG scheduling, worktree allocation/disposal, or durable persistence.
  */
 export class LeafRunner {
-  constructor(private readonly options: LeafRunnerOptions | TestLeafRunnerOptions) {}
+  constructor(private readonly options: LeafRunnerOptions) {}
 
   /**
    * Main execution seam satisfying `LeafNodeExecutor`.
@@ -515,75 +499,14 @@ export class LeafRunner {
       }
     }
 
-    const allowContextDecision =
-      'testOnlyAllowContextDecision' in this.options &&
-      this.options.testOnlyAllowContextDecision === true
-
-    // 2. Isolated test seam: if explicitly enabled, evaluate initialContext decision signals
-    if (allowContextDecision) {
-      const gateSignal =
-        ctx.initialContext?.[`${ctx.node.id}.approval`] ??
-        ctx.initialContext?.[ctx.node.id] ??
-        ctx.initialContext?.approval ??
-        ctx.initialContext?.user_decision
-
-      // TEST SEAM ONLY: explicit rejection in initialContext returns cancelled
-      if (gateSignal === 'rejected' || gateSignal === 'declined' || gateSignal === 'denied') {
-        return {
-          status: 'cancelled',
-          error: 'User declined approval',
-        }
-      }
-
-      // TEST SEAM ONLY: explicit approval in initialContext completes gate
-      if (gateSignal === 'approved' || gateSignal === 'accepted') {
-        const now = new Date().toISOString()
-        const artifacts: WorkflowArtifact[] = []
-
-        for (const outDef of ctx.node.outputs) {
-          artifacts.push({
-            id: randomUUID(),
-            workflowId: ctx.workflowId,
-            nodeId: ctx.node.id,
-            kind: outDef.kind,
-            format: outDef.format,
-            title: `${ctx.node.title} - ${outDef.name}`,
-            content: JSON.stringify({ approved: true, approvedAt: now }),
-            metadata: {
-              approved: true,
-              outputName: outDef.name,
-            },
-            createdAt: now,
-          })
-        }
-
-        if (artifacts.length === 0) {
-          artifacts.push({
-            id: randomUUID(),
-            workflowId: ctx.workflowId,
-            nodeId: ctx.node.id,
-            kind: 'stage-output',
-            format: 'json',
-            title: `${ctx.node.title} - approval`,
-            content: JSON.stringify({ approved: true, approvedAt: now }),
-            metadata: { approved: true },
-            createdAt: now,
-          })
-        }
-
-        return {
-          status: 'completed',
-          artifacts,
-        }
-      }
-    }
-
-    // 3. In production (or when test seam is disabled/omitted), any caller-supplied string in initialContext
-    // (whether 'approved', 'rejected', etc.) is untrusted and CANNOT authorize a human decision or cancel the graph.
-    // Without an authenticated, gate-scoped human decision (Axiom A4), the gate remains resumably blocked.
+    // 2. Production gate semantics:
+    // Caller-supplied strings in initialContext (whether 'approved', 'rejected', etc.) are untrusted
+    // and CANNOT authorize a human decision or cancel the graph.
+    // Without an authenticated, gate-scoped human decision (Axiom A4), the gate remains strictly
+    // resumably blocked (fail-closed).
     // - An attempt number (attempt > 1) is NOT evidence of human approval.
     // - An unrelated project-wide locked decision does NOT satisfy or unblock this gate.
-    // - An unauthenticated string in initialContext does NOT unblock or cancel the gate in production.
+    // - An unauthenticated string in initialContext does NOT unblock or cancel the gate.
     const untrustedSignal =
       ctx.initialContext?.[`${ctx.node.id}.approval`] ??
       ctx.initialContext?.[ctx.node.id] ??
@@ -637,14 +560,6 @@ export class LeafRunner {
  * Creates a LeafNodeExecutor function suitable for passing to GraphExecutorOptions.
  */
 export function createLeafRunner(options: LeafRunnerOptions): LeafNodeExecutor {
-  const runner = new LeafRunner(options)
-  return (ctx: NodeExecutionContext) => runner.execute(ctx)
-}
-
-/**
- * Creates a LeafNodeExecutor function with test-only options for isolated testing seams.
- */
-export function createTestLeafRunner(options: TestLeafRunnerOptions): LeafNodeExecutor {
   const runner = new LeafRunner(options)
   return (ctx: NodeExecutionContext) => runner.execute(ctx)
 }

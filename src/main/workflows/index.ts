@@ -10,10 +10,4 @@ export {
   type RunGraphOptions,
   type SkipNodeOptions,
 } from './graphExecutor'
-export {
-  LeafRunner,
-  createLeafRunner,
-  createTestLeafRunner,
-  type LeafRunnerOptions,
-  type TestLeafRunnerOptions,
-} from './leafRunner'
+export { LeafRunner, createLeafRunner, type LeafRunnerOptions } from './leafRunner'

@@ -35,7 +35,7 @@ import { WorkflowStore } from '../db/workflowStore'
 import { GitService, WorktreeService } from '../git'
 import { RuntimeRegistry } from '../runtimes/registry'
 import { GraphExecutor } from './graphExecutor'
-import { LeafRunner, createLeafRunner, createTestLeafRunner } from './leafRunner'
+import { LeafRunner, createLeafRunner } from './leafRunner'
 import type { NodeExecutionContext } from './graphExecutor'
 
 function mockRuntime(overrides: Partial<IAgentRuntime> = {}): IAgentRuntime {
@@ -750,9 +750,9 @@ describe('LeafRunner', () => {
     }
   })
 
-  it('13. user_gate regression: explicit approval in initialContext unblocks and emits declared output artifacts (with test seam)', async () => {
+  it('13. user_gate production invariant: caller-supplied approval in initialContext cannot approve gate and remains resumably blocked', async () => {
     const registry = new RuntimeRegistry()
-    const runner = new LeafRunner({ registry, testOnlyAllowContextDecision: true })
+    const runner = new LeafRunner({ registry })
 
     const node = makeNode('gate-1', {
       type: 'user_gate',
@@ -768,20 +768,18 @@ describe('LeafRunner', () => {
       ],
     })
 
-    // 1. General explicit approval signal
+    // 1. General explicit approval signal in initialContext
     const ctxGeneral = makeContext(node, {
       attempt: 2,
       initialContext: { approval: 'approved' },
     })
 
     const resultGeneral = await runner.execute(ctxGeneral)
-    expect(resultGeneral.status).toBe('completed')
-    expect(resultGeneral.artifacts).toHaveLength(1)
-    expect(resultGeneral.artifacts?.[0]?.kind).toBe('stage-output')
-    const parsedGeneral = JSON.parse(resultGeneral.artifacts?.[0]?.content ?? '{}') as {
-      approved: boolean
-    }
-    expect(parsedGeneral.approved).toBe(true)
+    expect(resultGeneral.status).toBe('blocked')
+    expect(resultGeneral.awaitingUser).toBe(true)
+    expect(resultGeneral.resumable).toBe(true)
+    expect(resultGeneral.error).toContain('cannot be decided by untrusted context input')
+    expect(resultGeneral.artifacts).toBeUndefined()
 
     // 2. Node-scoped explicit approval signal ('gate-1.approval': 'approved')
     const ctxScoped = makeContext(node, {
@@ -789,12 +787,15 @@ describe('LeafRunner', () => {
       initialContext: { 'gate-1.approval': 'approved' },
     })
     const resultScoped = await runner.execute(ctxScoped)
-    expect(resultScoped.status).toBe('completed')
+    expect(resultScoped.status).toBe('blocked')
+    expect(resultScoped.awaitingUser).toBe(true)
+    expect(resultScoped.resumable).toBe(true)
+    expect(resultScoped.error).toContain('cannot be decided by untrusted context input')
+    expect(resultScoped.artifacts).toBeUndefined()
   })
 
-  it('13b. user_gate trust boundary: caller-supplied approval in initialContext without test seam fails closed and remains blocked', async () => {
+  it('13b. user_gate trust boundary: caller-supplied approval in initialContext fails closed and remains blocked', async () => {
     const registry = new RuntimeRegistry()
-    // Production default: testOnlyAllowContextDecision is undefined/false
     const runner = new LeafRunner({ registry })
 
     const node = makeNode('gate-1', {
@@ -823,9 +824,8 @@ describe('LeafRunner', () => {
     expect(result.error).toContain('cannot be decided by untrusted context input')
   })
 
-  it('14. user_gate trust boundary: caller-supplied rejection in initialContext without test seam fails closed and remains blocked', async () => {
+  it('14. user_gate trust boundary: caller-supplied rejection in initialContext fails closed and remains blocked', async () => {
     const registry = new RuntimeRegistry()
-    // Production default: testOnlyAllowContextDecision is undefined/false
     const runner = new LeafRunner({ registry })
 
     const node = makeNode('gate-1', {
@@ -856,32 +856,37 @@ describe('LeafRunner', () => {
     expect(resultScoped.error).toContain('cannot be decided by untrusted context input')
   })
 
-  it('14b. user_gate test seam: explicit rejection in initialContext returns cancelled when test seam is enabled', async () => {
+  it('14b. user_gate production invariant: diverse untrusted rejection strings in initialContext cannot cancel and remain resumably blocked', async () => {
     const registry = new RuntimeRegistry()
-    const runner = new LeafRunner({ registry, testOnlyAllowContextDecision: true })
+    const runner = new LeafRunner({ registry })
 
     const node = makeNode('gate-1', {
       type: 'user_gate',
       runtimeType: 'human',
     })
-    const ctx = makeContext(node, {
-      attempt: 2,
-      initialContext: { approval: 'rejected' },
-    })
 
-    const result = await runner.execute(ctx)
+    for (const signal of ['rejected', 'declined', 'denied']) {
+      const ctx = makeContext(node, {
+        attempt: 2,
+        initialContext: { approval: signal },
+      })
+      const result = await runner.execute(ctx)
+      expect(result.status).toBe('blocked')
+      expect(result.awaitingUser).toBe(true)
+      expect(result.resumable).toBe(true)
+      expect(result.error).toContain('cannot be decided by untrusted context input')
+    }
 
-    expect(result.status).toBe('cancelled')
-    expect(result.error).toBe('User declined approval')
-
-    // Also verify node-scoped rejection ('gate-1.approval': 'rejected')
+    // Node-scoped rejection ('gate-1.approval': 'rejected')
     const ctxScoped = makeContext(node, {
       attempt: 2,
       initialContext: { 'gate-1.approval': 'rejected' },
     })
     const resultScoped = await runner.execute(ctxScoped)
-    expect(resultScoped.status).toBe('cancelled')
-    expect(resultScoped.error).toBe('User declined approval')
+    expect(resultScoped.status).toBe('blocked')
+    expect(resultScoped.awaitingUser).toBe(true)
+    expect(resultScoped.resumable).toBe(true)
+    expect(resultScoped.error).toContain('cannot be decided by untrusted context input')
   })
 
   it('14c. user_gate legitimate cancellation: AbortSignal cancellation returns cancelled in production without test seam', async () => {
@@ -930,7 +935,7 @@ describe('LeafRunner', () => {
     expect(result.awaitingUser).toBe(true)
   })
 
-  it('17. GraphExecutor integration: agent -> user_gate -> verification pipeline with repeated recovery and explicit approval', async () => {
+  it('17. GraphExecutor integration: agent -> user_gate pipeline with repeated recovery and fail-closed gate enforcement', async () => {
     const dirsToCleanup: string[] = []
     const tempDbDir = mkdtempSync(join(tmpdir(), 'forge-lr-db-'))
     dirsToCleanup.push(tempDbDir)
@@ -1177,13 +1182,12 @@ describe('LeafRunner', () => {
         ],
       })
 
-      const leafExecutor = createTestLeafRunner({
+      const leafExecutor = createLeafRunner({
         registry,
         defaultRuntimeId: 'test-runtime',
         exchangeFn,
         verifyFn,
         decisionStore,
-        testOnlyAllowContextDecision: true,
       })
 
       const executor1 = new GraphExecutor({
@@ -1255,7 +1259,7 @@ describe('LeafRunner', () => {
       expect(gateAttemptsAfterRun2[1]?.status).toBe('blocked')
       expect(workflowStore.getNodeAttempts(run1.graphRunId, 'verifier')).toHaveLength(0)
 
-      // Step 4: Run 3 - Resume WITH explicit approval signal: gate completes, verifier completes
+      // Step 4: Run 3 - Resume WITH caller-supplied approval in initialContext: MUST FAIL CLOSED AND REMAIN BLOCKED
       const run3 = await executor2.run({
         graphRunId: run1.graphRunId,
         workflowId,
@@ -1266,24 +1270,24 @@ describe('LeafRunner', () => {
         initialContext: { approval: 'approved' },
       })
 
-      expect(run3.status).toBe('completed')
-      expect(run3.completedNodeIds).toContain('planner')
-      expect(run3.completedNodeIds).toContain('gate')
-      expect(run3.completedNodeIds).toContain('verifier')
-      expect(run3.blockedNodeIds).toHaveLength(0)
+      expect(run3.status).toBe('running')
+      expect(run3.completedNodeIds).toEqual(['planner'])
+      expect(run3.blockedNodeIds).toEqual(['gate'])
+      expect(run3.completedNodeIds).not.toContain('verifier')
 
-      // Invariant 9 check: planner was NOT re-executed (remains 1)
+      // Invariant check: planner was NOT re-executed (remains 1)
       expect(plannerExecutions).toBe(1)
 
       const finalGateAttempts = workflowStore.getNodeAttempts(run1.graphRunId, 'gate')
       expect(finalGateAttempts).toHaveLength(3)
       expect(finalGateAttempts[0]?.status).toBe('blocked')
       expect(finalGateAttempts[1]?.status).toBe('blocked')
-      expect(finalGateAttempts[2]?.status).toBe('completed')
+      expect(finalGateAttempts[2]?.status).toBe('blocked')
+      expect(finalGateAttempts[2]?.error).toContain('cannot be decided by untrusted context input')
 
+      // Downstream verifier was NEVER executed prematurely
       const finalVerifierAttempts = workflowStore.getNodeAttempts(run1.graphRunId, 'verifier')
-      expect(finalVerifierAttempts).toHaveLength(1)
-      expect(finalVerifierAttempts[0]?.status).toBe('completed')
+      expect(finalVerifierAttempts).toHaveLength(0)
     } finally {
       closeDb()
       for (const dir of dirsToCleanup) {
@@ -1296,7 +1300,7 @@ describe('LeafRunner', () => {
     }
   })
 
-  it('18. GraphExecutor integration: user gate explicit rejection cancels run and prevents downstream execution', async () => {
+  it('18. GraphExecutor integration: user gate untrusted rejection fails closed, and authoritative AbortSignal cancels run', async () => {
     const dirsToCleanup: string[] = []
     const { db, close: closeDb } = initialiseDatabase(':memory:')
 
@@ -1465,27 +1469,18 @@ describe('LeafRunner', () => {
       expect(gateAttemptsRun2[1]?.status).toBe('blocked')
       expect(gateAttemptsRun2[1]?.error).toContain('cannot be decided by untrusted context input')
 
-      // Run 3: Resume with explicit test seam enabled allows test rejection to cancel run
-      const testSeamLeafExecutor = createTestLeafRunner({
-        registry,
-        testOnlyAllowContextDecision: true,
-      })
-      const executorWithSeam = new GraphExecutor({
-        workflowStore,
-        worktreeService,
-        artifactService,
-        decisionStore,
-        executeLeafNode: testSeamLeafExecutor,
-      })
+      // Run 3: Resume with authoritative AbortSignal cancellation cancels run and halts downstream execution
+      const abortController = new AbortController()
+      abortController.abort()
 
-      const run3 = await executorWithSeam.run({
+      const run3 = await executor.run({
         graphRunId,
         workflowId,
         projectId,
         template,
         forkSha,
         resumeNodeIds: ['gate'],
-        initialContext: { approval: 'rejected' },
+        signal: abortController.signal,
       })
 
       expect(run3.status).toBe('cancelled')
@@ -1493,9 +1488,8 @@ describe('LeafRunner', () => {
       expect(workflowStore.getNodeAttempts(graphRunId, 'verifier')).toHaveLength(0)
 
       const gateAttemptsRun3 = workflowStore.getNodeAttempts(graphRunId, 'gate')
-      expect(gateAttemptsRun3).toHaveLength(3)
-      expect(gateAttemptsRun3[2]?.status).toBe('cancelled')
-      expect(gateAttemptsRun3[2]?.error).toBe('User declined approval')
+      expect(gateAttemptsRun3).toHaveLength(2)
+      expect(gateAttemptsRun3[1]?.status).toBe('blocked')
 
       const runInDb = workflowStore.getGraphRun(graphRunId)
       expect(runInDb?.status).toBe('cancelled')
@@ -2602,7 +2596,7 @@ describe('LeafRunner', () => {
     expect(result.error).toContain('cannot build changeset: authoritative task is unavailable')
   })
 
-  it('29. test-seam structural isolation: production createLeafRunner does not permit test seam activation and fails closed', async () => {
+  it('29. test-seam elimination: production LeafRunner contains no approval bypass and strictly fails closed against caller-supplied context', async () => {
     const registry = new RuntimeRegistry()
     const leafExecutor = createLeafRunner({ registry })
 
@@ -2627,6 +2621,7 @@ describe('LeafRunner', () => {
     const resApproval = await leafExecutor(ctxApproval)
     expect(resApproval.status).toBe('blocked')
     expect(resApproval.resumable).toBe(true)
+    expect(resApproval.error).toContain('cannot be decided by untrusted context input')
 
     // Untrusted rejection in initialContext
     const ctxRejection = makeContext(node, {

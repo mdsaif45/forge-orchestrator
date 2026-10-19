@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import type { AgentBinding, Permissions } from './project'
+import type { Role } from './enums'
 import type { AgentReport } from './runtime'
+import { effectivePermissionsForRole } from './rolePermission'
 import { matchesAny } from './glob'
 import { isForbiddenPath } from './redaction'
 
@@ -155,7 +157,9 @@ export function assessCommandPolicy(
 }
 
 export interface StepPolicyInput {
-  readonly binding: AgentBinding
+  readonly binding?: AgentBinding | undefined
+  readonly role?: Role | undefined
+  readonly permissions?: Permissions | undefined
   readonly report: AgentReport
   readonly forbiddenPaths?: readonly string[]
   /**
@@ -185,6 +189,27 @@ export function assessStepPolicy(input: StepPolicyInput): StepPolicyAssessment {
   const violations: PolicyViolation[] = []
   const { binding, report, forbiddenPaths = [], changedPaths } = input
 
+  const role: Role | undefined = binding?.role ?? input.role
+  if (!role && !binding && !input.permissions) {
+    throw new Error('Policy assessment requires an authoritative binding, role, or permissions set')
+  }
+
+  // Calculate authoritative effective permissions enforcing role ceiling:
+  // effective permissions = role defaults ∩ binding permissions
+  const permissions: Permissions | undefined = role
+    ? effectivePermissionsForRole(
+        role,
+        binding ?? (input.permissions ? { permissions: input.permissions } : undefined),
+      )
+    : (input.permissions ??
+      (binding ? effectivePermissionsForRole(binding.role, binding) : undefined))
+
+  if (!permissions) {
+    throw new Error('Policy assessment requires an authoritative binding, role, or permissions set')
+  }
+
+  const culpritRole = role ?? 'agent'
+
   // 1. File write permission
   //
   // Reconciled against the measurement when there is one. The report is a claim, and a
@@ -202,11 +227,11 @@ export function assessStepPolicy(input: StepPolicyInput): StepPolicyAssessment {
       ? report.filesChanged
       : report.filesChanged.filter((path) => changedPaths.includes(path))
 
-  if (writtenPaths.length > 0 && !binding.permissions.writeFiles) {
+  if (writtenPaths.length > 0 && !permissions.writeFiles) {
     violations.push({
       kind: 'unpermitted-write',
-      culprit: binding.role,
-      detail: `Role "${binding.role}" does not have write permissions, but reported ${String(writtenPaths.length)} modified file(s): ${writtenPaths.join(', ')}`,
+      culprit: culpritRole,
+      detail: `Role "${culpritRole}" does not have write permissions, but reported ${String(writtenPaths.length)} modified file(s): ${writtenPaths.join(', ')}`,
     })
   }
 
@@ -229,7 +254,7 @@ export function assessStepPolicy(input: StepPolicyInput): StepPolicyAssessment {
 
   // 3. Commands evaluated
   for (const cmd of report.commandsRun) {
-    const assessment = assessCommandPolicy(cmd, binding.permissions)
+    const assessment = assessCommandPolicy(cmd, permissions)
     if (!assessment.allowed && assessment.violation !== undefined) {
       violations.push(assessment.violation)
     }

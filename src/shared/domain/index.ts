@@ -349,7 +349,16 @@ export {
   permissionModeSchema,
   type PermissionMode,
 } from './permissionMode'
-export { permissionForRole, type RolePermission } from './rolePermission'
+export {
+  ROLE_DEFAULT_PERMISSIONS,
+  defaultPermissionsForRole,
+  effectivePermissionsForRole,
+  widenedPermissionsForRole,
+  validateBindingPermissions,
+  InvalidBindingPermissionsError,
+  permissionForRole,
+  type RolePermission,
+} from './rolePermission'
 
 export {
   artifactFormatSchema,

@@ -4,6 +4,7 @@ import {
   agentBindingSchema,
   capabilitySchema,
   permissionsSchema,
+  validateBindingPermissions,
   type AgentBinding,
   type Actor,
   type ProjectId,
@@ -52,6 +53,7 @@ export class BindingStore {
 
   set(projectId: ProjectId, binding: AgentBinding, actor: Actor, occurredAt: string): AgentBinding {
     agentBindingSchema.parse(binding)
+    validateBindingPermissions(binding)
 
     this.db.transaction(() => {
       const event = this.events.append(
@@ -76,9 +78,12 @@ export class BindingStore {
  * `capabilities` and `permissions` are JSON columns, so a row that predates a schema
  * change would otherwise flow into the domain as the wrong shape and fail somewhere
  * far from the cause.
+ *
+ * Validated against the role ceiling before returning: a corrupted or tampered row
+ * that grants permissions exceeding the role definition fails closed.
  */
 function toBinding(row: typeof agentBindings.$inferSelect): AgentBinding {
-  return agentBindingSchema.parse({
+  const binding = agentBindingSchema.parse({
     id: row.id,
     role: row.role,
     runtimeId: row.runtimeId,
@@ -90,4 +95,6 @@ function toBinding(row: typeof agentBindings.$inferSelect): AgentBinding {
     ),
     permissions: fromJson(permissionsSchema, row.permissions, 'agent_bindings.permissions'),
   })
+  validateBindingPermissions(binding)
+  return binding
 }

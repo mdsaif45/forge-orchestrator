@@ -251,6 +251,7 @@ const graphNodeAttemptUpdated = z.strictObject({
   evidenceId: z.string().nullable().optional(),
   finishedAt: timestampSchema.nullable().optional(),
   error: z.string().nullable().optional(),
+  runtimeId: z.string().nullable().optional(),
 })
 
 const graphIterationAdvanced = z.strictObject({

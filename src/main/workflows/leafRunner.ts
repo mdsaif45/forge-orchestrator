@@ -1,12 +1,16 @@
 import { randomUUID } from 'node:crypto'
 import {
+  assessStepPolicy,
+  effectivePermissionsForRole,
+  formatPolicyHaltReason,
+  permissionForRole,
   repositoryIdSchema,
   stepIdSchema,
+  validateBindingPermissions,
   type Actor,
   type AgentReport,
   type ChangeSet,
   type EvidenceArtifact,
-  type IAgentRuntime,
   type OutputDefinition,
   type PromptPacket,
   type Repository,
@@ -15,17 +19,19 @@ import {
   type StepId,
   type Task,
   type WorkflowArtifact,
-  permissionForRole,
 } from '@shared/domain'
+import type { BindingStore } from '../db/bindingStore'
 import type { DecisionStore } from '../db/decisionStore'
 import type { ProjectStore } from '../db/projectStore'
 import type { WorkflowStore } from '../db/workflowStore'
 import { buildChangeSet, type BuiltChangeSet } from '../evidence/changeSetBuilder'
 import { verifyStep } from '../evidence/verifier'
 import type { GitService } from '../git'
+import type { BindingSet } from '../runtimes/bindings'
 import { exchange, type ExchangeOutcome } from '../runtimes/exchange'
 import type { RuntimeRegistry } from '../runtimes/registry'
 import type { LeafNodeExecutor, NodeExecutionContext, NodeExecutionResult } from './graphExecutor'
+import { nodeRequiresFileWrite, resolveRoleRuntime } from './roleResolution'
 
 /**
  * Production options for configuring the generic LeafRunner.
@@ -34,6 +40,8 @@ import type { LeafNodeExecutor, NodeExecutionContext, NodeExecutionResult } from
 export interface LeafRunnerOptions {
   readonly registry: RuntimeRegistry
   readonly defaultRuntimeId?: string | undefined
+  readonly bindingStore?: BindingStore | undefined
+  readonly bindings?: BindingSet | undefined
   readonly gitServiceFactory?: ((path: string) => GitService) | undefined
   readonly decisionStore?: DecisionStore | undefined
   readonly workflowStore?: WorkflowStore | undefined
@@ -215,6 +223,16 @@ function isEvidenceCompatible(
   return false
 }
 
+function formatError(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message
+  }
+  if (typeof err === 'string') {
+    return err
+  }
+  return JSON.stringify(err)
+}
+
 /**
  * Generic Leaf Runner (WORK-005).
  *
@@ -277,27 +295,49 @@ export class LeafRunner {
 
   private async executeAgent(ctx: NodeExecutionContext): Promise<NodeExecutionResult> {
     const role: Role = ctx.node.config.role ?? 'implementer'
-    let runtimeId = ctx.node.config.providerId ?? this.options.defaultRuntimeId
-
-    if (!runtimeId) {
-      const candidates = this.options.registry.candidatesForRole(role)
-      const firstCandidate = candidates[0]
-      if (!firstCandidate) {
-        return {
-          status: 'failed',
-          error: `No runtime registered capable of holding role "${role}"`,
-        }
-      }
-      runtimeId = firstCandidate.id
-    }
-
-    let runtime: IAgentRuntime
+    let resolved: ReturnType<typeof resolveRoleRuntime>
     try {
-      runtime = this.options.registry.resolveForRole(runtimeId, role)
+      resolved = resolveRoleRuntime({
+        node: ctx.node,
+        projectId: ctx.projectId,
+        executionBindings: ctx.bindings,
+        compositionBindings: this.options.bindings,
+        bindingStore: this.options.bindingStore,
+        registry: this.options.registry,
+        defaultRuntimeId: ctx.runtimeId ?? this.options.defaultRuntimeId,
+      })
     } catch (err: unknown) {
       return {
         status: 'failed',
         error: err instanceof Error ? err.message : String(err),
+      }
+    }
+
+    const { runtime, runtimeId, binding } = resolved
+    if (binding !== undefined) {
+      validateBindingPermissions(binding)
+    }
+    const effectivePermissions = effectivePermissionsForRole(role, binding)
+    const effectivePermitsWrite = effectivePermissions.writeFiles
+    const isWritable = nodeRequiresFileWrite(ctx.node) && effectivePermitsWrite
+
+    // Preflight for read-only execution with a worktree:
+    // Independent measurement requires a Git service and an authoritative baseline SHA.
+    // Never treat missing dependencies or missing baseline as proof that no changes occurred.
+    if (!isWritable && ctx.worktreePath) {
+      if (!this.options.gitServiceFactory) {
+        return {
+          status: 'failed',
+          runtimeId,
+          error: `Agent node "${ctx.node.id}" cannot enforce read-only policy: Git service factory is required for execution with worktree`,
+        }
+      }
+      if (!ctx.forkSha || ctx.forkSha.trim() === '') {
+        return {
+          status: 'failed',
+          runtimeId,
+          error: `Agent node "${ctx.node.id}" cannot enforce read-only policy: Authoritative forkSha baseline is required for execution with worktree`,
+        }
       }
     }
 
@@ -315,9 +355,9 @@ export class LeafRunner {
       repositoryPath: worktreePath,
       role,
       permissionMode:
-        ctx.node.config.permissionMode === 'full-access'
+        ctx.node.config.permissionMode === 'full-access' && effectivePermitsWrite
           ? 'bypassPermissions'
-          : permissionForRole(role, ctx.node.config.permissionMode !== 'read-only').mode,
+          : permissionForRole(role, isWritable).mode,
       timeoutMs: ctx.node.config.timeoutMs,
     })
 
@@ -332,32 +372,103 @@ export class LeafRunner {
       ctx.signal.addEventListener('abort', abortHandler, { once: true })
     }
 
-    let outcome: ExchangeOutcome
+    let outcome: ExchangeOutcome | undefined
+    let exchangeError: unknown
+    let disposalError: unknown
     try {
       const exchangeFn = this.options.exchangeFn ?? exchange
       outcome = await exchangeFn(runtime, session, packet, this.options.onEvent)
     } catch (err: unknown) {
-      if (ctx.signal.aborted) {
-        return { status: 'cancelled', error: 'Execution cancelled by signal' }
-      }
-      return {
-        status: 'failed',
-        error: err instanceof Error ? err.message : String(err),
-      }
+      exchangeError = err
     } finally {
       ctx.signal.removeEventListener('abort', abortHandler)
-      await runtime.dispose(session)
-    }
-
-    if (ctx.signal.aborted) {
-      return { status: 'cancelled', error: 'Execution cancelled by signal' }
-    }
-
-    if (!outcome.ok) {
-      if (outcome.providerLimit) {
-        return { status: 'failed', error: `provider-limit: ${outcome.message}` }
+      try {
+        await runtime.dispose(session)
+      } catch (err: unknown) {
+        disposalError = err
       }
-      return { status: 'failed', error: outcome.message }
+    }
+
+    // Independent worktree diff measurement for read-only execution with a worktree.
+    // Must be measured immediately after session disposal to audit disk state across
+    // every outcome (success, failure, blocked/question, abort, or disposal failure).
+    let readOnlyDiffFiles: readonly string[] | null = null
+    let readOnlyViolation: string | undefined
+
+    if (!isWritable && ctx.worktreePath) {
+      const gitFactory = this.options.gitServiceFactory
+      if (!gitFactory) {
+        readOnlyViolation = `Agent node "${ctx.node.id}" cannot measure worktree diff: Git service factory is unavailable`
+      } else {
+        try {
+          const git = gitFactory(ctx.worktreePath)
+          const diff = await git.diffWorktree(ctx.forkSha)
+          readOnlyDiffFiles = diff.files.map((f) => f.path)
+          if (readOnlyDiffFiles.length > 0) {
+            readOnlyViolation = `Policy violation: Role "${role}" in read-only mode modified ${String(readOnlyDiffFiles.length)} file(s) in the worktree: ${readOnlyDiffFiles.join(', ')}`
+          }
+        } catch (err: unknown) {
+          readOnlyViolation = `Agent node "${ctx.node.id}" failed to measure worktree diff: ${formatError(err)}`
+        }
+      }
+    }
+
+    // If unauthorized modifications or measurement failure occurred, fail closed immediately.
+    // Unauthorized changes must never be masked as clean cancellations, resumable pauses, or raw exchange failures.
+    if (readOnlyViolation !== undefined) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error: readOnlyViolation,
+      }
+    }
+
+    // Preserve cancellation if aborted cleanly without worktree violations
+    if (ctx.signal.aborted) {
+      return {
+        status: 'cancelled',
+        runtimeId,
+        error:
+          disposalError !== undefined
+            ? `Execution cancelled by signal (disposal error: ${formatError(disposalError)})`
+            : 'Execution cancelled by signal',
+      }
+    }
+
+    // Handle exchange exception if no worktree violations occurred
+    if (exchangeError !== undefined) {
+      const baseError = formatError(exchangeError)
+      return {
+        status: 'failed',
+        runtimeId,
+        error:
+          disposalError !== undefined
+            ? `${baseError} (disposal error: ${formatError(disposalError)})`
+            : baseError,
+      }
+    }
+
+    if (!outcome?.ok) {
+      const baseMsg = outcome?.providerLimit
+        ? `provider-limit: ${outcome.message}`
+        : (outcome?.message ?? 'Exchange failed')
+      return {
+        status: 'failed',
+        runtimeId,
+        error:
+          disposalError !== undefined
+            ? `${baseMsg} (disposal error: ${formatError(disposalError)})`
+            : baseMsg,
+      }
+    }
+
+    // Fail closed if session disposal failed, even when exchange succeeded
+    if (disposalError !== undefined) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error: `Agent node "${ctx.node.id}" session disposal failed: ${formatError(disposalError)}`,
+      }
     }
 
     const { report } = outcome
@@ -365,20 +476,38 @@ export class LeafRunner {
     if (report.status === 'blocked' || report.status === 'question') {
       return {
         status: 'blocked',
+        runtimeId,
         error: report.summary,
         awaitingUser: true,
         resumable: true,
       }
     }
 
+    const task = this.resolveTask(ctx)
+    const policyAssessment = assessStepPolicy({
+      ...(binding !== undefined ? { binding } : {}),
+      role,
+      permissions: effectivePermissions,
+      report,
+      forbiddenPaths: task?.scope.forbiddenPaths ?? [],
+      ...(readOnlyDiffFiles !== null ? { changedPaths: readOnlyDiffFiles } : {}),
+    })
+    if (!policyAssessment.allowed) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error: `Policy violation: ${formatPolicyHaltReason(policyAssessment.violations)}`,
+      }
+    }
+
     // Reconcile git diff for writable execution with a worktree
     let changeSet: ChangeSet | undefined
-    const isWritable = ctx.node.config.permissionMode !== 'read-only'
 
     if (isWritable && ctx.worktreePath) {
       if (!this.options.gitServiceFactory) {
         return {
           status: 'failed',
+          runtimeId,
           error: `Agent node "${ctx.node.id}" cannot build changeset: Git service factory is required for writable execution with worktree`,
         }
       }
@@ -387,6 +516,7 @@ export class LeafRunner {
       if (!task) {
         return {
           status: 'failed',
+          runtimeId,
           error: `Agent node "${ctx.node.id}" cannot build changeset: authoritative task is unavailable`,
         }
       }
@@ -412,6 +542,7 @@ export class LeafRunner {
       } catch (err: unknown) {
         return {
           status: 'failed',
+          runtimeId,
           error: `Agent node "${ctx.node.id}" failed to capture or reconcile changeset: ${err instanceof Error ? err.message : String(err)}`,
         }
       }
@@ -419,6 +550,7 @@ export class LeafRunner {
       if (!built.reconciliation.inScope) {
         return {
           status: 'failed',
+          runtimeId,
           error: `Policy violation: ${String(built.reconciliation.outOfScope.length)} file(s) modified outside scope (${built.reconciliation.outOfScope.join(', ')})`,
           changeSet: built.changeSet,
         }
@@ -432,6 +564,7 @@ export class LeafRunner {
 
     return {
       status: 'completed',
+      runtimeId,
       changeSet,
       artifacts,
     }

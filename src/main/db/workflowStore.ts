@@ -132,6 +132,7 @@ export interface UpdateNodeAttemptInput {
   readonly evidenceId?: string | null
   readonly finishedAt?: string | null
   readonly error?: string | null
+  readonly runtimeId?: string | null
   readonly occurredAt: string
 }
 
@@ -864,6 +865,7 @@ export class WorkflowStore {
             evidenceId: input.evidenceId,
             finishedAt: input.finishedAt,
             error: input.error,
+            runtimeId: input.runtimeId,
           },
         },
         { projectId: input.projectId, actor, occurredAt: input.occurredAt },

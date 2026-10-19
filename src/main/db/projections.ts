@@ -673,6 +673,7 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
       evidenceId?: string | null
       finishedAt?: string | null
       error?: string | null
+      runtimeId?: string | null
     } = {
       status: payload.status,
     }
@@ -687,6 +688,9 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
     }
     if (payload.error !== undefined) {
       updateData.error = payload.error
+    }
+    if (payload.runtimeId !== undefined) {
+      updateData.runtimeId = payload.runtimeId
     }
     db.update(graphNodeRuns)
       .set(updateData)

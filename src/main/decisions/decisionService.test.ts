@@ -12,9 +12,11 @@ import {
 } from '@shared/domain'
 import { initialiseDatabase, type ForgeDatabase } from '../db'
 import { DecisionStore } from '../db/decisionStore'
+import { eq } from 'drizzle-orm'
 import { EventStore } from '../db/eventStore'
 import { ProjectStore } from '../db/projectStore'
 import { applyEvent } from '../db/projections'
+import { graphRuns } from '../db/schema'
 import { WorkflowStore } from '../db/workflowStore'
 import { createDefaultTemplateResolver } from '../templates/templateV2Store'
 import { DecisionService } from './decisionService'
@@ -524,6 +526,51 @@ describe('DecisionService', () => {
         rationale: 'Mismatched project identity',
       }),
     ).toThrow(/belongs to project/)
+  })
+
+  it('fails closed when graph-run stored project identity mismatches requested project even when workflow belongs to requested project', () => {
+    const otherProjectId = projectIdSchema.parse(randomUUID())
+    new ProjectStore(db).create(
+      {
+        id: otherProjectId,
+        name: 'Other Project Fixture',
+        repository: {
+          id: repositoryIdSchema.parse(randomUUID()),
+          absolutePath: '/repo/other-fixture',
+          defaultBranch: 'main',
+          buildCommand: null,
+          testCommand: null,
+          tech: [],
+        },
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+      'user',
+    )
+
+    recordBlockedNodeAttempt(nodeId)
+
+    // Using controlled database fixture: deliberately update graph_runs.projectId to otherProjectId
+    // while the workflow itself legitimately belongs to projectId (Project A).
+    db.update(graphRuns)
+      .set({ projectId: otherProjectId })
+      .where(eq(graphRuns.id, graphRunId))
+      .run()
+
+    // Request payload uses projectId (Project A) which matches workflow.projectId and run.workflowId,
+    // but graph_runs.projectId is otherProjectId (Project B).
+    expect(() =>
+      decisionService.recordGateDecision({
+        projectId,
+        workflowId,
+        graphRunId,
+        nodeId,
+        verdict: 'approved',
+        rationale: 'Testing stored graph-run project identity verification',
+      }),
+    ).toThrow(
+      new RegExp(`Graph run ${graphRunId} belongs to project ${otherProjectId}, not ${projectId}`),
+    )
   })
 
   it('resolves authentic user_gate using createDefaultTemplateResolver for default linear templates', () => {

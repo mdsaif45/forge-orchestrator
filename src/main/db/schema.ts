@@ -210,6 +210,7 @@ export const graphRuns = sqliteTable(
   'graph_runs',
   {
     id: text('id').primaryKey(),
+    projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
     workflowId: text('workflow_id')
       .notNull()
       .references(() => workflows.id, { onDelete: 'cascade' }),
@@ -222,6 +223,7 @@ export const graphRuns = sqliteTable(
     error: text('error'),
   },
   (table) => [
+    index('graph_runs_project').on(table.projectId),
     index('graph_runs_workflow').on(table.workflowId),
     index('graph_runs_status').on(table.status),
   ],

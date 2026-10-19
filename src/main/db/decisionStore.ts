@@ -124,6 +124,9 @@ export class DecisionStore {
     if (first.workflowId !== runRow.workflowId) {
       return null
     }
+    if (runRow.projectId !== null && first.projectId !== runRow.projectId) {
+      return null
+    }
 
     // 2. Authoritative workflow validation against DB (fail-closed if missing or mismatched)
     const wfRow = this.db

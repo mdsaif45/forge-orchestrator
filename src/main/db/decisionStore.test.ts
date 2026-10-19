@@ -444,6 +444,19 @@ describe('DecisionStore', () => {
         sqlite.pragma('foreign_keys = ON')
       }
       expect(decisions.findGateDecision(graphRunId, nodeId)).toBeNull()
+
+      // 3. Corrupt graph_runs row to point to a different projectId than the decision and workflow
+      const thirdProjectId = projectIdSchema.parse(randomUUID())
+      sqlite.pragma('foreign_keys = OFF')
+      try {
+        db.update(graphRuns)
+          .set({ projectId: thirdProjectId })
+          .where(eq(graphRuns.id, graphRunId))
+          .run()
+      } finally {
+        sqlite.pragma('foreign_keys = ON')
+      }
+      expect(decisions.findGateDecision(graphRunId, nodeId)).toBeNull()
     })
 
     it('isolates legacy project decisions with null graphRunId from satisfying gates', () => {

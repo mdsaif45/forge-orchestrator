@@ -311,6 +311,26 @@ export class LeafRunner {
     const effectivePermitsWrite = effectivePermissions.writeFiles
     const isWritable = nodeRequiresFileWrite(ctx.node) && effectivePermitsWrite
 
+    // Preflight for read-only execution with a worktree:
+    // Independent measurement requires a Git service and an authoritative baseline SHA.
+    // Never treat missing dependencies or missing baseline as proof that no changes occurred.
+    if (!isWritable && ctx.worktreePath) {
+      if (!this.options.gitServiceFactory) {
+        return {
+          status: 'failed',
+          runtimeId,
+          error: `Agent node "${ctx.node.id}" cannot enforce read-only policy: Git service factory is required for execution with worktree`,
+        }
+      }
+      if (!ctx.forkSha || ctx.forkSha.trim() === '') {
+        return {
+          status: 'failed',
+          runtimeId,
+          error: `Agent node "${ctx.node.id}" cannot enforce read-only policy: Authoritative forkSha baseline is required for execution with worktree`,
+        }
+      }
+    }
+
     // Assemble PromptPacket
     let packet: PromptPacket
     if (this.options.compilePacket) {
@@ -342,32 +362,76 @@ export class LeafRunner {
       ctx.signal.addEventListener('abort', abortHandler, { once: true })
     }
 
-    let outcome: ExchangeOutcome
+    let outcome: ExchangeOutcome | undefined
+    let exchangeError: unknown
     try {
       const exchangeFn = this.options.exchangeFn ?? exchange
       outcome = await exchangeFn(runtime, session, packet, this.options.onEvent)
     } catch (err: unknown) {
-      if (ctx.signal.aborted) {
-        return { status: 'cancelled', error: 'Execution cancelled by signal' }
-      }
-      return {
-        status: 'failed',
-        error: err instanceof Error ? err.message : String(err),
-      }
+      exchangeError = err
     } finally {
       ctx.signal.removeEventListener('abort', abortHandler)
       await runtime.dispose(session)
     }
 
+    // Independent worktree diff measurement for read-only execution with a worktree.
+    // Must be measured immediately after session disposal to audit disk state across
+    // every outcome (success, failure, blocked/question, or abort).
+    let readOnlyDiffFiles: readonly string[] | null = null
+    let readOnlyViolation: string | undefined
+
+    if (!isWritable && ctx.worktreePath) {
+      const gitFactory = this.options.gitServiceFactory
+      if (!gitFactory) {
+        readOnlyViolation = `Agent node "${ctx.node.id}" cannot measure worktree diff: Git service factory is unavailable`
+      } else {
+        try {
+          const git = gitFactory(ctx.worktreePath)
+          const diff = await git.diffWorktree(ctx.forkSha)
+          readOnlyDiffFiles = diff.files.map((f) => f.path)
+          if (readOnlyDiffFiles.length > 0) {
+            readOnlyViolation = `Policy violation: Role "${role}" in read-only mode modified ${String(readOnlyDiffFiles.length)} file(s) in the worktree: ${readOnlyDiffFiles.join(', ')}`
+          }
+        } catch (err: unknown) {
+          readOnlyViolation = `Agent node "${ctx.node.id}" failed to measure worktree diff: ${err instanceof Error ? err.message : String(err)}`
+        }
+      }
+    }
+
+    // If unauthorized modifications or measurement failure occurred, fail closed immediately.
+    // Unauthorized changes must never be masked as clean cancellations, resumable pauses, or raw exchange failures.
+    if (readOnlyViolation !== undefined) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error: readOnlyViolation,
+      }
+    }
+
+    // Preserve cancellation if aborted cleanly without worktree violations
     if (ctx.signal.aborted) {
       return { status: 'cancelled', error: 'Execution cancelled by signal' }
     }
 
-    if (!outcome.ok) {
-      if (outcome.providerLimit) {
+    // Handle exchange exception if no worktree violations occurred
+    if (exchangeError !== undefined) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error:
+          exchangeError instanceof Error
+            ? exchangeError.message
+            : typeof exchangeError === 'string'
+              ? exchangeError
+              : JSON.stringify(exchangeError),
+      }
+    }
+
+    if (!outcome?.ok) {
+      if (outcome?.providerLimit) {
         return { status: 'failed', runtimeId, error: `provider-limit: ${outcome.message}` }
       }
-      return { status: 'failed', runtimeId, error: outcome.message }
+      return { status: 'failed', runtimeId, error: outcome?.message ?? 'Exchange failed' }
     }
 
     const { report } = outcome
@@ -382,31 +446,6 @@ export class LeafRunner {
       }
     }
 
-    // For read-only execution with a worktree, measure changes independently from the repository.
-    // If the agent actually modified files on disk, halt fail-closed regardless of what was claimed.
-    let readOnlyChange: readonly string[] | null = null
-    if (!isWritable && ctx.worktreePath && this.options.gitServiceFactory && ctx.forkSha) {
-      try {
-        const git = this.options.gitServiceFactory(ctx.worktreePath)
-        const diff = await git.diffWorktree(ctx.forkSha)
-        readOnlyChange = diff.files.map((f) => f.path)
-      } catch (err: unknown) {
-        return {
-          status: 'failed',
-          runtimeId,
-          error: `Agent node "${ctx.node.id}" failed to measure worktree diff: ${err instanceof Error ? err.message : String(err)}`,
-        }
-      }
-    }
-
-    if (!isWritable && readOnlyChange !== null && readOnlyChange.length > 0) {
-      return {
-        status: 'failed',
-        runtimeId,
-        error: `Policy violation: Role "${role}" in read-only mode modified ${String(readOnlyChange.length)} file(s) in the worktree: ${readOnlyChange.join(', ')}`,
-      }
-    }
-
     const task = this.resolveTask(ctx)
     const policyAssessment = assessStepPolicy({
       ...(binding !== undefined ? { binding } : {}),
@@ -414,7 +453,7 @@ export class LeafRunner {
       permissions: effectivePermissions,
       report,
       forbiddenPaths: task?.scope.forbiddenPaths ?? [],
-      ...(readOnlyChange !== null ? { changedPaths: readOnlyChange } : {}),
+      ...(readOnlyDiffFiles !== null ? { changedPaths: readOnlyDiffFiles } : {}),
     })
     if (!policyAssessment.allowed) {
       return {

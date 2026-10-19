@@ -2502,4 +2502,494 @@ describe('BindingSet Role & Capability Resolution (Slice 5B-1B)', () => {
       }
     })
   })
+
+  describe('read-only worktree enforcement and audit (Slice 5B-1B final review gate)', () => {
+    function createTestRepo(): { repoDir: string; forkSha: string; cleanup: () => void } {
+      const repoDir = mkdtempSync(join(tmpdir(), 'ro-worktree-test-'))
+      git(repoDir, 'init', '-b', 'main')
+      git(repoDir, 'config', 'user.name', 'Forge Tester')
+      git(repoDir, 'config', 'user.email', 'test@forge.local')
+      writeFileSync(join(repoDir, 'base.txt'), 'base content\n')
+      git(repoDir, 'add', '.')
+      git(repoDir, 'commit', '-m', 'Initial commit')
+      const forkSha = git(repoDir, 'rev-parse', 'HEAD').trim()
+      return {
+        repoDir,
+        forkSha,
+        cleanup: () => {
+          rmSync(repoDir, { recursive: true, force: true })
+        },
+      }
+    }
+
+    it('1. read-only agent modifying files and returning blocked is rejected with policy violation (not accepted as clean resumable pause)', async () => {
+      const { repoDir, forkSha, cleanup } = createTestRepo()
+      try {
+        const rt = makeRuntime('rt-ro-blocked', {
+          capabilities: ['repo-read', 'review', 'terminal'],
+        })
+        registry.register(rt)
+
+        const runner = new LeafRunner({
+          registry,
+          gitServiceFactory: (p) => new GitService({ repositoryPath: p }),
+          exchangeFn: vi.fn().mockImplementation(() => {
+            writeFileSync(join(repoDir, 'unauthorized-blocked.txt'), 'blocked tamper\n')
+            const outcome: ExchangeOutcome = {
+              ok: true,
+              report: {
+                status: 'blocked',
+                summary: 'Blocked on external condition',
+                filesChanged: [],
+                commandsRun: [],
+                testsRun: false,
+                openQuestions: [],
+                assumptions: [],
+              },
+              assessment: { verdict: 'accept', reason: 'ok' },
+              retried: false,
+              transcript: [],
+            }
+            return Promise.resolve(outcome)
+          }),
+        })
+
+        const node = makeNode('ro-blocked-node', {
+          config: {
+            role: 'reviewer',
+            providerId: 'rt-ro-blocked',
+            permissionMode: 'read-only',
+            skills: [],
+          },
+        })
+
+        const ctx = makeContext(node, {
+          worktreePath: repoDir,
+          forkSha,
+        })
+
+        const result = await runner.execute(ctx)
+        expect(result.status).toBe('failed')
+        expect(result.error).toContain(
+          'Policy violation: Role "reviewer" in read-only mode modified 1 file(s) in the worktree: unauthorized-blocked.txt',
+        )
+        expect('awaitingUser' in result).toBe(false)
+        expect('resumable' in result).toBe(false)
+      } finally {
+        cleanup()
+      }
+    })
+
+    it('2. read-only agent modifying files and returning question is rejected with policy violation (not accepted as clean resumable pause)', async () => {
+      const { repoDir, forkSha, cleanup } = createTestRepo()
+      try {
+        const rt = makeRuntime('rt-ro-question', {
+          capabilities: ['repo-read', 'review', 'terminal'],
+        })
+        registry.register(rt)
+
+        const runner = new LeafRunner({
+          registry,
+          gitServiceFactory: (p) => new GitService({ repositoryPath: p }),
+          exchangeFn: vi.fn().mockImplementation(() => {
+            writeFileSync(join(repoDir, 'unauthorized-question.txt'), 'question tamper\n')
+            const outcome: ExchangeOutcome = {
+              ok: true,
+              report: {
+                status: 'question',
+                summary: 'Need clarification on architecture',
+                filesChanged: [],
+                commandsRun: [],
+                testsRun: false,
+                openQuestions: [],
+                assumptions: [],
+              },
+              assessment: { verdict: 'accept', reason: 'ok' },
+              retried: false,
+              transcript: [],
+            }
+            return Promise.resolve(outcome)
+          }),
+        })
+
+        const node = makeNode('ro-question-node', {
+          config: {
+            role: 'reviewer',
+            providerId: 'rt-ro-question',
+            permissionMode: 'read-only',
+            skills: [],
+          },
+        })
+
+        const ctx = makeContext(node, {
+          worktreePath: repoDir,
+          forkSha,
+        })
+
+        const result = await runner.execute(ctx)
+        expect(result.status).toBe('failed')
+        expect(result.error).toContain(
+          'Policy violation: Role "reviewer" in read-only mode modified 1 file(s) in the worktree: unauthorized-question.txt',
+        )
+        expect('awaitingUser' in result).toBe(false)
+        expect('resumable' in result).toBe(false)
+      } finally {
+        cleanup()
+      }
+    })
+
+    it('3. read-only agent modifying files and failing exchange fails closed with policy violation (not masked by exchange failure or exception)', async () => {
+      const { repoDir, forkSha, cleanup } = createTestRepo()
+      try {
+        const rt = makeRuntime('rt-ro-fail', { capabilities: ['repo-read', 'review', 'terminal'] })
+        registry.register(rt)
+
+        // 3a. ExchangeOutcome ok: false
+        const runnerFailedOutcome = new LeafRunner({
+          registry,
+          gitServiceFactory: (p) => new GitService({ repositoryPath: p }),
+          exchangeFn: vi.fn().mockImplementation(() => {
+            writeFileSync(join(repoDir, 'unauthorized-fail.txt'), 'tamper before failure\n')
+            const outcome: ExchangeOutcome = {
+              ok: false,
+              failure: 'runtime',
+              code: null,
+              message: 'Provider internal error',
+              providerLimit: false,
+              retried: false,
+              transcript: [],
+            }
+            return Promise.resolve(outcome)
+          }),
+        })
+
+        const node = makeNode('ro-fail-node', {
+          config: {
+            role: 'reviewer',
+            providerId: 'rt-ro-fail',
+            permissionMode: 'read-only',
+            skills: [],
+          },
+        })
+
+        const ctx = makeContext(node, {
+          worktreePath: repoDir,
+          forkSha,
+        })
+
+        const resultOutcome = await runnerFailedOutcome.execute(ctx)
+        expect(resultOutcome.status).toBe('failed')
+        expect(resultOutcome.error).toContain(
+          'Policy violation: Role "reviewer" in read-only mode modified 1 file(s) in the worktree: unauthorized-fail.txt',
+        )
+
+        // 3b. Exchange throws exception
+        const runnerException = new LeafRunner({
+          registry,
+          gitServiceFactory: (p) => new GitService({ repositoryPath: p }),
+          exchangeFn: vi.fn().mockImplementation(() => {
+            writeFileSync(join(repoDir, 'unauthorized-crash.txt'), 'tamper before crash\n')
+            return Promise.reject(new Error('Process abruptly crashed'))
+          }),
+        })
+
+        const resultException = await runnerException.execute(ctx)
+        expect(resultException.status).toBe('failed')
+        expect(resultException.error).toContain(
+          'Policy violation: Role "reviewer" in read-only mode modified 2 file(s) in the worktree: unauthorized-crash.txt, unauthorized-fail.txt',
+        )
+      } finally {
+        cleanup()
+      }
+    })
+
+    it('4. read-only execution with worktree but no Git service fails closed at preflight', async () => {
+      const { repoDir, forkSha, cleanup } = createTestRepo()
+      try {
+        const rt = makeRuntime('rt-ro-no-git', {
+          capabilities: ['repo-read', 'review', 'terminal'],
+        })
+        registry.register(rt)
+
+        const exchangeFn = vi.fn()
+        const runner = new LeafRunner({
+          registry,
+          // gitServiceFactory omitted on purpose
+          exchangeFn,
+        })
+
+        const node = makeNode('ro-no-git-node', {
+          config: {
+            role: 'reviewer',
+            providerId: 'rt-ro-no-git',
+            permissionMode: 'read-only',
+            skills: [],
+          },
+        })
+
+        const ctx = makeContext(node, {
+          worktreePath: repoDir,
+          forkSha,
+        })
+
+        const result = await runner.execute(ctx)
+        expect(result.status).toBe('failed')
+        expect(result.error).toContain(
+          'cannot enforce read-only policy: Git service factory is required for execution with worktree',
+        )
+        expect(exchangeFn).not.toHaveBeenCalled()
+      } finally {
+        cleanup()
+      }
+    })
+
+    it('5. read-only execution with worktree but no authoritative baseline fails closed at preflight', async () => {
+      const { repoDir, cleanup } = createTestRepo()
+      try {
+        const rt = makeRuntime('rt-ro-no-base', {
+          capabilities: ['repo-read', 'review', 'terminal'],
+        })
+        registry.register(rt)
+
+        const exchangeFn = vi.fn()
+        const runner = new LeafRunner({
+          registry,
+          gitServiceFactory: (p) => new GitService({ repositoryPath: p }),
+          exchangeFn,
+        })
+
+        const node = makeNode('ro-no-base-node', {
+          config: {
+            role: 'reviewer',
+            providerId: 'rt-ro-no-base',
+            permissionMode: 'read-only',
+            skills: [],
+          },
+        })
+
+        // 5a. Missing forkSha (empty string)
+        const ctxEmptySha = makeContext(node, {
+          worktreePath: repoDir,
+          forkSha: '',
+        })
+
+        const resultEmptySha = await runner.execute(ctxEmptySha)
+        expect(resultEmptySha.status).toBe('failed')
+        expect(resultEmptySha.error).toContain(
+          'cannot enforce read-only policy: Authoritative forkSha baseline is required for execution with worktree',
+        )
+        expect(exchangeFn).not.toHaveBeenCalled()
+
+        // 5b. Whitespace forkSha
+        const ctxWhitespaceSha = makeContext(node, {
+          worktreePath: repoDir,
+          forkSha: '   ',
+        })
+
+        const resultWhitespace = await runner.execute(ctxWhitespaceSha)
+        expect(resultWhitespace.status).toBe('failed')
+        expect(resultWhitespace.error).toContain(
+          'cannot enforce read-only policy: Authoritative forkSha baseline is required for execution with worktree',
+        )
+        expect(exchangeFn).not.toHaveBeenCalled()
+      } finally {
+        cleanup()
+      }
+    })
+
+    it('6. normal read-only execution with no modifications succeeds cleanly', async () => {
+      const { repoDir, forkSha, cleanup } = createTestRepo()
+      try {
+        const rt = makeRuntime('rt-ro-clean', { capabilities: ['repo-read', 'review', 'terminal'] })
+        registry.register(rt)
+
+        const runner = new LeafRunner({
+          registry,
+          gitServiceFactory: (p) => new GitService({ repositoryPath: p }),
+          exchangeFn: vi.fn().mockImplementation(() => {
+            const outcome: ExchangeOutcome = {
+              ok: true,
+              report: {
+                status: 'completed',
+                summary: 'All checks passed cleanly',
+                filesChanged: [],
+                commandsRun: [],
+                testsRun: false,
+                openQuestions: [],
+                assumptions: [],
+              },
+              assessment: { verdict: 'accept', reason: 'ok' },
+              retried: false,
+              transcript: [],
+            }
+            return Promise.resolve(outcome)
+          }),
+        })
+
+        const node = makeNode('ro-clean-node', {
+          config: {
+            role: 'reviewer',
+            providerId: 'rt-ro-clean',
+            permissionMode: 'read-only',
+            skills: [],
+          },
+        })
+
+        const ctx = makeContext(node, {
+          worktreePath: repoDir,
+          forkSha,
+        })
+
+        const result = await runner.execute(ctx)
+        expect(result.status).toBe('completed')
+        expect(result.changeSet).toBeUndefined()
+      } finally {
+        cleanup()
+      }
+    })
+
+    it('7. writable implementer execution with worktree remains unaffected and captures changeset', async () => {
+      const { repoDir, forkSha, cleanup } = createTestRepo()
+      try {
+        const rt = makeRuntime('rt-impl-write', {
+          capabilities: ['repo-read', 'file-write', 'terminal'],
+        })
+        registry.register(rt)
+
+        const runner = new LeafRunner({
+          registry,
+          gitServiceFactory: (p) => new GitService({ repositoryPath: p }),
+          exchangeFn: vi.fn().mockImplementation(() => {
+            writeFileSync(join(repoDir, 'src-feature.txt'), 'legitimate feature work\n')
+            const outcome: ExchangeOutcome = {
+              ok: true,
+              report: {
+                status: 'completed',
+                summary: 'Implemented feature',
+                filesChanged: ['src-feature.txt'],
+                commandsRun: [],
+                testsRun: false,
+                openQuestions: [],
+                assumptions: [],
+              },
+              assessment: { verdict: 'accept', reason: 'ok' },
+              retried: false,
+              transcript: [],
+            }
+            return Promise.resolve(outcome)
+          }),
+        })
+
+        const node = makeNode('impl-node', {
+          config: {
+            role: 'implementer',
+            providerId: 'rt-impl-write',
+            permissionMode: 'developer',
+            skills: [],
+          },
+        })
+
+        const ctx = makeContext(node, {
+          worktreePath: repoDir,
+          forkSha,
+        })
+
+        const result = await runner.execute(ctx)
+        expect(result.status).toBe('completed')
+        expect(result.changeSet).toBeDefined()
+        expect(result.changeSet?.files.map((f) => f.path)).toContain('src-feature.txt')
+      } finally {
+        cleanup()
+      }
+    })
+
+    it('8. cancellation and resource disposal behavior remains correct for clean and tampered executions', async () => {
+      const { repoDir, forkSha, cleanup } = createTestRepo()
+      try {
+        const disposeSpyClean = vi.fn().mockResolvedValue(undefined)
+        const rtClean = makeRuntime('rt-cancel-clean', {
+          capabilities: ['repo-read', 'review', 'terminal'],
+          dispose: disposeSpyClean,
+        })
+        registry.register(rtClean)
+
+        // 8a. Clean cancellation: no files modified -> status is 'cancelled', runtime.dispose is called
+        const abortControllerClean = new AbortController()
+        const runnerClean = new LeafRunner({
+          registry,
+          gitServiceFactory: (p) => new GitService({ repositoryPath: p }),
+          exchangeFn: vi.fn().mockImplementation(() => {
+            abortControllerClean.abort()
+            return Promise.reject(new Error('Aborted'))
+          }),
+        })
+
+        const nodeClean = makeNode('cancel-clean-node', {
+          config: {
+            role: 'reviewer',
+            providerId: 'rt-cancel-clean',
+            permissionMode: 'read-only',
+            skills: [],
+          },
+        })
+
+        const ctxClean = makeContext(nodeClean, {
+          worktreePath: repoDir,
+          forkSha,
+          signal: abortControllerClean.signal,
+        })
+
+        const resultClean = await runnerClean.execute(ctxClean)
+        expect(resultClean.status).toBe('cancelled')
+        expect(resultClean.error).toBe('Execution cancelled by signal')
+        expect(disposeSpyClean).toHaveBeenCalled()
+
+        // 8b. Cancellation with unauthorized modification: files modified -> fails closed with policy violation, runtime.dispose is called
+        const disposeSpyTampered = vi.fn().mockResolvedValue(undefined)
+        const rtTampered = makeRuntime('rt-cancel-tampered', {
+          capabilities: ['repo-read', 'review', 'terminal'],
+          dispose: disposeSpyTampered,
+        })
+        registry.register(rtTampered)
+
+        const abortControllerTampered = new AbortController()
+        const runnerTampered = new LeafRunner({
+          registry,
+          gitServiceFactory: (p) => new GitService({ repositoryPath: p }),
+          exchangeFn: vi.fn().mockImplementation(() => {
+            writeFileSync(
+              join(repoDir, 'unauthorized-cancelled.txt'),
+              'tampered during cancellation\n',
+            )
+            abortControllerTampered.abort()
+            return Promise.reject(new Error('Aborted'))
+          }),
+        })
+
+        const nodeTampered = makeNode('cancel-tampered-node', {
+          config: {
+            role: 'reviewer',
+            providerId: 'rt-cancel-tampered',
+            permissionMode: 'read-only',
+            skills: [],
+          },
+        })
+
+        const ctxTampered = makeContext(nodeTampered, {
+          worktreePath: repoDir,
+          forkSha,
+          signal: abortControllerTampered.signal,
+        })
+
+        const resultTampered = await runnerTampered.execute(ctxTampered)
+        expect(resultTampered.status).toBe('failed')
+        expect(resultTampered.error).toContain(
+          'Policy violation: Role "reviewer" in read-only mode modified 1 file(s) in the worktree: unauthorized-cancelled.txt',
+        )
+        expect(disposeSpyTampered).toHaveBeenCalled()
+      } finally {
+        cleanup()
+      }
+    })
+  })
 })

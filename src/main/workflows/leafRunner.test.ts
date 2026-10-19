@@ -2688,7 +2688,7 @@ describe('LeafRunner', () => {
     expect(result.error).toContain('failed to capture or reconcile changeset: git diff failed')
   })
 
-  it('28d. read-only agent execution: read-only agent with worktree completes successfully without gitServiceFactory or changeSet reconciliation', async () => {
+  it('28d. read-only agent execution: read-only agent with worktree fails closed when gitServiceFactory is missing', async () => {
     const runtime = mockRuntime()
     const registry = new RuntimeRegistry()
     registry.register(runtime)
@@ -2723,11 +2723,105 @@ describe('LeafRunner', () => {
 
     const ctx = makeContext(node, {
       worktreePath: '/mock/worktree',
+      forkSha: '0123456789abcdef0123456789abcdef01234567',
+    })
+
+    const result = await runner.execute(ctx)
+    expect(result.status).toBe('failed')
+    expect(result.error).toContain(
+      'cannot enforce read-only policy: Git service factory is required for execution with worktree',
+    )
+  })
+
+  it('28e. read-only agent execution: read-only agent without worktree completes successfully without gitServiceFactory or changeSet reconciliation', async () => {
+    const runtime = mockRuntime()
+    const registry = new RuntimeRegistry()
+    registry.register(runtime)
+
+    const report: AgentReport = {
+      status: 'completed',
+      summary: 'Inspected files',
+      filesChanged: [],
+      commandsRun: [],
+      testsRun: false,
+      openQuestions: [],
+      assumptions: [],
+    }
+    const exchangeFn = vi.fn().mockResolvedValue({
+      ok: true,
+      report,
+      assessment: { status: 'completed' },
+      retried: false,
+      transcript: [],
+    })
+
+    const runner = new LeafRunner({
+      registry,
+      defaultRuntimeId: 'mock-runtime',
+      exchangeFn,
+    })
+
+    const node = makeNode('read-only-agent', {
+      type: 'agent',
+      config: { role: 'reviewer', skills: [], permissionMode: 'read-only' },
+    })
+
+    const ctx = makeContext(node, {
+      worktreePath: undefined,
     })
 
     const result = await runner.execute(ctx)
     expect(result.status).toBe('completed')
     expect(result.changeSet).toBeUndefined()
+  })
+
+  it('28f. read-only agent execution: read-only agent with worktree and clean diff completes successfully without changeSet reconciliation', async () => {
+    const runtime = mockRuntime()
+    const registry = new RuntimeRegistry()
+    registry.register(runtime)
+
+    const report: AgentReport = {
+      status: 'completed',
+      summary: 'Inspected files',
+      filesChanged: [],
+      commandsRun: [],
+      testsRun: false,
+      openQuestions: [],
+      assumptions: [],
+    }
+    const exchangeFn = vi.fn().mockResolvedValue({
+      ok: true,
+      report,
+      assessment: { status: 'completed' },
+      retried: false,
+      transcript: [],
+    })
+
+    const mockGit = {
+      diffWorktree: vi.fn().mockResolvedValue({ files: [], patch: '' }),
+    } as unknown as GitService
+
+    const runner = new LeafRunner({
+      registry,
+      defaultRuntimeId: 'mock-runtime',
+      exchangeFn,
+      gitServiceFactory: () => mockGit,
+    })
+
+    const node = makeNode('read-only-agent', {
+      type: 'agent',
+      config: { role: 'reviewer', skills: [], permissionMode: 'read-only' },
+    })
+
+    const ctx = makeContext(node, {
+      worktreePath: '/mock/worktree',
+      forkSha: '0123456789abcdef0123456789abcdef01234567',
+    })
+
+    const result = await runner.execute(ctx)
+    expect(result.status).toBe('completed')
+    expect(result.changeSet).toBeUndefined()
+    expect(mockGit.diffWorktree).toHaveBeenCalledWith('0123456789abcdef0123456789abcdef01234567')
   })
 
   it('29. test-seam elimination: production LeafRunner contains no approval bypass and strictly fails closed against caller-supplied context', async () => {

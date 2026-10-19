@@ -36,7 +36,7 @@ import { GitService, WorktreeService } from '../git'
 import { RuntimeRegistry } from '../runtimes/registry'
 import { GraphExecutor } from './graphExecutor'
 import { LeafRunner, createLeafRunner } from './leafRunner'
-import type { NodeExecutionContext } from './graphExecutor'
+import type { NodeExecutionContext, NodeExecutionResult } from './graphExecutor'
 
 function mockRuntime(overrides: Partial<IAgentRuntime> = {}): IAgentRuntime {
   return {
@@ -1304,6 +1304,237 @@ describe('LeafRunner', () => {
       const ctxNode1 = makeContext(node1, { projectId, workflowId, graphRunId, attempt: 1 })
       const result1 = await runner.execute(ctxNode1)
       expect(result1.status).toBe('completed')
+    } finally {
+      close()
+    }
+  })
+
+  it('14h. user_gate scope revalidation: decision with mismatched project or workflow identity cannot authorize gate', async () => {
+    const { db, close } = initialiseDatabase(':memory:')
+    try {
+      const eventStore = new EventStore(db)
+      const decisionStore = new DecisionStore(db, eventStore)
+      const workflowStore = new WorkflowStore(db)
+      const projectId = projectIdSchema.parse(randomUUID())
+      const otherProjectId = projectIdSchema.parse(randomUUID())
+      const workflowId = workflowIdSchema.parse(randomUUID())
+      const otherWorkflowId = workflowIdSchema.parse(randomUUID())
+      const taskId = taskIdSchema.parse(randomUUID())
+      const graphRunId = 'run-gate-test-14h'
+      const now = new Date().toISOString()
+
+      new ProjectStore(db).create(
+        {
+          id: projectId,
+          name: 'Project 1',
+          repository: {
+            id: repositoryIdSchema.parse(randomUUID()),
+            absolutePath: '/dummy/repo1',
+            defaultBranch: 'main',
+            buildCommand: null,
+            testCommand: null,
+            tech: [],
+          },
+          createdAt: now,
+          updatedAt: now,
+        },
+        'user',
+      )
+      const taskEvent = eventStore.append(
+        {
+          type: 'task.created',
+          payload: {
+            task: {
+              id: taskId,
+              objective: 'Test objective 14h',
+              constraints: [],
+              completionCriteria: [{ kind: 'tests', description: 'test suite passes', params: {} }],
+              scope: { allowedPaths: [], forbiddenPaths: [] },
+              lockedDecisionIds: [],
+              correctsTaskId: null,
+              createdAt: now,
+            },
+          },
+        },
+        { projectId, actor: 'user', occurredAt: now },
+      )
+      applyEvent(db, taskEvent)
+
+      workflowStore.start(
+        { workflowId, projectId, taskId, templateId: 'feature', startedAt: now },
+        'user',
+      )
+      workflowStore.startGraphRun(
+        { graphRunId, workflowId, projectId, templateId: 'compiled-feature', startedAt: now },
+        'user',
+      )
+
+      const node = makeNode('gate-14h', {
+        type: 'user_gate',
+        runtimeType: 'human',
+      })
+
+      // Decision is recorded for projectId and workflowId
+      decisionStore.recordGateDecision({
+        projectId,
+        workflowId,
+        graphRunId,
+        nodeId: node.id,
+        verdict: 'approved',
+        rationale: 'Approved for project 1',
+        actor: 'user',
+        occurredAt: now,
+      })
+
+      const registry = new RuntimeRegistry()
+      const runner = new LeafRunner({ registry, decisionStore })
+
+      // Executing under a mismatched execution context projectId must fail closed (remain blocked)
+      const ctxWrongProject = makeContext(node, {
+        projectId: otherProjectId,
+        workflowId,
+        graphRunId,
+        attempt: 1,
+      })
+      const resultWrongProject = await runner.execute(ctxWrongProject)
+      expect(resultWrongProject.status).toBe('blocked')
+      expect(resultWrongProject.awaitingUser).toBe(true)
+
+      // Executing under a mismatched execution context workflowId must fail closed (remain blocked)
+      const ctxWrongWorkflow = makeContext(node, {
+        projectId,
+        workflowId: otherWorkflowId,
+        graphRunId,
+        attempt: 1,
+      })
+      const resultWrongWorkflow = await runner.execute(ctxWrongWorkflow)
+      expect(resultWrongWorkflow.status).toBe('blocked')
+      expect(resultWrongWorkflow.awaitingUser).toBe(true)
+
+      // Executing with matching scope succeeds and emits decision artifact
+      const ctxMatching = makeContext(node, {
+        projectId,
+        workflowId,
+        graphRunId,
+        attempt: 1,
+      })
+      const resultMatching = await runner.execute(ctxMatching)
+      expect(resultMatching.status).toBe('completed')
+      expect(resultMatching.artifacts).toHaveLength(1)
+      expect(resultMatching.artifacts?.[0]?.kind).toBe('decision_record')
+    } finally {
+      close()
+    }
+  })
+
+  it('14i. GraphExecutor fallback leaf executor: approved user gate completes and emits decision-linked artifact', async () => {
+    const { db, close } = initialiseDatabase(':memory:')
+    try {
+      const eventStore = new EventStore(db)
+      const decisionStore = new DecisionStore(db, eventStore)
+      const workflowStore = new WorkflowStore(db)
+      const projectId = projectIdSchema.parse(randomUUID())
+      const workflowId = workflowIdSchema.parse(randomUUID())
+      const taskId = taskIdSchema.parse(randomUUID())
+      const graphRunId = 'run-gate-test-14i'
+      const now = new Date().toISOString()
+
+      new ProjectStore(db).create(
+        {
+          id: projectId,
+          name: 'Project Fallback',
+          repository: {
+            id: repositoryIdSchema.parse(randomUUID()),
+            absolutePath: '/dummy/repo-fallback',
+            defaultBranch: 'main',
+            buildCommand: null,
+            testCommand: null,
+            tech: [],
+          },
+          createdAt: now,
+          updatedAt: now,
+        },
+        'user',
+      )
+
+      const taskEvent = eventStore.append(
+        {
+          type: 'task.created',
+          payload: {
+            task: {
+              id: taskId,
+              objective: 'Test objective 14i',
+              constraints: [],
+              completionCriteria: [{ kind: 'tests', description: 'test suite passes', params: {} }],
+              scope: { allowedPaths: [], forbiddenPaths: [] },
+              lockedDecisionIds: [],
+              correctsTaskId: null,
+              createdAt: now,
+            },
+          },
+        },
+        { projectId, actor: 'user', occurredAt: now },
+      )
+      applyEvent(db, taskEvent)
+
+      workflowStore.start(
+        { workflowId, projectId, taskId, templateId: 'feature', startedAt: now },
+        'user',
+      )
+      workflowStore.startGraphRun(
+        { graphRunId, workflowId, projectId, templateId: 'compiled-feature', startedAt: now },
+        'user',
+      )
+
+      const node = makeNode('gate-14i', {
+        type: 'user_gate',
+        runtimeType: 'human',
+      })
+
+      decisionStore.recordGateDecision({
+        projectId,
+        workflowId,
+        graphRunId,
+        nodeId: node.id,
+        verdict: 'approved',
+        rationale: 'Approved for fallback executor test',
+        actor: 'user',
+        occurredAt: now,
+      })
+
+      const worktreeService = new WorktreeService({
+        repositoryPath: '/dummy/repo-fallback',
+        root: '/dummy/wt',
+      })
+
+      // GraphExecutor configured without executeLeafNode (exercising the fallback path)
+      const executor = new GraphExecutor({
+        workflowStore,
+        worktreeService,
+        decisionStore,
+      })
+
+      const ctx = makeContext(node, {
+        projectId,
+        workflowId,
+        graphRunId,
+        attempt: 1,
+      })
+
+      // Invoke the fallback execution path through dispatchLeaf method
+      interface PrivateDispatchLeaf {
+        dispatchLeaf(c: NodeExecutionContext): Promise<NodeExecutionResult>
+      }
+      const result = await (executor as unknown as PrivateDispatchLeaf).dispatchLeaf(ctx)
+
+      expect(result.status).toBe('completed')
+      expect(result.artifacts).toHaveLength(1)
+      expect(result.artifacts?.[0]?.kind).toBe('decision_record')
+      expect(result.artifacts?.[0]?.title).toBe('Gate Node gate-14i Approved')
+      const content = result.artifacts?.[0]?.content ?? ''
+      const payload = JSON.parse(content) as { gateVerdict: string; rationale: string }
+      expect(payload.gateVerdict).toBe('approved')
+      expect(payload.rationale).toBe('Approved for fallback executor test')
     } finally {
       close()
     }

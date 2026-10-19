@@ -2657,7 +2657,10 @@ export class GraphExecutor {
     switch (ctx.node.type) {
       case 'user_gate': {
         if (this.decisionStore) {
-          const decision = this.decisionStore.findGateDecision(ctx.graphRunId, ctx.node.id)
+          const decision = this.decisionStore.findGateDecision(ctx.graphRunId, ctx.node.id, {
+            projectId: ctx.projectId,
+            workflowId: ctx.workflowId,
+          })
           if (!decision) {
             return {
               status: 'blocked',
@@ -2667,7 +2670,18 @@ export class GraphExecutor {
             }
           }
           if (decision.gateVerdict === 'approved') {
-            return { status: 'completed' }
+            const artifact: WorkflowArtifact = {
+              id: artifactIdSchema.parse(randomUUID()),
+              workflowId: ctx.workflowId,
+              nodeId: ctx.node.id,
+              kind: 'decision_record',
+              format: 'json',
+              title: `Gate ${ctx.node.title} Approved`,
+              content: JSON.stringify(decision),
+              metadata: {},
+              createdAt: decision.lockedAt ?? new Date().toISOString(),
+            }
+            return { status: 'completed', artifacts: [artifact] }
           }
           if (decision.gateVerdict === 'rejected') {
             return {

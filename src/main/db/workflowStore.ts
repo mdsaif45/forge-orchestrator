@@ -660,6 +660,14 @@ export class WorkflowStore {
     return row.projectId as ProjectId
   }
 
+  projectIdOfGraphRun(graphRunId: string): ProjectId {
+    const run = this.getGraphRun(graphRunId)
+    if (run === null) {
+      throw new Error(`Graph run "${graphRunId}" not found`)
+    }
+    return this.projectIdOf(run.workflowId)
+  }
+
   /**
    * Assembles the workflow and validates it on the way out.
    *

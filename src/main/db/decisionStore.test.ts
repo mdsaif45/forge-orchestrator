@@ -301,6 +301,41 @@ describe('DecisionStore', () => {
       expect(decisions.findGateDecision(graphRunId1, 'step-2-gate')).not.toBeNull()
     })
 
+    it('rejects authorization when decision has mismatched project/workflow scope against execution context or authoritative graph run', () => {
+      const workflowId = workflowIdSchema.parse(randomUUID())
+      const graphRunId = 'run-gate-scope-check'
+      const nodeId = 'step-2-gate'
+      setupWorkflowAndGraphRun(db, workflowId, graphRunId)
+
+      decisions.recordGateDecision({
+        projectId,
+        workflowId,
+        graphRunId,
+        nodeId,
+        verdict: 'approved',
+        rationale: 'Approved for exact scope',
+        actor: 'user',
+        occurredAt: '2026-08-23T12:05:00.000Z',
+      })
+
+      // Correct scope resolves
+      expect(
+        decisions.findGateDecision(graphRunId, nodeId, { projectId, workflowId }),
+      ).not.toBeNull()
+
+      // Mismatched projectId in execution context returns null (cannot authorize gate)
+      const wrongProjectId = projectIdSchema.parse(randomUUID())
+      expect(
+        decisions.findGateDecision(graphRunId, nodeId, { projectId: wrongProjectId, workflowId }),
+      ).toBeNull()
+
+      // Mismatched workflowId in execution context returns null (cannot authorize gate)
+      const wrongWorkflowId = workflowIdSchema.parse(randomUUID())
+      expect(
+        decisions.findGateDecision(graphRunId, nodeId, { projectId, workflowId: wrongWorkflowId }),
+      ).toBeNull()
+    })
+
     it('isolates legacy project decisions with null graphRunId from satisfying gates', () => {
       const d1 = decisionIdSchema.parse(randomUUID())
       const legacyDecision: Decision = {

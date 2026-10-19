@@ -1,4 +1,6 @@
 import {
+  TEMPLATES,
+  compileLinearTemplateToGraph,
   workflowTemplateV2Schema,
   type TemplateStatus,
   type WorkflowTemplateV2,
@@ -35,5 +37,23 @@ export class TemplateV2Store {
 
   delete(templateId: string): boolean {
     return this.templates.delete(templateId)
+  }
+}
+
+/**
+ * Creates an authoritative template resolver supporting both V2 DAG templates
+ * and canonical compiled V1 linear templates.
+ */
+export function createDefaultTemplateResolver(
+  templatesV2?: TemplateV2Store,
+): (templateId: string) => WorkflowTemplateV2 | null {
+  const store = templatesV2 ?? new TemplateV2Store()
+  return (templateId: string): WorkflowTemplateV2 | null => {
+    const v2 = store.get(templateId)
+    if (v2 !== null) return v2
+    if (Object.hasOwn(TEMPLATES, templateId)) {
+      return compileLinearTemplateToGraph(TEMPLATES[templateId as keyof typeof TEMPLATES])
+    }
+    return null
   }
 }

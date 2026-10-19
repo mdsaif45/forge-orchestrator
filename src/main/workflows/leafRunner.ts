@@ -853,7 +853,10 @@ export class LeafRunner {
       }
     }
 
-    const decision = decisionStore.findGateDecision(ctx.graphRunId, ctx.node.id)
+    const decision = decisionStore.findGateDecision(ctx.graphRunId, ctx.node.id, {
+      projectId: ctx.projectId,
+      workflowId: ctx.workflowId,
+    })
     if (!decision) {
       return {
         status: 'blocked',

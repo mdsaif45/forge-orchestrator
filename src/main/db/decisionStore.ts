@@ -17,7 +17,7 @@ import type { ForgeDatabase } from './connection'
 import type { EventStore } from './eventStore'
 import { applyEvent } from './projections'
 import { parseRow } from './rows'
-import { decisions } from './schema'
+import { decisions, graphRuns, workflows } from './schema'
 
 export class DecisionConflictError extends Error {
   constructor(message: string) {
@@ -35,6 +35,11 @@ export interface RecordGateDecisionInput {
   readonly rationale: string
   readonly actor: Actor
   readonly occurredAt: string
+}
+
+export interface GateScopeContext {
+  readonly projectId?: ProjectId | undefined
+  readonly workflowId?: WorkflowId | undefined
 }
 
 /**
@@ -75,9 +80,14 @@ export class DecisionStore {
 
   /**
    * Authoritatively looks up the effective locked decision for a specific gate attempt in a graph run.
-   * Returns null if no locked decision exists for this exact (graphRunId, nodeId) scope.
+   * Revalidates decision scope against the authoritative graph run and current execution context.
+   * Returns null if no locked decision exists or if scope is mismatched.
    */
-  findGateDecision(graphRunId: string, nodeId: string): Decision | null {
+  findGateDecision(
+    graphRunId: string,
+    nodeId: string,
+    expectedScope?: GateScopeContext,
+  ): Decision | null {
     const rows = this.db
       .select()
       .from(decisions)
@@ -97,6 +107,32 @@ export class DecisionStore {
         `Invariant violation: Multiple locked decisions found for gate (graphRunId: ${graphRunId}, nodeId: ${nodeId})`,
       )
     }
+
+    // 1. Authoritative graph-run validation against DB
+    const runRow = this.db.select().from(graphRuns).where(eq(graphRuns.id, graphRunId)).all().at(0)
+    if (runRow !== undefined) {
+      if (first.workflowId !== runRow.workflowId) {
+        return null
+      }
+      const wfRow = this.db
+        .select()
+        .from(workflows)
+        .where(eq(workflows.id, runRow.workflowId))
+        .all()
+        .at(0)
+      if (wfRow !== undefined && first.projectId !== wfRow.projectId) {
+        return null
+      }
+    }
+
+    // 2. Current execution context validation against expected scope
+    if (expectedScope?.projectId !== undefined && first.projectId !== expectedScope.projectId) {
+      return null
+    }
+    if (expectedScope?.workflowId !== undefined && first.workflowId !== expectedScope.workflowId) {
+      return null
+    }
+
     return toDecision(first)
   }
 

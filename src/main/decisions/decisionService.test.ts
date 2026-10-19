@@ -8,6 +8,7 @@ import {
   type Decision,
   type ProjectId,
   type WorkflowId,
+  type WorkflowTemplateV2,
 } from '@shared/domain'
 import { initialiseDatabase, type ForgeDatabase } from '../db'
 import { DecisionStore } from '../db/decisionStore'
@@ -103,9 +104,53 @@ describe('DecisionService', () => {
       'user',
     )
 
+    const mockTemplate: WorkflowTemplateV2 = {
+      id: 'compiled-feature',
+      name: 'Compiled Feature',
+      version: 1,
+      status: 'published',
+      category: 'feature',
+      description: 'Test template',
+      createdAt: NOW,
+      updatedAt: NOW,
+      nodes: [
+        {
+          id: 'step-1-agent',
+          title: 'Planning Agent',
+          type: 'agent',
+          runtimeType: 'cli-agent',
+          config: { skills: [], permissionMode: 'read-only' },
+          inputs: [],
+          outputs: [],
+        },
+        {
+          id: 'step-2-gate',
+          title: 'User Approval Gate',
+          type: 'user_gate',
+          runtimeType: 'human',
+          config: { skills: [], permissionMode: 'read-only' },
+          inputs: [],
+          outputs: [],
+        },
+      ],
+      edges: [
+        {
+          id: 'edge-1',
+          source: 'step-1-agent',
+          target: 'step-2-gate',
+        },
+      ],
+    }
+
+    const templateResolver = (templateId: string): WorkflowTemplateV2 | null => {
+      if (templateId === 'compiled-feature') return mockTemplate
+      return null
+    }
+
     decisionService = new DecisionService({
       decisions: decisionStore,
       workflowStore,
+      templateResolver,
     })
   })
 
@@ -264,6 +309,31 @@ describe('DecisionService', () => {
     const svc = new DecisionService({
       decisions: decisionStore,
       workflowStore,
+      templateResolver: (tId) =>
+        tId === 'compiled-feature'
+          ? {
+              id: 'compiled-feature',
+              name: 'Compiled Feature',
+              version: 1,
+              status: 'published',
+              category: 'feature',
+              description: 'Test template',
+              createdAt: NOW,
+              updatedAt: NOW,
+              nodes: [
+                {
+                  id: 'step-2-gate',
+                  title: 'User Approval Gate',
+                  type: 'user_gate',
+                  runtimeType: 'human',
+                  config: { skills: [], permissionMode: 'read-only' },
+                  inputs: [],
+                  outputs: [],
+                },
+              ],
+              edges: [],
+            }
+          : null,
       onDecisionChanged,
     })
 
@@ -281,5 +351,177 @@ describe('DecisionService', () => {
     expect(onDecisionChanged).toHaveBeenCalledTimes(1)
     const recorded = onDecisionChanged.mock.calls[0]?.[0]
     expect(recorded?.gateVerdict).toBe('rejected')
+  })
+
+  it('fails closed if workflowStore is missing from DecisionService', () => {
+    const svcWithoutWf = new DecisionService({
+      decisions: decisionStore,
+      templateResolver: () => null,
+    })
+
+    expect(() =>
+      svcWithoutWf.recordGateDecision({
+        projectId,
+        workflowId,
+        graphRunId,
+        nodeId,
+        verdict: 'approved',
+        rationale: 'Unverified gate decision',
+      }),
+    ).toThrow(/workflowStore is required for authoritative preflight verification/)
+  })
+
+  it('fails closed if templateResolver is missing from DecisionService', () => {
+    const svcWithoutTpl = new DecisionService({
+      decisions: decisionStore,
+      workflowStore,
+    })
+
+    recordBlockedNodeAttempt(nodeId)
+
+    expect(() =>
+      svcWithoutTpl.recordGateDecision({
+        projectId,
+        workflowId,
+        graphRunId,
+        nodeId,
+        verdict: 'approved',
+        rationale: 'Missing template resolver',
+      }),
+    ).toThrow(/templateResolver is required to verify node type/)
+  })
+
+  it('fails closed if template cannot be resolved', () => {
+    const svcUnresolvedTpl = new DecisionService({
+      decisions: decisionStore,
+      workflowStore,
+      templateResolver: () => null,
+    })
+
+    recordBlockedNodeAttempt(nodeId)
+
+    expect(() =>
+      svcUnresolvedTpl.recordGateDecision({
+        projectId,
+        workflowId,
+        graphRunId,
+        nodeId,
+        verdict: 'approved',
+        rationale: 'Template missing',
+      }),
+    ).toThrow(/template "compiled-feature" could not be resolved/)
+  })
+
+  it('fails closed if requested node does not exist in template', () => {
+    recordBlockedNodeAttempt('non-existent-node')
+
+    expect(() =>
+      decisionService.recordGateDecision({
+        projectId,
+        workflowId,
+        graphRunId,
+        nodeId: 'non-existent-node',
+        verdict: 'approved',
+        rationale: 'Ghost node',
+      }),
+    ).toThrow(/node "non-existent-node" not found in template/)
+  })
+
+  it('fails closed if blocked node is not a user_gate (A blocked non-gate node cannot receive an authorized gate decision)', () => {
+    recordBlockedNodeAttempt('step-1-agent')
+
+    expect(() =>
+      decisionService.recordGateDecision({
+        projectId,
+        workflowId,
+        graphRunId,
+        nodeId: 'step-1-agent',
+        verdict: 'approved',
+        rationale: 'Trying to approve an agent node',
+      }),
+    ).toThrow(
+      /node "step-1-agent" in template "compiled-feature" has type "agent", not "user_gate"/,
+    )
+  })
+
+  it('fails closed if graphRun does not belong to requested projectId (A graph run with mismatched project identity is rejected)', () => {
+    const otherProjectId = projectIdSchema.parse(randomUUID())
+    new ProjectStore(db).create(
+      {
+        id: otherProjectId,
+        name: 'Other Project',
+        repository: {
+          id: repositoryIdSchema.parse(randomUUID()),
+          absolutePath: '/repo/other',
+          defaultBranch: 'main',
+          buildCommand: null,
+          testCommand: null,
+          tech: [],
+        },
+        createdAt: NOW,
+        updatedAt: NOW,
+      },
+      'user',
+    )
+
+    // Start a workflow in otherProject
+    const otherWorkflowId = workflowIdSchema.parse(randomUUID())
+    const otherTaskId = taskIdSchema.parse(randomUUID())
+    const otherTaskEvent = new EventStore(db).append(
+      {
+        type: 'task.created',
+        payload: {
+          task: {
+            id: otherTaskId,
+            objective: 'Other objective',
+            constraints: [],
+            completionCriteria: [{ kind: 'tests', description: 'test suite passes', params: {} }],
+            scope: { allowedPaths: [], forbiddenPaths: [] },
+            lockedDecisionIds: [],
+            correctsTaskId: null,
+            createdAt: NOW,
+          },
+        },
+      },
+      { projectId: otherProjectId, actor: 'user', occurredAt: NOW },
+    )
+    applyEvent(db, otherTaskEvent)
+
+    workflowStore.start(
+      {
+        workflowId: otherWorkflowId,
+        projectId: otherProjectId,
+        taskId: otherTaskId,
+        templateId: 'feature',
+        startedAt: NOW,
+      },
+      'user',
+    )
+
+    const otherRunId = 'run-other-project'
+    workflowStore.startGraphRun(
+      {
+        graphRunId: otherRunId,
+        workflowId: otherWorkflowId,
+        projectId: otherProjectId,
+        templateId: 'compiled-feature',
+        startedAt: NOW,
+      },
+      'user',
+    )
+
+    recordBlockedNodeAttempt(nodeId)
+
+    // Attempt to record a gate decision targeting graphRun from otherProject under current projectId
+    expect(() =>
+      decisionService.recordGateDecision({
+        projectId,
+        workflowId: otherWorkflowId,
+        graphRunId: otherRunId,
+        nodeId,
+        verdict: 'approved',
+        rationale: 'Mismatched project identity',
+      }),
+    ).toThrow(/belongs to project/)
   })
 })

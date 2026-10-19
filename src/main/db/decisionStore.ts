@@ -80,8 +80,16 @@ export class DecisionStore {
 
   /**
    * Authoritatively looks up the effective locked decision for a specific gate attempt in a graph run.
-   * Revalidates decision scope against the authoritative graph run and current execution context.
-   * Returns null if no locked decision exists or if scope is mismatched.
+   * Revalidates decision scope against the authoritative graph run, workflow, and current execution context.
+   *
+   * Fails closed by returning null if:
+   * - no locked decision exists for this gate;
+   * - the authoritative graph-run row does not exist in the database;
+   * - the workflow row referenced by the graph run does not exist in the database;
+   * - the decision's project or workflow coordinates do not exactly match the authoritative run and workflow;
+   * - the supplied execution scope (projectId or workflowId) does not match the decision.
+   *
+   * @throws {Error} Invariant violation if multiple locked decisions exist for the same gate.
    */
   findGateDecision(
     graphRunId: string,
@@ -108,24 +116,30 @@ export class DecisionStore {
       )
     }
 
-    // 1. Authoritative graph-run validation against DB
+    // 1. Authoritative graph-run validation against DB (fail-closed if missing or mismatched)
     const runRow = this.db.select().from(graphRuns).where(eq(graphRuns.id, graphRunId)).all().at(0)
-    if (runRow !== undefined) {
-      if (first.workflowId !== runRow.workflowId) {
-        return null
-      }
-      const wfRow = this.db
-        .select()
-        .from(workflows)
-        .where(eq(workflows.id, runRow.workflowId))
-        .all()
-        .at(0)
-      if (wfRow !== undefined && first.projectId !== wfRow.projectId) {
-        return null
-      }
+    if (runRow === undefined) {
+      return null
+    }
+    if (first.workflowId !== runRow.workflowId) {
+      return null
     }
 
-    // 2. Current execution context validation against expected scope
+    // 2. Authoritative workflow validation against DB (fail-closed if missing or mismatched)
+    const wfRow = this.db
+      .select()
+      .from(workflows)
+      .where(eq(workflows.id, runRow.workflowId))
+      .all()
+      .at(0)
+    if (wfRow === undefined) {
+      return null
+    }
+    if (first.projectId !== wfRow.projectId) {
+      return null
+    }
+
+    // 3. Current execution context validation against expected scope
     if (expectedScope?.projectId !== undefined && first.projectId !== expectedScope.projectId) {
       return null
     }

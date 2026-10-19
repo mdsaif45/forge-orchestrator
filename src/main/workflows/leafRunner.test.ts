@@ -23,6 +23,7 @@ import {
   type WorkflowNode,
   type WorkflowTemplateV2,
 } from '@shared/domain'
+import { eq } from 'drizzle-orm'
 import { ArtifactService } from '../artifacts/artifactService'
 import { initialiseDatabase } from '../db'
 import { ArtifactStore } from '../db/artifactStore'
@@ -31,6 +32,7 @@ import { EventStore } from '../db/eventStore'
 import { ProjectStore } from '../db/projectStore'
 import { applyEvent } from '../db/projections'
 import { RunStore } from '../db/runStore'
+import { graphRuns, workflows } from '../db/schema'
 import { WorkflowStore } from '../db/workflowStore'
 import { GitService, WorktreeService } from '../git'
 import { RuntimeRegistry } from '../runtimes/registry'
@@ -1535,6 +1537,119 @@ describe('LeafRunner', () => {
       const payload = JSON.parse(content) as { gateVerdict: string; rationale: string }
       expect(payload.gateVerdict).toBe('approved')
       expect(payload.rationale).toBe('Approved for fallback executor test')
+    } finally {
+      close()
+    }
+  })
+
+  it('14j. user_gate fails closed if authoritative graph run or workflow row is missing in database', async () => {
+    const { db, sqlite, close } = initialiseDatabase(':memory:')
+    try {
+      const eventStore = new EventStore(db)
+      const decisionStore = new DecisionStore(db, eventStore)
+      const workflowStore = new WorkflowStore(db)
+      const projectId = projectIdSchema.parse(randomUUID())
+      const workflowId = workflowIdSchema.parse(randomUUID())
+      const taskId = taskIdSchema.parse(randomUUID())
+      const graphRunId = 'run-gate-test-14j'
+      const now = new Date().toISOString()
+
+      new ProjectStore(db).create(
+        {
+          id: projectId,
+          name: 'Project Missing Rows Test',
+          repository: {
+            id: repositoryIdSchema.parse(randomUUID()),
+            absolutePath: '/dummy/repo-14j',
+            defaultBranch: 'main',
+            buildCommand: null,
+            testCommand: null,
+            tech: [],
+          },
+          createdAt: now,
+          updatedAt: now,
+        },
+        'user',
+      )
+
+      const taskEvent = eventStore.append(
+        {
+          type: 'task.created',
+          payload: {
+            task: {
+              id: taskId,
+              objective: 'Test objective 14j',
+              constraints: [],
+              completionCriteria: [{ kind: 'tests', description: 'test suite passes', params: {} }],
+              scope: { allowedPaths: [], forbiddenPaths: [] },
+              lockedDecisionIds: [],
+              correctsTaskId: null,
+              createdAt: now,
+            },
+          },
+        },
+        { projectId, actor: 'user', occurredAt: now },
+      )
+      applyEvent(db, taskEvent)
+
+      workflowStore.start(
+        { workflowId, projectId, taskId, templateId: 'feature', startedAt: now },
+        'user',
+      )
+      workflowStore.startGraphRun(
+        { graphRunId, workflowId, projectId, templateId: 'compiled-feature', startedAt: now },
+        'user',
+      )
+
+      const node = makeNode('gate-14j', {
+        type: 'user_gate',
+        runtimeType: 'human',
+      })
+
+      decisionStore.recordGateDecision({
+        projectId,
+        workflowId,
+        graphRunId,
+        nodeId: node.id,
+        verdict: 'approved',
+        rationale: 'Approved for gate-14j',
+        actor: 'user',
+        occurredAt: now,
+      })
+
+      const registry = new RuntimeRegistry()
+      const runner = new LeafRunner({ registry, decisionStore })
+
+      const ctx = makeContext(node, {
+        projectId,
+        workflowId,
+        graphRunId,
+        attempt: 1,
+      })
+
+      // 1. Simulate deleted graph run: fails closed
+      sqlite.pragma('foreign_keys = OFF')
+      try {
+        db.delete(graphRuns).where(eq(graphRuns.id, graphRunId)).run()
+      } finally {
+        sqlite.pragma('foreign_keys = ON')
+      }
+
+      const resAfterRunDelete = await runner.execute(ctx)
+      expect(resAfterRunDelete.status).toBe('blocked')
+      expect(resAfterRunDelete.awaitingUser).toBe(true)
+
+      // 2. Also simulate deleted workflow row: fails closed
+      sqlite.pragma('foreign_keys = OFF')
+      try {
+        db.delete(workflows).where(eq(workflows.id, workflowId)).run()
+      } finally {
+        sqlite.pragma('foreign_keys = ON')
+      }
+
+      const resAfterWfDelete = await runner.execute(ctx)
+      expect(resAfterWfDelete.status).toBe('blocked')
+      expect(resAfterWfDelete.awaitingUser).toBe(true)
     } finally {
       close()
     }

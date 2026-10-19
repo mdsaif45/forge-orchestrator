@@ -16,6 +16,7 @@ import { EventStore } from '../db/eventStore'
 import { ProjectStore } from '../db/projectStore'
 import { applyEvent } from '../db/projections'
 import { WorkflowStore } from '../db/workflowStore'
+import { createDefaultTemplateResolver } from '../templates/templateV2Store'
 import { DecisionService } from './decisionService'
 
 describe('DecisionService', () => {
@@ -523,5 +524,81 @@ describe('DecisionService', () => {
         rationale: 'Mismatched project identity',
       }),
     ).toThrow(/belongs to project/)
+  })
+
+  it('resolves authentic user_gate using createDefaultTemplateResolver for default linear templates', () => {
+    const svcWithDefaultResolver = new DecisionService({
+      decisions: decisionStore,
+      workflowStore,
+      templateResolver: createDefaultTemplateResolver(),
+    })
+    // In canonical feature template, step-2-user is the user_gate
+    recordBlockedNodeAttempt('step-2-user')
+
+    const res = svcWithDefaultResolver.recordGateDecision({
+      projectId,
+      workflowId,
+      graphRunId,
+      nodeId: 'step-2-user',
+      verdict: 'approved',
+      rationale: 'Approved using default resolver',
+    })
+    expect(res.id).toBeDefined()
+    expect(res.gateVerdict).toBe('approved')
+  })
+
+  it('fails closed when createDefaultTemplateResolver encounters an unresolvable template', () => {
+    const unknownRunId = 'run-unknown-template'
+    workflowStore.startGraphRun(
+      {
+        graphRunId: unknownRunId,
+        workflowId,
+        projectId,
+        templateId: 'completely-unknown-template-xyz',
+        startedAt: NOW,
+      },
+      'user',
+    )
+    workflowStore.recordNodeAttempt(
+      {
+        id: randomUUID(),
+        projectId,
+        graphRunId: unknownRunId,
+        nodeId: 'step-2-user',
+        attempt: 1,
+        iteration: 1,
+        status: 'running',
+        startedAt: NOW,
+      },
+      'system',
+    )
+    workflowStore.updateNodeAttempt(
+      {
+        projectId,
+        graphRunId: unknownRunId,
+        nodeId: 'step-2-user',
+        attempt: 1,
+        status: 'blocked',
+        occurredAt: NOW,
+      },
+      'system',
+    )
+
+    const svcWithDefaultResolver = new DecisionService({
+      decisions: decisionStore,
+      workflowStore,
+      templateResolver: createDefaultTemplateResolver(),
+    })
+
+    expect(() =>
+      svcWithDefaultResolver.recordGateDecision({
+        projectId,
+        workflowId,
+        graphRunId: unknownRunId,
+        nodeId: 'step-2-user',
+        verdict: 'approved',
+        rationale: 'Should fail closed',
+      }),
+    ).toThrow(/template "completely-unknown-template-xyz" could not be resolved/)
   })
 })

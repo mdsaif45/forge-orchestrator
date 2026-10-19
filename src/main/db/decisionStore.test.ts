@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto'
+import type Database from 'better-sqlite3'
+import { eq } from 'drizzle-orm'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   decisionIdSchema,
@@ -17,10 +19,12 @@ import { EventStore } from './eventStore'
 import { MIGRATIONS } from './migrations.generated'
 import { ProjectStore } from './projectStore'
 import { applyEvent, rebuildProjections } from './projections'
+import { decisions as decisionsTable, graphRuns, workflows } from './schema'
 import { WorkflowStore } from './workflowStore'
 
 describe('DecisionStore', () => {
   let db: ForgeDatabase
+  let sqlite: Database.Database
   let close: () => void
   let events: EventStore
   let decisions: DecisionStore
@@ -30,6 +34,7 @@ describe('DecisionStore', () => {
   beforeEach(() => {
     const conn = openDatabase({ file: ':memory:' })
     db = conn.db
+    sqlite = conn.sqlite
     close = conn.close
     runMigrations(db, MIGRATIONS)
 
@@ -334,6 +339,111 @@ describe('DecisionStore', () => {
       expect(
         decisions.findGateDecision(graphRunId, nodeId, { projectId, workflowId: wrongWorkflowId }),
       ).toBeNull()
+    })
+
+    it('returns null (fails closed) if authoritative graph-run row does not exist in DB', () => {
+      const workflowId = workflowIdSchema.parse(randomUUID())
+      const graphRunId = 'run-gate-missing-run'
+      const nodeId = 'step-2-gate'
+      setupWorkflowAndGraphRun(db, workflowId, graphRunId)
+
+      decisions.recordGateDecision({
+        projectId,
+        workflowId,
+        graphRunId,
+        nodeId,
+        verdict: 'approved',
+        rationale: 'Approved before graph run row corruption',
+        actor: 'user',
+        occurredAt: '2026-08-23T12:05:00.000Z',
+      })
+
+      // Simulate database corruption / missing authoritative graph-run row
+      // using controlled pragma foreign_keys = OFF without weakening production constraints
+      sqlite.pragma('foreign_keys = OFF')
+      try {
+        db.delete(graphRuns).where(eq(graphRuns.id, graphRunId)).run()
+      } finally {
+        sqlite.pragma('foreign_keys = ON')
+      }
+
+      // Authoritative lookup fails closed
+      expect(decisions.findGateDecision(graphRunId, nodeId)).toBeNull()
+      expect(decisions.findGateDecision(graphRunId, nodeId, { projectId, workflowId })).toBeNull()
+    })
+
+    it('returns null (fails closed) if workflow row referenced by graph run does not exist in DB', () => {
+      const workflowId = workflowIdSchema.parse(randomUUID())
+      const graphRunId = 'run-gate-missing-wf'
+      const nodeId = 'step-2-gate'
+      setupWorkflowAndGraphRun(db, workflowId, graphRunId)
+
+      decisions.recordGateDecision({
+        projectId,
+        workflowId,
+        graphRunId,
+        nodeId,
+        verdict: 'approved',
+        rationale: 'Approved before workflow row corruption',
+        actor: 'user',
+        occurredAt: '2026-08-23T12:05:00.000Z',
+      })
+
+      // Simulate database corruption / orphaned graph run without workflow row
+      sqlite.pragma('foreign_keys = OFF')
+      try {
+        db.delete(workflows).where(eq(workflows.id, workflowId)).run()
+      } finally {
+        sqlite.pragma('foreign_keys = ON')
+      }
+
+      // Authoritative lookup fails closed
+      expect(decisions.findGateDecision(graphRunId, nodeId)).toBeNull()
+      expect(decisions.findGateDecision(graphRunId, nodeId, { projectId, workflowId })).toBeNull()
+    })
+
+    it('returns null (fails closed) if decision project/workflow coordinates do not match authoritative run or workflow in DB', () => {
+      const workflowId = workflowIdSchema.parse(randomUUID())
+      const graphRunId = 'run-gate-coord-mismatch'
+      const nodeId = 'step-2-gate'
+      setupWorkflowAndGraphRun(db, workflowId, graphRunId)
+
+      const rec = decisions.recordGateDecision({
+        projectId,
+        workflowId,
+        graphRunId,
+        nodeId,
+        verdict: 'approved',
+        rationale: 'Approved initially',
+        actor: 'user',
+        occurredAt: '2026-08-23T12:05:00.000Z',
+      })
+
+      // 1. Corrupt decision row to point to a different workflowId than the run
+      const otherWorkflowId = workflowIdSchema.parse(randomUUID())
+      sqlite.pragma('foreign_keys = OFF')
+      try {
+        db.update(decisionsTable)
+          .set({ workflowId: otherWorkflowId })
+          .where(eq(decisionsTable.id, rec.id))
+          .run()
+      } finally {
+        sqlite.pragma('foreign_keys = ON')
+      }
+      expect(decisions.findGateDecision(graphRunId, nodeId)).toBeNull()
+
+      // 2. Corrupt decision row to point to a different projectId than the workflow
+      const otherProjectId = projectIdSchema.parse(randomUUID())
+      sqlite.pragma('foreign_keys = OFF')
+      try {
+        db.update(decisionsTable)
+          .set({ workflowId, projectId: otherProjectId })
+          .where(eq(decisionsTable.id, rec.id))
+          .run()
+      } finally {
+        sqlite.pragma('foreign_keys = ON')
+      }
+      expect(decisions.findGateDecision(graphRunId, nodeId)).toBeNull()
     })
 
     it('isolates legacy project decisions with null graphRunId from satisfying gates', () => {

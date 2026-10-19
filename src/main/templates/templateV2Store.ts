@@ -54,6 +54,12 @@ export function createDefaultTemplateResolver(
     if (Object.hasOwn(TEMPLATES, templateId)) {
       return compileLinearTemplateToGraph(TEMPLATES[templateId as keyof typeof TEMPLATES])
     }
+    if (templateId.startsWith('compiled-')) {
+      const linearId = templateId.slice('compiled-'.length)
+      if (Object.hasOwn(TEMPLATES, linearId)) {
+        return compileLinearTemplateToGraph(TEMPLATES[linearId as keyof typeof TEMPLATES])
+      }
+    }
     return null
   }
 }

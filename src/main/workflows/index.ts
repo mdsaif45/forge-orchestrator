@@ -19,6 +19,7 @@ export {
   type ProductionGraphCompositionOptions,
 } from './graphFactory'
 export {
+  nodeRequiresFileWrite,
   resolveRoleRuntime,
   validateNodeCapabilities,
   type BindingSource,

@@ -7,7 +7,12 @@ import {
   type Role,
   type WorkflowNode,
 } from '@shared/domain'
-import { AmbiguousRoleBindingError, UnboundRoleError, type BindingSet } from '../runtimes/bindings'
+import {
+  AmbiguousRoleBindingError,
+  UnboundRoleError,
+  permits,
+  type BindingSet,
+} from '../runtimes/bindings'
 import {
   IncapableRuntimeError,
   UnknownRuntimeError,
@@ -41,13 +46,32 @@ export interface ResolvedRoleRuntime {
 }
 
 /**
+ * Determines whether a workflow node permits file write operations based on its
+ * configuration and outputs.
+ *
+ * In Forge execution semantics:
+ * - Omitted `permissionMode` defaults to 'developer' (as defined by `nodeRuntimeConfigSchema`),
+ *   which permits file writes.
+ * - 'developer' and 'full-access' permit file writes.
+ * - 'read-only' disables file writes, unless the node explicitly declares a diff output
+ *   (which requires file modifications to produce the diff).
+ */
+export function nodeRequiresFileWrite(node: WorkflowNode): boolean {
+  if (node.config.permissionMode === 'read-only') {
+    return node.outputs.some((o) => o.kind === 'diff' || o.format === 'diff')
+  }
+  return true
+}
+
+/**
  * Validates operational capabilities required by the specific node configuration
- * and outputs against the resolved runtime's declared capabilities.
+ * and outputs against the resolved runtime's declared capabilities and effective binding permissions.
  */
 export function validateNodeCapabilities(
   runtime: IAgentRuntime,
   node: WorkflowNode,
   role: Role,
+  binding?: AgentBinding,
 ): void {
   // 1. Role capability validation (A6: roles are capability-based)
   const missingForRole = missingCapabilities(runtime.capabilities, role)
@@ -58,19 +82,25 @@ export function validateNodeCapabilities(
   // 2. Operational capability validation:
   const missingOperational: Capability[] = []
 
-  // If node requires file write operations (developer or full-access, or outputs diffs)
-  const requiresWrite =
-    node.config.permissionMode === 'developer' ||
-    node.config.permissionMode === 'full-access' ||
-    node.outputs.some((o) => o.kind === 'diff' || o.format === 'diff')
-
-  if (requiresWrite && !runtime.capabilities.includes('file-write')) {
-    missingOperational.push('file-write')
+  if (nodeRequiresFileWrite(node)) {
+    if (!runtime.capabilities.includes('file-write')) {
+      missingOperational.push('file-write')
+    }
+    // If an authoritative binding is resolved, its effective permissions cannot be bypassed
+    // by selecting a runtime whose raw capability list is broader (Axiom A7).
+    if (binding !== undefined && !permits(binding, 'writeFiles')) {
+      missingOperational.push('file-write')
+    }
   }
 
   // If node requires test execution capability
-  if (role === 'tester' && !runtime.capabilities.includes('test')) {
-    missingOperational.push('test')
+  if (role === 'tester') {
+    if (!runtime.capabilities.includes('test')) {
+      missingOperational.push('test')
+    }
+    if (binding !== undefined && !permits(binding, 'runTests')) {
+      missingOperational.push('test')
+    }
   }
 
   if (missingOperational.length > 0) {
@@ -123,7 +153,7 @@ export function resolveRoleRuntime(options: ResolveRoleRuntimeOptions): Resolved
         throw new UnknownRuntimeError(binding.runtimeId, options.registry.ids())
       }
       const runtime = options.registry.resolve(binding.runtimeId)
-      validateNodeCapabilities(runtime, options.node, role)
+      validateNodeCapabilities(runtime, options.node, role, binding)
       return {
         runtime,
         runtimeId: binding.runtimeId,
@@ -142,7 +172,7 @@ export function resolveRoleRuntime(options: ResolveRoleRuntimeOptions): Resolved
         throw new UnknownRuntimeError(binding.runtimeId, options.registry.ids())
       }
       const runtime = options.registry.resolve(binding.runtimeId)
-      validateNodeCapabilities(runtime, options.node, role)
+      validateNodeCapabilities(runtime, options.node, role, binding)
       return {
         runtime,
         runtimeId: binding.runtimeId,
@@ -161,7 +191,7 @@ export function resolveRoleRuntime(options: ResolveRoleRuntimeOptions): Resolved
         throw new UnknownRuntimeError(binding.runtimeId, options.registry.ids())
       }
       const runtime = options.registry.resolve(binding.runtimeId)
-      validateNodeCapabilities(runtime, options.node, role)
+      validateNodeCapabilities(runtime, options.node, role, binding)
       return {
         runtime,
         runtimeId: binding.runtimeId,

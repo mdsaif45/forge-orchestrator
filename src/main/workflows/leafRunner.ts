@@ -1,5 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import {
+  assessStepPolicy,
+  formatPolicyHaltReason,
+  permissionForRole,
   repositoryIdSchema,
   stepIdSchema,
   type Actor,
@@ -14,7 +17,6 @@ import {
   type StepId,
   type Task,
   type WorkflowArtifact,
-  permissionForRole,
 } from '@shared/domain'
 import type { BindingStore } from '../db/bindingStore'
 import type { DecisionStore } from '../db/decisionStore'
@@ -23,11 +25,11 @@ import type { WorkflowStore } from '../db/workflowStore'
 import { buildChangeSet, type BuiltChangeSet } from '../evidence/changeSetBuilder'
 import { verifyStep } from '../evidence/verifier'
 import type { GitService } from '../git'
-import type { BindingSet } from '../runtimes/bindings'
+import { permits, type BindingSet } from '../runtimes/bindings'
 import { exchange, type ExchangeOutcome } from '../runtimes/exchange'
 import type { RuntimeRegistry } from '../runtimes/registry'
 import type { LeafNodeExecutor, NodeExecutionContext, NodeExecutionResult } from './graphExecutor'
-import { resolveRoleRuntime } from './roleResolution'
+import { nodeRequiresFileWrite, resolveRoleRuntime } from './roleResolution'
 
 /**
  * Production options for configuring the generic LeafRunner.
@@ -299,7 +301,9 @@ export class LeafRunner {
       }
     }
 
-    const { runtime, runtimeId } = resolved
+    const { runtime, runtimeId, binding } = resolved
+    const bindingPermitsWrite = binding !== undefined ? permits(binding, 'writeFiles') : true
+    const isWritable = nodeRequiresFileWrite(ctx.node) && bindingPermitsWrite
 
     // Assemble PromptPacket
     let packet: PromptPacket
@@ -315,9 +319,9 @@ export class LeafRunner {
       repositoryPath: worktreePath,
       role,
       permissionMode:
-        ctx.node.config.permissionMode === 'full-access'
+        ctx.node.config.permissionMode === 'full-access' && bindingPermitsWrite
           ? 'bypassPermissions'
-          : permissionForRole(role, ctx.node.config.permissionMode !== 'read-only').mode,
+          : permissionForRole(role, isWritable).mode,
       timeoutMs: ctx.node.config.timeoutMs,
     })
 
@@ -372,9 +376,24 @@ export class LeafRunner {
       }
     }
 
+    if (binding !== undefined) {
+      const task = this.resolveTask(ctx)
+      const policyAssessment = assessStepPolicy({
+        binding,
+        report,
+        forbiddenPaths: task?.scope.forbiddenPaths ?? [],
+      })
+      if (!policyAssessment.allowed) {
+        return {
+          status: 'failed',
+          runtimeId,
+          error: `Policy violation: ${formatPolicyHaltReason(policyAssessment.violations)}`,
+        }
+      }
+    }
+
     // Reconcile git diff for writable execution with a worktree
     let changeSet: ChangeSet | undefined
-    const isWritable = ctx.node.config.permissionMode !== 'read-only'
 
     if (isWritable && ctx.worktreePath) {
       if (!this.options.gitServiceFactory) {

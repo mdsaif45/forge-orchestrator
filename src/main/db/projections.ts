@@ -390,6 +390,10 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
         lockedBy: d.lockedBy,
         supersededBy: d.supersededBy,
         originQuestionId: d.originQuestionId,
+        workflowId: d.workflowId ?? null,
+        graphRunId: d.graphRunId ?? null,
+        nodeId: d.nodeId ?? null,
+        gateVerdict: d.gateVerdict ?? null,
       })
       .onConflictDoUpdate({
         target: decisions.id,
@@ -403,6 +407,10 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
           lockedBy: d.lockedBy,
           supersededBy: d.supersededBy,
           originQuestionId: d.originQuestionId,
+          workflowId: d.workflowId ?? null,
+          graphRunId: d.graphRunId ?? null,
+          nodeId: d.nodeId ?? null,
+          gateVerdict: d.gateVerdict ?? null,
         },
       })
       .run()

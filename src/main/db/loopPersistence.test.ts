@@ -207,7 +207,7 @@ describe('WORK-003 Slice 1: Transition Persistence Contract', () => {
         )
 
         // Now run migration 0005 using the real runner
-        const applied0005 = runMigrations(histDb, MIGRATIONS)
+        const applied0005 = runMigrations(histDb, MIGRATIONS.slice(0, 6))
         expect(applied0005).toBe(1) // Applied migration 0005
 
         // Verify historical rows in graph_node_runs all received iteration = 1

@@ -2,15 +2,19 @@ import { randomUUID } from 'node:crypto'
 import {
   decisionIdSchema,
   decisionStatusSchema,
+  gateVerdictSchema,
   projectIdSchema,
+  workflowIdSchema,
   type Decision,
   type DecisionStatus,
 } from '@shared/domain'
 import type { DecisionView } from '@shared/views'
 import type { DecisionStore } from '../db/decisionStore'
+import type { WorkflowStore } from '../db/workflowStore'
 
 export interface DecisionServiceOptions {
   readonly decisions: DecisionStore
+  readonly workflowStore?: WorkflowStore | undefined
   readonly onDecisionChanged?: (decision: Decision) => void
 }
 
@@ -111,6 +115,82 @@ export class DecisionService {
       replacement: toView(newDec),
     }
   }
+
+  /**
+   * Records and atomically locks an authoritative human gate decision.
+   * Performs structural relationship and execution-state preflight checks.
+   */
+  recordGateDecision(input: {
+    readonly projectId: string
+    readonly workflowId: string
+    readonly graphRunId: string
+    readonly nodeId: string
+    readonly verdict: 'approved' | 'rejected'
+    readonly rationale: string
+  }): DecisionView {
+    const pId = projectIdSchema.parse(input.projectId)
+    const wId = workflowIdSchema.parse(input.workflowId)
+    const verdict = gateVerdictSchema.parse(input.verdict)
+
+    if (this.options.workflowStore) {
+      // 1. Validate workflow exists and belongs to projectId
+      const wf = this.options.workflowStore.find(wId)
+      if (wf === null) {
+        throw new Error(`Workflow ${input.workflowId} not found`)
+      }
+      const actualProjectId = this.options.workflowStore.projectIdOf(wId)
+      if (actualProjectId !== pId) {
+        throw new Error(
+          `Workflow ${input.workflowId} belongs to project ${actualProjectId}, not ${input.projectId}`,
+        )
+      }
+
+      // 2. Validate graph run exists and belongs to workflowId
+      const run = this.options.workflowStore.getGraphRun(input.graphRunId)
+      if (run === null) {
+        throw new Error(`Graph run ${input.graphRunId} not found`)
+      }
+      if (run.workflowId !== wId) {
+        throw new Error(
+          `Graph run ${input.graphRunId} belongs to workflow ${run.workflowId}, not ${input.workflowId}`,
+        )
+      }
+      if (run.status === 'completed' || run.status === 'failed' || run.status === 'cancelled') {
+        throw new Error(
+          `Cannot record gate decision for graph run ${input.graphRunId}: run is already in terminal state "${run.status}"`,
+        )
+      }
+
+      // 3. Validate node attempt exists and is currently blocked
+      const attempts = this.options.workflowStore.getNodeAttempts(input.graphRunId, input.nodeId)
+      const latest = attempts.at(-1)
+      if (latest === undefined) {
+        throw new Error(
+          `Cannot record gate decision: node "${input.nodeId}" has no recorded attempts in run "${input.graphRunId}"`,
+        )
+      }
+      if (latest.status !== 'blocked') {
+        throw new Error(
+          `Cannot record gate decision: node "${input.nodeId}" is currently in status "${latest.status}", not "blocked"`,
+        )
+      }
+    }
+
+    const now = new Date().toISOString()
+    const decision = this.options.decisions.recordGateDecision({
+      projectId: pId,
+      workflowId: wId,
+      graphRunId: input.graphRunId,
+      nodeId: input.nodeId,
+      verdict,
+      rationale: input.rationale,
+      actor: 'user',
+      occurredAt: now,
+    })
+
+    this.options.onDecisionChanged?.(decision)
+    return toView(decision)
+  }
 }
 
 function toView(d: Decision): DecisionView {
@@ -125,5 +205,9 @@ function toView(d: Decision): DecisionView {
     lockedBy: d.lockedBy,
     supersededBy: d.supersededBy,
     originQuestionId: d.originQuestionId,
+    workflowId: d.workflowId ?? null,
+    graphRunId: d.graphRunId ?? null,
+    nodeId: d.nodeId ?? null,
+    gateVerdict: d.gateVerdict ?? null,
   }
 }

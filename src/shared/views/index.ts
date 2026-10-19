@@ -515,6 +515,10 @@ export const decisionViewSchema = z.strictObject({
   lockedBy: z.string().nullable(),
   supersededBy: z.string().nullable(),
   originQuestionId: z.string().nullable(),
+  workflowId: z.string().nullable().optional(),
+  graphRunId: z.string().nullable().optional(),
+  nodeId: z.string().nullable().optional(),
+  gateVerdict: z.enum(['approved', 'rejected']).nullable().optional(),
 })
 
 export type DecisionView = z.infer<typeof decisionViewSchema>

@@ -351,4 +351,17 @@ CREATE UNIQUE INDEX \`graph_transitions_target_iter_unique\` ON \`graph_transiti
 CREATE INDEX \`graph_transitions_run\` ON \`graph_transitions\` (\`graph_run_id\`,\`occurred_at\`);
 `,
   },
+  {
+    tag: '0006_gate_decisions',
+    sql: `ALTER TABLE \`decisions\` ADD \`workflow_id\` text REFERENCES workflows(id);
+--> statement-breakpoint
+ALTER TABLE \`decisions\` ADD \`graph_run_id\` text REFERENCES graph_runs(id);
+--> statement-breakpoint
+ALTER TABLE \`decisions\` ADD \`node_id\` text;
+--> statement-breakpoint
+ALTER TABLE \`decisions\` ADD \`gate_verdict\` text;
+--> statement-breakpoint
+CREATE INDEX \`decisions_gate_scope\` ON \`decisions\` (\`graph_run_id\`,\`node_id\`);
+`,
+  },
 ]

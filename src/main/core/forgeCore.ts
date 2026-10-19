@@ -188,6 +188,7 @@ export function createForgeCore(options: ForgeCoreOptions = {}): ForgeCore {
 
   const decisionService = new DecisionService({
     decisions: workflowService.getDecisionStore(),
+    workflowStore: workflowService.getWorkflowStore(),
   })
 
   const changeSetService = new ChangeSetService({

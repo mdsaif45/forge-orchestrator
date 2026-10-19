@@ -322,6 +322,7 @@ export function createIpcHandlers({
     'decision:lock': ({ decisionId }) => decisions.lock(decisionId),
 
     'decision:supersede': (request) => decisions.supersede(request),
+    'decision:recordGate': (request) => decisions.recordGateDecision(request),
 
     'changeset:list': ({ projectId }) => ({
       changeSets: changeSets.list(projectId),

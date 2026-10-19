@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import {
+  artifactIdSchema,
   assessStepPolicy,
   effectivePermissionsForRole,
   formatPolicyHaltReason,
@@ -823,8 +824,6 @@ export class LeafRunner {
     // 2. Production gate semantics:
     // Caller-supplied strings in initialContext (whether 'approved', 'rejected', etc.) are untrusted
     // and CANNOT authorize a human decision or cancel the graph.
-    // Without an authenticated, gate-scoped human decision (Axiom A4), the gate remains strictly
-    // resumably blocked (fail-closed).
     // - An attempt number (attempt > 1) is NOT evidence of human approval.
     // - An unrelated project-wide locked decision does NOT satisfy or unblock this gate.
     // - An unauthenticated string in initialContext does NOT unblock or cancel the gate.
@@ -834,15 +833,68 @@ export class LeafRunner {
       ctx.initialContext?.approval ??
       ctx.initialContext?.user_decision
 
-    const errorMsg = untrustedSignal
-      ? `User gate "${ctx.node.title}" cannot be decided by untrusted context input (requires authenticated human decision)`
-      : `User gate "${ctx.node.title}" awaiting human approval`
+    if (untrustedSignal) {
+      return {
+        status: 'blocked',
+        awaitingUser: true,
+        resumable: true,
+        error: `User gate "${ctx.node.title}" cannot be decided by untrusted context input (requires authenticated human decision)`,
+      }
+    }
+
+    // 3. Authoritative decision lookup scoped to (graphRunId, nodeId)
+    const decisionStore = this.options.decisionStore
+    if (!decisionStore) {
+      return {
+        status: 'blocked',
+        awaitingUser: true,
+        resumable: true,
+        error: `User gate "${ctx.node.title}" awaiting human approval`,
+      }
+    }
+
+    const decision = decisionStore.findGateDecision(ctx.graphRunId, ctx.node.id)
+    if (!decision) {
+      return {
+        status: 'blocked',
+        awaitingUser: true,
+        resumable: true,
+        error: `User gate "${ctx.node.title}" awaiting human approval`,
+      }
+    }
+
+    // 4. Resolve verdict using established lifecycle semantics
+    if (decision.gateVerdict === 'approved') {
+      const artifact: WorkflowArtifact = {
+        id: artifactIdSchema.parse(randomUUID()),
+        workflowId: ctx.workflowId,
+        nodeId: ctx.node.id,
+        kind: 'decision_record',
+        format: 'json',
+        title: `Gate ${ctx.node.title} Approved`,
+        content: JSON.stringify(decision),
+        metadata: {},
+        createdAt: decision.lockedAt ?? new Date().toISOString(),
+      }
+
+      return {
+        status: 'completed',
+        artifacts: [artifact],
+      }
+    }
+
+    if (decision.gateVerdict === 'rejected') {
+      return {
+        status: 'cancelled',
+        error: `User gate "${ctx.node.title}" rejected: ${decision.rationale}`,
+      }
+    }
 
     return {
       status: 'blocked',
       awaitingUser: true,
       resumable: true,
-      error: errorMsg,
+      error: `User gate "${ctx.node.title}" has invalid decision verdict`,
     }
   }
 

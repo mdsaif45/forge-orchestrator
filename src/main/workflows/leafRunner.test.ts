@@ -908,6 +908,407 @@ describe('LeafRunner', () => {
     expect(result.error).toContain('Execution cancelled by signal')
   })
 
+  it('14d. user_gate authorization: locked approved decision matching (graphRunId, nodeId) completes gate and emits decision artifact', async () => {
+    const { db, close } = initialiseDatabase(':memory:')
+    try {
+      const eventStore = new EventStore(db)
+      const decisionStore = new DecisionStore(db, eventStore)
+      const workflowStore = new WorkflowStore(db)
+      const projectId = projectIdSchema.parse(randomUUID())
+      const workflowId = workflowIdSchema.parse(randomUUID())
+      const taskId = taskIdSchema.parse(randomUUID())
+      const graphRunId = 'run-gate-test-14d'
+      const now = new Date().toISOString()
+
+      new ProjectStore(db).create(
+        {
+          id: projectId,
+          name: 'Test Project',
+          repository: {
+            id: repositoryIdSchema.parse(randomUUID()),
+            absolutePath: '/dummy/repo',
+            defaultBranch: 'main',
+            buildCommand: null,
+            testCommand: null,
+            tech: [],
+          },
+          createdAt: now,
+          updatedAt: now,
+        },
+        'user',
+      )
+
+      const taskEvent = eventStore.append(
+        {
+          type: 'task.created',
+          payload: {
+            task: {
+              id: taskId,
+              objective: 'Test objective',
+              constraints: [],
+              completionCriteria: [{ kind: 'tests', description: 'test suite passes', params: {} }],
+              scope: { allowedPaths: [], forbiddenPaths: [] },
+              lockedDecisionIds: [],
+              correctsTaskId: null,
+              createdAt: now,
+            },
+          },
+        },
+        { projectId, actor: 'user', occurredAt: now },
+      )
+      applyEvent(db, taskEvent)
+      workflowStore.start(
+        { workflowId, projectId, taskId, templateId: 'feature', startedAt: now },
+        'user',
+      )
+      workflowStore.startGraphRun(
+        { graphRunId, workflowId, projectId, templateId: 'compiled-feature', startedAt: now },
+        'user',
+      )
+
+      const node = makeNode('gate-1', {
+        title: 'Architecture Review Gate',
+        type: 'user_gate',
+        runtimeType: 'human',
+      })
+
+      // Record approved gate decision
+      const decision = decisionStore.recordGateDecision({
+        projectId,
+        workflowId,
+        graphRunId,
+        nodeId: node.id,
+        verdict: 'approved',
+        rationale: 'Human validated implementation plan and safety criteria',
+        actor: 'user',
+        occurredAt: now,
+      })
+
+      const registry = new RuntimeRegistry()
+      const runner = new LeafRunner({ registry, decisionStore })
+      const ctx = makeContext(node, { projectId, workflowId, graphRunId, attempt: 1 })
+
+      const result = await runner.execute(ctx)
+
+      expect(result.status).toBe('completed')
+      expect(result.artifacts).toHaveLength(1)
+      const artifact = result.artifacts?.[0]
+      expect(artifact?.kind).toBe('decision_record')
+      expect(artifact?.title).toBe('Gate Architecture Review Gate Approved')
+      expect(JSON.parse(artifact?.content ?? '{}')).toEqual(decision)
+    } finally {
+      close()
+    }
+  })
+
+  it('14e. user_gate human rejection: locked rejected decision cancels gate using established graph cancellation semantics', async () => {
+    const { db, close } = initialiseDatabase(':memory:')
+    try {
+      const eventStore = new EventStore(db)
+      const decisionStore = new DecisionStore(db, eventStore)
+      const workflowStore = new WorkflowStore(db)
+      const projectId = projectIdSchema.parse(randomUUID())
+      const workflowId = workflowIdSchema.parse(randomUUID())
+      const taskId = taskIdSchema.parse(randomUUID())
+      const graphRunId = 'run-gate-test-14e'
+      const now = new Date().toISOString()
+
+      new ProjectStore(db).create(
+        {
+          id: projectId,
+          name: 'Test Project',
+          repository: {
+            id: repositoryIdSchema.parse(randomUUID()),
+            absolutePath: '/dummy/repo',
+            defaultBranch: 'main',
+            buildCommand: null,
+            testCommand: null,
+            tech: [],
+          },
+          createdAt: now,
+          updatedAt: now,
+        },
+        'user',
+      )
+
+      const taskEvent = eventStore.append(
+        {
+          type: 'task.created',
+          payload: {
+            task: {
+              id: taskId,
+              objective: 'Test objective',
+              constraints: [],
+              completionCriteria: [{ kind: 'tests', description: 'test suite passes', params: {} }],
+              scope: { allowedPaths: [], forbiddenPaths: [] },
+              lockedDecisionIds: [],
+              correctsTaskId: null,
+              createdAt: now,
+            },
+          },
+        },
+        { projectId, actor: 'user', occurredAt: now },
+      )
+      applyEvent(db, taskEvent)
+      workflowStore.start(
+        { workflowId, projectId, taskId, templateId: 'feature', startedAt: now },
+        'user',
+      )
+      workflowStore.startGraphRun(
+        { graphRunId, workflowId, projectId, templateId: 'compiled-feature', startedAt: now },
+        'user',
+      )
+
+      const node = makeNode('gate-1', {
+        title: 'Architecture Review Gate',
+        type: 'user_gate',
+        runtimeType: 'human',
+      })
+
+      // Record rejected gate decision
+      decisionStore.recordGateDecision({
+        projectId,
+        workflowId,
+        graphRunId,
+        nodeId: node.id,
+        verdict: 'rejected',
+        rationale: 'Architecture plan violates required safety invariants',
+        actor: 'user',
+        occurredAt: now,
+      })
+
+      const registry = new RuntimeRegistry()
+      const runner = new LeafRunner({ registry, decisionStore })
+      const ctx = makeContext(node, { projectId, workflowId, graphRunId, attempt: 1 })
+
+      const result = await runner.execute(ctx)
+
+      expect(result.status).toBe('cancelled')
+      expect(result.error).toContain('Architecture plan violates required safety invariants')
+    } finally {
+      close()
+    }
+  })
+
+  it('14f. user_gate scope isolation: approved decision for run-1 does not unblock gate for run-2', async () => {
+    const { db, close } = initialiseDatabase(':memory:')
+    try {
+      const eventStore = new EventStore(db)
+      const decisionStore = new DecisionStore(db, eventStore)
+      const workflowStore = new WorkflowStore(db)
+      const projectId = projectIdSchema.parse(randomUUID())
+      const workflowId = workflowIdSchema.parse(randomUUID())
+      const taskId = taskIdSchema.parse(randomUUID())
+      const graphRunId1 = 'run-gate-test-14f-1'
+      const graphRunId2 = 'run-gate-test-14f-2'
+      const now = new Date().toISOString()
+
+      new ProjectStore(db).create(
+        {
+          id: projectId,
+          name: 'Test Project',
+          repository: {
+            id: repositoryIdSchema.parse(randomUUID()),
+            absolutePath: '/dummy/repo',
+            defaultBranch: 'main',
+            buildCommand: null,
+            testCommand: null,
+            tech: [],
+          },
+          createdAt: now,
+          updatedAt: now,
+        },
+        'user',
+      )
+
+      const taskEvent = eventStore.append(
+        {
+          type: 'task.created',
+          payload: {
+            task: {
+              id: taskId,
+              objective: 'Test objective',
+              constraints: [],
+              completionCriteria: [{ kind: 'tests', description: 'test suite passes', params: {} }],
+              scope: { allowedPaths: [], forbiddenPaths: [] },
+              lockedDecisionIds: [],
+              correctsTaskId: null,
+              createdAt: now,
+            },
+          },
+        },
+        { projectId, actor: 'user', occurredAt: now },
+      )
+      applyEvent(db, taskEvent)
+      workflowStore.start(
+        { workflowId, projectId, taskId, templateId: 'feature', startedAt: now },
+        'user',
+      )
+      workflowStore.startGraphRun(
+        {
+          graphRunId: graphRunId1,
+          workflowId,
+          projectId,
+          templateId: 'compiled-feature',
+          startedAt: now,
+        },
+        'user',
+      )
+      workflowStore.startGraphRun(
+        {
+          graphRunId: graphRunId2,
+          workflowId,
+          projectId,
+          templateId: 'compiled-feature',
+          startedAt: now,
+        },
+        'user',
+      )
+
+      const node = makeNode('gate-1', {
+        title: 'Review Gate',
+        type: 'user_gate',
+        runtimeType: 'human',
+      })
+
+      // Decision is only for run-1
+      decisionStore.recordGateDecision({
+        projectId,
+        workflowId,
+        graphRunId: graphRunId1,
+        nodeId: node.id,
+        verdict: 'approved',
+        rationale: 'Approved for run 1',
+        actor: 'user',
+        occurredAt: now,
+      })
+
+      const registry = new RuntimeRegistry()
+      const runner = new LeafRunner({ registry, decisionStore })
+
+      // Executing run-2 must remain blocked!
+      const ctxRun2 = makeContext(node, {
+        projectId,
+        workflowId,
+        graphRunId: graphRunId2,
+        attempt: 1,
+      })
+      const result2 = await runner.execute(ctxRun2)
+      expect(result2.status).toBe('blocked')
+      expect(result2.awaitingUser).toBe(true)
+
+      // Executing run-1 succeeds
+      const ctxRun1 = makeContext(node, {
+        projectId,
+        workflowId,
+        graphRunId: graphRunId1,
+        attempt: 1,
+      })
+      const result1 = await runner.execute(ctxRun1)
+      expect(result1.status).toBe('completed')
+    } finally {
+      close()
+    }
+  })
+
+  it('14g. user_gate node isolation: approved decision for node-1 does not unblock node-2', async () => {
+    const { db, close } = initialiseDatabase(':memory:')
+    try {
+      const eventStore = new EventStore(db)
+      const decisionStore = new DecisionStore(db, eventStore)
+      const workflowStore = new WorkflowStore(db)
+      const projectId = projectIdSchema.parse(randomUUID())
+      const workflowId = workflowIdSchema.parse(randomUUID())
+      const taskId = taskIdSchema.parse(randomUUID())
+      const graphRunId = 'run-gate-test-14g'
+      const now = new Date().toISOString()
+
+      new ProjectStore(db).create(
+        {
+          id: projectId,
+          name: 'Test Project',
+          repository: {
+            id: repositoryIdSchema.parse(randomUUID()),
+            absolutePath: '/dummy/repo',
+            defaultBranch: 'main',
+            buildCommand: null,
+            testCommand: null,
+            tech: [],
+          },
+          createdAt: now,
+          updatedAt: now,
+        },
+        'user',
+      )
+
+      const taskEvent = eventStore.append(
+        {
+          type: 'task.created',
+          payload: {
+            task: {
+              id: taskId,
+              objective: 'Test objective',
+              constraints: [],
+              completionCriteria: [{ kind: 'tests', description: 'test suite passes', params: {} }],
+              scope: { allowedPaths: [], forbiddenPaths: [] },
+              lockedDecisionIds: [],
+              correctsTaskId: null,
+              createdAt: now,
+            },
+          },
+        },
+        { projectId, actor: 'user', occurredAt: now },
+      )
+      applyEvent(db, taskEvent)
+      workflowStore.start(
+        { workflowId, projectId, taskId, templateId: 'feature', startedAt: now },
+        'user',
+      )
+      workflowStore.startGraphRun(
+        { graphRunId, workflowId, projectId, templateId: 'compiled-feature', startedAt: now },
+        'user',
+      )
+
+      const node1 = makeNode('gate-step-1', {
+        title: 'First Gate',
+        type: 'user_gate',
+        runtimeType: 'human',
+      })
+      const node2 = makeNode('gate-step-2', {
+        title: 'Second Gate',
+        type: 'user_gate',
+        runtimeType: 'human',
+      })
+
+      // Decision is only for node1
+      decisionStore.recordGateDecision({
+        projectId,
+        workflowId,
+        graphRunId,
+        nodeId: node1.id,
+        verdict: 'approved',
+        rationale: 'Approved node 1',
+        actor: 'user',
+        occurredAt: now,
+      })
+
+      const registry = new RuntimeRegistry()
+      const runner = new LeafRunner({ registry, decisionStore })
+
+      // Node 2 must remain blocked
+      const ctxNode2 = makeContext(node2, { projectId, workflowId, graphRunId, attempt: 1 })
+      const result2 = await runner.execute(ctxNode2)
+      expect(result2.status).toBe('blocked')
+
+      // Node 1 completes
+      const ctxNode1 = makeContext(node1, { projectId, workflowId, graphRunId, attempt: 1 })
+      const result1 = await runner.execute(ctxNode1)
+      expect(result1.status).toBe('completed')
+    } finally {
+      close()
+    }
+  })
+
   it('15. router node dispatch refusal: fails closed because routers belong to GraphExecutor', async () => {
     const registry = new RuntimeRegistry()
     const runner = new LeafRunner({ registry })

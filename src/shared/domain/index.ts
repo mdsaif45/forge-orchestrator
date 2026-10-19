@@ -100,8 +100,10 @@ export {
 
 export {
   decisionSchema,
+  gateVerdictSchema,
   lockedDecisionSchema,
   type Decision,
+  type GateVerdict,
   type LockedDecision,
 } from './decision'
 

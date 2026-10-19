@@ -2657,17 +2657,31 @@ export class GraphExecutor {
     switch (ctx.node.type) {
       case 'user_gate': {
         if (this.decisionStore) {
-          const lockedDecisions = this.decisionStore.listLocked(ctx.projectId)
-          if (lockedDecisions.length === 0) {
+          const decision = this.decisionStore.findGateDecision(ctx.graphRunId, ctx.node.id)
+          if (!decision) {
             return {
               status: 'blocked',
-              error: `User gate blocked: no locked decisions found for project "${ctx.projectId}"`,
+              error: `User gate blocked: awaiting human decision for gate "${ctx.node.id}" in run "${ctx.graphRunId}"`,
               awaitingUser: true,
               resumable: true,
             }
           }
+          if (decision.gateVerdict === 'approved') {
+            return { status: 'completed' }
+          }
+          if (decision.gateVerdict === 'rejected') {
+            return {
+              status: 'cancelled',
+              error: `User gate "${ctx.node.title}" rejected: ${decision.rationale}`,
+            }
+          }
         }
-        return { status: 'completed' }
+        return {
+          status: 'blocked',
+          error: `User gate blocked: awaiting human decision`,
+          awaitingUser: true,
+          resumable: true,
+        }
       }
 
       case 'verification': {

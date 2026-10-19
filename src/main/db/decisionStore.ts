@@ -1,19 +1,41 @@
+import { randomUUID } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 import {
+  decisionIdSchema,
   decisionSchema,
   projectIdSchema,
   type Actor,
   type Decision,
   type DecisionId,
   type DecisionStatus,
+  type GateVerdict,
   type ProjectId,
   type QuestionId,
+  type WorkflowId,
 } from '@shared/domain'
 import type { ForgeDatabase } from './connection'
 import type { EventStore } from './eventStore'
 import { applyEvent } from './projections'
 import { parseRow } from './rows'
 import { decisions } from './schema'
+
+export class DecisionConflictError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'DecisionConflictError'
+  }
+}
+
+export interface RecordGateDecisionInput {
+  readonly projectId: ProjectId
+  readonly workflowId: WorkflowId
+  readonly graphRunId: string
+  readonly nodeId: string
+  readonly verdict: GateVerdict
+  readonly rationale: string
+  readonly actor: Actor
+  readonly occurredAt: string
+}
 
 /**
  * Persists and manages decisions.
@@ -49,6 +71,138 @@ export class DecisionStore {
 
   listLocked(projectId: ProjectId): readonly Decision[] {
     return this.listForProject(projectId, 'locked')
+  }
+
+  /**
+   * Authoritatively looks up the effective locked decision for a specific gate attempt in a graph run.
+   * Returns null if no locked decision exists for this exact (graphRunId, nodeId) scope.
+   */
+  findGateDecision(graphRunId: string, nodeId: string): Decision | null {
+    const rows = this.db
+      .select()
+      .from(decisions)
+      .where(
+        and(
+          eq(decisions.graphRunId, graphRunId),
+          eq(decisions.nodeId, nodeId),
+          eq(decisions.status, 'locked'),
+        ),
+      )
+      .all()
+
+    const first = rows[0]
+    if (first === undefined) return null
+    if (rows.length > 1) {
+      throw new Error(
+        `Invariant violation: Multiple locked decisions found for gate (graphRunId: ${graphRunId}, nodeId: ${nodeId})`,
+      )
+    }
+    return toDecision(first)
+  }
+
+  /**
+   * Atomically records and locks an authoritative human decision for a specific gate.
+   * Enforces Axiom A4: only the user may lock a decision.
+   * Prevents contradictory verdicts for the same gate unless explicitly superseded.
+   * Repeated submissions with the identical verdict are handled idempotently.
+   */
+  recordGateDecision(input: RecordGateDecisionInput): Decision {
+    if (input.actor !== 'user') {
+      throw new Error('Axiom A4 violation: Only the user may lock a decision')
+    }
+
+    return this.db.transaction(() => {
+      // 1. Check for existing locked decision for this gate execution attempt
+      const existing = this.findGateDecision(input.graphRunId, input.nodeId)
+      if (existing !== null) {
+        if (existing.gateVerdict === input.verdict) {
+          // Idempotent repetition of identical verdict
+          return existing
+        }
+        throw new DecisionConflictError(
+          `Cannot record contradictory verdict "${input.verdict}" for gate "${input.nodeId}" in run "${input.graphRunId}". Existing locked verdict is "${String(existing.gateVerdict)}".`,
+        )
+      }
+
+      // 2. Propose & atomically lock the gate decision
+      const decisionId = decisionIdSchema.parse(randomUUID())
+      const decision: Decision = {
+        id: decisionId,
+        statement: `User gate "${input.nodeId}" verdict: ${input.verdict}`,
+        rationale: input.rationale,
+        status: 'locked',
+        proposedBy: 'user',
+        proposedAt: input.occurredAt,
+        lockedAt: input.occurredAt,
+        lockedBy: 'user',
+        supersededBy: null,
+        originQuestionId: null,
+        workflowId: input.workflowId,
+        graphRunId: input.graphRunId,
+        nodeId: input.nodeId,
+        gateVerdict: input.verdict,
+      }
+
+      decisionSchema.parse(decision)
+
+      const propEvent = this.events.append(
+        { type: 'decision.proposed', payload: { decision } },
+        { projectId: input.projectId, actor: 'user', occurredAt: input.occurredAt },
+      )
+      applyEvent(this.db, propEvent)
+
+      const lockEvent = this.events.append(
+        { type: 'decision.locked', payload: { decisionId, lockedAt: input.occurredAt } },
+        { projectId: input.projectId, actor: 'user', occurredAt: input.occurredAt },
+      )
+      applyEvent(this.db, lockEvent)
+
+      const created = this.find(decisionId)
+      if (created === null) {
+        throw new Error(`Gate decision ${decisionId} was not found after being recorded and locked`)
+      }
+      return created
+    })
+  }
+
+  /**
+   * Explicitly supersedes a gate decision with a replacement decision.
+   * Enforces Axiom A4: only the user may supersede a decision.
+   */
+  supersedeGateDecision(
+    decisionId: DecisionId,
+    replacementInput: Omit<RecordGateDecisionInput, 'actor' | 'occurredAt'>,
+    actor: Actor,
+    occurredAt: string,
+  ): { superseded: Decision; replacement: Decision } {
+    if (actor !== 'user') {
+      throw new Error('Axiom A4 violation: Only the user may supersede a decision')
+    }
+
+    const existing = this.find(decisionId)
+    if (existing === null) {
+      throw new Error(`Decision ${decisionId} not found`)
+    }
+
+    const replacementId = decisionIdSchema.parse(randomUUID())
+    const replacement: Decision = {
+      id: replacementId,
+      statement: `User gate "${replacementInput.nodeId}" verdict: ${replacementInput.verdict}`,
+      rationale: replacementInput.rationale,
+      status: 'locked',
+      proposedBy: 'user',
+      proposedAt: occurredAt,
+      lockedAt: occurredAt,
+      lockedBy: 'user',
+      supersededBy: null,
+      originQuestionId: null,
+      workflowId: replacementInput.workflowId,
+      graphRunId: replacementInput.graphRunId,
+      nodeId: replacementInput.nodeId,
+      gateVerdict: replacementInput.verdict,
+    }
+
+    return this.supersede(decisionId, replacement, actor, occurredAt)
   }
 
   propose(decision: Decision, projectId: ProjectId, actor: Actor, occurredAt: string): Decision {
@@ -235,6 +389,10 @@ function toDecision(row: typeof decisions.$inferSelect): Decision {
       lockedBy: row.lockedBy,
       supersededBy: row.supersededBy,
       originQuestionId: row.originQuestionId,
+      workflowId: row.workflowId ?? null,
+      graphRunId: row.graphRunId ?? null,
+      nodeId: row.nodeId ?? null,
+      gateVerdict: row.gateVerdict ?? null,
     },
     'decisions',
   )

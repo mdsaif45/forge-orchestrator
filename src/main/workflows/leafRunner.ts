@@ -223,6 +223,16 @@ function isEvidenceCompatible(
   return false
 }
 
+function formatError(err: unknown): string {
+  if (err instanceof Error) {
+    return err.message
+  }
+  if (typeof err === 'string') {
+    return err
+  }
+  return JSON.stringify(err)
+}
+
 /**
  * Generic Leaf Runner (WORK-005).
  *
@@ -364,6 +374,7 @@ export class LeafRunner {
 
     let outcome: ExchangeOutcome | undefined
     let exchangeError: unknown
+    let disposalError: unknown
     try {
       const exchangeFn = this.options.exchangeFn ?? exchange
       outcome = await exchangeFn(runtime, session, packet, this.options.onEvent)
@@ -371,12 +382,16 @@ export class LeafRunner {
       exchangeError = err
     } finally {
       ctx.signal.removeEventListener('abort', abortHandler)
-      await runtime.dispose(session)
+      try {
+        await runtime.dispose(session)
+      } catch (err: unknown) {
+        disposalError = err
+      }
     }
 
     // Independent worktree diff measurement for read-only execution with a worktree.
     // Must be measured immediately after session disposal to audit disk state across
-    // every outcome (success, failure, blocked/question, or abort).
+    // every outcome (success, failure, blocked/question, abort, or disposal failure).
     let readOnlyDiffFiles: readonly string[] | null = null
     let readOnlyViolation: string | undefined
 
@@ -393,7 +408,7 @@ export class LeafRunner {
             readOnlyViolation = `Policy violation: Role "${role}" in read-only mode modified ${String(readOnlyDiffFiles.length)} file(s) in the worktree: ${readOnlyDiffFiles.join(', ')}`
           }
         } catch (err: unknown) {
-          readOnlyViolation = `Agent node "${ctx.node.id}" failed to measure worktree diff: ${err instanceof Error ? err.message : String(err)}`
+          readOnlyViolation = `Agent node "${ctx.node.id}" failed to measure worktree diff: ${formatError(err)}`
         }
       }
     }
@@ -410,28 +425,50 @@ export class LeafRunner {
 
     // Preserve cancellation if aborted cleanly without worktree violations
     if (ctx.signal.aborted) {
-      return { status: 'cancelled', error: 'Execution cancelled by signal' }
+      return {
+        status: 'cancelled',
+        runtimeId,
+        error:
+          disposalError !== undefined
+            ? `Execution cancelled by signal (disposal error: ${formatError(disposalError)})`
+            : 'Execution cancelled by signal',
+      }
     }
 
     // Handle exchange exception if no worktree violations occurred
     if (exchangeError !== undefined) {
+      const baseError = formatError(exchangeError)
       return {
         status: 'failed',
         runtimeId,
         error:
-          exchangeError instanceof Error
-            ? exchangeError.message
-            : typeof exchangeError === 'string'
-              ? exchangeError
-              : JSON.stringify(exchangeError),
+          disposalError !== undefined
+            ? `${baseError} (disposal error: ${formatError(disposalError)})`
+            : baseError,
       }
     }
 
     if (!outcome?.ok) {
-      if (outcome?.providerLimit) {
-        return { status: 'failed', runtimeId, error: `provider-limit: ${outcome.message}` }
+      const baseMsg = outcome?.providerLimit
+        ? `provider-limit: ${outcome.message}`
+        : (outcome?.message ?? 'Exchange failed')
+      return {
+        status: 'failed',
+        runtimeId,
+        error:
+          disposalError !== undefined
+            ? `${baseMsg} (disposal error: ${formatError(disposalError)})`
+            : baseMsg,
       }
-      return { status: 'failed', runtimeId, error: outcome?.message ?? 'Exchange failed' }
+    }
+
+    // Fail closed if session disposal failed, even when exchange succeeded
+    if (disposalError !== undefined) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error: `Agent node "${ctx.node.id}" session disposal failed: ${formatError(disposalError)}`,
+      }
     }
 
     const { report } = outcome

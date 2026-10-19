@@ -2915,9 +2915,11 @@ describe('BindingSet Role & Capability Resolution (Slice 5B-1B)', () => {
 
         // 8a. Clean cancellation: no files modified -> status is 'cancelled', runtime.dispose is called
         const abortControllerClean = new AbortController()
+        const gitServiceClean = new GitService({ repositoryPath: repoDir })
+        const diffSpyClean = vi.spyOn(gitServiceClean, 'diffWorktree')
         const runnerClean = new LeafRunner({
           registry,
-          gitServiceFactory: (p) => new GitService({ repositoryPath: p }),
+          gitServiceFactory: () => gitServiceClean,
           exchangeFn: vi.fn().mockImplementation(() => {
             abortControllerClean.abort()
             return Promise.reject(new Error('Aborted'))
@@ -2942,7 +2944,8 @@ describe('BindingSet Role & Capability Resolution (Slice 5B-1B)', () => {
         const resultClean = await runnerClean.execute(ctxClean)
         expect(resultClean.status).toBe('cancelled')
         expect(resultClean.error).toBe('Execution cancelled by signal')
-        expect(disposeSpyClean).toHaveBeenCalled()
+        expect(disposeSpyClean).toHaveBeenCalledTimes(1)
+        expect(diffSpyClean).toHaveBeenCalledTimes(1)
 
         // 8b. Cancellation with unauthorized modification: files modified -> fails closed with policy violation, runtime.dispose is called
         const disposeSpyTampered = vi.fn().mockResolvedValue(undefined)
@@ -2986,7 +2989,194 @@ describe('BindingSet Role & Capability Resolution (Slice 5B-1B)', () => {
         expect(resultTampered.error).toContain(
           'Policy violation: Role "reviewer" in read-only mode modified 1 file(s) in the worktree: unauthorized-cancelled.txt',
         )
-        expect(disposeSpyTampered).toHaveBeenCalled()
+        expect(disposeSpyTampered).toHaveBeenCalledTimes(1)
+      } finally {
+        cleanup()
+      }
+    })
+
+    it('9. Case A: read-only runtime modifies file and dispose() throws -> independent diff executes, dispose called once, fails closed with policy violation', async () => {
+      const { repoDir, forkSha, cleanup } = createTestRepo()
+      try {
+        const disposeSpy = vi.fn().mockRejectedValue(new Error('Process termination failed'))
+        const rt = makeRuntime('rt-case-a', {
+          capabilities: ['repo-read', 'review', 'terminal'],
+          dispose: disposeSpy,
+        })
+        registry.register(rt)
+
+        const gitService = new GitService({ repositoryPath: repoDir })
+        const diffSpy = vi.spyOn(gitService, 'diffWorktree')
+
+        const runner = new LeafRunner({
+          registry,
+          gitServiceFactory: () => gitService,
+          exchangeFn: vi.fn().mockImplementation(() => {
+            writeFileSync(join(repoDir, 'unauthorized-case-a.txt'), 'tamper before dispose throw\n')
+            const outcome: ExchangeOutcome = {
+              ok: true,
+              report: {
+                status: 'completed',
+                summary: 'Claimed review completed',
+                filesChanged: [],
+                commandsRun: [],
+                testsRun: false,
+                openQuestions: [],
+                assumptions: [],
+              },
+              assessment: { verdict: 'accept', reason: 'ok' },
+              retried: false,
+              transcript: [],
+            }
+            return Promise.resolve(outcome)
+          }),
+        })
+
+        const node = makeNode('case-a-node', {
+          config: {
+            role: 'reviewer',
+            providerId: 'rt-case-a',
+            permissionMode: 'read-only',
+            skills: [],
+          },
+        })
+
+        const ctx = makeContext(node, {
+          worktreePath: repoDir,
+          forkSha,
+        })
+
+        const result = await runner.execute(ctx)
+        expect(disposeSpy).toHaveBeenCalledTimes(1)
+        expect(diffSpy).toHaveBeenCalledTimes(1)
+        expect(result.status).toBe('failed')
+        expect(result.error).toContain(
+          'Policy violation: Role "reviewer" in read-only mode modified 1 file(s) in the worktree: unauthorized-case-a.txt',
+        )
+      } finally {
+        cleanup()
+      }
+    })
+
+    it('10. Case B: read-only runtime makes no changes, but dispose() throws -> diff executes, dispose called once, fails closed identifying disposal failure without reporting success', async () => {
+      const { repoDir, forkSha, cleanup } = createTestRepo()
+      try {
+        const disposeSpy = vi.fn().mockRejectedValue(new Error('Disposal socket hang up'))
+        const rt = makeRuntime('rt-case-b', {
+          capabilities: ['repo-read', 'review', 'terminal'],
+          dispose: disposeSpy,
+        })
+        registry.register(rt)
+
+        const gitService = new GitService({ repositoryPath: repoDir })
+        const diffSpy = vi.spyOn(gitService, 'diffWorktree')
+
+        const runner = new LeafRunner({
+          registry,
+          gitServiceFactory: () => gitService,
+          exchangeFn: vi.fn().mockImplementation(() => {
+            const outcome: ExchangeOutcome = {
+              ok: true,
+              report: {
+                status: 'completed',
+                summary: 'Clean review report',
+                filesChanged: [],
+                commandsRun: [],
+                testsRun: false,
+                openQuestions: [],
+                assumptions: [],
+              },
+              assessment: { verdict: 'accept', reason: 'ok' },
+              retried: false,
+              transcript: [],
+            }
+            return Promise.resolve(outcome)
+          }),
+        })
+
+        const node = makeNode('case-b-node', {
+          config: {
+            role: 'reviewer',
+            providerId: 'rt-case-b',
+            permissionMode: 'read-only',
+            skills: [],
+          },
+        })
+
+        const ctx = makeContext(node, {
+          worktreePath: repoDir,
+          forkSha,
+        })
+
+        const result = await runner.execute(ctx)
+        expect(disposeSpy).toHaveBeenCalledTimes(1)
+        expect(diffSpy).toHaveBeenCalledTimes(1)
+        expect(result.status).toBe('failed')
+        expect(result.error).toContain('session disposal failed: Disposal socket hang up')
+        expect('resumable' in result).toBe(false)
+        expect('awaitingUser' in result).toBe(false)
+      } finally {
+        cleanup()
+      }
+    })
+
+    it('11. Case C: read-only runtime returns blocked or question, and disposal throws -> fails closed, not reported as clean resumable pause', async () => {
+      const { repoDir, forkSha, cleanup } = createTestRepo()
+      try {
+        const disposeSpy = vi.fn().mockRejectedValue(new Error('Disposal process hung'))
+        const rt = makeRuntime('rt-case-c', {
+          capabilities: ['repo-read', 'review', 'terminal'],
+          dispose: disposeSpy,
+        })
+        registry.register(rt)
+
+        const gitService = new GitService({ repositoryPath: repoDir })
+        const diffSpy = vi.spyOn(gitService, 'diffWorktree')
+
+        const runner = new LeafRunner({
+          registry,
+          gitServiceFactory: () => gitService,
+          exchangeFn: vi.fn().mockImplementation(() => {
+            const outcome: ExchangeOutcome = {
+              ok: true,
+              report: {
+                status: 'question',
+                summary: 'Clarification required on requirements',
+                filesChanged: [],
+                commandsRun: [],
+                testsRun: false,
+                openQuestions: [],
+                assumptions: [],
+              },
+              assessment: { verdict: 'accept', reason: 'ok' },
+              retried: false,
+              transcript: [],
+            }
+            return Promise.resolve(outcome)
+          }),
+        })
+
+        const node = makeNode('case-c-node', {
+          config: {
+            role: 'reviewer',
+            providerId: 'rt-case-c',
+            permissionMode: 'read-only',
+            skills: [],
+          },
+        })
+
+        const ctx = makeContext(node, {
+          worktreePath: repoDir,
+          forkSha,
+        })
+
+        const result = await runner.execute(ctx)
+        expect(disposeSpy).toHaveBeenCalledTimes(1)
+        expect(diffSpy).toHaveBeenCalledTimes(1)
+        expect(result.status).toBe('failed')
+        expect(result.error).toContain('session disposal failed: Disposal process hung')
+        expect('resumable' in result).toBe(false)
+        expect('awaitingUser' in result).toBe(false)
       } finally {
         cleanup()
       }

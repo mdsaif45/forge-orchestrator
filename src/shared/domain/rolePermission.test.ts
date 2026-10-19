@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { permissionForRole } from './rolePermission'
+import { defaultPermissionsForRole, permissionForRole } from './rolePermission'
 
 describe('permissionForRole', () => {
   it('runs a planner read-only', () => {
@@ -46,5 +46,33 @@ describe('permissionForRole', () => {
     const byRole = permissionForRole('planner', false).reason
     const byBinding = permissionForRole('implementer', false).reason
     expect(byRole).not.toBe(byBinding)
+  })
+})
+
+describe('defaultPermissionsForRole', () => {
+  it('gives planner and reviewer read-only permissions without writeFiles', () => {
+    const planner = defaultPermissionsForRole('planner')
+    expect(planner.readFiles).toBe(true)
+    expect(planner.writeFiles).toBe(false)
+    expect(planner.runTests).toBe(false)
+    expect(planner.gitRead).toBe(true)
+    expect(planner.gitWrite).toBe(false)
+
+    const reviewer = defaultPermissionsForRole('reviewer')
+    expect(reviewer.readFiles).toBe(true)
+    expect(reviewer.writeFiles).toBe(false)
+    expect(reviewer.runTests).toBe(true)
+    expect(reviewer.gitRead).toBe(true)
+    expect(reviewer.gitWrite).toBe(false)
+  })
+
+  it('gives implementer writeFiles and test/build execution permissions', () => {
+    const implementer = defaultPermissionsForRole('implementer')
+    expect(implementer.readFiles).toBe(true)
+    expect(implementer.writeFiles).toBe(true)
+    expect(implementer.runTests).toBe(true)
+    expect(implementer.runBuild).toBe(true)
+    expect(implementer.gitRead).toBe(true)
+    expect(implementer.gitWrite).toBe(false)
   })
 })

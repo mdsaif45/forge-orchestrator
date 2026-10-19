@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import {
   assessStepPolicy,
+  defaultPermissionsForRole,
   formatPolicyHaltReason,
   permissionForRole,
   repositoryIdSchema,
@@ -25,7 +26,7 @@ import type { WorkflowStore } from '../db/workflowStore'
 import { buildChangeSet, type BuiltChangeSet } from '../evidence/changeSetBuilder'
 import { verifyStep } from '../evidence/verifier'
 import type { GitService } from '../git'
-import { permits, type BindingSet } from '../runtimes/bindings'
+import type { BindingSet } from '../runtimes/bindings'
 import { exchange, type ExchangeOutcome } from '../runtimes/exchange'
 import type { RuntimeRegistry } from '../runtimes/registry'
 import type { LeafNodeExecutor, NodeExecutionContext, NodeExecutionResult } from './graphExecutor'
@@ -302,8 +303,9 @@ export class LeafRunner {
     }
 
     const { runtime, runtimeId, binding } = resolved
-    const bindingPermitsWrite = binding !== undefined ? permits(binding, 'writeFiles') : true
-    const isWritable = nodeRequiresFileWrite(ctx.node) && bindingPermitsWrite
+    const effectivePermissions = binding ? binding.permissions : defaultPermissionsForRole(role)
+    const effectivePermitsWrite = effectivePermissions.writeFiles
+    const isWritable = nodeRequiresFileWrite(ctx.node) && effectivePermitsWrite
 
     // Assemble PromptPacket
     let packet: PromptPacket
@@ -319,7 +321,7 @@ export class LeafRunner {
       repositoryPath: worktreePath,
       role,
       permissionMode:
-        ctx.node.config.permissionMode === 'full-access' && bindingPermitsWrite
+        ctx.node.config.permissionMode === 'full-access' && effectivePermitsWrite
           ? 'bypassPermissions'
           : permissionForRole(role, isWritable).mode,
       timeoutMs: ctx.node.config.timeoutMs,
@@ -376,19 +378,19 @@ export class LeafRunner {
       }
     }
 
-    if (binding !== undefined) {
-      const task = this.resolveTask(ctx)
-      const policyAssessment = assessStepPolicy({
-        binding,
-        report,
-        forbiddenPaths: task?.scope.forbiddenPaths ?? [],
-      })
-      if (!policyAssessment.allowed) {
-        return {
-          status: 'failed',
-          runtimeId,
-          error: `Policy violation: ${formatPolicyHaltReason(policyAssessment.violations)}`,
-        }
+    const task = this.resolveTask(ctx)
+    const policyAssessment = assessStepPolicy({
+      ...(binding !== undefined ? { binding } : {}),
+      role,
+      permissions: effectivePermissions,
+      report,
+      forbiddenPaths: task?.scope.forbiddenPaths ?? [],
+    })
+    if (!policyAssessment.allowed) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error: `Policy violation: ${formatPolicyHaltReason(policyAssessment.violations)}`,
       }
     }
 

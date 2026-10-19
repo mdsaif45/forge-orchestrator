@@ -1,5 +1,31 @@
 import type { PermissionMode } from './permissionMode'
 import type { Role } from './enums'
+import { permissionsSchema, type Permissions } from './project'
+
+/**
+ * Authoritative default permissions per role before any project or binding narrows them.
+ *
+ * A project or binding may withhold capability, but cannot widen role defaults (A7).
+ */
+export const ROLE_DEFAULT_PERMISSIONS: Record<Role, Partial<Permissions>> = {
+  // A planner reads and reasons. Giving it write access would let a plan quietly become an
+  // implementation, which is the boundary #42's discussion mode exists to enforce.
+  planner: { readFiles: true, gitRead: true },
+  implementer: { readFiles: true, writeFiles: true, runTests: true, runBuild: true, gitRead: true },
+  // A reviewer runs tests to check a claim but never edits: a reviewer that could fix what it
+  // found would have no reason to report it.
+  reviewer: { readFiles: true, runTests: true, gitRead: true },
+  tester: { readFiles: true, runTests: true, runBuild: true, gitRead: true },
+  'security-reviewer': { readFiles: true, runTests: true, gitRead: true },
+  // Forge performs these itself; no agent process is involved.
+  system: { readFiles: true, gitRead: true },
+  user: {},
+}
+
+/** Resolves the authoritative default permissions for a role. */
+export function defaultPermissionsForRole(role: Role): Permissions {
+  return permissionsSchema.parse(ROLE_DEFAULT_PERMISSIONS[role])
+}
 
 /**
  * The permission mode a role runs under, and why.

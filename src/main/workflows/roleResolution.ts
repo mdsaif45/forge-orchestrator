@@ -1,4 +1,5 @@
 import {
+  defaultPermissionsForRole,
   missingCapabilities,
   type AgentBinding,
   type Capability,
@@ -7,12 +8,7 @@ import {
   type Role,
   type WorkflowNode,
 } from '@shared/domain'
-import {
-  AmbiguousRoleBindingError,
-  UnboundRoleError,
-  permits,
-  type BindingSet,
-} from '../runtimes/bindings'
+import { AmbiguousRoleBindingError, UnboundRoleError, type BindingSet } from '../runtimes/bindings'
 import {
   IncapableRuntimeError,
   UnknownRuntimeError,
@@ -81,24 +77,17 @@ export function validateNodeCapabilities(
 
   // 2. Operational capability validation:
   const missingOperational: Capability[] = []
+  const effectivePermissions = binding ? binding.permissions : defaultPermissionsForRole(role)
 
   if (nodeRequiresFileWrite(node)) {
-    if (!runtime.capabilities.includes('file-write')) {
-      missingOperational.push('file-write')
-    }
-    // If an authoritative binding is resolved, its effective permissions cannot be bypassed
-    // by selecting a runtime whose raw capability list is broader (Axiom A7).
-    if (binding !== undefined && !permits(binding, 'writeFiles')) {
+    if (!runtime.capabilities.includes('file-write') || !effectivePermissions.writeFiles) {
       missingOperational.push('file-write')
     }
   }
 
   // If node requires test execution capability
   if (role === 'tester') {
-    if (!runtime.capabilities.includes('test')) {
-      missingOperational.push('test')
-    }
-    if (binding !== undefined && !permits(binding, 'runTests')) {
+    if (!runtime.capabilities.includes('test') || !effectivePermissions.runTests) {
       missingOperational.push('test')
     }
   }
@@ -106,6 +95,29 @@ export function validateNodeCapabilities(
   if (missingOperational.length > 0) {
     throw new IncapableRuntimeError(runtime.id, role, Array.from(new Set(missingOperational)))
   }
+}
+
+/**
+ * Searches execution, composition, or durable project bindings for an applicable
+ * binding for the specified role.
+ */
+function findApplicableBinding(
+  options: ResolveRoleRuntimeOptions,
+  role: Role,
+): AgentBinding | undefined {
+  if (options.executionBindings) {
+    const binding = options.executionBindings.get(role)
+    if (binding !== null) return binding
+  }
+  if (options.compositionBindings) {
+    const binding = options.compositionBindings.get(role)
+    if (binding !== null) return binding
+  }
+  if (options.bindingStore && options.projectId) {
+    const binding = options.bindingStore.find(options.projectId, role)
+    if (binding !== null) return binding
+  }
+  return undefined
 }
 
 /**
@@ -136,12 +148,14 @@ export function resolveRoleRuntime(options: ResolveRoleRuntimeOptions): Resolved
       throw new UnknownRuntimeError(runtimeId, options.registry.ids())
     }
     const runtime = options.registry.resolve(runtimeId)
-    validateNodeCapabilities(runtime, options.node, role)
+    const binding = findApplicableBinding(options, role)
+    validateNodeCapabilities(runtime, options.node, role, binding)
     return {
       runtime,
       runtimeId,
       role,
       source: 'node-explicit',
+      ...(binding !== undefined ? { binding } : {}),
     }
   }
 

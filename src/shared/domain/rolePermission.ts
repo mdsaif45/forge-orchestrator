@@ -28,6 +28,83 @@ export function defaultPermissionsForRole(role: Role): Permissions {
 }
 
 /**
+ * Detects permissions granted beyond a role's authoritative defaults.
+ * A role cannot be granted permissions excluded from its role definition (Axiom A7).
+ */
+export function widenedPermissionsForRole(
+  role: Role,
+  permissions: Partial<Permissions>,
+): readonly (keyof Permissions)[] {
+  const defaults = defaultPermissionsForRole(role)
+  const widened: (keyof Permissions)[] = []
+  const keys = Object.keys(permissions) as (keyof Permissions)[]
+  for (const key of keys) {
+    if (permissions[key] === true && !defaults[key]) {
+      widened.push(key)
+    }
+  }
+  return widened
+}
+
+/** Raised when a binding grants permissions exceeding the role's authoritative defaults. */
+export class InvalidBindingPermissionsError extends Error {
+  constructor(
+    readonly role: Role,
+    readonly widened: readonly (keyof Permissions)[],
+  ) {
+    super(
+      `Agent binding for role "${role}" attempts to widen permissions beyond role ceiling: ${widened.join(
+        ', ',
+      )}`,
+    )
+    this.name = 'InvalidBindingPermissionsError'
+  }
+}
+
+/**
+ * Validates that an agent binding does not grant permissions exceeding the role ceiling.
+ * Throws InvalidBindingPermissionsError if any unauthorized permission is true.
+ */
+export function validateBindingPermissions(binding: {
+  readonly role: Role
+  readonly permissions: Partial<Permissions>
+}): void {
+  const widened = widenedPermissionsForRole(binding.role, binding.permissions)
+  if (widened.length > 0) {
+    throw new InvalidBindingPermissionsError(binding.role, widened)
+  }
+}
+
+/**
+ * Calculates effective permissions for a role and optional binding.
+ *
+ * Invariant (A7 least privilege):
+ * `effective permissions = role defaults ∩ applicable binding permissions`
+ *
+ * When no binding is present, returns role defaults.
+ * When a binding is present, each permission flag can only be true if allowed by BOTH
+ * the role defaults AND the binding. A binding may narrow permissions, but NEVER widen them.
+ */
+export function effectivePermissionsForRole(
+  role: Role,
+  binding?: { readonly permissions: Partial<Permissions> },
+): Permissions {
+  const defaults = defaultPermissionsForRole(role)
+  if (!binding) return defaults
+
+  const bindingPerms = binding.permissions
+  return permissionsSchema.parse(
+    Object.fromEntries(
+      Object.entries(defaults).map(([key, allowedByRole]) => {
+        const bindingAllowed = bindingPerms[key as keyof Permissions]
+        // Intersection: false from either role default or binding wins.
+        return [key, allowedByRole && bindingAllowed !== false]
+      }),
+    ),
+  )
+}
+
+/**
  * The permission mode a role runs under, and why.
  *
  * A hosted interactive session can be *asked* for permission; the headless path

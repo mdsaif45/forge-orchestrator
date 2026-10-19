@@ -7,6 +7,7 @@ import {
   missingCapabilities,
   permissionsSchema,
   ROLE_DEFAULT_PERMISSIONS,
+  validateBindingPermissions,
   type AgentBinding,
   type Capability,
   type Role,
@@ -131,6 +132,7 @@ export class BindingSet {
   }
 
   set(binding: AgentBinding): void {
+    validateBindingPermissions(binding)
     this.byRole.set(binding.role, binding)
   }
 

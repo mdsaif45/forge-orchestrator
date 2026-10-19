@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { defaultPermissionsForRole, permissionForRole } from './rolePermission'
+import {
+  defaultPermissionsForRole,
+  effectivePermissionsForRole,
+  InvalidBindingPermissionsError,
+  permissionForRole,
+  validateBindingPermissions,
+  widenedPermissionsForRole,
+} from './rolePermission'
 
 describe('permissionForRole', () => {
   it('runs a planner read-only', () => {
@@ -74,5 +81,79 @@ describe('defaultPermissionsForRole', () => {
     expect(implementer.runBuild).toBe(true)
     expect(implementer.gitRead).toBe(true)
     expect(implementer.gitWrite).toBe(false)
+  })
+})
+
+describe('role permission ceiling (Axiom A7)', () => {
+  it('detects permissions widened beyond role defaults', () => {
+    const widened = widenedPermissionsForRole('reviewer', {
+      writeFiles: true,
+      gitWrite: true,
+    })
+    expect(widened).toEqual(['writeFiles', 'gitWrite'])
+
+    const validNarrowing = widenedPermissionsForRole('reviewer', {
+      runTests: false,
+    })
+    expect(validNarrowing).toEqual([])
+  })
+
+  it('validateBindingPermissions throws InvalidBindingPermissionsError for widened permissions', () => {
+    expect(() => {
+      validateBindingPermissions({
+        role: 'reviewer',
+        permissions: { writeFiles: true },
+      })
+    }).toThrow(InvalidBindingPermissionsError)
+  })
+
+  it('validateBindingPermissions allows valid and narrowed permissions', () => {
+    expect(() => {
+      validateBindingPermissions({
+        role: 'reviewer',
+        permissions: { readFiles: true, runTests: false },
+      })
+    }).not.toThrow()
+  })
+
+  it('effectivePermissionsForRole calculates intersection (role defaults ∩ binding)', () => {
+    // Reviewer has writeFiles: false by default. Even if an unvalidated object passes writeFiles: true,
+    // effectivePermissionsForRole mathematically clamps it to false.
+    const effective = effectivePermissionsForRole('reviewer', {
+      permissions: {
+        readFiles: true,
+        writeFiles: true,
+        runTests: false,
+      },
+    })
+    expect(effective.writeFiles).toBe(false)
+    expect(effective.readFiles).toBe(true)
+    expect(effective.runTests).toBe(false)
+  })
+
+  it('effectivePermissionsForRole preserves allowed permissions for legitimate implementer', () => {
+    const effective = effectivePermissionsForRole('implementer', {
+      permissions: {
+        writeFiles: true,
+        runTests: true,
+      },
+    })
+    expect(effective.writeFiles).toBe(true)
+    expect(effective.runTests).toBe(true)
+  })
+
+  it('effectivePermissionsForRole allows a binding to narrow permissions further', () => {
+    const effective = effectivePermissionsForRole('implementer', {
+      permissions: {
+        writeFiles: false,
+      },
+    })
+    expect(effective.writeFiles).toBe(false)
+    expect(effective.runTests).toBe(true)
+  })
+
+  it('effectivePermissionsForRole returns role defaults when binding is omitted', () => {
+    const effective = effectivePermissionsForRole('planner')
+    expect(effective).toEqual(defaultPermissionsForRole('planner'))
   })
 })

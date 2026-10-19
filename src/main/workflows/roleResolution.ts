@@ -1,6 +1,7 @@
 import {
-  defaultPermissionsForRole,
+  effectivePermissionsForRole,
   missingCapabilities,
+  validateBindingPermissions,
   type AgentBinding,
   type Capability,
   type IAgentRuntime,
@@ -77,7 +78,10 @@ export function validateNodeCapabilities(
 
   // 2. Operational capability validation:
   const missingOperational: Capability[] = []
-  const effectivePermissions = binding ? binding.permissions : defaultPermissionsForRole(role)
+  if (binding !== undefined) {
+    validateBindingPermissions(binding)
+  }
+  const effectivePermissions = effectivePermissionsForRole(role, binding)
 
   if (nodeRequiresFileWrite(node)) {
     if (!runtime.capabilities.includes('file-write') || !effectivePermissions.writeFiles) {

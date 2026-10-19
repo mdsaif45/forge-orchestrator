@@ -5,11 +5,19 @@ import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  agentBindingIdSchema,
+  assessStepPolicy,
+  defaultPermissionsForRole,
+  effectivePermissionsForRole,
+  InvalidBindingPermissionsError,
   projectIdSchema,
   repositoryIdSchema,
   runtimeIdSchema,
   taskIdSchema,
+  validateBindingPermissions,
   workflowIdSchema,
+  type AgentBinding,
+  type AgentReport,
   type Capability,
   type IAgentRuntime,
   type ProjectId,
@@ -24,6 +32,7 @@ import { ArtifactService } from '../artifacts/artifactService'
 import { ArtifactStore } from '../db/artifactStore'
 import { BindingStore } from '../db/bindingStore'
 import { initialiseDatabase, type ForgeDatabase } from '../db'
+import { agentBindings } from '../db/schema'
 import { EventStore } from '../db/eventStore'
 import { ProjectStore } from '../db/projectStore'
 import { applyEvent } from '../db/projections'
@@ -36,6 +45,7 @@ import {
   UnboundRoleError,
 } from '../runtimes/bindings'
 import { IncapableRuntimeError, RuntimeRegistry, UnknownRuntimeError } from '../runtimes/registry'
+import type { ExchangeOutcome } from '../runtimes/exchange'
 import { MockAgentRuntime } from '../runtimes/mockRuntime'
 import { GraphExecutor, type NodeExecutionContext } from './graphExecutor'
 import { createGraphExecutorWithLeafRunner } from './graphFactory'
@@ -2093,6 +2103,403 @@ describe('BindingSet Role & Capability Resolution (Slice 5B-1B)', () => {
       expect(resolved.runtimeId).toBe('rt-explicit-chosen')
       expect(resolved.source).toBe('node-explicit')
       expect(resolved.binding?.id).toBe(binding.id)
+    })
+  })
+
+  describe('role permission ceiling invariant (Slice 5B-1B corrective gate)', () => {
+    it('1. reviewer binding directly constructed with writeFiles: true fails closed and cannot authorize writes', () => {
+      const binding: AgentBinding = {
+        id: agentBindingIdSchema.parse(randomUUID()),
+        role: 'reviewer',
+        runtimeId: runtimeIdSchema.parse('rt-reviewer'),
+        accountId: null,
+        capabilities: ['repo-read', 'file-write', 'review'],
+        permissions: {
+          ...defaultPermissionsForRole('reviewer'),
+          writeFiles: true,
+        },
+      }
+
+      // a) Directly rejected at validation
+      expect(() => {
+        validateBindingPermissions(binding)
+      }).toThrow(InvalidBindingPermissionsError)
+
+      // b) Mathematically clamped by effectivePermissionsForRole
+      const effective = effectivePermissionsForRole('reviewer', binding)
+      expect(effective.writeFiles).toBe(false)
+
+      // c) Rejected at preflight if passed to validateNodeCapabilities
+      const rt = makeRuntime('rt-reviewer', {
+        capabilities: ['repo-read', 'file-write', 'review'],
+      })
+      const node = makeNode('n1', {
+        config: { role: 'reviewer', permissionMode: 'developer', skills: [] },
+      })
+      expect(() => {
+        validateNodeCapabilities(rt, node, 'reviewer', binding)
+      }).toThrow(InvalidBindingPermissionsError)
+    })
+
+    it('2. persisted over-permissive binding fails closed when loaded from DB or used in set()', () => {
+      const overPermissiveBinding: AgentBinding = {
+        id: agentBindingIdSchema.parse(randomUUID()),
+        role: 'reviewer',
+        runtimeId: runtimeIdSchema.parse('rt-reviewer'),
+        accountId: null,
+        capabilities: ['repo-read', 'file-write', 'review'],
+        permissions: {
+          ...defaultPermissionsForRole('reviewer'),
+          writeFiles: true,
+        },
+      }
+
+      // Fails closed on set()
+      expect(() => {
+        bindingStore.set(projectId, overPermissiveBinding, 'system', new Date().toISOString())
+      }).toThrow(InvalidBindingPermissionsError)
+
+      // Directly insert corrupted/tampered row into SQLite table
+      db.insert(agentBindings)
+        .values({
+          id: randomUUID(),
+          projectId,
+          role: 'reviewer',
+          runtimeId: 'rt-corrupted',
+          accountId: null,
+          capabilities: JSON.stringify(['repo-read', 'file-write', 'review']),
+          permissions: JSON.stringify({
+            ...defaultPermissionsForRole('reviewer'),
+            writeFiles: true,
+          }),
+        })
+        .run()
+
+      // Fails closed when loaded via find()
+      expect(() => {
+        bindingStore.find(projectId, 'reviewer')
+      }).toThrow(InvalidBindingPermissionsError)
+      // Fails closed when loaded via list()
+      expect(() => {
+        bindingStore.list(projectId)
+      }).toThrow(InvalidBindingPermissionsError)
+    })
+
+    it('3. execution-level and composition-level bindings cannot widen role permissions', () => {
+      const overPermissiveBinding: AgentBinding = {
+        id: agentBindingIdSchema.parse(randomUUID()),
+        role: 'planner',
+        runtimeId: runtimeIdSchema.parse('rt-planner'),
+        accountId: null,
+        capabilities: ['repo-read', 'file-write', 'plan'],
+        permissions: {
+          ...defaultPermissionsForRole('planner'),
+          writeFiles: true,
+        },
+      }
+
+      // Construction fails closed
+      expect(() => {
+        new BindingSet([overPermissiveBinding])
+      }).toThrow(InvalidBindingPermissionsError)
+
+      // set() fails closed
+      const emptySet = new BindingSet()
+      expect(() => {
+        emptySet.set(overPermissiveBinding)
+      }).toThrow(InvalidBindingPermissionsError)
+    })
+
+    it('4. explicit providerId cannot bypass the role permission ceiling', async () => {
+      const rtReviewer = makeRuntime('rt-reviewer-write', {
+        capabilities: ['repo-read', 'file-write', 'review', 'terminal'],
+      })
+      registry.register(rtReviewer)
+
+      // Explicit providerId with reviewer role requesting full-access write
+      const node = makeNode('review-node', {
+        config: {
+          role: 'reviewer',
+          providerId: 'rt-reviewer-write',
+          permissionMode: 'full-access',
+          skills: [],
+        },
+      })
+
+      // Preflight fails closed because effective permissions for reviewer do not include writeFiles
+      expect(() =>
+        resolveRoleRuntime({
+          node,
+          registry,
+        }),
+      ).toThrow(IncapableRuntimeError)
+
+      // LeafRunner also fails closed if executed
+      const runner = new LeafRunner({
+        registry,
+      })
+      const ctx = makeContext(node)
+      const result = await runner.execute(ctx)
+      expect(result.status).toBe('failed')
+      expect(result.error).toContain('missing file-write')
+    })
+
+    it('5. default runtime resolution cannot bypass the role permission ceiling', () => {
+      const rtDefault = makeRuntime('rt-default-capable', {
+        capabilities: ['repo-read', 'file-write', 'review', 'plan', 'test', 'terminal'],
+      })
+      registry.register(rtDefault)
+
+      // Default runtime resolution for reviewer requesting full-access
+      const node = makeNode('review-default-node', {
+        config: {
+          role: 'reviewer',
+          permissionMode: 'full-access',
+          skills: [],
+        },
+      })
+
+      expect(() =>
+        resolveRoleRuntime({
+          node,
+          registry,
+          defaultRuntimeId: 'rt-default-capable',
+        }),
+      ).toThrow(IncapableRuntimeError)
+    })
+
+    it('6. legitimate implementer binding retains its allowed permissions', () => {
+      const rtImpl = makeRuntime('rt-impl')
+      registry.register(rtImpl)
+
+      const binding = bindRole(registry, {
+        role: 'implementer',
+        runtimeId: 'rt-impl',
+      })
+
+      expect(binding.permissions.writeFiles).toBe(true)
+      expect(binding.permissions.runTests).toBe(true)
+
+      const node = makeNode('impl-node', {
+        config: {
+          role: 'implementer',
+          permissionMode: 'developer',
+          skills: [],
+        },
+      })
+
+      const resolved = resolveRoleRuntime({
+        node,
+        registry,
+        executionBindings: new BindingSet([binding]),
+      })
+
+      expect(resolved.runtimeId).toBe('rt-impl')
+      expect(resolved.binding?.permissions.writeFiles).toBe(true)
+    })
+
+    it('7. restrictive binding can narrow permissions further', () => {
+      const rtImpl = makeRuntime('rt-narrowed')
+      registry.register(rtImpl)
+
+      const narrowedBinding = bindRole(registry, {
+        role: 'implementer',
+        runtimeId: 'rt-narrowed',
+        permissions: {
+          writeFiles: false,
+          runTests: false,
+        },
+      })
+
+      expect(narrowedBinding.permissions.writeFiles).toBe(false)
+      expect(narrowedBinding.permissions.runTests).toBe(false)
+
+      const effective = effectivePermissionsForRole('implementer', narrowedBinding)
+      expect(effective.writeFiles).toBe(false)
+      expect(effective.runTests).toBe(false)
+      expect(effective.readFiles).toBe(true)
+
+      // Preflight fails if node requires file write
+      const writeNode = makeNode('write-node', {
+        config: {
+          role: 'implementer',
+          permissionMode: 'developer',
+          skills: [],
+        },
+      })
+      expect(() =>
+        resolveRoleRuntime({
+          node: writeNode,
+          registry,
+          executionBindings: new BindingSet([narrowedBinding]),
+        }),
+      ).toThrow(IncapableRuntimeError)
+
+      // But succeeds if node is read-only
+      const readNode = makeNode('read-node', {
+        config: {
+          role: 'implementer',
+          permissionMode: 'read-only',
+          skills: [],
+        },
+      })
+      const resolved = resolveRoleRuntime({
+        node: readNode,
+        registry,
+        executionBindings: new BindingSet([narrowedBinding]),
+      })
+      expect(resolved.runtimeId).toBe('rt-narrowed')
+    })
+
+    it('8. policy assessment and capability preflight use the same effective permission semantics', () => {
+      const binding: AgentBinding = {
+        id: agentBindingIdSchema.parse(randomUUID()),
+        role: 'reviewer',
+        runtimeId: runtimeIdSchema.parse('rt-rev'),
+        accountId: null,
+        capabilities: ['repo-read', 'file-write', 'review'],
+        permissions: {
+          ...defaultPermissionsForRole('reviewer'),
+          // Attempting to grant writeFiles
+          writeFiles: true,
+        },
+      }
+
+      // Capability preflight clamps effective permissions
+      const effectivePreflight = effectivePermissionsForRole('reviewer', binding)
+      expect(effectivePreflight.writeFiles).toBe(false)
+
+      // Policy assessment clamps effective permissions and halts on claimed writes
+      const report: AgentReport = {
+        status: 'completed',
+        summary: 'reviewed code',
+        filesChanged: ['src/index.ts'],
+        commandsRun: [],
+        testsRun: false,
+        openQuestions: [],
+        assumptions: [],
+      }
+      const assessment = assessStepPolicy({
+        binding,
+        report,
+      })
+      expect(assessment.allowed).toBe(false)
+      expect(assessment.violations[0]?.kind).toBe('unpermitted-write')
+    })
+
+    it('9. existing binding persistence and EventStore projection rebuild remain intact', () => {
+      const rt = makeRuntime('rt-durable')
+      registry.register(rt)
+
+      const binding = bindRole(registry, {
+        role: 'implementer',
+        runtimeId: 'rt-durable',
+      })
+
+      const now = new Date().toISOString()
+      const stored = bindingStore.set(projectId, binding, 'system', now)
+      expect(stored.id).toBe(binding.id)
+
+      const found = bindingStore.find(projectId, 'implementer')
+      expect(found).not.toBeNull()
+      expect(found?.id).toBe(binding.id)
+      expect(found?.role).toBe('implementer')
+      expect(found?.permissions.writeFiles).toBe(true)
+
+      // Verify EventStore has binding.set event
+      const events = eventStore.read(projectId)
+      const bindingEvent = events.find((e) => e.type === 'binding.set')
+      expect(bindingEvent).toBeDefined()
+
+      // Rebuild projections and verify binding remains valid
+      const { db: newDb, close: closeNewDb } = initialiseDatabase(':memory:')
+      try {
+        const newEventStore = new EventStore(newDb)
+        for (const event of events) {
+          applyEvent(newDb, event)
+        }
+        const rebuiltBindingStore = new BindingStore(newDb, newEventStore)
+        const rebuilt = rebuiltBindingStore.find(projectId, 'implementer')
+        expect(rebuilt).not.toBeNull()
+        expect(rebuilt?.id).toBe(binding.id)
+        expect(rebuilt?.permissions.writeFiles).toBe(true)
+      } finally {
+        closeNewDb()
+      }
+    })
+
+    it('10. independent filesystem change detection in LeafRunner catches silent worktree edits for read-only role', async () => {
+      const repoDir = mkdtempSync(join(tmpdir(), 'leaf-worktree-check-'))
+      try {
+        git(repoDir, 'init', '-b', 'main')
+        git(repoDir, 'config', 'user.name', 'Forge Tester')
+        git(repoDir, 'config', 'user.email', 'test@forge.local')
+        writeFileSync(join(repoDir, 'base.txt'), 'hello world\n')
+        git(repoDir, 'add', '.')
+        git(repoDir, 'commit', '-m', 'Initial commit')
+        const forkSha = git(repoDir, 'rev-parse', 'HEAD').trim()
+
+        const rtSilentWrite = makeRuntime('rt-silent-write', {
+          capabilities: ['repo-read', 'review', 'terminal'],
+        })
+        registry.register(rtSilentWrite)
+
+        const runner = new LeafRunner({
+          registry,
+          gitServiceFactory: (p) => new GitService({ repositoryPath: p }),
+          exchangeFn: vi.fn().mockImplementation(() => {
+            // Agent silently modifies worktree file without reporting it
+            writeFileSync(join(repoDir, 'unauthorized.txt'), 'evil modification\n')
+            const outcome: ExchangeOutcome = {
+              ok: true,
+              report: {
+                status: 'completed',
+                summary: 'I did not change any files!',
+                filesChanged: [], // Dishonest / omitted claim
+                commandsRun: [],
+                testsRun: false,
+                openQuestions: [],
+                assumptions: [],
+              },
+              assessment: { verdict: 'accept', reason: 'ok' },
+              retried: false,
+              transcript: [],
+            }
+            return Promise.resolve(outcome)
+          }),
+        })
+
+        const node = makeNode('silent-reviewer', {
+          config: {
+            role: 'reviewer',
+            providerId: 'rt-silent-write',
+            permissionMode: 'read-only',
+            skills: [],
+          },
+        })
+
+        const ctx: NodeExecutionContext = {
+          graphRunId: randomUUID(),
+          workflowId: workflowIdSchema.parse(randomUUID()),
+          projectId,
+          node,
+          attempt: 1,
+          runtimeId: 'rt-silent-write',
+          forkSha,
+          worktreePath: repoDir,
+          signal: new AbortController().signal,
+          inputArtifacts: [],
+          incomingSlots: new Map(),
+        }
+
+        const result = await runner.execute(ctx)
+        expect(result.status).toBe('failed')
+        expect(result.error).toContain(
+          'Policy violation: Role "reviewer" in read-only mode modified 1 file(s) in the worktree: unauthorized.txt',
+        )
+      } finally {
+        rmSync(repoDir, { recursive: true, force: true })
+      }
     })
   })
 })

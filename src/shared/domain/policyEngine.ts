@@ -2,7 +2,7 @@ import { z } from 'zod'
 import type { AgentBinding, Permissions } from './project'
 import type { Role } from './enums'
 import type { AgentReport } from './runtime'
-import { defaultPermissionsForRole } from './rolePermission'
+import { effectivePermissionsForRole } from './rolePermission'
 import { matchesAny } from './glob'
 import { isForbiddenPath } from './redaction'
 
@@ -190,10 +190,19 @@ export function assessStepPolicy(input: StepPolicyInput): StepPolicyAssessment {
   const { binding, report, forbiddenPaths = [], changedPaths } = input
 
   const role: Role | undefined = binding?.role ?? input.role
-  const permissions: Permissions | undefined =
-    binding?.permissions ??
-    input.permissions ??
-    (role ? defaultPermissionsForRole(role) : undefined)
+  if (!role && !binding && !input.permissions) {
+    throw new Error('Policy assessment requires an authoritative binding, role, or permissions set')
+  }
+
+  // Calculate authoritative effective permissions enforcing role ceiling:
+  // effective permissions = role defaults ∩ binding permissions
+  const permissions: Permissions | undefined = role
+    ? effectivePermissionsForRole(
+        role,
+        binding ?? (input.permissions ? { permissions: input.permissions } : undefined),
+      )
+    : (input.permissions ??
+      (binding ? effectivePermissionsForRole(binding.role, binding) : undefined))
 
   if (!permissions) {
     throw new Error('Policy assessment requires an authoritative binding, role, or permissions set')

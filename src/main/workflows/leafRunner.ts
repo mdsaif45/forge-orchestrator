@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import {
   assessStepPolicy,
-  defaultPermissionsForRole,
+  effectivePermissionsForRole,
   formatPolicyHaltReason,
   permissionForRole,
   repositoryIdSchema,
   stepIdSchema,
+  validateBindingPermissions,
   type Actor,
   type AgentReport,
   type ChangeSet,
@@ -303,7 +304,10 @@ export class LeafRunner {
     }
 
     const { runtime, runtimeId, binding } = resolved
-    const effectivePermissions = binding ? binding.permissions : defaultPermissionsForRole(role)
+    if (binding !== undefined) {
+      validateBindingPermissions(binding)
+    }
+    const effectivePermissions = effectivePermissionsForRole(role, binding)
     const effectivePermitsWrite = effectivePermissions.writeFiles
     const isWritable = nodeRequiresFileWrite(ctx.node) && effectivePermitsWrite
 
@@ -378,6 +382,31 @@ export class LeafRunner {
       }
     }
 
+    // For read-only execution with a worktree, measure changes independently from the repository.
+    // If the agent actually modified files on disk, halt fail-closed regardless of what was claimed.
+    let readOnlyChange: readonly string[] | null = null
+    if (!isWritable && ctx.worktreePath && this.options.gitServiceFactory && ctx.forkSha) {
+      try {
+        const git = this.options.gitServiceFactory(ctx.worktreePath)
+        const diff = await git.diffWorktree(ctx.forkSha)
+        readOnlyChange = diff.files.map((f) => f.path)
+      } catch (err: unknown) {
+        return {
+          status: 'failed',
+          runtimeId,
+          error: `Agent node "${ctx.node.id}" failed to measure worktree diff: ${err instanceof Error ? err.message : String(err)}`,
+        }
+      }
+    }
+
+    if (!isWritable && readOnlyChange !== null && readOnlyChange.length > 0) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error: `Policy violation: Role "${role}" in read-only mode modified ${String(readOnlyChange.length)} file(s) in the worktree: ${readOnlyChange.join(', ')}`,
+      }
+    }
+
     const task = this.resolveTask(ctx)
     const policyAssessment = assessStepPolicy({
       ...(binding !== undefined ? { binding } : {}),
@@ -385,6 +414,7 @@ export class LeafRunner {
       permissions: effectivePermissions,
       report,
       forbiddenPaths: task?.scope.forbiddenPaths ?? [],
+      ...(readOnlyChange !== null ? { changedPaths: readOnlyChange } : {}),
     })
     if (!policyAssessment.allowed) {
       return {

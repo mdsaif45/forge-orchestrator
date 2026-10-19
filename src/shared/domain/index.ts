@@ -352,6 +352,10 @@ export {
 export {
   ROLE_DEFAULT_PERMISSIONS,
   defaultPermissionsForRole,
+  effectivePermissionsForRole,
+  widenedPermissionsForRole,
+  validateBindingPermissions,
+  InvalidBindingPermissionsError,
   permissionForRole,
   type RolePermission,
 } from './rolePermission'

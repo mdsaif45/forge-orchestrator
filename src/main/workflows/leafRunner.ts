@@ -1005,6 +1005,25 @@ export class LeafRunner {
         changeSetId = parsed.data
       }
     }
+    if (!changeSetId && changesetArtifact?.content) {
+      try {
+        const parsedContent = JSON.parse(changesetArtifact.content) as Record<string, unknown>
+        const raw =
+          typeof parsedContent.changeSetId === 'string'
+            ? parsedContent.changeSetId
+            : typeof parsedContent.id === 'string'
+              ? parsedContent.id
+              : null
+        if (raw) {
+          const parsed = changeSetIdSchema.safeParse(raw)
+          if (parsed.success) {
+            changeSetId = parsed.data
+          }
+        }
+      } catch {
+        // Content not JSON
+      }
+    }
 
     // Separate declared outputs into evidence deliverables vs. explicit verdict outputs
     const evidenceOutputs = ctx.node.outputs.filter((o) => !isExplicitVerdictOutput(o))

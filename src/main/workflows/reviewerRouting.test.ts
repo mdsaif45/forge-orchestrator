@@ -5637,6 +5637,7 @@ describe('PR #228 Final Recovery Lineage Integrity Correction', () => {
       { label: 'zero', iteration: 0 },
       { label: 'negative', iteration: -1 },
       { label: 'fractional', iteration: 1.5 },
+      { label: 'NaN', iteration: Number.NaN },
     ]
 
     for (const testCase of invalidIterationCases) {

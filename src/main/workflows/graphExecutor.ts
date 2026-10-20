@@ -817,8 +817,9 @@ export class GraphExecutor {
                 if (
                   rawVerifIteration === null ||
                   typeof rawVerifIteration !== 'number' ||
+                  Number.isNaN(rawVerifIteration) ||
                   !Number.isInteger(rawVerifIteration) ||
-                  rawVerifIteration <= 0
+                  rawVerifIteration < 1
                 ) {
                   const staleMsg =
                     typeof rawVerifIteration === 'number' && rawVerifIteration <= 0

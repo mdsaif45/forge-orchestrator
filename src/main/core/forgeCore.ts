@@ -28,6 +28,7 @@ import { BindingService } from '../bindings/bindingService'
 import { AccountHomes } from '../accounts/accountHomes'
 import { EnrollmentService } from '../accounts/enrollmentService'
 import { BindingStore } from '../db/bindingStore'
+import { createDefaultTemplateResolver } from '../templates/templateV2Store'
 
 /**
  * Resolves the configuration and storage directory for Forge.
@@ -188,6 +189,8 @@ export function createForgeCore(options: ForgeCoreOptions = {}): ForgeCore {
 
   const decisionService = new DecisionService({
     decisions: workflowService.getDecisionStore(),
+    workflowStore: workflowService.getWorkflowStore(),
+    templateResolver: createDefaultTemplateResolver(),
   })
 
   const changeSetService = new ChangeSetService({

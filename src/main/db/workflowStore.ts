@@ -661,6 +661,27 @@ export class WorkflowStore {
   }
 
   /**
+   * Returns the authoritative persisted project identity for a specific graph run.
+   * Directly queries the graph-run's own stored project identity field rather than
+   * indirectly deriving it from the referenced workflow.
+   */
+  projectIdOfGraphRun(graphRunId: string): ProjectId {
+    const row = this.db
+      .select({ projectId: graphRuns.projectId })
+      .from(graphRuns)
+      .where(eq(graphRuns.id, graphRunId))
+      .all()
+      .at(0)
+    if (row === undefined) {
+      throw new Error(`Graph run "${graphRunId}" not found`)
+    }
+    if (row.projectId === null) {
+      throw new Error(`Graph run "${graphRunId}" has no stored project identity`)
+    }
+    return row.projectId as ProjectId
+  }
+
+  /**
    * Assembles the workflow and validates it on the way out.
    *
    * Parsing here is what catches a projection that produced an impossible combination —
@@ -1000,22 +1021,11 @@ export class WorkflowStore {
   findInterruptedGraphRuns(projectId?: ProjectId): readonly GraphRun[] {
     if (projectId !== undefined) {
       const rows = this.db
-        .select({
-          id: graphRuns.id,
-          workflowId: graphRuns.workflowId,
-          templateId: graphRuns.templateId,
-          status: graphRuns.status,
-          iteration: graphRuns.iteration,
-          startedAt: graphRuns.startedAt,
-          finishedAt: graphRuns.finishedAt,
-          haltReason: graphRuns.haltReason,
-          error: graphRuns.error,
-        })
+        .select()
         .from(graphRuns)
-        .innerJoin(workflows, eq(graphRuns.workflowId, workflows.id))
         .where(
           and(
-            eq(workflows.projectId, projectId),
+            eq(graphRuns.projectId, projectId),
             eq(graphRuns.status, 'running'),
             isNull(graphRuns.finishedAt),
           ),

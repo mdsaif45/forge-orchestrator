@@ -247,6 +247,14 @@ export interface ForgeApi {
         readonly replacement: DecisionView
       }>
     >
+    recordGate: (request: {
+      readonly projectId: string
+      readonly workflowId: string
+      readonly graphRunId: string
+      readonly nodeId: string
+      readonly verdict: 'approved' | 'rejected'
+      readonly rationale: string
+    }) => Promise<IpcResult<DecisionView>>
   }
   readonly changeset: {
     list: (

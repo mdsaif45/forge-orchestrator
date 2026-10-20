@@ -377,6 +377,17 @@ export const IPC_CONTRACT = {
       replacement: decisionViewSchema,
     }),
   },
+  'decision:recordGate': {
+    request: z.strictObject({
+      projectId: z.string(),
+      workflowId: z.string(),
+      graphRunId: z.string().min(1),
+      nodeId: z.string().min(1),
+      verdict: z.enum(['approved', 'rejected']),
+      rationale: z.string().min(1),
+    }),
+    response: decisionViewSchema,
+  },
   'changeset:list': {
     request: z.strictObject({ projectId: z.string() }),
     response: z.strictObject({ changeSets: z.array(changeSetViewSchema).readonly() }),

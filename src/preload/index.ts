@@ -81,6 +81,7 @@ const api: ForgeApi = {
     approve: (decisionId) => call('decision:approve', { decisionId }),
     lock: (decisionId) => call('decision:lock', { decisionId }),
     supersede: (request) => call('decision:supersede', request),
+    recordGate: (request) => call('decision:recordGate', request),
   },
   changeset: {
     list: (projectId) => call('changeset:list', { projectId }),

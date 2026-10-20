@@ -2657,17 +2657,45 @@ export class GraphExecutor {
     switch (ctx.node.type) {
       case 'user_gate': {
         if (this.decisionStore) {
-          const lockedDecisions = this.decisionStore.listLocked(ctx.projectId)
-          if (lockedDecisions.length === 0) {
+          const decision = this.decisionStore.findGateDecision(ctx.graphRunId, ctx.node.id, {
+            projectId: ctx.projectId,
+            workflowId: ctx.workflowId,
+          })
+          if (!decision) {
             return {
               status: 'blocked',
-              error: `User gate blocked: no locked decisions found for project "${ctx.projectId}"`,
+              error: `User gate blocked: awaiting human decision for gate "${ctx.node.id}" in run "${ctx.graphRunId}"`,
               awaitingUser: true,
               resumable: true,
             }
           }
+          if (decision.gateVerdict === 'approved') {
+            const artifact: WorkflowArtifact = {
+              id: artifactIdSchema.parse(randomUUID()),
+              workflowId: ctx.workflowId,
+              nodeId: ctx.node.id,
+              kind: 'decision_record',
+              format: 'json',
+              title: `Gate ${ctx.node.title} Approved`,
+              content: JSON.stringify(decision),
+              metadata: {},
+              createdAt: decision.lockedAt ?? new Date().toISOString(),
+            }
+            return { status: 'completed', artifacts: [artifact] }
+          }
+          if (decision.gateVerdict === 'rejected') {
+            return {
+              status: 'cancelled',
+              error: `User gate "${ctx.node.title}" rejected: ${decision.rationale}`,
+            }
+          }
         }
-        return { status: 'completed' }
+        return {
+          status: 'blocked',
+          error: `User gate blocked: awaiting human decision`,
+          awaitingUser: true,
+          resumable: true,
+        }
       }
 
       case 'verification': {

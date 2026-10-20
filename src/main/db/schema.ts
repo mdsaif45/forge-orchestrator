@@ -101,8 +101,19 @@ export const decisions = sqliteTable(
     lockedBy: text('locked_by'),
     supersededBy: text('superseded_by'),
     originQuestionId: text('origin_question_id'),
+    /** Scopes a gate decision to a specific workflow definition */
+    workflowId: text('workflow_id').references(() => workflows.id, { onDelete: 'cascade' }),
+    /** Scopes a gate decision to a specific execution run */
+    graphRunId: text('graph_run_id').references(() => graphRuns.id, { onDelete: 'cascade' }),
+    /** Scopes a gate decision to a specific gate node in the graph */
+    nodeId: text('node_id'),
+    /** Explicit gate verdict: 'approved' | 'rejected' */
+    gateVerdict: text('gate_verdict'),
   },
-  (table) => [index('decisions_project_status').on(table.projectId, table.status)],
+  (table) => [
+    index('decisions_project_status').on(table.projectId, table.status),
+    index('decisions_gate_scope').on(table.graphRunId, table.nodeId),
+  ],
 )
 
 export const openQuestions = sqliteTable(
@@ -199,6 +210,7 @@ export const graphRuns = sqliteTable(
   'graph_runs',
   {
     id: text('id').primaryKey(),
+    projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
     workflowId: text('workflow_id')
       .notNull()
       .references(() => workflows.id, { onDelete: 'cascade' }),
@@ -211,6 +223,7 @@ export const graphRuns = sqliteTable(
     error: text('error'),
   },
   (table) => [
+    index('graph_runs_project').on(table.projectId),
     index('graph_runs_workflow').on(table.workflowId),
     index('graph_runs_status').on(table.status),
   ],

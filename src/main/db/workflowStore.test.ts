@@ -527,6 +527,9 @@ describe('replay', () => {
       const retrieved = store.getGraphRun(graphRunId)
       expect(retrieved).toEqual(created)
 
+      expect(store.projectIdOfGraphRun(graphRunId)).toBe(projectId)
+      expect(() => store.projectIdOfGraphRun(randomUUID())).toThrow(/not found/)
+
       expect(store.getGraphRun(randomUUID())).toBeNull()
     })
 

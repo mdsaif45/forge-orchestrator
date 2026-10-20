@@ -6,6 +6,7 @@ import {
   evaluateCondition,
   getLoopBody,
   getReadyNodes,
+  reviewOutcomeSchema,
   runIdSchema,
   stepIdSchema,
   validateWorkflowGraph,
@@ -576,8 +577,74 @@ export class GraphExecutor {
         } else {
           const feedbackEdge = template.edges.find((e) => e.source === node.id && e.isFeedback)
           if (feedbackEdge) {
-            triggeredFeedbackEdge = feedbackEdge
+            if (feedbackEdge.condition) {
+              const lineage = currentLineage.get(completedNodeId)
+              const attemptArtifacts = lineage?.artifacts ?? []
+
+              const reviewArtifact = attemptArtifacts.find(
+                (a) => a.kind === 'review_report' || a.metadata.outputName === 'review_verdict',
+              )
+
+              if (node.config.role === 'reviewer' || reviewArtifact) {
+                if (!reviewArtifact) {
+                  loopState.runError = `Recovery failed: completed reviewer node "${node.id}" has no review_verdict artifact`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                let parsedOutcome: unknown
+                try {
+                  parsedOutcome = JSON.parse(reviewArtifact.content)
+                } catch {
+                  loopState.runError = `Recovery failed: review_verdict artifact for node "${node.id}" contains malformed JSON`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                const outcomeResult = reviewOutcomeSchema.safeParse(parsedOutcome)
+                if (!outcomeResult.success) {
+                  loopState.runError = `Recovery failed: review_verdict artifact for node "${node.id}" violates ReviewOutcome schema: ${outcomeResult.error.message}`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                if (outcomeResult.data.verdict === 'unknown') {
+                  loopState.runError = `Recovery failed: review verdict for node "${node.id}" is UNKNOWN`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                if (
+                  outcomeResult.data.iteration !== undefined &&
+                  outcomeResult.data.iteration !== currentIteration
+                ) {
+                  loopState.runError = `Recovery failed: review artifact iteration (${String(outcomeResult.data.iteration)}) does not match current iteration (${String(currentIteration)})`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+              }
+
+              if (loopState.runError) {
+                break
+              }
+
+              const matched = evaluateCondition(feedbackEdge.condition, {
+                inputArtifacts: [...allArtifacts, ...attemptArtifacts],
+                initialContext,
+                iteration: currentIteration,
+              })
+
+              if (matched) {
+                triggeredFeedbackEdge = feedbackEdge
+              }
+            } else {
+              triggeredFeedbackEdge = feedbackEdge
+            }
           }
+        }
+
+        if (loopState.runError) {
+          break
         }
 
         if (triggeredFeedbackEdge) {
@@ -626,6 +693,23 @@ export class GraphExecutor {
               actor,
             })
             break
+          } else {
+            // Window 3: transition row is already committed in database!
+            // Replay idempotently without duplicate transition or double iteration increment.
+            const targetNodeId = existingTransition.targetNodeId
+            const loopBody = getLoopBody(template.nodes, template.edges, node.id, targetNodeId)
+            for (const nid of loopBody) {
+              completedNodeIds.delete(nid)
+              skippedNodeIds.delete(nid)
+              blockedNodeIds.delete(nid)
+              failedNodeIds.delete(nid)
+              for (const edge of template.edges) {
+                if (edge.source === nid) {
+                  deactivatedForwardEdgeIds.delete(edge.id)
+                }
+              }
+            }
+            break
           }
         }
       }
@@ -640,6 +724,7 @@ export class GraphExecutor {
         cancelledNodeIds.size <
         template.nodes.length &&
       !loopState.isHalted &&
+      !loopState.runError &&
       !abortSignal.aborted &&
       cancelledNodeIds.size === 0
     ) {
@@ -1392,7 +1477,7 @@ export class GraphExecutor {
               if (outgoingFeedback) {
                 const matched = outgoingFeedback.condition
                   ? evaluateCondition(outgoingFeedback.condition, {
-                      inputArtifacts,
+                      inputArtifacts: [...inputArtifacts, ...artifactsForNode],
                       incomingSlots,
                       initialContext,
                       iteration: currentIteration,
@@ -2546,6 +2631,32 @@ export class GraphExecutor {
             const lineage = currentLineage.get(edge.source)
             const sourceArtifacts = lineage?.artifacts ?? []
             const sourceNode = templateNodes.find((n) => n.id === edge.source)
+
+            // Stage deliverable resolution for compiled linear workflows:
+            // Input slots typed as 'stage_deliverable' take the deliverable produced by the upstream step.
+            if (slot.kind === 'stage_deliverable') {
+              if (sourceArtifacts.length === 1) {
+                const match = sourceArtifacts[0]
+                if (match) {
+                  slotMap.set(slot.name, match)
+                  if (!artifacts.some((a) => a.id === match.id)) {
+                    artifacts.push(match)
+                  }
+                  break
+                }
+              } else if (sourceArtifacts.length > 1) {
+                const declaredMatch = sourceArtifacts.find((a) =>
+                  sourceNode?.outputs.some((o) => this.matchesArtifactName(a, o.name)),
+                )
+                if (declaredMatch) {
+                  slotMap.set(slot.name, declaredMatch)
+                  if (!artifacts.some((a) => a.id === declaredMatch.id)) {
+                    artifacts.push(declaredMatch)
+                  }
+                  break
+                }
+              }
+            }
 
             // Identity match: exact name and kind match
             const identityMatches = sourceArtifacts.filter(

@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import { verdictSchema, type Verdict } from './enums'
+import { verdictSchema } from './enums'
 import { changeSetIdSchema, repoPathSchema, stepIdSchema, timestampSchema } from './ids'
-import type { CriterionResult } from './completion'
+import type { CriterionResult } from './criterion'
 
 /**
  * The reviewer's output, and the rule that Forge — not the reviewer — decides.
@@ -87,18 +87,28 @@ export const reviewReportSchema = z
 export type ReviewReport = z.infer<typeof reviewReportSchema>
 
 /** What Forge concluded, and whether it had to disagree with the reviewer. */
-export interface ReviewOutcome {
+export const reviewOutcomeSchema = z.strictObject({
   /** The verdict of record. */
-  readonly verdict: Verdict
+  verdict: verdictSchema,
   /** True when Forge overrode a reviewer's PASS. */
-  readonly overridden: boolean
+  overridden: z.boolean(),
   /** Why this verdict, for the workflow log. */
-  readonly reason: string
+  reason: z.string().min(1),
   /** Findings that must be fixed, ordered most severe first. */
-  readonly rejectingFindings: readonly Finding[]
+  rejectingFindings: z.array(findingSchema).readonly(),
   /** Instructions for the correcting agent. Empty on a pass. */
-  readonly corrections: readonly string[]
-}
+  corrections: z.array(z.string()).readonly(),
+  /** Authoritative changeset reviewed. */
+  changeSetId: changeSetIdSchema.optional(),
+  /** Step / node that performed the review. */
+  stepId: stepIdSchema.optional(),
+  /** Graph run iteration. */
+  iteration: z.number().int().positive().optional(),
+  /** Evidence artifact ID evaluated during verification. */
+  evidenceId: z.string().nullable().optional(),
+})
+
+export type ReviewOutcome = z.infer<typeof reviewOutcomeSchema>
 
 /**
  * Decides the verdict of record for a review.
@@ -149,6 +159,21 @@ export function assessReview(
     }
   }
 
+  // A reviewer claiming PASS with zero verified criteria is NOT an approval (A3).
+  // An empty criteria list must never authorize workflow completion on reviewer opinion alone.
+  if (report.claimedVerdict === 'pass' && criteria.length === 0) {
+    return {
+      verdict: 'unknown',
+      overridden: true,
+      reason:
+        'The reviewer passed the change, but zero completion criteria were verified. Forge records UNKNOWN — approval requires at least one verified criterion.',
+      rejectingFindings,
+      corrections: [
+        'No completion criteria were verified. Ensure verification has run and produced criteria results before review approval.',
+      ],
+    }
+  }
+
   // A reviewer that passed while filing a blocker has contradicted itself. Believed on
   // the pessimistic reading: the finding is concrete and the verdict is a summary.
   if (report.claimedVerdict === 'pass' && rejectingFindings.length > 0) {
@@ -187,10 +212,7 @@ export function assessReview(
   return {
     verdict: 'pass',
     overridden: false,
-    reason:
-      criteria.length === 0
-        ? `The reviewer passed the change: ${report.summary}`
-        : `The reviewer passed the change and all ${String(criteria.length)} completion criteria are met`,
+    reason: `The reviewer passed the change and all ${String(criteria.length)} completion criteria are met`,
     rejectingFindings: [],
     corrections: [],
   }

@@ -171,6 +171,7 @@ export {
   correctionConstraints,
   findingSchema,
   findingSeveritySchema,
+  reviewOutcomeSchema,
   reviewReportSchema,
   type Finding,
   type FindingSeverity,

@@ -1,20 +1,25 @@
 import { randomUUID } from 'node:crypto'
 import {
   artifactIdSchema,
+  assessReview,
   assessStepPolicy,
+  changeSetIdSchema,
   effectivePermissionsForRole,
   formatPolicyHaltReason,
   permissionForRole,
   repositoryIdSchema,
+  reviewOutcomeSchema,
   stepIdSchema,
   validateBindingPermissions,
   type Actor,
   type AgentReport,
   type ChangeSet,
+  type CriterionResult,
   type EvidenceArtifact,
   type OutputDefinition,
   type PromptPacket,
   type Repository,
+  type ReviewReport,
   type Role,
   type RuntimeEvent,
   type StepId,
@@ -560,14 +565,207 @@ export class LeafRunner {
       changeSet = built.changeSet
     }
 
+    if (
+      role === 'reviewer' &&
+      (ctx.node.outputs.some((o) => o.kind === 'review_report' || o.name === 'review_verdict') ||
+        ctx.node.outputs.length > 0)
+    ) {
+      return this.executeReviewerNode(ctx, runtimeId, report)
+    }
+
     // Materialize declared output artifacts in-memory
-    const artifacts = this.buildAgentArtifacts(ctx, report)
+    const artifacts = this.buildAgentArtifacts(ctx, report, changeSet)
 
     return {
       status: 'completed',
       runtimeId,
       changeSet,
       artifacts,
+    }
+  }
+
+  private executeReviewerNode(
+    ctx: NodeExecutionContext,
+    runtimeId: string,
+    report: AgentReport,
+  ): NodeExecutionResult {
+    // 1. Locate preceding verification evidence
+    let verificationArtifact = Array.from(ctx.incomingSlots.values()).find(
+      (a) =>
+        a.kind === 'evidence' ||
+        a.kind === 'stage-output' ||
+        a.kind === 'verification_report' ||
+        a.metadata.outputName === 'verification_report' ||
+        (typeof a.title === 'string' && a.title.toLowerCase().includes('verification')),
+    )
+    verificationArtifact ??= ctx.inputArtifacts.find(
+      (a) =>
+        a.kind === 'evidence' ||
+        a.kind === 'stage-output' ||
+        a.kind === 'verification_report' ||
+        a.metadata.outputName === 'verification_report' ||
+        (typeof a.title === 'string' && a.title.toLowerCase().includes('verification')),
+    )
+
+    if (!verificationArtifact) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error: 'Reviewer node requires verification evidence from preceding verification step',
+      }
+    }
+
+    // 2. Extract criteria results from verification evidence
+    let criteria: readonly CriterionResult[] | undefined
+    if (Array.isArray(verificationArtifact.metadata.criteria)) {
+      criteria = verificationArtifact.metadata.criteria as readonly CriterionResult[]
+    } else {
+      try {
+        const parsed: unknown = JSON.parse(verificationArtifact.content)
+        if (
+          parsed &&
+          typeof parsed === 'object' &&
+          'criteria' in parsed &&
+          Array.isArray(parsed.criteria)
+        ) {
+          criteria = parsed.criteria as readonly CriterionResult[]
+        }
+      } catch {
+        // Content is not JSON
+      }
+    }
+
+    if (!criteria || !Array.isArray(criteria)) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error: 'Verification evidence is missing valid criteria results',
+      }
+    }
+
+    // Zero-criteria fail-closed invariant
+    if (criteria.length === 0) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error:
+          'Verification evidence has zero criteria results. Cannot perform review without verified completion criteria.',
+      }
+    }
+
+    // 3. Lineage validation: identify authoritative implementation changeset
+    const changesetArtifact = ctx.inputArtifacts.find(
+      (a) => a.kind === 'changeset' || a.metadata.outputName === 'changeset',
+    )
+    const authoritativeChangeSetId =
+      (changesetArtifact?.metadata.changeSetId as string | undefined) ??
+      changesetArtifact?.id ??
+      ctx.initialContext?.changeSetId
+
+    if (!authoritativeChangeSetId) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error: 'Reviewer node requires an implementation changeset',
+      }
+    }
+
+    const verificationCsId = verificationArtifact.metadata.changeSetId as string | undefined
+    if (verificationCsId && verificationCsId !== authoritativeChangeSetId) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error: `Lineage rejection: verification evidence (${verificationCsId}) does not match implementation changeset (${authoritativeChangeSetId})`,
+      }
+    }
+
+    if (
+      verificationArtifact.metadata.iteration !== undefined &&
+      ctx.iteration !== undefined &&
+      verificationArtifact.metadata.iteration !== ctx.iteration
+    ) {
+      const iterStr =
+        typeof verificationArtifact.metadata.iteration === 'number' ||
+        typeof verificationArtifact.metadata.iteration === 'string'
+          ? String(verificationArtifact.metadata.iteration)
+          : 'unknown'
+      return {
+        status: 'failed',
+        runtimeId,
+        error: `Lineage rejection: verification evidence iteration (${iterStr}) does not match current iteration (${String(ctx.iteration)})`,
+      }
+    }
+
+    // 4. Construct trusted ReviewReport
+    const validStepId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      ctx.node.id,
+    )
+      ? (ctx.node.id as StepId)
+      : stepIdSchema.parse(randomUUID())
+
+    const reviewReport: ReviewReport = {
+      changeSetId: changeSetIdSchema.parse(authoritativeChangeSetId),
+      stepId: validStepId,
+      claimedVerdict: report.claimedVerdict ?? 'unknown',
+      findings: report.findings ?? [],
+      summary: report.summary,
+      reviewedAt: new Date().toISOString(),
+    }
+
+    // 5. Authoritative assessReview computation
+    const outcome = assessReview(reviewReport, criteria)
+    reviewOutcomeSchema.parse(outcome)
+
+    // Fail-closed if verdict could not be verified
+    if (outcome.verdict === 'unknown') {
+      return {
+        status: 'failed',
+        runtimeId,
+        error: `Review outcome is UNKNOWN: ${outcome.reason}`,
+      }
+    }
+
+    // 6. Emit exact review_verdict deliverable
+    const now = new Date().toISOString()
+    const reviewArtifact: WorkflowArtifact = {
+      id: randomUUID(),
+      workflowId: ctx.workflowId,
+      nodeId: ctx.node.id,
+      kind: 'review_report',
+      format: 'json',
+      title: `${ctx.node.title} - review_verdict`,
+      content: JSON.stringify(
+        {
+          verdict: outcome.verdict,
+          overridden: outcome.overridden,
+          reason: outcome.reason,
+          rejectingFindings: outcome.rejectingFindings,
+          corrections: outcome.corrections,
+          changeSetId: authoritativeChangeSetId,
+          stepId: validStepId,
+          iteration: ctx.iteration ?? 1,
+          evidenceId: (verificationArtifact.metadata.evidenceId as string | undefined) ?? null,
+        },
+        null,
+        2,
+      ),
+      metadata: {
+        outputName: 'review_verdict',
+        verdict: outcome.verdict,
+        overridden: outcome.overridden,
+        reason: outcome.reason,
+        changeSetId: authoritativeChangeSetId,
+        stepId: validStepId,
+        iteration: ctx.iteration ?? 1,
+        evidenceId: verificationArtifact.metadata.evidenceId ?? null,
+      },
+      createdAt: now,
+    }
+
+    return {
+      status: 'completed',
+      runtimeId,
+      artifacts: [reviewArtifact],
     }
   }
 
@@ -607,7 +805,11 @@ export class LeafRunner {
     }
   }
 
-  private buildAgentArtifacts(ctx: NodeExecutionContext, report: AgentReport): WorkflowArtifact[] {
+  private buildAgentArtifacts(
+    ctx: NodeExecutionContext,
+    report: AgentReport,
+    changeSet?: ChangeSet,
+  ): WorkflowArtifact[] {
     const artifacts: WorkflowArtifact[] = []
     const now = new Date().toISOString()
 
@@ -630,6 +832,7 @@ export class LeafRunner {
           filesChanged: report.filesChanged,
           commandsRun: report.commandsRun,
           testsRun: report.testsRun,
+          ...(changeSet?.id ? { changeSetId: changeSet.id } : {}),
         },
         createdAt: now,
       })
@@ -699,6 +902,14 @@ export class LeafRunner {
     const now = new Date().toISOString()
     const artifacts: WorkflowArtifact[] = []
 
+    const changesetArtifact = ctx.inputArtifacts.find(
+      (a) => a.kind === 'changeset' || a.metadata.outputName === 'changeset',
+    )
+    const changeSetId =
+      (changesetArtifact?.metadata.changeSetId as string | undefined) ??
+      changesetArtifact?.id ??
+      null
+
     // Separate declared outputs into evidence deliverables vs. explicit verdict outputs
     const evidenceOutputs = ctx.node.outputs.filter((o) => !isExplicitVerdictOutput(o))
     const verdictOutputs = ctx.node.outputs.filter((o) => isExplicitVerdictOutput(o))
@@ -736,7 +947,27 @@ export class LeafRunner {
         kind,
         format: declaredOutput?.format === 'json' ? 'json' : 'text',
         title,
-        content: `[Command: ${ea.command}]\n[ExitCode: ${String(ea.exitCode)}]\n${ea.stdout}\n${ea.stderr}`,
+        content:
+          declaredOutput?.format === 'json'
+            ? JSON.stringify(
+                {
+                  evidenceId: ea.id,
+                  command: ea.command,
+                  outcome: ea.outcome,
+                  exitCode: ea.exitCode,
+                  durationMs: ea.durationMs,
+                  counts: ea.counts,
+                  stdout: ea.stdout,
+                  stderr: ea.stderr,
+                  criteria: result.criteria,
+                  passed: result.passed,
+                  verdict: result.verdict,
+                  changeSetId,
+                },
+                null,
+                2,
+              )
+            : `[Command: ${ea.command}]\n[ExitCode: ${String(ea.exitCode)}]\n${ea.stdout}\n${ea.stderr}`,
         metadata: {
           evidenceId: ea.id,
           command: ea.command,
@@ -745,6 +976,11 @@ export class LeafRunner {
           durationMs: ea.durationMs,
           counts: ea.counts,
           evidenceKind: ea.kind,
+          criteria: result.criteria,
+          passed: result.passed,
+          verdict: result.verdict,
+          iteration: ctx.iteration ?? 1,
+          ...(changeSetId ? { changeSetId } : {}),
           ...(declaredOutput ? { outputName: declaredOutput.name } : {}),
         },
         createdAt: now,
@@ -762,6 +998,8 @@ export class LeafRunner {
                 detail: result.detail,
                 findings: result.findings,
                 falseClaims: result.falseClaims,
+                criteria: result.criteria,
+                changeSetId,
               },
               null,
               2,
@@ -784,6 +1022,9 @@ export class LeafRunner {
           verdict: result.verdict,
           detail: result.detail,
           findings: result.findings,
+          criteria: result.criteria,
+          iteration: ctx.iteration ?? 1,
+          ...(changeSetId ? { changeSetId } : {}),
         },
         createdAt: now,
       })

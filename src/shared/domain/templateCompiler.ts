@@ -161,12 +161,23 @@ export function compileLinearTemplateToGraph(
 
   // If the template has both an implementer and a reviewer (e.g. FEATURE_IMPLEMENTATION or BUG_FIX),
   // synthesize a declared feedback edge from reviewer back to implementer for the bounded correction loop (WORK-003).
+  // The feedback edge is conditionally taken only when the authoritative review verdict is 'fail'.
   if (implementerNodeId !== null && reviewerNodeId !== null) {
     edges.push({
       id: `edge-feedback-${reviewerNodeId}-to-${implementerNodeId}`,
       source: reviewerNodeId,
       target: implementerNodeId,
       isFeedback: true,
+      condition: {
+        mode: 'all',
+        predicates: [
+          {
+            ref: 'artifacts.review_report.verdict',
+            operator: 'eq',
+            value: 'fail',
+          },
+        ],
+      },
     })
   }
 

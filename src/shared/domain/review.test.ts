@@ -11,7 +11,13 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { assessReview, correctionConstraints, reviewReportSchema, type Finding } from './review'
+import {
+  assessReview,
+  correctionConstraints,
+  reviewOutcomeSchema,
+  reviewReportSchema,
+  type Finding,
+} from './review'
 import type { CriterionResult } from './completion'
 
 const CHANGE_SET_ID = '11111111-1111-4111-8111-111111111111'
@@ -172,11 +178,14 @@ describe('a clean pass', () => {
     expect(outcome.corrections).toEqual([])
   })
 
-  it('passes with no criteria supplied, and says so rather than implying they were met', () => {
+  it('records UNKNOWN, not PASS, when no completion criteria are supplied', () => {
     const outcome = assessReview(review(), [])
 
-    expect(outcome.verdict).toBe('pass')
-    expect(outcome.reason).not.toContain('criteria are met')
+    // A claimed pass with zero criteria must never authorize completion (A3).
+    expect(outcome.verdict).toBe('unknown')
+    expect(outcome.overridden).toBe(true)
+    expect(outcome.reason).toContain('zero completion criteria were verified')
+    expect(() => reviewOutcomeSchema.parse(outcome)).not.toThrow()
   })
 })
 

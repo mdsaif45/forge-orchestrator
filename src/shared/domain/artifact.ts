@@ -19,6 +19,11 @@ export const artifactKindSchema = z.enum([
   'agent-raw',
   'stage-output',
   'custom',
+  'plan',
+  'approval',
+  'changeset',
+  'evidence',
+  'review_report',
 ])
 
 export type ArtifactKind = z.infer<typeof artifactKindSchema>

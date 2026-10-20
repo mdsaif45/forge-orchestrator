@@ -2,8 +2,10 @@ import { randomUUID } from 'node:crypto'
 import {
   artifactIdSchema,
   artifactKindSchema,
+  authoritativeReviewVerdictSchema,
   changeSetIdSchema,
   evaluateCondition,
+  evidenceIdSchema,
   getLoopBody,
   getReadyNodes,
   runIdSchema,
@@ -64,6 +66,7 @@ export interface NodeExecutionContext {
   readonly repository?: Repository | undefined
   readonly node: WorkflowNode
   readonly attempt: number
+  readonly attemptId?: string | undefined
   readonly runtimeId?: string | undefined
   readonly bindings?: BindingSet | undefined
   readonly worktreePath?: string | undefined
@@ -576,8 +579,318 @@ export class GraphExecutor {
         } else {
           const feedbackEdge = template.edges.find((e) => e.source === node.id && e.isFeedback)
           if (feedbackEdge) {
-            triggeredFeedbackEdge = feedbackEdge
+            if (feedbackEdge.condition) {
+              const lineage = currentLineage.get(completedNodeId)
+              const attemptArtifacts = lineage?.artifacts ?? []
+
+              const candidateReviewArtifacts = attemptArtifacts.filter(
+                (a) => a.kind === 'review_report' || a.metadata.outputName === 'review_verdict',
+              )
+
+              if (node.config.role === 'reviewer' || candidateReviewArtifacts.length > 0) {
+                if (candidateReviewArtifacts.length === 0) {
+                  loopState.runError = `Recovery failed: completed reviewer node "${node.id}" has no review_verdict artifact`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                // If multiple candidates exist, prioritize the one matching latestAttempt.id
+                let reviewArtifact = candidateReviewArtifacts.find(
+                  (a) => a.metadata.stepId === latestAttempt.id,
+                )
+                if (!reviewArtifact && candidateReviewArtifacts.length === 1) {
+                  reviewArtifact = candidateReviewArtifacts[0]
+                }
+                if (!reviewArtifact) {
+                  for (const candidate of candidateReviewArtifacts) {
+                    try {
+                      const parsed: unknown = JSON.parse(candidate.content)
+                      if (
+                        parsed &&
+                        typeof parsed === 'object' &&
+                        'stepId' in parsed &&
+                        (parsed as { stepId?: unknown }).stepId === latestAttempt.id
+                      ) {
+                        reviewArtifact = candidate
+                        break
+                      }
+                    } catch {
+                      // ignore parse errors during candidate matching
+                    }
+                  }
+                }
+
+                if (!reviewArtifact) {
+                  loopState.runError = `Recovery failed: review artifact for node "${node.id}" does not match completed reviewer attempt (${latestAttempt.id})`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                let parsedOutcome: unknown
+                try {
+                  parsedOutcome = JSON.parse(reviewArtifact.content)
+                } catch {
+                  loopState.runError = `Recovery failed: review_verdict artifact for node "${node.id}" contains malformed JSON`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                // Strictly validate against authoritativeReviewVerdictSchema
+                const outcomeResult = authoritativeReviewVerdictSchema.safeParse(parsedOutcome)
+                if (!outcomeResult.success) {
+                  loopState.runError = `Recovery failed: review_verdict artifact for node "${node.id}" violates authoritative verdict contract: ${outcomeResult.error.message}`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                // Invariant: review artifact stepId must match completed reviewer attempt
+                if (outcomeResult.data.stepId !== latestAttempt.id) {
+                  loopState.runError = `Recovery failed: review artifact stepId (${outcomeResult.data.stepId}) does not match completed reviewer attempt (${latestAttempt.id})`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                // Invariant: review artifact iteration must match current iteration
+                if (outcomeResult.data.iteration !== currentIteration) {
+                  loopState.runError = `Recovery failed: review artifact iteration (${String(outcomeResult.data.iteration)}) does not match current iteration (${String(currentIteration)})`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                // Invariant: validate lineage against preceding verification evidence
+                const incomingVerificationEdges = template.edges.filter(
+                  (e) => e.target === node.id && !e.isFeedback,
+                )
+                if (incomingVerificationEdges.length === 0) {
+                  loopState.runError = `Recovery failed: completed reviewer node "${node.id}" has no incoming verification edge`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+                if (incomingVerificationEdges.length > 1) {
+                  loopState.runError = `Recovery failed: ambiguous incoming edges to reviewer node "${node.id}": multiple non-feedback edges found`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                const incomingVerificationEdge = incomingVerificationEdges[0]
+                if (!incomingVerificationEdge) {
+                  loopState.runError = `Recovery failed: completed reviewer node "${node.id}" has no incoming verification edge`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+                const verifLineage = currentLineage.get(incomingVerificationEdge.source)
+                const verifArtifacts = verifLineage?.artifacts ?? []
+
+                if (verifArtifacts.length === 0) {
+                  loopState.runError = `Recovery failed: completed reviewer node "${node.id}" has no preceding verification artifacts from node "${incomingVerificationEdge.source}"`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                // Resolve candidate verification artifacts
+                let candidateVerifArtifacts = verifArtifacts.filter(
+                  (a) =>
+                    a.kind === 'evidence' ||
+                    a.kind === 'verification_report' ||
+                    a.metadata.outputName === 'verification_report',
+                )
+
+                // If edge specifies a sourceHandle, use exact match
+                if (incomingVerificationEdge.sourceHandle) {
+                  const handle = incomingVerificationEdge.sourceHandle
+                  candidateVerifArtifacts = candidateVerifArtifacts.filter((a) =>
+                    this.matchesArtifactName(a, handle),
+                  )
+                }
+
+                if (candidateVerifArtifacts.length === 0) {
+                  loopState.runError = `Recovery failed: preceding verification node "${incomingVerificationEdge.source}" produced no compatible verification evidence artifact for current iteration`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                let verifArtifact: WorkflowArtifact | undefined
+                if (candidateVerifArtifacts.length === 1) {
+                  verifArtifact = candidateVerifArtifacts[0]
+                } else {
+                  // If multiple candidates exist, filter for candidates matching current iteration
+                  const currentIterationCandidates = candidateVerifArtifacts.filter(
+                    (a) =>
+                      typeof a.metadata.iteration === 'number' &&
+                      Number.isInteger(a.metadata.iteration) &&
+                      a.metadata.iteration === currentIteration,
+                  )
+
+                  if (currentIterationCandidates.length === 1) {
+                    verifArtifact = currentIterationCandidates[0]
+                  } else if (currentIterationCandidates.length > 1) {
+                    // Check if exactly one is specifically named 'verification_report'
+                    const namedReportCandidates = currentIterationCandidates.filter(
+                      (a) => a.metadata.outputName === 'verification_report',
+                    )
+                    if (namedReportCandidates.length === 1) {
+                      verifArtifact = namedReportCandidates[0]
+                    } else {
+                      // Ambiguous candidate verification artifacts
+                      loopState.runError = `Recovery failed: ambiguous verification evidence from node "${incomingVerificationEdge.source}": multiple candidate artifacts (${String(currentIterationCandidates.length)}) found without a unique identity`
+                      failedNodeIds.add(node.id)
+                      break
+                    }
+                  } else {
+                    // Multiple candidates existed, but none matched current iteration
+                    loopState.runError = `Recovery failed: verification evidence from node "${incomingVerificationEdge.source}" is stale (no artifacts for current iteration ${String(currentIteration)})`
+                    failedNodeIds.add(node.id)
+                    break
+                  }
+                }
+
+                if (!verifArtifact) {
+                  loopState.runError = `Recovery failed: could not resolve authoritative verification artifact from node "${incomingVerificationEdge.source}"`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                // 1. Authoritative changeSetId validation on verification evidence
+                const rawVerifCsId = verifArtifact.metadata.changeSetId
+                if (!rawVerifCsId || typeof rawVerifCsId !== 'string') {
+                  loopState.runError = `Recovery failed: verification artifact "${verifArtifact.id}" is missing authoritative changeSetId metadata`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+                const verifCsResult = changeSetIdSchema.safeParse(rawVerifCsId)
+                if (!verifCsResult.success) {
+                  loopState.runError = `Recovery failed: verification artifact "${verifArtifact.id}" contains malformed changeSetId: ${verifCsResult.error.message}`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+                if (outcomeResult.data.changeSetId !== verifCsResult.data) {
+                  loopState.runError = `Recovery failed: review artifact changeSetId (${outcomeResult.data.changeSetId}) does not match verification evidence changeset (${verifCsResult.data})`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                // 2. Authoritative evidenceId validation on verification evidence
+                let rawVerifEvidenceId =
+                  typeof verifArtifact.metadata.evidenceId === 'string'
+                    ? verifArtifact.metadata.evidenceId
+                    : undefined
+                if (!rawVerifEvidenceId) {
+                  try {
+                    const parsed: unknown = JSON.parse(verifArtifact.content)
+                    if (
+                      parsed &&
+                      typeof parsed === 'object' &&
+                      'evidenceId' in parsed &&
+                      typeof (parsed as Record<string, unknown>).evidenceId === 'string'
+                    ) {
+                      rawVerifEvidenceId = (parsed as Record<string, unknown>).evidenceId as string
+                    }
+                  } catch {
+                    // Content is not JSON
+                  }
+                }
+
+                if (!rawVerifEvidenceId) {
+                  loopState.runError = `Recovery failed: verification artifact "${verifArtifact.id}" is missing authoritative evidenceId`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+                const verifEvidenceResult = evidenceIdSchema.safeParse(rawVerifEvidenceId)
+                if (!verifEvidenceResult.success) {
+                  loopState.runError = `Recovery failed: verification artifact "${verifArtifact.id}" contains malformed evidenceId: ${verifEvidenceResult.error.message}`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+                if (outcomeResult.data.evidenceId !== verifEvidenceResult.data) {
+                  loopState.runError = `Recovery failed: review artifact evidenceId (${outcomeResult.data.evidenceId}) does not match verification evidence (${verifEvidenceResult.data})`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                // 3. Iteration validation on verification evidence
+                const rawVerifIteration = verifArtifact.metadata.iteration
+                if (rawVerifIteration === undefined) {
+                  loopState.runError = `Recovery failed: verification artifact "${verifArtifact.id}" is missing authoritative iteration metadata`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+                if (
+                  rawVerifIteration === null ||
+                  typeof rawVerifIteration !== 'number' ||
+                  Number.isNaN(rawVerifIteration) ||
+                  !Number.isInteger(rawVerifIteration) ||
+                  rawVerifIteration < 1
+                ) {
+                  const staleMsg =
+                    typeof rawVerifIteration === 'number' && rawVerifIteration <= 0
+                      ? ' (is stale or invalid)'
+                      : ''
+                  let printedIter: string
+                  if (
+                    typeof rawVerifIteration === 'string' ||
+                    typeof rawVerifIteration === 'number' ||
+                    typeof rawVerifIteration === 'boolean'
+                  ) {
+                    printedIter = String(rawVerifIteration)
+                  } else {
+                    try {
+                      printedIter = JSON.stringify(rawVerifIteration)
+                    } catch {
+                      printedIter = 'unserializable'
+                    }
+                  }
+                  loopState.runError = `Recovery failed: verification artifact "${verifArtifact.id}" contains invalid iteration metadata (${printedIter}): must be a positive integer${staleMsg}`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+                if (rawVerifIteration !== currentIteration) {
+                  const staleMsg =
+                    rawVerifIteration < currentIteration
+                      ? ` (${String(rawVerifIteration)}) is stale and`
+                      : ` (${String(rawVerifIteration)})`
+                  loopState.runError = `Recovery failed: verification artifact iteration${staleMsg} does not match current iteration (${String(currentIteration)})`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                if (outcomeResult.data.verdict === 'unknown') {
+                  loopState.runError = `Recovery failed: review verdict for node "${node.id}" is UNKNOWN`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                const matched = evaluateCondition(feedbackEdge.condition, {
+                  incomingSlots: new Map([
+                    ['review_report', reviewArtifact],
+                    ['review_verdict', reviewArtifact],
+                  ]),
+                  inputArtifacts: [reviewArtifact, ...attemptArtifacts],
+                  initialContext,
+                  iteration: currentIteration,
+                })
+
+                if (matched) {
+                  triggeredFeedbackEdge = feedbackEdge
+                }
+              } else {
+                const matched = evaluateCondition(feedbackEdge.condition, {
+                  inputArtifacts: [...allArtifacts, ...attemptArtifacts],
+                  initialContext,
+                  iteration: currentIteration,
+                })
+
+                if (matched) {
+                  triggeredFeedbackEdge = feedbackEdge
+                }
+              }
+            } else {
+              triggeredFeedbackEdge = feedbackEdge
+            }
           }
+        }
+
+        if (loopState.runError) {
+          break
         }
 
         if (triggeredFeedbackEdge) {
@@ -626,6 +939,23 @@ export class GraphExecutor {
               actor,
             })
             break
+          } else {
+            // Window 3: transition row is already committed in database!
+            // Replay idempotently without duplicate transition or double iteration increment.
+            const targetNodeId = existingTransition.targetNodeId
+            const loopBody = getLoopBody(template.nodes, template.edges, node.id, targetNodeId)
+            for (const nid of loopBody) {
+              completedNodeIds.delete(nid)
+              skippedNodeIds.delete(nid)
+              blockedNodeIds.delete(nid)
+              failedNodeIds.delete(nid)
+              for (const edge of template.edges) {
+                if (edge.source === nid) {
+                  deactivatedForwardEdgeIds.delete(edge.id)
+                }
+              }
+            }
+            break
           }
         }
       }
@@ -640,6 +970,7 @@ export class GraphExecutor {
         cancelledNodeIds.size <
         template.nodes.length &&
       !loopState.isHalted &&
+      !loopState.runError &&
       !abortSignal.aborted &&
       cancelledNodeIds.size === 0
     ) {
@@ -977,12 +1308,12 @@ export class GraphExecutor {
 
         try {
           // Determine if this node needs an isolated branch worktree
-          const isReadOnly = node.type === 'router' || node.config.permissionMode === 'read-only'
+          const isReadOnly =
+            node.type === 'router' ||
+            (node.type !== 'verification' && node.config.permissionMode === 'read-only')
           const needsWorktree =
-            !isReadOnly &&
-            (node.config.permissionMode === 'developer' ||
-              node.type === 'agent' ||
-              node.type === 'verification')
+            node.type === 'verification' ||
+            (!isReadOnly && (node.config.permissionMode === 'developer' || node.type === 'agent'))
 
           if (needsWorktree) {
             branchWorktree = await this.worktreeService.prepareBranch(workflowId, node.id, forkSha)
@@ -1119,6 +1450,7 @@ export class GraphExecutor {
             repository: resolvedRepository,
             node,
             attempt: attemptNum,
+            attemptId: currentAttemptId,
             runtimeId: resolvedRuntimeId ?? undefined,
             bindings: options.bindings,
             worktreePath: branchWorktree?.path,
@@ -1390,10 +1722,18 @@ export class GraphExecutor {
                 (e) => e.source === node.id && e.isFeedback,
               )
               if (outgoingFeedback) {
+                const feedbackSlots = new Map(incomingSlots)
+                const currentReviewArtifact = artifactsForNode.find(
+                  (a) => a.kind === 'review_report' || a.metadata.outputName === 'review_verdict',
+                )
+                if (currentReviewArtifact) {
+                  feedbackSlots.set('review_report', currentReviewArtifact)
+                  feedbackSlots.set('review_verdict', currentReviewArtifact)
+                }
                 const matched = outgoingFeedback.condition
                   ? evaluateCondition(outgoingFeedback.condition, {
-                      inputArtifacts,
-                      incomingSlots,
+                      inputArtifacts: [...artifactsForNode, ...inputArtifacts],
+                      incomingSlots: feedbackSlots,
                       initialContext,
                       iteration: currentIteration,
                     })
@@ -2546,6 +2886,32 @@ export class GraphExecutor {
             const lineage = currentLineage.get(edge.source)
             const sourceArtifacts = lineage?.artifacts ?? []
             const sourceNode = templateNodes.find((n) => n.id === edge.source)
+
+            // Stage deliverable resolution for compiled linear workflows:
+            // Input slots typed as 'stage_deliverable' take the deliverable produced by the upstream step.
+            if (slot.kind === 'stage_deliverable') {
+              if (sourceArtifacts.length === 1) {
+                const match = sourceArtifacts[0]
+                if (match) {
+                  slotMap.set(slot.name, match)
+                  if (!artifacts.some((a) => a.id === match.id)) {
+                    artifacts.push(match)
+                  }
+                  break
+                }
+              } else if (sourceArtifacts.length > 1) {
+                const declaredMatch = sourceArtifacts.find((a) =>
+                  sourceNode?.outputs.some((o) => this.matchesArtifactName(a, o.name)),
+                )
+                if (declaredMatch) {
+                  slotMap.set(slot.name, declaredMatch)
+                  if (!artifacts.some((a) => a.id === declaredMatch.id)) {
+                    artifacts.push(declaredMatch)
+                  }
+                  break
+                }
+              }
+            }
 
             // Identity match: exact name and kind match
             const identityMatches = sourceArtifacts.filter(

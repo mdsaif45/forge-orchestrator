@@ -426,6 +426,11 @@ export const artifactKindViewSchema = z.enum([
   'agent-raw',
   'stage-output',
   'custom',
+  'plan',
+  'approval',
+  'changeset',
+  'evidence',
+  'review_report',
 ])
 
 export const artifactMetadataViewSchema = z.strictObject({

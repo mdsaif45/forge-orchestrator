@@ -5447,4 +5447,462 @@ describe('PR #228 Final Recovery Lineage Integrity Correction', () => {
     const storedRun = workflowStore.getGraphRun(graphRunId)
     expect(storedRun?.iteration).toBe(1)
   })
+
+  it('11. Recovery: verification artifact missing iteration metadata on iteration 1 fails closed', async () => {
+    const csId = randomUUID()
+    const evId = randomUUID()
+    const compiledTemplate = compileLinearTemplateToGraph(FEATURE_IMPLEMENTATION)
+    const graphRunId = randomUUID()
+    workflowStore.startGraphRun(
+      { graphRunId, workflowId, projectId, templateId: compiledTemplate.id, startedAt: NOW },
+      'system',
+    )
+    createRunRecord(graphRunId)
+
+    recordCompletedAttempt(graphRunId, 'step-1-planner')
+    recordCompletedAttempt(graphRunId, 'step-2-user')
+    recordCompletedAttempt(graphRunId, 'step-3-implementer')
+    const verifAttemptId = recordCompletedAttempt(graphRunId, 'step-4-system')
+
+    // Verification artifact on iteration 1 with missing iteration metadata
+    await persistWorkflowArtifact(graphRunId, verifAttemptId, {
+      id: randomUUID(),
+      workflowId,
+      nodeId: 'step-4-system',
+      kind: 'evidence',
+      format: 'json',
+      title: 'step-4-system-verification_report',
+      content: JSON.stringify({ passed: true, verdict: 'pass', evidenceId: evId }),
+      metadata: {
+        outputName: 'verification_report',
+        changeSetId: csId,
+        evidenceId: evId,
+        // iteration explicitly omitted!
+      },
+      createdAt: NOW,
+    })
+
+    const reviewerAttemptId = recordCompletedAttempt(graphRunId, 'step-5-reviewer')
+    const passPayload = {
+      verdict: 'pass',
+      overridden: false,
+      reason: 'Claims pass',
+      rejectingFindings: [],
+      corrections: [],
+      changeSetId: csId,
+      stepId: reviewerAttemptId,
+      iteration: 1,
+      evidenceId: evId,
+    }
+
+    await persistWorkflowArtifact(graphRunId, reviewerAttemptId, {
+      id: randomUUID(),
+      workflowId,
+      nodeId: 'step-5-reviewer',
+      kind: 'review_report',
+      format: 'json',
+      title: 'step-5-reviewer-review_verdict',
+      content: JSON.stringify(passPayload),
+      metadata: {
+        outputName: 'review_verdict',
+        stepId: reviewerAttemptId,
+        changeSetId: csId,
+        iteration: 1,
+        evidenceId: evId,
+        verdict: 'pass',
+      },
+      createdAt: NOW,
+    })
+
+    const executor = new GraphExecutor({
+      workflowStore,
+      artifactService,
+      worktreeService,
+      executeLeafNode: vi.fn(),
+    })
+
+    const run = await executor.run({
+      graphRunId,
+      workflowId,
+      projectId,
+      template: compiledTemplate,
+      forkSha,
+      initialContext: { task_objective: 'Missing iteration on iteration 1' },
+    })
+
+    expect(run.status).toBe('failed')
+    expect(run.error).toContain('is missing authoritative iteration metadata')
+  })
+
+  it('12. Recovery: verification artifact missing iteration metadata on iteration 2 or later fails closed', async () => {
+    const csId = randomUUID()
+    const evId = randomUUID()
+    const compiledTemplate = compileLinearTemplateToGraph(FEATURE_IMPLEMENTATION)
+    const graphRunId = randomUUID()
+    workflowStore.startGraphRun(
+      { graphRunId, workflowId, projectId, templateId: compiledTemplate.id, startedAt: NOW },
+      'system',
+    )
+    createRunRecord(graphRunId)
+
+    // Set graph run to iteration 2
+    db.run(sql`UPDATE graph_runs SET iteration = 2 WHERE id = ${graphRunId}`)
+
+    recordCompletedAttempt(graphRunId, 'step-1-planner', 1, 1)
+    recordCompletedAttempt(graphRunId, 'step-2-user', 1, 1)
+    recordCompletedAttempt(graphRunId, 'step-3-implementer', 1, 1)
+    recordCompletedAttempt(graphRunId, 'step-3-implementer', 2, 2)
+    recordCompletedAttempt(graphRunId, 'step-4-system', 1, 1)
+    const verifAttemptId = recordCompletedAttempt(graphRunId, 'step-4-system', 2, 2)
+
+    // Verification artifact on iteration 2 missing iteration metadata
+    await persistWorkflowArtifact(graphRunId, verifAttemptId, {
+      id: randomUUID(),
+      workflowId,
+      nodeId: 'step-4-system',
+      kind: 'evidence',
+      format: 'json',
+      title: 'step-4-system-verification_report',
+      content: JSON.stringify({ passed: true, verdict: 'pass', evidenceId: evId }),
+      metadata: {
+        outputName: 'verification_report',
+        changeSetId: csId,
+        evidenceId: evId,
+        // iteration explicitly omitted on iteration 2!
+      },
+      createdAt: NOW,
+    })
+
+    recordCompletedAttempt(graphRunId, 'step-5-reviewer', 1, 1)
+    const reviewerAttemptId = recordCompletedAttempt(graphRunId, 'step-5-reviewer', 2, 2)
+    const passPayload = {
+      verdict: 'pass',
+      overridden: false,
+      reason: 'Claims pass on iteration 2',
+      rejectingFindings: [],
+      corrections: [],
+      changeSetId: csId,
+      stepId: reviewerAttemptId,
+      iteration: 2,
+      evidenceId: evId,
+    }
+
+    await persistWorkflowArtifact(graphRunId, reviewerAttemptId, {
+      id: randomUUID(),
+      workflowId,
+      nodeId: 'step-5-reviewer',
+      kind: 'review_report',
+      format: 'json',
+      title: 'step-5-reviewer-review_verdict',
+      content: JSON.stringify(passPayload),
+      metadata: {
+        outputName: 'review_verdict',
+        stepId: reviewerAttemptId,
+        changeSetId: csId,
+        iteration: 2,
+        evidenceId: evId,
+        verdict: 'pass',
+      },
+      createdAt: NOW,
+    })
+
+    const executor = new GraphExecutor({
+      workflowStore,
+      artifactService,
+      worktreeService,
+      executeLeafNode: vi.fn(),
+    })
+
+    const run = await executor.run({
+      graphRunId,
+      workflowId,
+      projectId,
+      template: compiledTemplate,
+      forkSha,
+      initialContext: { task_objective: 'Missing iteration on iteration 2' },
+    })
+
+    expect(run.status).toBe('failed')
+    expect(run.error).toContain('is missing authoritative iteration metadata')
+  })
+
+  it('13. Recovery: verification artifact with null, string, zero, negative, or fractional iteration fails closed', async () => {
+    const csId = randomUUID()
+    const evId = randomUUID()
+    const compiledTemplate = compileLinearTemplateToGraph(FEATURE_IMPLEMENTATION)
+
+    const invalidIterationCases: { label: string; iteration: unknown }[] = [
+      { label: 'null', iteration: null },
+      { label: 'string', iteration: '1' },
+      { label: 'zero', iteration: 0 },
+      { label: 'negative', iteration: -1 },
+      { label: 'fractional', iteration: 1.5 },
+    ]
+
+    for (const testCase of invalidIterationCases) {
+      const graphRunId = randomUUID()
+      workflowStore.startGraphRun(
+        { graphRunId, workflowId, projectId, templateId: compiledTemplate.id, startedAt: NOW },
+        'system',
+      )
+      createRunRecord(graphRunId)
+
+      recordCompletedAttempt(graphRunId, 'step-1-planner')
+      recordCompletedAttempt(graphRunId, 'step-2-user')
+      recordCompletedAttempt(graphRunId, 'step-3-implementer')
+      const verifAttemptId = recordCompletedAttempt(graphRunId, 'step-4-system')
+
+      await persistWorkflowArtifact(graphRunId, verifAttemptId, {
+        id: randomUUID(),
+        workflowId,
+        nodeId: 'step-4-system',
+        kind: 'evidence',
+        format: 'json',
+        title: `step-4-system-verification_report-${testCase.label}`,
+        content: JSON.stringify({ passed: true, verdict: 'pass', evidenceId: evId }),
+        metadata: {
+          outputName: 'verification_report',
+          changeSetId: csId,
+          evidenceId: evId,
+          iteration: testCase.iteration,
+        },
+        createdAt: NOW,
+      })
+
+      const reviewerAttemptId = recordCompletedAttempt(graphRunId, 'step-5-reviewer')
+      const passPayload = {
+        verdict: 'pass',
+        overridden: false,
+        reason: 'Claims pass',
+        rejectingFindings: [],
+        corrections: [],
+        changeSetId: csId,
+        stepId: reviewerAttemptId,
+        iteration: 1,
+        evidenceId: evId,
+      }
+
+      await persistWorkflowArtifact(graphRunId, reviewerAttemptId, {
+        id: randomUUID(),
+        workflowId,
+        nodeId: 'step-5-reviewer',
+        kind: 'review_report',
+        format: 'json',
+        title: `step-5-reviewer-review_verdict-${testCase.label}`,
+        content: JSON.stringify(passPayload),
+        metadata: {
+          outputName: 'review_verdict',
+          stepId: reviewerAttemptId,
+          changeSetId: csId,
+          iteration: 1,
+          evidenceId: evId,
+          verdict: 'pass',
+        },
+        createdAt: NOW,
+      })
+
+      const executor = new GraphExecutor({
+        workflowStore,
+        artifactService,
+        worktreeService,
+        executeLeafNode: vi.fn(),
+      })
+
+      const run = await executor.run({
+        graphRunId,
+        workflowId,
+        projectId,
+        template: compiledTemplate,
+        forkSha,
+        initialContext: { task_objective: `Invalid iteration ${testCase.label}` },
+      })
+
+      expect(run.status).toBe('failed')
+      expect(run.error).toContain('contains invalid iteration metadata')
+      expect(run.error).toContain('must be a positive integer')
+    }
+  })
+
+  it('14. Recovery: verification artifact with valid but mismatched iteration fails closed', async () => {
+    const csId = randomUUID()
+    const evId = randomUUID()
+    const compiledTemplate = compileLinearTemplateToGraph(FEATURE_IMPLEMENTATION)
+    const graphRunId = randomUUID()
+    workflowStore.startGraphRun(
+      { graphRunId, workflowId, projectId, templateId: compiledTemplate.id, startedAt: NOW },
+      'system',
+    )
+    createRunRecord(graphRunId)
+
+    recordCompletedAttempt(graphRunId, 'step-1-planner')
+    recordCompletedAttempt(graphRunId, 'step-2-user')
+    recordCompletedAttempt(graphRunId, 'step-3-implementer')
+    const verifAttemptId = recordCompletedAttempt(graphRunId, 'step-4-system')
+
+    // Valid positive integer 2, but mismatched with currentIteration 1!
+    await persistWorkflowArtifact(graphRunId, verifAttemptId, {
+      id: randomUUID(),
+      workflowId,
+      nodeId: 'step-4-system',
+      kind: 'evidence',
+      format: 'json',
+      title: 'step-4-system-verification_report',
+      content: JSON.stringify({ passed: true, verdict: 'pass', evidenceId: evId }),
+      metadata: {
+        outputName: 'verification_report',
+        changeSetId: csId,
+        evidenceId: evId,
+        iteration: 2, // Mismatched!
+      },
+      createdAt: NOW,
+    })
+
+    const reviewerAttemptId = recordCompletedAttempt(graphRunId, 'step-5-reviewer')
+    const passPayload = {
+      verdict: 'pass',
+      overridden: false,
+      reason: 'Claims pass',
+      rejectingFindings: [],
+      corrections: [],
+      changeSetId: csId,
+      stepId: reviewerAttemptId,
+      iteration: 1,
+      evidenceId: evId,
+    }
+
+    await persistWorkflowArtifact(graphRunId, reviewerAttemptId, {
+      id: randomUUID(),
+      workflowId,
+      nodeId: 'step-5-reviewer',
+      kind: 'review_report',
+      format: 'json',
+      title: 'step-5-reviewer-review_verdict',
+      content: JSON.stringify(passPayload),
+      metadata: {
+        outputName: 'review_verdict',
+        stepId: reviewerAttemptId,
+        changeSetId: csId,
+        iteration: 1,
+        evidenceId: evId,
+        verdict: 'pass',
+      },
+      createdAt: NOW,
+    })
+
+    const executor = new GraphExecutor({
+      workflowStore,
+      artifactService,
+      worktreeService,
+      executeLeafNode: vi.fn(),
+    })
+
+    const run = await executor.run({
+      graphRunId,
+      workflowId,
+      projectId,
+      template: compiledTemplate,
+      forkSha,
+      initialContext: { task_objective: 'Mismatched iteration' },
+    })
+
+    expect(run.status).toBe('failed')
+    expect(run.error).toContain('does not match current iteration')
+  })
+
+  it('15. Recovery: verification artifact with correct changeset and evidence IDs but invalid iteration fails closed before feedback evaluation', async () => {
+    const csId = randomUUID()
+    const evId = randomUUID()
+    const compiledTemplate = compileLinearTemplateToGraph(FEATURE_IMPLEMENTATION)
+    const graphRunId = randomUUID()
+    workflowStore.startGraphRun(
+      { graphRunId, workflowId, projectId, templateId: compiledTemplate.id, startedAt: NOW },
+      'system',
+    )
+    createRunRecord(graphRunId)
+
+    recordCompletedAttempt(graphRunId, 'step-1-planner')
+    recordCompletedAttempt(graphRunId, 'step-2-user')
+    recordCompletedAttempt(graphRunId, 'step-3-implementer')
+    const verifAttemptId = recordCompletedAttempt(graphRunId, 'step-4-system')
+
+    // Verification evidence has correct changeSetId and evidenceId, but zero iteration
+    await persistWorkflowArtifact(graphRunId, verifAttemptId, {
+      id: randomUUID(),
+      workflowId,
+      nodeId: 'step-4-system',
+      kind: 'evidence',
+      format: 'json',
+      title: 'step-4-system-verification_report',
+      content: JSON.stringify({ passed: true, verdict: 'pass', evidenceId: evId }),
+      metadata: {
+        outputName: 'verification_report',
+        changeSetId: csId,
+        evidenceId: evId,
+        iteration: 0, // Invalid!
+      },
+      createdAt: NOW,
+    })
+
+    const reviewerAttemptId = recordCompletedAttempt(graphRunId, 'step-5-reviewer')
+    // Review verdict is FAIL with findings - which WOULD normally trigger feedback edge!
+    const failPayload = {
+      verdict: 'fail',
+      overridden: false,
+      reason: 'Review rejected',
+      rejectingFindings: [
+        { severity: 'blocker', file: 'index.ts', line: 1, issue: 'bug', requiredChange: 'fix' },
+      ],
+      corrections: ['Fix finding'],
+      changeSetId: csId,
+      stepId: reviewerAttemptId,
+      iteration: 1,
+      evidenceId: evId,
+    }
+
+    await persistWorkflowArtifact(graphRunId, reviewerAttemptId, {
+      id: randomUUID(),
+      workflowId,
+      nodeId: 'step-5-reviewer',
+      kind: 'review_report',
+      format: 'json',
+      title: 'step-5-reviewer-review_verdict',
+      content: JSON.stringify(failPayload),
+      metadata: {
+        outputName: 'review_verdict',
+        stepId: reviewerAttemptId,
+        changeSetId: csId,
+        iteration: 1,
+        evidenceId: evId,
+        verdict: 'fail',
+      },
+      createdAt: NOW,
+    })
+
+    const executor = new GraphExecutor({
+      workflowStore,
+      artifactService,
+      worktreeService,
+      executeLeafNode: vi.fn(),
+    })
+
+    const run = await executor.run({
+      graphRunId,
+      workflowId,
+      projectId,
+      template: compiledTemplate,
+      forkSha,
+      initialContext: {
+        task_objective: 'Invalid iteration fails before feedback condition evaluation',
+      },
+    })
+
+    expect(run.status).toBe('failed')
+    expect(run.error).toContain('contains invalid iteration metadata')
+
+    // Must NOT evaluate or commit feedback transition when verification evidence iteration is invalid!
+    const transitions = db.all(
+      sql`SELECT * FROM graph_transitions WHERE graph_run_id = ${graphRunId}`,
+    )
+    expect(transitions).toHaveLength(0)
+  })
 })

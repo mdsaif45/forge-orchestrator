@@ -687,21 +687,8 @@ export class GraphExecutor {
                   break
                 }
 
-                // Filter candidates matching current iteration (reject stale candidates)
-                const currentIterationCandidates = verifArtifacts.filter(
-                  (a) =>
-                    a.metadata.iteration === currentIteration ||
-                    (a.metadata.iteration === undefined && currentIteration === 1),
-                )
-
-                if (currentIterationCandidates.length === 0) {
-                  loopState.runError = `Recovery failed: verification evidence from node "${incomingVerificationEdge.source}" is stale (no artifacts for current iteration ${String(currentIteration)})`
-                  failedNodeIds.add(node.id)
-                  break
-                }
-
                 // Resolve candidate verification artifacts
-                let candidateVerifArtifacts = currentIterationCandidates.filter(
+                let candidateVerifArtifacts = verifArtifacts.filter(
                   (a) =>
                     a.kind === 'evidence' ||
                     a.kind === 'verification_report' ||
@@ -726,15 +713,32 @@ export class GraphExecutor {
                 if (candidateVerifArtifacts.length === 1) {
                   verifArtifact = candidateVerifArtifacts[0]
                 } else {
-                  // If multiple candidates exist, check if exactly one is specifically named 'verification_report'
-                  const namedReportCandidates = candidateVerifArtifacts.filter(
-                    (a) => a.metadata.outputName === 'verification_report',
+                  // If multiple candidates exist, filter for candidates matching current iteration
+                  const currentIterationCandidates = candidateVerifArtifacts.filter(
+                    (a) =>
+                      typeof a.metadata.iteration === 'number' &&
+                      Number.isInteger(a.metadata.iteration) &&
+                      a.metadata.iteration === currentIteration,
                   )
-                  if (namedReportCandidates.length === 1) {
-                    verifArtifact = namedReportCandidates[0]
+
+                  if (currentIterationCandidates.length === 1) {
+                    verifArtifact = currentIterationCandidates[0]
+                  } else if (currentIterationCandidates.length > 1) {
+                    // Check if exactly one is specifically named 'verification_report'
+                    const namedReportCandidates = currentIterationCandidates.filter(
+                      (a) => a.metadata.outputName === 'verification_report',
+                    )
+                    if (namedReportCandidates.length === 1) {
+                      verifArtifact = namedReportCandidates[0]
+                    } else {
+                      // Ambiguous candidate verification artifacts
+                      loopState.runError = `Recovery failed: ambiguous verification evidence from node "${incomingVerificationEdge.source}": multiple candidate artifacts (${String(currentIterationCandidates.length)}) found without a unique identity`
+                      failedNodeIds.add(node.id)
+                      break
+                    }
                   } else {
-                    // Ambiguous candidate verification artifacts
-                    loopState.runError = `Recovery failed: ambiguous verification evidence from node "${incomingVerificationEdge.source}": multiple candidate artifacts (${String(candidateVerifArtifacts.length)}) found without a unique identity`
+                    // Multiple candidates existed, but none matched current iteration
+                    loopState.runError = `Recovery failed: verification evidence from node "${incomingVerificationEdge.source}" is stale (no artifacts for current iteration ${String(currentIteration)})`
                     failedNodeIds.add(node.id)
                     break
                   }
@@ -805,11 +809,45 @@ export class GraphExecutor {
 
                 // 3. Iteration validation on verification evidence
                 const rawVerifIteration = verifArtifact.metadata.iteration
+                if (rawVerifIteration === undefined) {
+                  loopState.runError = `Recovery failed: verification artifact "${verifArtifact.id}" is missing authoritative iteration metadata`
+                  failedNodeIds.add(node.id)
+                  break
+                }
                 if (
-                  typeof rawVerifIteration === 'number' &&
-                  rawVerifIteration !== currentIteration
+                  rawVerifIteration === null ||
+                  typeof rawVerifIteration !== 'number' ||
+                  !Number.isInteger(rawVerifIteration) ||
+                  rawVerifIteration <= 0
                 ) {
-                  loopState.runError = `Recovery failed: verification artifact iteration (${String(rawVerifIteration)}) does not match current iteration (${String(currentIteration)})`
+                  const staleMsg =
+                    typeof rawVerifIteration === 'number' && rawVerifIteration <= 0
+                      ? ' (is stale or invalid)'
+                      : ''
+                  let printedIter: string
+                  if (
+                    typeof rawVerifIteration === 'string' ||
+                    typeof rawVerifIteration === 'number' ||
+                    typeof rawVerifIteration === 'boolean'
+                  ) {
+                    printedIter = String(rawVerifIteration)
+                  } else {
+                    try {
+                      printedIter = JSON.stringify(rawVerifIteration)
+                    } catch {
+                      printedIter = 'unserializable'
+                    }
+                  }
+                  loopState.runError = `Recovery failed: verification artifact "${verifArtifact.id}" contains invalid iteration metadata (${printedIter}): must be a positive integer${staleMsg}`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+                if (rawVerifIteration !== currentIteration) {
+                  const staleMsg =
+                    rawVerifIteration < currentIteration
+                      ? ` (${String(rawVerifIteration)}) is stale and`
+                      : ` (${String(rawVerifIteration)})`
+                  loopState.runError = `Recovery failed: verification artifact iteration${staleMsg} does not match current iteration (${String(currentIteration)})`
                   failedNodeIds.add(node.id)
                   break
                 }

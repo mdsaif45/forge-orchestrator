@@ -3,7 +3,9 @@ import {
   artifactIdSchema,
   assessReview,
   assessStepPolicy,
+  authoritativeReviewVerdictSchema,
   changeSetIdSchema,
+  criterionResultSchema,
   effectivePermissionsForRole,
   formatPolicyHaltReason,
   permissionForRole,
@@ -13,6 +15,7 @@ import {
   validateBindingPermissions,
   type Actor,
   type AgentReport,
+  type AuthoritativeReviewVerdict,
   type ChangeSet,
   type CriterionResult,
   type EvidenceArtifact,
@@ -615,10 +618,69 @@ export class LeafRunner {
       }
     }
 
-    // 2. Extract criteria results from verification evidence
-    let criteria: readonly CriterionResult[] | undefined
+    // 2. Validate authoritative verification lineage: changeSetId and iteration are strictly mandatory
+    const rawCsId = verificationArtifact.metadata.changeSetId
+    if (!rawCsId || typeof rawCsId !== 'string') {
+      return {
+        status: 'failed',
+        runtimeId,
+        error: 'Verification evidence is missing authoritative changeSetId metadata',
+      }
+    }
+    const csResult = changeSetIdSchema.safeParse(rawCsId)
+    if (!csResult.success) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error: `Verification evidence contains invalid changeSetId: ${csResult.error.message}`,
+      }
+    }
+    const authoritativeChangeSetId = csResult.data
+
+    const rawIteration = verificationArtifact.metadata.iteration
+    if (
+      rawIteration === undefined ||
+      rawIteration === null ||
+      typeof rawIteration !== 'number' ||
+      !Number.isInteger(rawIteration) ||
+      rawIteration < 1
+    ) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error:
+          'Verification evidence is missing valid iteration metadata (positive integer required)',
+      }
+    }
+    const verificationIteration = rawIteration
+
+    if (ctx.iteration !== undefined && verificationIteration !== ctx.iteration) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error: `Lineage rejection: verification evidence iteration (${String(verificationIteration)}) does not match current iteration (${String(ctx.iteration)})`,
+      }
+    }
+
+    // If an implementation changeset artifact exists in inputs, verify that its changeSetId matches
+    const changesetArtifact = ctx.inputArtifacts.find(
+      (a) => a.kind === 'changeset' || a.metadata.outputName === 'changeset',
+    )
+    if (changesetArtifact) {
+      const directCsId = changesetArtifact.metadata.changeSetId
+      if (!directCsId || directCsId !== authoritativeChangeSetId) {
+        return {
+          status: 'failed',
+          runtimeId,
+          error: `Lineage rejection: verification evidence changeset (${authoritativeChangeSetId}) does not match implementation changeset (${String(directCsId)})`,
+        }
+      }
+    }
+
+    // 3. Extract and runtime-validate criteria results from verification evidence
+    let rawCriteria: unknown
     if (Array.isArray(verificationArtifact.metadata.criteria)) {
-      criteria = verificationArtifact.metadata.criteria as readonly CriterionResult[]
+      rawCriteria = verificationArtifact.metadata.criteria
     } else {
       try {
         const parsed: unknown = JSON.parse(verificationArtifact.content)
@@ -626,16 +688,16 @@ export class LeafRunner {
           parsed &&
           typeof parsed === 'object' &&
           'criteria' in parsed &&
-          Array.isArray(parsed.criteria)
+          Array.isArray((parsed as Record<string, unknown>).criteria)
         ) {
-          criteria = parsed.criteria as readonly CriterionResult[]
+          rawCriteria = (parsed as Record<string, unknown>).criteria
         }
       } catch {
         // Content is not JSON
       }
     }
 
-    if (!criteria || !Array.isArray(criteria)) {
+    if (!rawCriteria || !Array.isArray(rawCriteria)) {
       return {
         status: 'failed',
         runtimeId,
@@ -644,7 +706,7 @@ export class LeafRunner {
     }
 
     // Zero-criteria fail-closed invariant
-    if (criteria.length === 0) {
+    if (rawCriteria.length === 0) {
       return {
         status: 'failed',
         runtimeId,
@@ -653,59 +715,40 @@ export class LeafRunner {
       }
     }
 
-    // 3. Lineage validation: identify authoritative implementation changeset
-    const changesetArtifact = ctx.inputArtifacts.find(
-      (a) => a.kind === 'changeset' || a.metadata.outputName === 'changeset',
-    )
-    const authoritativeChangeSetId =
-      (changesetArtifact?.metadata.changeSetId as string | undefined) ??
-      changesetArtifact?.id ??
-      ctx.initialContext?.changeSetId
+    // Runtime validate every single criterion with criterionResultSchema
+    const validatedCriteria: CriterionResult[] = []
+    for (const item of rawCriteria) {
+      const parsed = criterionResultSchema.safeParse(item)
+      if (!parsed.success) {
+        return {
+          status: 'failed',
+          runtimeId,
+          error: `Verification evidence contains malformed criterion or invalid verdict: ${parsed.error.message}`,
+        }
+      }
+      validatedCriteria.push(parsed.data)
+    }
 
-    if (!authoritativeChangeSetId) {
+    // 4. Construct trusted ReviewReport bound to authoritative attempt identity
+    const attemptIdResult = ctx.attemptId ? stepIdSchema.safeParse(ctx.attemptId) : null
+    const nodeIdResult = stepIdSchema.safeParse(ctx.node.id)
+
+    let authoritativeStepId: StepId
+    if (attemptIdResult?.success) {
+      authoritativeStepId = attemptIdResult.data
+    } else if (nodeIdResult.success) {
+      authoritativeStepId = nodeIdResult.data
+    } else {
       return {
         status: 'failed',
         runtimeId,
-        error: 'Reviewer node requires an implementation changeset',
+        error: 'Reviewer node requires an authoritative attempt identity (UUID)',
       }
     }
-
-    const verificationCsId = verificationArtifact.metadata.changeSetId as string | undefined
-    if (verificationCsId && verificationCsId !== authoritativeChangeSetId) {
-      return {
-        status: 'failed',
-        runtimeId,
-        error: `Lineage rejection: verification evidence (${verificationCsId}) does not match implementation changeset (${authoritativeChangeSetId})`,
-      }
-    }
-
-    if (
-      verificationArtifact.metadata.iteration !== undefined &&
-      ctx.iteration !== undefined &&
-      verificationArtifact.metadata.iteration !== ctx.iteration
-    ) {
-      const iterStr =
-        typeof verificationArtifact.metadata.iteration === 'number' ||
-        typeof verificationArtifact.metadata.iteration === 'string'
-          ? String(verificationArtifact.metadata.iteration)
-          : 'unknown'
-      return {
-        status: 'failed',
-        runtimeId,
-        error: `Lineage rejection: verification evidence iteration (${iterStr}) does not match current iteration (${String(ctx.iteration)})`,
-      }
-    }
-
-    // 4. Construct trusted ReviewReport
-    const validStepId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      ctx.node.id,
-    )
-      ? (ctx.node.id as StepId)
-      : stepIdSchema.parse(randomUUID())
 
     const reviewReport: ReviewReport = {
-      changeSetId: changeSetIdSchema.parse(authoritativeChangeSetId),
-      stepId: validStepId,
+      changeSetId: authoritativeChangeSetId,
+      stepId: authoritativeStepId,
       claimedVerdict: report.claimedVerdict ?? 'unknown',
       findings: report.findings ?? [],
       summary: report.summary,
@@ -713,7 +756,7 @@ export class LeafRunner {
     }
 
     // 5. Authoritative assessReview computation
-    const outcome = assessReview(reviewReport, criteria)
+    const outcome = assessReview(reviewReport, validatedCriteria)
     reviewOutcomeSchema.parse(outcome)
 
     // Fail-closed if verdict could not be verified
@@ -725,8 +768,27 @@ export class LeafRunner {
       }
     }
 
-    // 6. Emit exact review_verdict deliverable
+    // 6. Emit exact review_verdict deliverable complying with authoritativeReviewVerdictSchema
     const now = new Date().toISOString()
+    const evidenceId = (verificationArtifact.metadata.evidenceId as string | undefined) ?? null
+    const iteration = ctx.iteration ?? verificationIteration
+
+    const verdictPayload: AuthoritativeReviewVerdict = {
+      verdict: outcome.verdict,
+      overridden: outcome.overridden,
+      reason: outcome.reason,
+      rejectingFindings: outcome.rejectingFindings,
+      corrections: outcome.corrections,
+      changeSetId: authoritativeChangeSetId,
+      stepId: authoritativeStepId,
+      iteration,
+      evidenceId,
+      nodeId: ctx.node.id,
+      attempt: ctx.attempt,
+    }
+
+    authoritativeReviewVerdictSchema.parse(verdictPayload)
+
     const reviewArtifact: WorkflowArtifact = {
       id: randomUUID(),
       workflowId: ctx.workflowId,
@@ -734,30 +796,18 @@ export class LeafRunner {
       kind: 'review_report',
       format: 'json',
       title: `${ctx.node.title} - review_verdict`,
-      content: JSON.stringify(
-        {
-          verdict: outcome.verdict,
-          overridden: outcome.overridden,
-          reason: outcome.reason,
-          rejectingFindings: outcome.rejectingFindings,
-          corrections: outcome.corrections,
-          changeSetId: authoritativeChangeSetId,
-          stepId: validStepId,
-          iteration: ctx.iteration ?? 1,
-          evidenceId: (verificationArtifact.metadata.evidenceId as string | undefined) ?? null,
-        },
-        null,
-        2,
-      ),
+      content: JSON.stringify(verdictPayload, null, 2),
       metadata: {
         outputName: 'review_verdict',
         verdict: outcome.verdict,
         overridden: outcome.overridden,
         reason: outcome.reason,
         changeSetId: authoritativeChangeSetId,
-        stepId: validStepId,
-        iteration: ctx.iteration ?? 1,
-        evidenceId: verificationArtifact.metadata.evidenceId ?? null,
+        stepId: authoritativeStepId,
+        iteration,
+        evidenceId,
+        nodeId: ctx.node.id,
+        attempt: ctx.attempt,
       },
       createdAt: now,
     }
@@ -877,11 +927,13 @@ export class LeafRunner {
     }
 
     const verifyFn = this.options.verifyFn ?? verifyStep
-    const validStepId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-      ctx.node.id,
-    )
-      ? (ctx.node.id as StepId)
-      : stepIdSchema.parse(randomUUID())
+    const attemptIdResult = ctx.attemptId ? stepIdSchema.safeParse(ctx.attemptId) : null
+    const nodeIdResult = stepIdSchema.safeParse(ctx.node.id)
+    const validStepId: StepId = attemptIdResult?.success
+      ? attemptIdResult.data
+      : nodeIdResult.success
+        ? nodeIdResult.data
+        : stepIdSchema.parse(randomUUID())
 
     const result = await verifyFn({
       repository: {
@@ -905,10 +957,16 @@ export class LeafRunner {
     const changesetArtifact = ctx.inputArtifacts.find(
       (a) => a.kind === 'changeset' || a.metadata.outputName === 'changeset',
     )
-    const changeSetId =
-      (changesetArtifact?.metadata.changeSetId as string | undefined) ??
-      changesetArtifact?.id ??
-      null
+    let changeSetId: string | null = null
+    if (
+      changesetArtifact?.metadata.changeSetId &&
+      typeof changesetArtifact.metadata.changeSetId === 'string'
+    ) {
+      const parsed = changeSetIdSchema.safeParse(changesetArtifact.metadata.changeSetId)
+      if (parsed.success) {
+        changeSetId = parsed.data
+      }
+    }
 
     // Separate declared outputs into evidence deliverables vs. explicit verdict outputs
     const evidenceOutputs = ctx.node.outputs.filter((o) => !isExplicitVerdictOutput(o))
@@ -1109,15 +1167,20 @@ export class LeafRunner {
 
     // 4. Resolve verdict using established lifecycle semantics
     if (decision.gateVerdict === 'approved') {
+      const declaredOutput = ctx.node.outputs.find(
+        (o) => o.kind === 'approval' || o.name === 'approval',
+      )
       const artifact: WorkflowArtifact = {
         id: artifactIdSchema.parse(randomUUID()),
         workflowId: ctx.workflowId,
         nodeId: ctx.node.id,
-        kind: 'decision_record',
+        kind: declaredOutput ? declaredOutput.kind : 'decision_record',
         format: 'json',
         title: `Gate ${ctx.node.title} Approved`,
         content: JSON.stringify(decision),
-        metadata: {},
+        metadata: {
+          ...(declaredOutput ? { outputName: declaredOutput.name } : {}),
+        },
         createdAt: decision.lockedAt ?? new Date().toISOString(),
       }
 

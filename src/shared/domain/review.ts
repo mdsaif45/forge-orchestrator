@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { verdictSchema } from './enums'
 import { changeSetIdSchema, repoPathSchema, stepIdSchema, timestampSchema } from './ids'
-import type { CriterionResult } from './criterion'
+import { criterionResultSchema, type CriterionResult } from './criterion'
 
 /**
  * The reviewer's output, and the rule that Forge — not the reviewer — decides.
@@ -106,9 +106,33 @@ export const reviewOutcomeSchema = z.strictObject({
   iteration: z.number().int().positive().optional(),
   /** Evidence artifact ID evaluated during verification. */
   evidenceId: z.string().nullable().optional(),
+  /** Node ID that performed the review. */
+  nodeId: z.string().optional(),
+  /** Attempt number. */
+  attempt: z.number().int().positive().optional(),
 })
 
 export type ReviewOutcome = z.infer<typeof reviewOutcomeSchema>
+
+/**
+ * Strict schema for durable authoritative review verdicts.
+ * Requires explicit changeset, reviewer attempt, and iteration lineage.
+ */
+export const authoritativeReviewVerdictSchema = z.strictObject({
+  verdict: verdictSchema,
+  overridden: z.boolean(),
+  reason: z.string().min(1),
+  rejectingFindings: z.array(findingSchema).readonly(),
+  corrections: z.array(z.string()).readonly(),
+  changeSetId: changeSetIdSchema,
+  stepId: stepIdSchema,
+  iteration: z.number().int().positive(),
+  evidenceId: z.string().nullable().optional(),
+  nodeId: z.string().optional(),
+  attempt: z.number().int().positive().optional(),
+})
+
+export type AuthoritativeReviewVerdict = z.infer<typeof authoritativeReviewVerdictSchema>
 
 /**
  * Decides the verdict of record for a review.
@@ -120,14 +144,40 @@ export type ReviewOutcome = z.infer<typeof reviewOutcomeSchema>
  */
 export function assessReview(
   report: ReviewReport,
-  criteria: readonly CriterionResult[],
+  criteria: readonly CriterionResult[] | readonly unknown[],
 ): ReviewOutcome {
   const rejectingFindings = [...report.findings]
     .filter((finding) => REJECTING.has(finding.severity))
     .sort(bySeverity)
 
-  const failingCriteria = criteria.filter((result) => result.verdict === 'fail')
-  const unknownCriteria = criteria.filter((result) => result.verdict === 'unknown')
+  // Validate all criteria using criterionResultSchema at runtime
+  const validatedCriteria: CriterionResult[] = []
+  let malformedCriteriaCount = 0
+
+  for (const raw of criteria) {
+    const result = criterionResultSchema.safeParse(raw)
+    if (result.success) {
+      validatedCriteria.push(result.data)
+    } else {
+      malformedCriteriaCount++
+    }
+  }
+
+  // Any malformed criterion result or invalid verdict value must fail closed
+  if (malformedCriteriaCount > 0) {
+    return {
+      verdict: 'unknown',
+      overridden: true,
+      reason: `Review cannot pass: ${String(malformedCriteriaCount)} criterion result(s) are malformed or contain invalid verdicts. Forge records UNKNOWN to fail closed on unverified evidence.`,
+      rejectingFindings,
+      corrections: [
+        'Verification evidence contained malformed criteria results. Re-run verification to produce valid CriterionResult evidence.',
+      ],
+    }
+  }
+
+  const failingCriteria = validatedCriteria.filter((result) => result.verdict === 'fail')
+  const unknownCriteria = validatedCriteria.filter((result) => result.verdict === 'unknown')
 
   // Checked before the reviewer's own verdict, so a favourable claim cannot skip it.
   if (report.claimedVerdict === 'pass' && failingCriteria.length > 0) {
@@ -161,7 +211,7 @@ export function assessReview(
 
   // A reviewer claiming PASS with zero verified criteria is NOT an approval (A3).
   // An empty criteria list must never authorize workflow completion on reviewer opinion alone.
-  if (report.claimedVerdict === 'pass' && criteria.length === 0) {
+  if (report.claimedVerdict === 'pass' && validatedCriteria.length === 0) {
     return {
       verdict: 'unknown',
       overridden: true,
@@ -212,7 +262,7 @@ export function assessReview(
   return {
     verdict: 'pass',
     overridden: false,
-    reason: `The reviewer passed the change and all ${String(criteria.length)} completion criteria are met`,
+    reason: `The reviewer passed the change and all ${String(validatedCriteria.length)} completion criteria are met`,
     rejectingFindings: [],
     corrections: [],
   }

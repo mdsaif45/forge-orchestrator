@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto'
 import {
   artifactIdSchema,
   artifactKindSchema,
+  authoritativeReviewVerdictSchema,
   changeSetIdSchema,
   evaluateCondition,
   getLoopBody,
   getReadyNodes,
-  reviewOutcomeSchema,
   runIdSchema,
   stepIdSchema,
   validateWorkflowGraph,
@@ -65,6 +65,7 @@ export interface NodeExecutionContext {
   readonly repository?: Repository | undefined
   readonly node: WorkflowNode
   readonly attempt: number
+  readonly attemptId?: string | undefined
   readonly runtimeId?: string | undefined
   readonly bindings?: BindingSet | undefined
   readonly worktreePath?: string | undefined
@@ -581,13 +582,45 @@ export class GraphExecutor {
               const lineage = currentLineage.get(completedNodeId)
               const attemptArtifacts = lineage?.artifacts ?? []
 
-              const reviewArtifact = attemptArtifacts.find(
+              const candidateReviewArtifacts = attemptArtifacts.filter(
                 (a) => a.kind === 'review_report' || a.metadata.outputName === 'review_verdict',
               )
 
-              if (node.config.role === 'reviewer' || reviewArtifact) {
-                if (!reviewArtifact) {
+              if (node.config.role === 'reviewer' || candidateReviewArtifacts.length > 0) {
+                if (candidateReviewArtifacts.length === 0) {
                   loopState.runError = `Recovery failed: completed reviewer node "${node.id}" has no review_verdict artifact`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                // If multiple candidates exist, prioritize the one matching latestAttempt.id
+                let reviewArtifact = candidateReviewArtifacts.find(
+                  (a) => a.metadata.stepId === latestAttempt.id,
+                )
+                if (!reviewArtifact && candidateReviewArtifacts.length === 1) {
+                  reviewArtifact = candidateReviewArtifacts[0]
+                }
+                if (!reviewArtifact) {
+                  for (const candidate of candidateReviewArtifacts) {
+                    try {
+                      const parsed: unknown = JSON.parse(candidate.content)
+                      if (
+                        parsed &&
+                        typeof parsed === 'object' &&
+                        'stepId' in parsed &&
+                        (parsed as { stepId?: unknown }).stepId === latestAttempt.id
+                      ) {
+                        reviewArtifact = candidate
+                        break
+                      }
+                    } catch {
+                      // ignore parse errors during candidate matching
+                    }
+                  }
+                }
+
+                if (!reviewArtifact) {
+                  loopState.runError = `Recovery failed: review artifact for node "${node.id}" does not match completed reviewer attempt (${latestAttempt.id})`
                   failedNodeIds.add(node.id)
                   break
                 }
@@ -601,11 +634,52 @@ export class GraphExecutor {
                   break
                 }
 
-                const outcomeResult = reviewOutcomeSchema.safeParse(parsedOutcome)
+                // Strictly validate against authoritativeReviewVerdictSchema
+                const outcomeResult = authoritativeReviewVerdictSchema.safeParse(parsedOutcome)
                 if (!outcomeResult.success) {
-                  loopState.runError = `Recovery failed: review_verdict artifact for node "${node.id}" violates ReviewOutcome schema: ${outcomeResult.error.message}`
+                  loopState.runError = `Recovery failed: review_verdict artifact for node "${node.id}" violates authoritative verdict contract: ${outcomeResult.error.message}`
                   failedNodeIds.add(node.id)
                   break
+                }
+
+                // Invariant: review artifact stepId must match completed reviewer attempt
+                if (outcomeResult.data.stepId !== latestAttempt.id) {
+                  loopState.runError = `Recovery failed: review artifact stepId (${outcomeResult.data.stepId}) does not match completed reviewer attempt (${latestAttempt.id})`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                // Invariant: review artifact iteration must match current iteration
+                if (outcomeResult.data.iteration !== currentIteration) {
+                  loopState.runError = `Recovery failed: review artifact iteration (${String(outcomeResult.data.iteration)}) does not match current iteration (${String(currentIteration)})`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                // Invariant: validate lineage against preceding verification evidence
+                const incomingVerificationEdge = template.edges.find(
+                  (e) => e.target === node.id && !e.isFeedback,
+                )
+                if (incomingVerificationEdge) {
+                  const verifLineage = currentLineage.get(incomingVerificationEdge.source)
+                  const verifArtifact = verifLineage?.artifacts.find(
+                    (a) =>
+                      a.kind === 'evidence' ||
+                      a.kind === 'stage-output' ||
+                      a.kind === 'verification_report' ||
+                      a.metadata.outputName === 'verification_report',
+                  )
+                  const verifChangeSetId =
+                    typeof verifArtifact?.metadata.changeSetId === 'string'
+                      ? verifArtifact.metadata.changeSetId
+                      : undefined
+                  if (verifChangeSetId) {
+                    if (outcomeResult.data.changeSetId !== verifChangeSetId) {
+                      loopState.runError = `Recovery failed: review artifact changeSetId (${outcomeResult.data.changeSetId}) does not match verification evidence changeset (${verifChangeSetId})`
+                      failedNodeIds.add(node.id)
+                      break
+                    }
+                  }
                 }
 
                 if (outcomeResult.data.verdict === 'unknown') {
@@ -614,28 +688,29 @@ export class GraphExecutor {
                   break
                 }
 
-                if (
-                  outcomeResult.data.iteration !== undefined &&
-                  outcomeResult.data.iteration !== currentIteration
-                ) {
-                  loopState.runError = `Recovery failed: review artifact iteration (${String(outcomeResult.data.iteration)}) does not match current iteration (${String(currentIteration)})`
-                  failedNodeIds.add(node.id)
-                  break
+                const matched = evaluateCondition(feedbackEdge.condition, {
+                  incomingSlots: new Map([
+                    ['review_report', reviewArtifact],
+                    ['review_verdict', reviewArtifact],
+                  ]),
+                  inputArtifacts: [reviewArtifact, ...attemptArtifacts],
+                  initialContext,
+                  iteration: currentIteration,
+                })
+
+                if (matched) {
+                  triggeredFeedbackEdge = feedbackEdge
                 }
-              }
+              } else {
+                const matched = evaluateCondition(feedbackEdge.condition, {
+                  inputArtifacts: [...allArtifacts, ...attemptArtifacts],
+                  initialContext,
+                  iteration: currentIteration,
+                })
 
-              if (loopState.runError) {
-                break
-              }
-
-              const matched = evaluateCondition(feedbackEdge.condition, {
-                inputArtifacts: [...allArtifacts, ...attemptArtifacts],
-                initialContext,
-                iteration: currentIteration,
-              })
-
-              if (matched) {
-                triggeredFeedbackEdge = feedbackEdge
+                if (matched) {
+                  triggeredFeedbackEdge = feedbackEdge
+                }
               }
             } else {
               triggeredFeedbackEdge = feedbackEdge
@@ -1062,12 +1137,12 @@ export class GraphExecutor {
 
         try {
           // Determine if this node needs an isolated branch worktree
-          const isReadOnly = node.type === 'router' || node.config.permissionMode === 'read-only'
+          const isReadOnly =
+            node.type === 'router' ||
+            (node.type !== 'verification' && node.config.permissionMode === 'read-only')
           const needsWorktree =
-            !isReadOnly &&
-            (node.config.permissionMode === 'developer' ||
-              node.type === 'agent' ||
-              node.type === 'verification')
+            node.type === 'verification' ||
+            (!isReadOnly && (node.config.permissionMode === 'developer' || node.type === 'agent'))
 
           if (needsWorktree) {
             branchWorktree = await this.worktreeService.prepareBranch(workflowId, node.id, forkSha)
@@ -1204,6 +1279,7 @@ export class GraphExecutor {
             repository: resolvedRepository,
             node,
             attempt: attemptNum,
+            attemptId: currentAttemptId,
             runtimeId: resolvedRuntimeId ?? undefined,
             bindings: options.bindings,
             worktreePath: branchWorktree?.path,
@@ -1475,10 +1551,18 @@ export class GraphExecutor {
                 (e) => e.source === node.id && e.isFeedback,
               )
               if (outgoingFeedback) {
+                const feedbackSlots = new Map(incomingSlots)
+                const currentReviewArtifact = artifactsForNode.find(
+                  (a) => a.kind === 'review_report' || a.metadata.outputName === 'review_verdict',
+                )
+                if (currentReviewArtifact) {
+                  feedbackSlots.set('review_report', currentReviewArtifact)
+                  feedbackSlots.set('review_verdict', currentReviewArtifact)
+                }
                 const matched = outgoingFeedback.condition
                   ? evaluateCondition(outgoingFeedback.condition, {
-                      inputArtifacts: [...inputArtifacts, ...artifactsForNode],
-                      incomingSlots,
+                      inputArtifacts: [...artifactsForNode, ...inputArtifacts],
+                      incomingSlots: feedbackSlots,
                       initialContext,
                       iteration: currentIteration,
                     })

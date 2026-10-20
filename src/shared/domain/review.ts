@@ -1,6 +1,12 @@
 import { z } from 'zod'
 import { verdictSchema } from './enums'
-import { changeSetIdSchema, repoPathSchema, stepIdSchema, timestampSchema } from './ids'
+import {
+  changeSetIdSchema,
+  evidenceIdSchema,
+  repoPathSchema,
+  stepIdSchema,
+  timestampSchema,
+} from './ids'
 import { criterionResultSchema, type CriterionResult } from './criterion'
 
 /**
@@ -105,7 +111,7 @@ export const reviewOutcomeSchema = z.strictObject({
   /** Graph run iteration. */
   iteration: z.number().int().positive().optional(),
   /** Evidence artifact ID evaluated during verification. */
-  evidenceId: z.string().nullable().optional(),
+  evidenceId: evidenceIdSchema.nullable().optional(),
   /** Node ID that performed the review. */
   nodeId: z.string().optional(),
   /** Attempt number. */
@@ -127,7 +133,7 @@ export const authoritativeReviewVerdictSchema = z.strictObject({
   changeSetId: changeSetIdSchema,
   stepId: stepIdSchema,
   iteration: z.number().int().positive(),
-  evidenceId: z.string().nullable().optional(),
+  evidenceId: evidenceIdSchema,
   nodeId: z.string().optional(),
   attempt: z.number().int().positive().optional(),
 })

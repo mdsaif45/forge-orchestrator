@@ -7,6 +7,7 @@ import {
   changeSetIdSchema,
   criterionResultSchema,
   effectivePermissionsForRole,
+  evidenceIdSchema,
   formatPolicyHaltReason,
   permissionForRole,
   repositoryIdSchema,
@@ -677,6 +678,43 @@ export class LeafRunner {
       }
     }
 
+    // Validate authoritative verification evidenceId
+    let rawEvidenceId: string | undefined =
+      typeof verificationArtifact.metadata.evidenceId === 'string'
+        ? verificationArtifact.metadata.evidenceId
+        : undefined
+    if (!rawEvidenceId) {
+      try {
+        const parsed: unknown = JSON.parse(verificationArtifact.content)
+        if (
+          parsed &&
+          typeof parsed === 'object' &&
+          'evidenceId' in parsed &&
+          typeof (parsed as Record<string, unknown>).evidenceId === 'string'
+        ) {
+          rawEvidenceId = (parsed as Record<string, unknown>).evidenceId as string
+        }
+      } catch {
+        // Content is not JSON
+      }
+    }
+    if (!rawEvidenceId) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error: 'Verification evidence is missing authoritative evidenceId metadata',
+      }
+    }
+    const evidenceIdResult = evidenceIdSchema.safeParse(rawEvidenceId)
+    if (!evidenceIdResult.success) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error: `Verification evidence contains invalid evidenceId: ${evidenceIdResult.error.message}`,
+      }
+    }
+    const authoritativeEvidenceId = evidenceIdResult.data
+
     // 3. Extract and runtime-validate criteria results from verification evidence
     let rawCriteria: unknown
     if (Array.isArray(verificationArtifact.metadata.criteria)) {
@@ -730,21 +768,22 @@ export class LeafRunner {
     }
 
     // 4. Construct trusted ReviewReport bound to authoritative attempt identity
-    const attemptIdResult = ctx.attemptId ? stepIdSchema.safeParse(ctx.attemptId) : null
-    const nodeIdResult = stepIdSchema.safeParse(ctx.node.id)
-
-    let authoritativeStepId: StepId
-    if (attemptIdResult?.success) {
-      authoritativeStepId = attemptIdResult.data
-    } else if (nodeIdResult.success) {
-      authoritativeStepId = nodeIdResult.data
-    } else {
+    if (!ctx.attemptId) {
       return {
         status: 'failed',
         runtimeId,
         error: 'Reviewer node requires an authoritative attempt identity (UUID)',
       }
     }
+    const attemptIdResult = stepIdSchema.safeParse(ctx.attemptId)
+    if (!attemptIdResult.success) {
+      return {
+        status: 'failed',
+        runtimeId,
+        error: `Reviewer node requires an authoritative attempt identity (UUID): ${attemptIdResult.error.message}`,
+      }
+    }
+    const authoritativeStepId: StepId = attemptIdResult.data
 
     const reviewReport: ReviewReport = {
       changeSetId: authoritativeChangeSetId,
@@ -770,7 +809,6 @@ export class LeafRunner {
 
     // 6. Emit exact review_verdict deliverable complying with authoritativeReviewVerdictSchema
     const now = new Date().toISOString()
-    const evidenceId = (verificationArtifact.metadata.evidenceId as string | undefined) ?? null
     const iteration = ctx.iteration ?? verificationIteration
 
     const verdictPayload: AuthoritativeReviewVerdict = {
@@ -782,7 +820,7 @@ export class LeafRunner {
       changeSetId: authoritativeChangeSetId,
       stepId: authoritativeStepId,
       iteration,
-      evidenceId,
+      evidenceId: authoritativeEvidenceId,
       nodeId: ctx.node.id,
       attempt: ctx.attempt,
     }
@@ -805,7 +843,7 @@ export class LeafRunner {
         changeSetId: authoritativeChangeSetId,
         stepId: authoritativeStepId,
         iteration,
-        evidenceId,
+        evidenceId: authoritativeEvidenceId,
         nodeId: ctx.node.id,
         attempt: ctx.attempt,
       },

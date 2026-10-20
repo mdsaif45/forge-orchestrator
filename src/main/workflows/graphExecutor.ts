@@ -5,6 +5,7 @@ import {
   authoritativeReviewVerdictSchema,
   changeSetIdSchema,
   evaluateCondition,
+  evidenceIdSchema,
   getLoopBody,
   getReadyNodes,
   runIdSchema,
@@ -657,29 +658,160 @@ export class GraphExecutor {
                 }
 
                 // Invariant: validate lineage against preceding verification evidence
-                const incomingVerificationEdge = template.edges.find(
+                const incomingVerificationEdges = template.edges.filter(
                   (e) => e.target === node.id && !e.isFeedback,
                 )
-                if (incomingVerificationEdge) {
-                  const verifLineage = currentLineage.get(incomingVerificationEdge.source)
-                  const verifArtifact = verifLineage?.artifacts.find(
-                    (a) =>
-                      a.kind === 'evidence' ||
-                      a.kind === 'stage-output' ||
-                      a.kind === 'verification_report' ||
-                      a.metadata.outputName === 'verification_report',
+                if (incomingVerificationEdges.length === 0) {
+                  loopState.runError = `Recovery failed: completed reviewer node "${node.id}" has no incoming verification edge`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+                if (incomingVerificationEdges.length > 1) {
+                  loopState.runError = `Recovery failed: ambiguous incoming edges to reviewer node "${node.id}": multiple non-feedback edges found`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                const incomingVerificationEdge = incomingVerificationEdges[0]
+                if (!incomingVerificationEdge) {
+                  loopState.runError = `Recovery failed: completed reviewer node "${node.id}" has no incoming verification edge`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+                const verifLineage = currentLineage.get(incomingVerificationEdge.source)
+                const verifArtifacts = verifLineage?.artifacts ?? []
+
+                if (verifArtifacts.length === 0) {
+                  loopState.runError = `Recovery failed: completed reviewer node "${node.id}" has no preceding verification artifacts from node "${incomingVerificationEdge.source}"`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                // Filter candidates matching current iteration (reject stale candidates)
+                const currentIterationCandidates = verifArtifacts.filter(
+                  (a) =>
+                    a.metadata.iteration === currentIteration ||
+                    (a.metadata.iteration === undefined && currentIteration === 1),
+                )
+
+                if (currentIterationCandidates.length === 0) {
+                  loopState.runError = `Recovery failed: verification evidence from node "${incomingVerificationEdge.source}" is stale (no artifacts for current iteration ${String(currentIteration)})`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                // Resolve candidate verification artifacts
+                let candidateVerifArtifacts = currentIterationCandidates.filter(
+                  (a) =>
+                    a.kind === 'evidence' ||
+                    a.kind === 'verification_report' ||
+                    a.metadata.outputName === 'verification_report',
+                )
+
+                // If edge specifies a sourceHandle, use exact match
+                if (incomingVerificationEdge.sourceHandle) {
+                  const handle = incomingVerificationEdge.sourceHandle
+                  candidateVerifArtifacts = candidateVerifArtifacts.filter((a) =>
+                    this.matchesArtifactName(a, handle),
                   )
-                  const verifChangeSetId =
-                    typeof verifArtifact?.metadata.changeSetId === 'string'
-                      ? verifArtifact.metadata.changeSetId
-                      : undefined
-                  if (verifChangeSetId) {
-                    if (outcomeResult.data.changeSetId !== verifChangeSetId) {
-                      loopState.runError = `Recovery failed: review artifact changeSetId (${outcomeResult.data.changeSetId}) does not match verification evidence changeset (${verifChangeSetId})`
-                      failedNodeIds.add(node.id)
-                      break
-                    }
+                }
+
+                if (candidateVerifArtifacts.length === 0) {
+                  loopState.runError = `Recovery failed: preceding verification node "${incomingVerificationEdge.source}" produced no compatible verification evidence artifact for current iteration`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                let verifArtifact: WorkflowArtifact | undefined
+                if (candidateVerifArtifacts.length === 1) {
+                  verifArtifact = candidateVerifArtifacts[0]
+                } else {
+                  // If multiple candidates exist, check if exactly one is specifically named 'verification_report'
+                  const namedReportCandidates = candidateVerifArtifacts.filter(
+                    (a) => a.metadata.outputName === 'verification_report',
+                  )
+                  if (namedReportCandidates.length === 1) {
+                    verifArtifact = namedReportCandidates[0]
+                  } else {
+                    // Ambiguous candidate verification artifacts
+                    loopState.runError = `Recovery failed: ambiguous verification evidence from node "${incomingVerificationEdge.source}": multiple candidate artifacts (${String(candidateVerifArtifacts.length)}) found without a unique identity`
+                    failedNodeIds.add(node.id)
+                    break
                   }
+                }
+
+                if (!verifArtifact) {
+                  loopState.runError = `Recovery failed: could not resolve authoritative verification artifact from node "${incomingVerificationEdge.source}"`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                // 1. Authoritative changeSetId validation on verification evidence
+                const rawVerifCsId = verifArtifact.metadata.changeSetId
+                if (!rawVerifCsId || typeof rawVerifCsId !== 'string') {
+                  loopState.runError = `Recovery failed: verification artifact "${verifArtifact.id}" is missing authoritative changeSetId metadata`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+                const verifCsResult = changeSetIdSchema.safeParse(rawVerifCsId)
+                if (!verifCsResult.success) {
+                  loopState.runError = `Recovery failed: verification artifact "${verifArtifact.id}" contains malformed changeSetId: ${verifCsResult.error.message}`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+                if (outcomeResult.data.changeSetId !== verifCsResult.data) {
+                  loopState.runError = `Recovery failed: review artifact changeSetId (${outcomeResult.data.changeSetId}) does not match verification evidence changeset (${verifCsResult.data})`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                // 2. Authoritative evidenceId validation on verification evidence
+                let rawVerifEvidenceId =
+                  typeof verifArtifact.metadata.evidenceId === 'string'
+                    ? verifArtifact.metadata.evidenceId
+                    : undefined
+                if (!rawVerifEvidenceId) {
+                  try {
+                    const parsed: unknown = JSON.parse(verifArtifact.content)
+                    if (
+                      parsed &&
+                      typeof parsed === 'object' &&
+                      'evidenceId' in parsed &&
+                      typeof (parsed as Record<string, unknown>).evidenceId === 'string'
+                    ) {
+                      rawVerifEvidenceId = (parsed as Record<string, unknown>).evidenceId as string
+                    }
+                  } catch {
+                    // Content is not JSON
+                  }
+                }
+
+                if (!rawVerifEvidenceId) {
+                  loopState.runError = `Recovery failed: verification artifact "${verifArtifact.id}" is missing authoritative evidenceId`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+                const verifEvidenceResult = evidenceIdSchema.safeParse(rawVerifEvidenceId)
+                if (!verifEvidenceResult.success) {
+                  loopState.runError = `Recovery failed: verification artifact "${verifArtifact.id}" contains malformed evidenceId: ${verifEvidenceResult.error.message}`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+                if (outcomeResult.data.evidenceId !== verifEvidenceResult.data) {
+                  loopState.runError = `Recovery failed: review artifact evidenceId (${outcomeResult.data.evidenceId}) does not match verification evidence (${verifEvidenceResult.data})`
+                  failedNodeIds.add(node.id)
+                  break
+                }
+
+                // 3. Iteration validation on verification evidence
+                const rawVerifIteration = verifArtifact.metadata.iteration
+                if (
+                  typeof rawVerifIteration === 'number' &&
+                  rawVerifIteration !== currentIteration
+                ) {
+                  loopState.runError = `Recovery failed: verification artifact iteration (${String(rawVerifIteration)}) does not match current iteration (${String(currentIteration)})`
+                  failedNodeIds.add(node.id)
+                  break
                 }
 
                 if (outcomeResult.data.verdict === 'unknown') {

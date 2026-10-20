@@ -2,10 +2,10 @@
 
 **Status:** IMPLEMENTED
 **Authority:** Implementation truth (see [documentation-policy.md](../meta/documentation-policy.md))
-**Last Updated:** 2026-09-26
-**Baseline Commit:** `7b91d670295436fcf138ca48cb4ef6edfa6068f8` (`origin/main`, PR #207 merged)  
-**Active Working State:** `feat/verify-003-adversarial-verifier`  
-**Related:** [current-state.md](current-state.md)  
+**Last Updated:** 2026-10-20
+**Baseline Commit:** `07d3c4b9d8f1b63c8d8e9445356e732d9692eca8` (`origin/main`, PR #227 merged)
+**Active Working State:** `docs/reconcile-progress-tracker-m6-phase5` | Open PR: #228 (`bdd6aa21c76d5747cd7f6bafc0bcd6dc447a395f`)
+**Related:** [current-state.md](current-state.md)
 
 Every number here was produced by running the command shown on the physical repository.
 Nothing on this page is estimated. When a figure cannot be measured, it is marked `UNKNOWN`
@@ -25,8 +25,8 @@ here because a green local run on a different runtime is weaker evidence than a 
 | Node (local measurement) | v24.20.0 |
 | Node (CI, authoritative) | 22 — see §4 |
 | Package version | `0.3.0-alpha.1` |
-| Measured Main SHA | `7b91d670295436fcf138ca48cb4ef6edfa6068f8` |
-| Measured Branch | `feat/verify-003-adversarial-verifier` |
+| Measured Main SHA | `07d3c4b9d8f1b63c8d8e9445356e732d9692eca8` |
+| Measured Branch | `docs/reconcile-progress-tracker-m6-phase5` |
 
 ---
 
@@ -35,13 +35,13 @@ here because a green local run on a different runtime is weaker evidence than a 
 Command: `npx vitest run`
 
 ```
-Test Files   99 passed | 2 skipped (101)
-Tests      1173 passed | 3 skipped (1176)
-Duration     ~59 s
+Test Files  115 passed | 2 skipped (117)
+Tests      1667 passed | 3 skipped (1670)
+Duration     ~269 s
 ```
 
 Per-file assertion counts cited in [current-state.md](current-state.md) were extracted
-from `vitest run` at this baseline.
+from `vitest run` at this baseline. (With open PR #228's 43 reviewer routing tests added on branch, suite stands at 1,710 passing across 116 passed test files).
 
 ---
 
@@ -51,10 +51,10 @@ Each gate below was executed at the baseline commit on the host described in §1
 
 | Gate | Command | Result |
 | :--- | :--- | :--- |
-| Formatting | `npm run format:check` | PASS — all matched files use Prettier style |
+| Formatting | `npx prettier --check "docs/**/*.md"` | PASS — all matched docs files use Prettier style |
 | Lint | `npm run lint` | PASS — zero errors, zero warnings across repository |
 | Typecheck (node, web, test) | `npm run typecheck` | PASS — zero errors across all three tsconfig projects |
-| Unit & integration tests | `npm test` | PASS — 1173 passed, 0 failed, 3 skipped across 99 test files |
+| Unit & integration tests | `npm test` | PASS — 1667 passed, 0 failed, 3 skipped across 115 test files |
 | State diagram invariant | `npm run check:docs` | PASS — `docs/DOMAIN.md: state diagram is up to date` |
 | Build | `npm run build` | NOT RUN in this documentation pass |
 | IPC router parity | `npm run check:router` | NOT RUN in this documentation pass |
@@ -122,4 +122,9 @@ is a genuine gap, not an omission from this page.
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | PR #203 Baseline | 2026-09-22 | `1dfb444` | 96 passed | 1,125 passed | 3 skipped | State & persistence (STATE-001) merged to `main` |
 | PR #204 Baseline | 2026-09-25 | `5987501` | 97 passed | 1,142 passed | 3 skipped | Criteria evaluation (CRIT-001) merged to `main` |
+| PR #207 Baseline | 2026-09-25 | `7b91d67` | 97 passed | 1,142 passed | 3 skipped | Forensic doc stabilization (CRIT-001) merged to `main` |
+| PR #208 Baseline | 2026-09-28 | `391630e` | 99 passed | 1,173 passed | 3 skipped | Adversarial verifier (VERIFY-003) merged to `main` |
+| PR #221 Baseline | 2026-10-15 | `6f7df99` | 108 passed | 1,518 passed | 3 skipped | Artifact lineage recovery (WORK-003 Slice 2C-1) merged to `main` |
+| PR #227 Baseline (Current Main) | 2026-10-20 | `07d3c4b` | 115 passed | 1,667 passed | 3 skipped | Gate authorization (Slice 5B-1C Slice A) merged to `main` |
+| PR #228 Branch (Open PR) | 2026-10-20 | `bdd6aa2` | 116 passed | 1,710 passed | 3 skipped | Reviewer routing & crash recovery (Slice 5B-1C Slice B) in review |
 

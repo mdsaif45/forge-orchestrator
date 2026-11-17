@@ -1,8 +1,9 @@
 import { z } from 'zod'
 import type { PermissionMode } from './permissionMode'
-import { reportStatusSchema, roleSchema, type Capability } from './enums'
+import { reportStatusSchema, roleSchema, verdictSchema, type Capability } from './enums'
 import { evidenceRefSchema } from './question'
 import { repoPathSchema, timestampSchema } from './ids'
+import { findingSchema } from './review'
 
 /**
  * The runtime contract — the only thing the application layer knows about agents.
@@ -160,6 +161,10 @@ export const agentReportSchema = z.strictObject({
     .readonly(),
   /** Must be empty. Anything here halts the workflow rather than being accepted. */
   assumptions: z.array(z.string().min(1)).readonly(),
+  /** Optional claimed verdict from an agent acting as reviewer. Untrusted claim only (A3). */
+  claimedVerdict: verdictSchema.optional(),
+  /** Optional findings from an agent acting as reviewer. */
+  findings: z.array(findingSchema).readonly().optional(),
 })
 
 export type AgentReport = z.infer<typeof agentReportSchema>

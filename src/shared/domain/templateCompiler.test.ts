@@ -72,6 +72,16 @@ describe('compileLinearTemplateToGraph', () => {
     expect(feedbackEdges).toHaveLength(1)
     expect(feedbackEdges[0]!.source).toBe('step-5-reviewer')
     expect(feedbackEdges[0]!.target).toBe('step-3-implementer')
+    expect(feedbackEdges[0]!.condition).toEqual({
+      mode: 'all',
+      predicates: [
+        {
+          ref: 'artifacts.review_report.verdict',
+          operator: 'eq',
+          value: 'fail',
+        },
+      ],
+    })
 
     // 5. Forward DAG validity & topological sorting
     expect(() => {

@@ -1,5 +1,5 @@
 import { isAbsolute, normalize, resolve } from 'node:path'
-import type { Actor } from '@shared/domain'
+import type { Actor, OpenQuestion, PromptPacket, Role, RuntimeEvent } from '@shared/domain'
 import { ArtifactService } from '../artifacts/artifactService'
 import { BindingStore } from '../db/bindingStore'
 import type { ForgeDatabase } from '../db/connection'
@@ -11,7 +11,7 @@ import { WorkflowStore } from '../db/workflowStore'
 import { GitService, WorktreeService } from '../git'
 import type { BindingSet } from '../runtimes/bindings'
 import type { RuntimeRegistry } from '../runtimes/registry'
-import { GraphExecutor, type LeafNodeExecutor } from './graphExecutor'
+import { GraphExecutor, type LeafNodeExecutor, type NodeExecutionContext } from './graphExecutor'
 import { createLeafRunner } from './leafRunner'
 
 /**
@@ -43,6 +43,37 @@ export interface ProductionGraphCompositionOptions {
    * Optional composition-level agent role bindings.
    */
   readonly bindings?: BindingSet | undefined
+  /**
+   * Optional custom leaf node executor hook. Defaults to canonical createLeafRunner.
+   */
+  readonly executeLeafNode?: LeafNodeExecutor | undefined
+  /**
+   * Optional leaf runner wrapper hook to intercept or observe node execution.
+   */
+  readonly wrapLeafRunner?: ((defaultRunner: LeafNodeExecutor) => LeafNodeExecutor) | undefined
+  /**
+   * Optional PromptPacket compiler for agent leaf nodes.
+   */
+  readonly compilePacket?:
+    ((ctx: NodeExecutionContext, role: Role) => Promise<PromptPacket> | PromptPacket) | undefined
+  /**
+   * Optional question notification hook.
+   */
+  readonly onQuestion?: ((question: OpenQuestion) => Promise<void> | void) | undefined
+  /**
+   * Optional runtime event listener.
+   */
+  readonly onEvent?: ((event: RuntimeEvent) => void) | undefined
+  /**
+   * Optional process publisher hook.
+   */
+  readonly onProcess?:
+    | ((process: {
+        readonly write?: (input: string) => void
+        readonly resize?: (cols: number, rows: number) => void
+        readonly onData?: (listener: (chunk: string) => void) => () => void
+      }) => void)
+    | undefined
 }
 
 /**
@@ -174,7 +205,7 @@ export function createGraphExecutorWithLeafRunner(
   const gitServiceFactory = (path: string): GitService => new GitService({ repositoryPath: path })
 
   // 3. Construct LeafRunner wiring real stores and git factory
-  const leafRunner = createLeafRunner({
+  const defaultLeafRunner = createLeafRunner({
     registry: options.registry,
     gitServiceFactory,
     decisionStore,
@@ -184,7 +215,15 @@ export function createGraphExecutorWithLeafRunner(
     bindings: options.bindings,
     actor,
     defaultRuntimeId: options.defaultRuntimeId,
+    compilePacket: options.compilePacket,
+    onQuestion: options.onQuestion,
+    onEvent: options.onEvent,
+    onProcess: options.onProcess,
   })
+
+  const leafRunner = options.wrapLeafRunner
+    ? options.wrapLeafRunner(defaultLeafRunner)
+    : (options.executeLeafNode ?? defaultLeafRunner)
 
   // 4. Construct GraphExecutor wiring real stores, worktree service, artifact service, and leafRunner
   const executor = new GraphExecutor({

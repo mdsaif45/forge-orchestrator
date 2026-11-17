@@ -772,6 +772,18 @@ export class WorkflowStore {
     return row === undefined ? null : this.toGraphRunDomain(row)
   }
 
+  findGraphRunForWorkflow(workflowId: WorkflowId): GraphRun | null {
+    const row = this.db
+      .select()
+      .from(graphRuns)
+      .where(eq(graphRuns.workflowId, workflowId))
+      .orderBy(desc(graphRuns.startedAt))
+      .all()
+      .at(0)
+
+    return row === undefined ? null : this.toGraphRunDomain(row)
+  }
+
   updateGraphRunStatus(input: UpdateGraphRunStatusInput, actor: Actor): GraphRun {
     this.db.transaction(() => {
       const event = this.events.append(

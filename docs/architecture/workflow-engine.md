@@ -64,19 +64,20 @@ The current workflow engine implements a deterministic, sequential state machine
 
 ---
 
-## 2. PLANNED / ROADMAP DIRECTION (Milestone M6 — NOT IMPLEMENTED)
+## 2. GENERIC DAG WORKFLOW ENGINE (Milestone M6 — IMPLEMENTED)
 
-The following concepts represent roadmap planning targets from `docs/roadmap/milestones.md` (M6: Generic DAG Workflow Engine). **There is no accepted ADR or frozen contract authorizing DAG execution.** These items are roadmap intent only and do not authorize architectural implementation:
-- **Declarative Graph Schemas (M6 Planned)**: Proposed future workflow templates defining directed acyclic graphs (DAGs) using declarative node schemas (`workflowGraph.ts`) with cycle detection and topological sorting.
-- **Role-Based Step Dispatch (M6 Planned)**: Proposed binding of graph nodes to abstract roles (`planner`, `implementer`, `verifier`, `reviewer`), preserving the decoupled `IAgentRuntime` boundary.
-- **Preserved Safety Invariants (Binding Constraint)**: If a DAG engine is formally accepted via an ADR in the future, loop bounds (Axiom A5), human decision gates (Axiom A4), and physical evidence verification (Axiom A3) must remain strictly binding across any graph topology.
+Milestone M6 delivers the generic directed acyclic graph (DAG) workflow engine, authorized by ADR-007 and cut over into production under WORK-006E:
+- **Declarative Graph Schemas (ADR-007)**: Workflow templates define directed graphs (`WorkflowTemplateV2`) with cycle detection, topological ordering, slot validation, and typed edges (`data`, `control`, `feedback`).
+- **GraphExecutor & LeafRunner**: `GraphExecutor` (`src/main/workflows/graphExecutor.ts`) drives graph execution, scheduling nodes whose dependencies are satisfied, dispatching leaf nodes (`agent`, `verification`, `user_gate`) through `LeafRunner` (`src/main/workflows/leafRunner.ts`), and handling router nodes directly.
+- **Production Composition & Cutover**: `WorkflowService` instantiates `createGraphExecutorWithLeafRunner` (`src/main/workflows/graphFactory.ts`) and compiles linear templates via `compileLinearTemplateToGraph`. Production execution path is strictly `WorkflowService → GraphExecutor`.
+- **Authoritative Reviewer Routing & Crash Recovery**: Fail-closed reviewer evidence lineage, iteration checks, changeset verification, and idempotent recovery replay across process restarts.
+- **Preserved Safety Invariants**: Bounded loop iterations (Axiom A5), gate-scoped human decision locking (Axiom A4), physical evidence verification (Axiom A3), and strict role permission ceilings (Axiom A7) are enforced across all graph executions.
 
 ---
 
-## 3. PROPOSED / NOT IMPLEMENTED
+## 3. PROPOSED / FUTURE ENHANCEMENTS
 
-The following capabilities are proposed future targets and **are NOT implemented**:
-- **Generic DAG Execution Engine**: Dynamic execution of arbitrary branch topologies (`dagExecutor.ts` was an early exploratory prototype, not active in production workflows).
+The following capabilities are proposed future targets and **are NOT yet implemented**:
 - **Parallel Worktree Branching**: Spawning concurrent agent tasks in isolated git worktrees with automated branch joins.
 - **Dynamic Graph Mutation**: Allowing running workflows to insert or bypass graph nodes mid-flight.
 - **Visual Node Graph Editor**: An interactive visual canvas in the desktop UI for building arbitrary graphs.

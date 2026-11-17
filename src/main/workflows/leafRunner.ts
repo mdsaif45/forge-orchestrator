@@ -10,6 +10,7 @@ import {
   evidenceIdSchema,
   formatPolicyHaltReason,
   permissionForRole,
+  questionIdSchema,
   repositoryIdSchema,
   reviewOutcomeSchema,
   stepIdSchema,
@@ -20,6 +21,7 @@ import {
   type ChangeSet,
   type CriterionResult,
   type EvidenceArtifact,
+  type OpenQuestion,
   type OutputDefinition,
   type PromptPacket,
   type Repository,
@@ -64,6 +66,14 @@ export interface LeafRunnerOptions {
   readonly exchangeFn?: typeof exchange | undefined
   readonly verifyFn?: typeof verifyStep | undefined
   readonly onEvent?: ((event: RuntimeEvent) => void) | undefined
+  readonly onQuestion?: ((question: OpenQuestion) => Promise<void> | void) | undefined
+  readonly onProcess?:
+    | ((process: {
+        readonly write?: (input: string) => void
+        readonly resize?: (cols: number, rows: number) => void
+        readonly onData?: (listener: (chunk: string) => void) => () => void
+      }) => void)
+    | undefined
 }
 
 function isExplicitVerdictOutput(outDef: OutputDefinition): boolean {
@@ -369,6 +379,7 @@ export class LeafRunner {
           ? 'bypassPermissions'
           : permissionForRole(role, isWritable).mode,
       timeoutMs: ctx.node.config.timeoutMs,
+      ...(this.options.onProcess ? { onProcess: this.options.onProcess } : {}),
     })
 
     // Listen to abort signal to cancel active session
@@ -484,6 +495,25 @@ export class LeafRunner {
     const { report } = outcome
 
     if (report.status === 'blocked' || report.status === 'question') {
+      if (this.options.onQuestion && report.openQuestions.length > 0) {
+        for (const first of report.openQuestions) {
+          const qId = questionIdSchema.parse(randomUUID())
+          const openQ: OpenQuestion = {
+            id: qId,
+            question: first.question,
+            whyUndetermined: first.whyUndetermined,
+            evidence: first.evidence,
+            options: first.options,
+            recommendation: first.recommendation,
+            askedBy: `agent:${runtimeId}` as Actor,
+            askedAt: new Date().toISOString(),
+            answer: null,
+            answeredAt: null,
+            answeredBy: null,
+          }
+          await this.options.onQuestion(openQ)
+        }
+      }
       return {
         status: 'blocked',
         runtimeId,

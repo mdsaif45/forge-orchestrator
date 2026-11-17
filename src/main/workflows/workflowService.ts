@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto'
+import { mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
-  assessReview,
-  changeSetIdSchema,
   compileContext,
+  compileLinearTemplateToGraph,
   decisionIdSchema,
   TEMPLATES,
   isTemplateId,
@@ -10,7 +12,6 @@ import {
   isTerminalWorkflowState,
   projectIdSchema,
   questionIdSchema,
-  repositoryIdSchema,
   resolveEffectivePolicy,
   stepIdSchema,
   taskIdSchema,
@@ -22,7 +23,9 @@ import {
   type ProjectId,
   type PromptPacket,
   type ResolvableRule,
+  type Role,
   type RuleScope,
+  type RuntimeEvent,
   type Task,
   type TemplateId,
   type Workflow,
@@ -45,20 +48,22 @@ import { DecisionStore } from '../db/decisionStore'
 import { ChangeSetStore } from '../db/changeSetStore'
 import { PacketStore } from '../context/packetStore'
 import { readRepositoryInstructions } from '../context/repositoryInstructions'
-import { GitService, WorktreeService, type PreparedWorktree } from '../git'
-import { buildChangeSet } from '../evidence/changeSetBuilder'
-import { verifyStep } from '../evidence/verifier'
+import { GitService } from '../git'
 import { bindRole, BindingSet } from '../runtimes/bindings'
 import { BindingStore } from '../db/bindingStore'
 import { agentSessionKey, type AgentSessionRegistry } from '../terminal/sessionRegistry'
-import { Orchestrator } from '../runtimes/orchestrator'
 import type { RuntimeRegistry } from '../runtimes/registry'
 import type { ProjectService } from '../projects/projectService'
+import { ArtifactService } from '../artifacts/artifactService'
+import { ArtifactStore } from '../db/artifactStore'
+import { createGraphExecutorWithLeafRunner } from './graphFactory'
 
 export interface WorkflowServiceOptions {
   readonly db: ForgeDatabase
   readonly projects: ProjectService
   readonly packetDir: string
+  readonly artifactService?: ArtifactService
+  readonly artifactDir?: string
   /**
    * Where per-workflow isolated worktrees are created.
    *
@@ -87,6 +92,7 @@ export class WorkflowService {
   private readonly events: EventStore
   private readonly registry: RuntimeRegistry
   private readonly bindings: BindingStore
+  private readonly artifactService: ArtifactService
   private readonly running = new Map<string, AbortController>()
   private readonly stepLogs = new Map<string, WorkflowLogPayload[]>()
 
@@ -99,6 +105,16 @@ export class WorkflowService {
     this.packets = new PacketStore({ directory: options.packetDir })
     this.registry = options.registry
     this.bindings = new BindingStore(options.db, this.events)
+    this.artifactService =
+      options.artifactService ??
+      new ArtifactService(
+        options.artifactDir ?? join(tmpdir(), 'forge-artifacts'),
+        new ArtifactStore(options.db),
+      )
+  }
+
+  getArtifactService(): ArtifactService {
+    return this.artifactService
   }
 
   getQuestionStore(): QuestionStore {
@@ -115,6 +131,10 @@ export class WorkflowService {
 
   getWorkflowStore(): WorkflowStore {
     return this.workflows
+  }
+
+  getBindingStore(): BindingStore {
+    return this.bindings
   }
 
   list(projectId: string): readonly WorkflowSummaryView[] {
@@ -359,6 +379,26 @@ export class WorkflowService {
 
     // 2. Advance the workflow from AWAITING_APPROVAL to IMPLEMENTING
     const now = new Date().toISOString()
+
+    // Record authoritative gate decision for any active graph run
+    const graphRun = this.workflows.findGraphRunForWorkflow(wId)
+    if (graphRun !== null) {
+      try {
+        this.decisions.recordGateDecision({
+          graphRunId: graphRun.id,
+          nodeId: 'step-2-user',
+          verdict: 'approved',
+          rationale: 'User approved implementation plan and architectural decisions',
+          actor: 'user',
+          occurredAt: now,
+          projectId,
+          workflowId: wId,
+        })
+      } catch {
+        // Idempotent or already recorded
+      }
+    }
+
     const updated = this.workflows.apply(wId, 'userApproved', 'user', now)
     this.notifyEvent({
       workflowId: wId,
@@ -391,6 +431,37 @@ export class WorkflowService {
       })
 
     return this.toDetailView(updated)
+  }
+
+  rejectImplementation(workflowId: string, feedback: string): WorkflowDetailView {
+    const wId = workflowIdSchema.parse(workflowId)
+    const wf = this.workflows.find(wId)
+    if (wf === null) {
+      throw new Error(`Workflow ${workflowId} not found`)
+    }
+
+    const projectId = this.workflows.projectIdOf(wId)
+    const now = new Date().toISOString()
+    const graphRun = this.workflows.findGraphRunForWorkflow(wId)
+    if (graphRun !== null) {
+      try {
+        this.decisions.recordGateDecision({
+          graphRunId: graphRun.id,
+          nodeId: 'step-2-user',
+          verdict: 'rejected',
+          rationale: feedback,
+          actor: 'user',
+          occurredAt: now,
+          projectId,
+          workflowId: wId,
+        })
+      } catch {
+        // Idempotent or already recorded
+      }
+    }
+
+    const updated = this.cancel(workflowId, `Implementation rejected by user: ${feedback}`)
+    return updated ?? this.toDetailView(wf)
   }
 
   answerQuestion(
@@ -530,37 +601,27 @@ export class WorkflowService {
     // the pane attached to processes that are gone.
     const liveSessions: { key: string; handle: { write?: (i: string) => void } }[] = []
 
-    // Agents run here, not in the user's checkout. `agentPath` stays equal to
-    // `repositoryPath` only when no worktree root is configured, which keeps the
-    // existing test harnesses running against a plain directory.
-    let worktree: PreparedWorktree | null = null
-
     try {
       const baseSha = await new GitService({ repositoryPath }).headSha()
-      if (this.options.worktreeRoot !== undefined) {
-        const worktrees = new WorktreeService({
-          repositoryPath,
-          root: this.options.worktreeRoot,
-        })
-        // Clears anything a previous session was killed before disposing, so a crash
-        // does not leave worktrees registered against the user's repository forever.
-        await worktrees.reclaimAbandoned()
-        worktree = await worktrees.prepare(workflowId)
-      }
-      const agentPath = worktree?.path ?? repositoryPath
+      const worktreeRoot =
+        this.options.worktreeRoot ?? join(tmpdir(), `forge-worktrees-${workflowId}`)
+      mkdirSync(worktreeRoot, { recursive: true })
 
-      // Reads the worktree the agents actually edited. Pointed at the project checkout
-      // it would report a clean tree for every run and the change set would be empty.
-      const gitService = new GitService({ repositoryPath: agentPath })
+      const bindings = this.resolveBindings(projectId, workflowId)
 
-      // Ensure runtimes are bound for the template
-      const bindings = this.resolveBindings(projectId)
+      const linearTemplate = TEMPLATES[templateId]
+      const graphTemplate = compileLinearTemplateToGraph(linearTemplate, existing.limits)
 
-      const orchestrator = new Orchestrator({
+      const composition = createGraphExecutorWithLeafRunner({
+        db: this.options.db,
+        eventStore: this.events,
+        worktreeRoot,
+        repositoryPath,
+        artifactService: this.artifactService,
         registry: this.registry,
-        workflows: this.workflows,
-        packets: this.packets,
-        compilePacket: async (ctx) => {
+        bindings,
+        actor: 'system',
+        compilePacket: async (_ctx, role) => {
           const projectDetail = await this.options.projects.get(projectId)
           const rawRules: ResolvableRule[] = [
             ...FORGE_DEFAULT_RULES,
@@ -585,14 +646,7 @@ export class WorkflowService {
             rationale: d.rationale,
           }))
 
-          // Read per step rather than once per workflow: a run can span an edit to the
-          // file, and the packet should say what the repository asked for at the time the
-          // step ran, not when the workflow started.
-          //
-          // The filenames come from the runtime bound to this role — which file a provider
-          // reads is provider-specific, and core must not name one (A6). A role with no
-          // binding gets no instructions rather than a guessed filename.
-          const boundRuntimeId = bindings.get(ctx.role)?.runtimeId ?? null
+          const boundRuntimeId = bindings.get(role)?.runtimeId ?? null
           const instructionFilenames =
             boundRuntimeId !== null && this.registry.has(boundRuntimeId)
               ? this.registry.resolve(boundRuntimeId).instructionFilenames
@@ -603,113 +657,17 @@ export class WorkflowService {
           )
 
           const compiled = compileContext({
-            role: ctx.role,
+            role,
             task,
             rules: effectivePolicy,
             lockedDecisions,
             files: [],
-            previousAttempt: ctx.previousAttempt,
-            reviewFindings: ctx.reviewFindings,
+            previousAttempt: null,
+            reviewFindings: [],
             answeredQuestions,
             repositoryInstructions,
           })
           return compiled.packet
-        },
-        measureChange: async () => {
-          try {
-            const diff = await gitService.diffWorktree(baseSha ?? 'HEAD')
-            return { files: [...diff.files], patch: diff.patch }
-          } catch {
-            return null
-          }
-        },
-        reconcileStep: async (report) => {
-          try {
-            const now = new Date().toISOString()
-            const built = await buildChangeSet(gitService, {
-              baseSha: baseSha ?? 'HEAD',
-              report,
-              scope: task.scope,
-              authorActor: 'agent:implementer',
-              stepId: stepIdSchema.parse(randomUUID()),
-              taskId: task.id,
-              capturedAt: now,
-            })
-            this.changeSets.record(built.changeSet, projectId, 'agent:implementer', now)
-            return built.reconciliation
-          } catch {
-            return null
-          }
-        },
-      })
-
-      // Resolved from the workflow's own `templateId`. It was hardcoded to
-      // FEATURE_IMPLEMENTATION, so every template ran the feature pipeline: the header
-      // read "Template: security" — echoing the stored string — while the engine
-      // executed the feature steps, which is a UI that reports something the run did
-      // not do. Measured in an audit run that selected Security Audit and completed
-      // five feature stages.
-      const template = TEMPLATES[templateId]
-
-      await orchestrator.run({
-        workflowId,
-        template,
-        bindings,
-        // The isolated worktree, not the user's checkout (see WorktreeService).
-        repositoryPath: agentPath,
-        limits: this.workflows.find(workflowId)?.limits ?? {
-          maxIterations: 5,
-          stepTimeoutMs: 30 * 60 * 1000,
-          idleTimeoutMs: 10 * 60 * 1000,
-          totalTimeoutMs: 4 * 60 * 60 * 1000,
-          maxRetries: 3,
-          retryDelayMs: 5000,
-          stopOn: {
-            buildFailure: false,
-            testFailure: false,
-            openQuestion: false,
-            permissionViolation: true,
-            unexpectedFileModification: true,
-          },
-        },
-        approve: () => Promise.resolve(true),
-        verify: async (step, report) => {
-          const projectDetail = await this.options.projects.get(projectId)
-          const project = projectDetail?.project
-          if (project === undefined) return { passed: true, detail: 'verification skipped' }
-          const result = await verifyStep({
-            repository: {
-              id: repositoryIdSchema.parse(project.repository.id),
-              absolutePath: project.repository.absolutePath,
-              defaultBranch: project.repository.defaultBranch,
-              buildCommand: project.repository.buildCommand,
-              testCommand: project.repository.testCommand,
-              tech: project.repository.tech,
-            },
-            workflowId,
-            stepId: step.id,
-            report,
-            task,
-          })
-          return {
-            passed: result.passed,
-            detail: result.detail,
-            criteria: result.criteria,
-          }
-        },
-        reviewStep: (_step, _report, criteria) => {
-          const outcome = assessReview(
-            {
-              changeSetId: changeSetIdSchema.parse(randomUUID()),
-              stepId: stepIdSchema.parse(randomUUID()),
-              claimedVerdict: 'pass',
-              findings: [],
-              summary: 'Review passed',
-              reviewedAt: new Date().toISOString(),
-            },
-            criteria,
-          )
-          return Promise.resolve(outcome)
         },
         onQuestion: (question: OpenQuestion) => {
           this.questions.ask(question, projectId, question.askedBy, question.askedAt)
@@ -720,30 +678,26 @@ export class WorkflowService {
             detail: question.question,
             at: question.askedAt,
           })
+          try {
+            this.workflows.apply(workflowId, 'questionRaised', question.askedBy, question.askedAt, {
+              reason: question.question,
+              questionId: question.id,
+            })
+          } catch {
+            // Ignore if already transitioned
+          }
         },
-        onLog: (stepIndex, text) => {
-          this.logStep(workflowId, { stepIndex, text })
-        },
-        // Rendered into the existing log stream for now (#152). The typed IPC channel a
-        // live view will subscribe to is #153; until it exists, surfacing tool calls as
-        // text is what makes them visible at all — previously they reached nothing.
-        //
-        // Only `tool` and `usage` are rendered. `chunk` would duplicate the reply the
-        // step already logs, and `state` duplicates the stage transitions around it.
-        // Published so the workflow pane can attach to the step's real process
-        // rather than spawning a second session and rendering that (#170).
-        onStepProcess: (stepIndex, agentProcess) => {
+        onProcess: (agentProcess) => {
+          const currentWf = this.workflows.find(workflowId)
+          const stepIndex = currentWf ? currentWf.steps.length : 0
           const key = agentSessionKey(workflowId, stepIndex)
           this.options.sessions?.publish(key, agentProcess)
-          // Retired when the step's own log records it finished. Left published, a
-          // pane opened later would attach to a process that has already exited
-          // and show a frozen screen rather than an honest empty one.
           liveSessions.push({ key, handle: agentProcess })
         },
-        onRuntimeEvent: (stepIndex, event) => {
+        onEvent: (event: RuntimeEvent) => {
           if (event.type === 'tool') {
             const detail = event.detail === '' ? '' : ` ${event.detail}`
-            this.logStep(workflowId, { stepIndex, text: `[TOOL] ${event.name}${detail}` })
+            this.logStep(workflowId, { stepIndex: 0, text: `[TOOL] ${event.name}${detail}` })
             return
           }
 
@@ -755,24 +709,192 @@ export class WorkflowService {
             ].filter((part): part is string => part !== null)
 
             if (parts.length > 0) {
-              this.logStep(workflowId, { stepIndex, text: `[USAGE] ${parts.join(' · ')}` })
+              this.logStep(workflowId, { stepIndex: 0, text: `[USAGE] ${parts.join(' · ')}` })
             }
           }
         },
+        wrapLeafRunner: (defaultRunner) => {
+          return async (ctx) => {
+            const now = new Date().toISOString()
+            const match = /^step-(\d+)-(.*)$/.exec(ctx.node.id)
+            const stepIndex = match?.[1] !== undefined ? parseInt(match[1], 10) - 1 : 0
+            const stepRole = (ctx.node.config.role ?? match?.[2] ?? 'implementer') as Role
+
+            const currentWf = this.workflows.find(workflowId)
+            if (currentWf?.state === 'DISCOVERY') {
+              try {
+                this.workflows.apply(workflowId, 'start', 'system', now)
+              } catch {
+                // Ignore
+              }
+            } else if (currentWf?.state === 'DECISIONS_LOCKED') {
+              try {
+                this.workflows.apply(workflowId, 'implementationStarted', 'system', now)
+              } catch {
+                // Ignore
+              }
+            }
+
+            const boundRuntimeId = ctx.runtimeId ?? bindings.get(stepRole)?.runtimeId ?? null
+            const stepId = stepIdSchema.parse(randomUUID())
+            const stepState = this.workflows.find(workflowId)?.state ?? 'PLANNING'
+
+            this.workflows.startStep(
+              workflowId,
+              {
+                id: stepId,
+                index: stepIndex,
+                role: stepRole,
+                runtimeId: boundRuntimeId,
+                state: stepState,
+                contextRef: null,
+                reportStatus: null,
+                verdict: null,
+                changeSetId: null,
+                startedAt: now,
+                finishedAt: null,
+              },
+              'system',
+              now,
+            )
+
+            this.logStep(workflowId, {
+              stepIndex,
+              text: `Starting step ${String(stepIndex + 1)}: ${ctx.node.title} (${stepRole})`,
+              at: now,
+            })
+
+            const result = await defaultRunner(ctx)
+            const finishTime = new Date().toISOString()
+
+            if (result.status === 'completed') {
+              this.workflows.finishStep(
+                workflowId,
+                stepId,
+                {
+                  verdict: stepRole === 'reviewer' ? 'pass' : null,
+                  changeSetId: result.changeSet?.id ?? null,
+                },
+                'system',
+                finishTime,
+              )
+
+              this.logStep(workflowId, {
+                stepIndex,
+                text: `Step ${String(stepIndex + 1)} completed successfully`,
+                at: finishTime,
+              })
+
+              try {
+                if (stepRole === 'planner') {
+                  this.workflows.apply(workflowId, 'planProduced', 'agent:planner', finishTime)
+                } else if (stepRole === 'user' || ctx.node.type === 'user_gate') {
+                  this.workflows.apply(workflowId, 'userApproved', 'user', finishTime)
+                } else if (stepRole === 'implementer') {
+                  this.workflows.apply(workflowId, 'implemented', 'agent:implementer', finishTime)
+                } else if (stepRole === 'system' || ctx.node.type === 'verification') {
+                  this.workflows.apply(workflowId, 'verified', 'system', finishTime)
+                } else if (stepRole === 'reviewer') {
+                  this.workflows.apply(workflowId, 'reviewPassed', 'agent:reviewer', finishTime)
+                }
+              } catch {
+                // Ignore illegal transition if already transitioned
+              }
+            } else if (result.status === 'blocked') {
+              if (ctx.node.type === 'user_gate' || stepRole === 'user') {
+                this.logStep(workflowId, {
+                  stepIndex,
+                  text: `Step ${String(stepIndex + 1)}: Awaiting human approval (Axiom A4)`,
+                  at: finishTime,
+                })
+              } else {
+                this.logStep(workflowId, {
+                  stepIndex,
+                  text: `Step ${String(stepIndex + 1)}: Awaiting user response to open question`,
+                  at: finishTime,
+                })
+              }
+            } else if (result.status === 'failed') {
+              this.workflows.finishStep(
+                workflowId,
+                stepId,
+                {
+                  verdict: 'fail',
+                  changeSetId: result.changeSet?.id ?? null,
+                },
+                'system',
+                finishTime,
+              )
+              this.logStep(workflowId, {
+                stepIndex,
+                text: `Step ${String(stepIndex + 1)} failed: ${result.error ?? 'unknown error'}`,
+                at: finishTime,
+              })
+              if (result.error?.includes('Policy violation')) {
+                try {
+                  this.workflows.apply(workflowId, 'policyViolated', 'system', finishTime, {
+                    reason: result.error,
+                  })
+                } catch {
+                  // Ignore
+                }
+              }
+            } else {
+              this.logStep(workflowId, {
+                stepIndex,
+                text: `Step ${String(stepIndex + 1)} cancelled: ${result.error ?? 'cancelled'}`,
+                at: finishTime,
+              })
+            }
+
+            return result
+          }
+        },
+      })
+
+      const graphResult = await composition.executor.run({
+        workflowId,
+        projectId,
+        task,
+        template: graphTemplate,
+        forkSha: baseSha ?? '0000000000000000000000000000000000000000',
+        initialContext: {
+          task_objective: task.objective,
+          user_prompt: task.objective,
+        },
+        bindings,
         signal: controller.signal,
       })
+
+      const finishTime = new Date().toISOString()
+      if (graphResult.status === 'completed') {
+        const currentWf = this.workflows.find(workflowId)
+        if (currentWf && !isTerminalWorkflowState(currentWf.state)) {
+          try {
+            this.workflows.apply(workflowId, 'reviewPassed', 'system', finishTime)
+          } catch {
+            // Already handled
+          }
+        }
+      } else if (graphResult.status === 'failed') {
+        const currentWf = this.workflows.find(workflowId)
+        if (currentWf && !isTerminalWorkflowState(currentWf.state)) {
+          try {
+            this.workflows.apply(workflowId, 'policyViolated', 'system', finishTime, {
+              reason: graphResult.error ?? 'Graph execution failed',
+            })
+          } catch {
+            // Ignore
+          }
+        }
+      }
     } catch (err) {
-      console.error(`Workflow ${workflowId} failed execution:`, err)
+      if (!(err instanceof Error && err.message.includes('The database connection is not open'))) {
+        console.error(`Workflow ${workflowId} failed execution:`, err)
+      }
     } finally {
       this.running.delete(workflowId)
-      // Disposed even when the run threw or was cancelled: a worktree left behind
-      // holds a lock on its directory and shows up in `git worktree list` forever.
       for (const session of liveSessions) this.options.sessions?.retire(session.key, session.handle)
-      try {
-        await worktree?.dispose()
-      } catch {
-        // Ignore worktree disposal failure on teardown
-      }
       try {
         const finished = this.workflows.find(workflowId)
         if (finished !== null) {
@@ -806,7 +928,7 @@ export class WorkflowService {
    * every stage reported scripted success — the substitution of a claim for work
    * that A3 exists to prevent. The mock is no longer registered in the app.
    */
-  private resolveBindings(projectId: ProjectId): BindingSet {
+  private resolveBindings(projectId: ProjectId, workflowId?: WorkflowId): BindingSet {
     const stored = this.bindings.list(projectId)
 
     const fallbackRuntimeId = this.registry.has('forge-native-agent')
@@ -816,6 +938,25 @@ export class WorkflowService {
     const forRole = (role: 'planner' | 'implementer' | 'reviewer'): AgentBinding => {
       const configured = stored.find((binding) => binding.role === role)
       if (configured !== undefined && this.registry.has(configured.runtimeId)) return configured
+
+      if (configured !== undefined && !this.registry.has(configured.runtimeId)) {
+        const now = new Date().toISOString()
+        const substitutionMsg = `Runtime "${configured.runtimeId}" configured for role "${role}" is unavailable; substituted with "${fallbackRuntimeId}".`
+
+        if (workflowId) {
+          this.logStep(workflowId, {
+            stepIndex: 0,
+            text: `[BINDING] ${substitutionMsg}`,
+            at: now,
+          })
+          this.notifyEvent({
+            workflowId,
+            type: 'workflow.binding_substituted',
+            detail: substitutionMsg,
+            at: now,
+          })
+        }
+      }
 
       return bindRole(this.registry, { role, runtimeId: fallbackRuntimeId })
     }

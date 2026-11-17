@@ -55,8 +55,7 @@ export interface ProductionGraphCompositionOptions {
    * Optional PromptPacket compiler for agent leaf nodes.
    */
   readonly compilePacket?:
-    | ((ctx: NodeExecutionContext, role: Role) => Promise<PromptPacket> | PromptPacket)
-    | undefined
+    ((ctx: NodeExecutionContext, role: Role) => Promise<PromptPacket> | PromptPacket) | undefined
   /**
    * Optional question notification hook.
    */

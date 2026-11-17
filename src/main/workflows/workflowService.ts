@@ -679,16 +679,10 @@ export class WorkflowService {
             at: question.askedAt,
           })
           try {
-            this.workflows.apply(
-              workflowId,
-              'questionRaised',
-              question.askedBy,
-              question.askedAt,
-              {
-                reason: question.question,
-                questionId: question.id,
-              },
-            )
+            this.workflows.apply(workflowId, 'questionRaised', question.askedBy, question.askedAt, {
+              reason: question.question,
+              questionId: question.id,
+            })
           } catch {
             // Ignore if already transitioned
           }
@@ -797,12 +791,7 @@ export class WorkflowService {
                 } else if (stepRole === 'user' || ctx.node.type === 'user_gate') {
                   this.workflows.apply(workflowId, 'userApproved', 'user', finishTime)
                 } else if (stepRole === 'implementer') {
-                  this.workflows.apply(
-                    workflowId,
-                    'implemented',
-                    'agent:implementer',
-                    finishTime,
-                  )
+                  this.workflows.apply(workflowId, 'implemented', 'agent:implementer', finishTime)
                 } else if (stepRole === 'system' || ctx.node.type === 'verification') {
                   this.workflows.apply(workflowId, 'verified', 'system', finishTime)
                 } else if (stepRole === 'reviewer') {

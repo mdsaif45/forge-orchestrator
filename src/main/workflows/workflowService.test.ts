@@ -340,7 +340,9 @@ describe('WorkflowService', () => {
       expect(bindingLog?.text).toContain('antigravity-cli')
       expect(bindingLog?.text).toContain('unavailable; substituted with')
 
-      const substitutionEvent = capturedEvents.find((e) => e.type === 'workflow.binding_substituted')
+      const substitutionEvent = capturedEvents.find(
+        (e) => e.type === 'workflow.binding_substituted',
+      )
       expect(substitutionEvent).toBeDefined()
       expect(substitutionEvent?.detail).toContain('antigravity-cli')
 

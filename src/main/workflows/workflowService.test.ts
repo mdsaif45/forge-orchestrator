@@ -4,8 +4,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { decisionIdSchema, projectIdSchema, workflowIdSchema } from '@shared/domain'
-import type { ProjectView, WorkflowDetailView } from '@shared/views'
+import {
+  agentBindingIdSchema,
+  decisionIdSchema,
+  permissionsSchema,
+  projectIdSchema,
+  workflowIdSchema,
+} from '@shared/domain'
+import type { ProjectView, WorkflowDetailView, WorkflowEventPayload } from '@shared/views'
 import { initialiseDatabase, type ForgeDatabase } from '../db'
 import { ProjectService } from '../projects/projectService'
 import { MockAgentRuntime } from '../runtimes/mockRuntime'
@@ -29,6 +35,7 @@ describe('WorkflowService', () => {
   let projects: ProjectService
   let workflows: WorkflowService
   let registry: RuntimeRegistry
+  let capturedEvents: WorkflowEventPayload[]
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'forge-workflow-service-test-'))
@@ -37,12 +44,14 @@ describe('WorkflowService', () => {
     projects = new ProjectService(dbHandle.db)
     registry = new RuntimeRegistry()
     registry.register(new MockAgentRuntime({ scenario: SCENARIOS.question, id: 'mock:default' }))
+    capturedEvents = []
 
     workflows = new WorkflowService({
       db: dbHandle.db,
       projects,
       packetDir: join(tempDir, 'packets'),
       registry,
+      emitEvent: (event) => capturedEvents.push(event),
     })
   })
 
@@ -233,6 +242,110 @@ describe('WorkflowService', () => {
       const implementing = workflows.approveAndStartImplementation(started.id)
       expect(implementing.state).toBe('DECISIONS_LOCKED')
       workflows.cancel(started.id)
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    },
+  )
+
+  it('handles user gate rejection and records gate decision (Issue #163)', async () => {
+    const repoPath = join(tempDir, 'repo-reject')
+    mkdirSync(repoPath, { recursive: true })
+    initRepository(repoPath)
+
+    const project: ProjectView = await projects.create({
+      name: 'Reject Test Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'main',
+      buildCommand: null,
+      testCommand: null,
+      tech: [],
+      rules: [],
+    })
+
+    const started: WorkflowDetailView = await workflows.start({
+      projectId: project.id,
+      autoRun: false,
+    })
+
+    const rejected = workflows.rejectImplementation(
+      started.id,
+      'Implementation plan lacks rollback steps',
+    )
+    expect(rejected.state).toBe('CANCELLED')
+
+    const pId = projectIdSchema.parse(project.id)
+    const wId = workflowIdSchema.parse(started.id)
+    const graphRun = workflows.getWorkflowStore().findGraphRunForWorkflow(wId)
+    if (graphRun) {
+      const decision = workflows.getDecisionStore().findGateDecision(graphRun.id, 'step-2-user', {
+        projectId: pId,
+        workflowId: wId,
+      })
+      expect(decision).toBeDefined()
+      expect(decision?.gateVerdict).toBe('rejected')
+      expect(decision?.rationale).toBe('Implementation plan lacks rollback steps')
+    }
+  })
+
+  it(
+    'handles stale runtime binding fallback with event and log trail (Issue #183)',
+    { timeout: 30_000 },
+    async () => {
+      const repoPath = join(tempDir, 'repo-stale-binding')
+      mkdirSync(repoPath, { recursive: true })
+      initRepository(repoPath)
+
+      const project: ProjectView = await projects.create({
+        name: 'Stale Binding Test Project',
+        repositoryPath: repoPath,
+        defaultBranch: 'main',
+        buildCommand: null,
+        testCommand: null,
+        tech: [],
+        rules: [],
+      })
+
+      const pId = projectIdSchema.parse(project.id)
+      const now = new Date().toISOString()
+      const bindingId = agentBindingIdSchema.parse(randomUUID())
+      // Stale binding for implementer pointing to a runtime that does not exist in registry
+      workflows.getBindingStore().set(
+        pId,
+        {
+          id: bindingId,
+          role: 'implementer',
+          runtimeId: 'antigravity-cli',
+          accountId: null,
+          capabilities: ['repo-read', 'file-write'],
+          permissions: permissionsSchema.parse({ writeFiles: true }),
+        },
+        'user',
+        now,
+      )
+
+      const started = await workflows.start({
+        projectId: project.id,
+        autoRun: true,
+      })
+
+      // Wait briefly for workflow execution to resolve bindings
+      for (let i = 0; i < 40; i += 1) {
+        const logs = workflows.getLogs({ workflowId: started.id }).logs
+        if (logs.some((l) => l.text.includes('[BINDING]'))) break
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+
+      const logs = workflows.getLogs({ workflowId: started.id }).logs
+      const bindingLog = logs.find((l) => l.text.includes('[BINDING]'))
+      expect(bindingLog).toBeDefined()
+      expect(bindingLog?.text).toContain('antigravity-cli')
+      expect(bindingLog?.text).toContain('unavailable; substituted with')
+
+      const substitutionEvent = capturedEvents.find((e) => e.type === 'workflow.binding_substituted')
+      expect(substitutionEvent).toBeDefined()
+      expect(substitutionEvent?.detail).toContain('antigravity-cli')
+
+      workflows.cancel(started.id)
+      await new Promise((resolve) => setTimeout(resolve, 100))
     },
   )
 })

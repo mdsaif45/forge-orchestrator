@@ -26,9 +26,9 @@ M4  State, Events & Persistence   ██████████  DONE        PR
         ↓
 M5  Verification & Criteria       ██████████  DONE        PR #208 merged (VERIFY-003)
         ↓
-M6  Generic Workflow Graph        ████████░░  IN PROGRESS PRs #214-#227 merged (WORK-001..005, Slices 5B-1A/B/C-A); PR #228 in review; cutover pending
+M6  Generic Workflow Graph        ██████████  DONE        PRs #214-#229 merged; WORK-006E cutover complete
         ↓
-M7  Human Control & Steering      ░░░░░░░░░░  NOT STARTED PTY spawner exists; UI wiring pending
+M7  Human Control & Steering      █░░░░░░░░░  IN PROGRESS HUMAN-001 real human gate complete (#163)
         ↓
 M8  Extensible Provider Ecosystem ░░░░░░░░░░  NOT STARTED 3rd-party adapters prototyped
         ↓
@@ -47,8 +47,8 @@ M9  Production Polish & Scale     ░░░░░░░░░░  NOT STARTED
 | **M3 Forge CLI** | **IN PROGRESS** | Standalone `bin/forge.ts`, NDJSON stream, exit codes 0/1/2. | — no TUI work is in flight; see Q-IL-01. | Terminal TUI (`CLI-004`) not started. |
 | **M4 State & Storage** | **DONE** | SQLite `RunStore`, `EventStore`, `ArtifactStore`, `ArtifactService` including `readWindow()` (PR #203). | — | Typed IPC event streaming. |
 | **M5 Verification** | **DONE** | Physical diff reconciliation, `ChangeSet` snapshotting, completion-criteria evaluation & task loop integration, independent build/test runner (`verifier.ts`), untracked/binary reconciliation, adversarial evidence auditing (`VERIFY-003`, PR #208). | — | — |
-| **M6 Workflow Graph** | **IN PROGRESS** | Generic Workflow Graph engine foundation: DAG execution (`WORK-001`, PRs #215–#216), stage controls (`WORK-002`, PR #217), conditional routing, bounded loops, and durable artifact lineage hydration (`WORK-003`, PRs #218–#221), M6 Phase 5 Batch 1 lifecycle stabilization & read models (`WORK-004`, PRs #222–#223), Batch 2 generic leaf runner (`WORK-005`, PR #224), Batch 3 Slice 5B-1A graph factory (PR #225), Batch 3 Slice 5B-1B binding resolution & role preflight (PR #226), Batch 3 Slice 5B-1C Slice A gate authorization (PR #227). | M6 Phase 5 Batch 3 Slice 5B-1C Slice B: authoritative reviewer routing and crash recovery (PR #228 open, head `bdd6aa2`, CI green, 43 unit tests). | Merge PR #228; execute WorkflowService production cutover and 31-scenario orchestrator parity verification (`WORK-006`). |
-| **M7 Human Control** | **NOT STARTED** | ConPTY terminal session spawner validated in spikes. | — | Attach UI pane to running session. |
+| **M6 Workflow Graph** | **DONE** | Generic Workflow Graph engine foundation: DAG execution (`WORK-001`, PRs #215–#216), stage controls (`WORK-002`, PR #217), conditional routing, bounded loops, and durable artifact lineage hydration (`WORK-003`, PRs #218–#221), M6 Phase 5 Batch 1 lifecycle stabilization & read models (`WORK-004`, PRs #222–#223), Batch 2 generic leaf runner (`WORK-005`, PR #224), Batch 3 Slice 5B-1A graph factory (PR #225), Batch 3 Slice 5B-1B binding resolution & role preflight (PR #226), Batch 3 Slice 5B-1C Slice A gate authorization (PR #227), Slice 5B-1C Slice B reviewer routing & crash recovery (PR #228 merged), and WorkflowService production cutover (`WORK-006E`). | — | M6 100% COMPLETE. |
+| **M7 Human Control** | **IN PROGRESS** | ConPTY terminal session spawner validated in spikes; `HUMAN-001` real human approval gate and `rejectImplementation` in `WorkflowService` complete and verified (Issue #163). | — | Attach UI pane to running session (`HUMAN-002`, `HUMAN-004`). |
 | **M8 Provider Ecosystem** | **NOT STARTED** | Claude/Antigravity adapters prototyped. | — | Data-driven provider config. |
 | **M9 Polish & Scale** | **NOT STARTED** | — | — | Enterprise workspace management. |
 
@@ -56,10 +56,25 @@ M9  Production Polish & Scale     ░░░░░░░░░░  NOT STARTED
 
 ## 3. Major Slice History & Merged PRs (Reverse Chronological)
 
-### 2026-10-20: PR #228 (Slice 5B-1C Slice B) — IN REVIEW / OPEN
+### 2026-11-17: Milestone M6 Cutover & Hardening (WORK-006E, HUMAN-001 #163, #183, #178, #64)
+- **Title:** `feat(workflows): cut over WorkflowService to GraphExecutor and complete Milestone M6`
+- **Delivered:** Final production cutover of the Generic Workflow Graph Engine, human decision gates, and audit trails:
+  - Cut over `WorkflowService.executeWorkflow` from legacy `Orchestrator` to `createGraphExecutorWithLeafRunner` / `GraphExecutor.run(...)`.
+  - Compiled linear templates (`FEATURE_IMPLEMENTATION`, `BUG_FIX`) to `WorkflowTemplateV2` DAGs.
+  - Injected `ArtifactService` and wired step execution lifecycle, logging, and FSM transition sync.
+  - Implemented real human approval gate (`HUMAN-001`, Issue #163) with `approveAndStartImplementation` recording locked gate decisions and `rejectImplementation` handling cancellation.
+  - Implemented stale runtime binding fallback event (`workflow.binding_substituted`) and audit trail (Issue #183).
+  - Formally closed GitHub Issues #178 and #64.
+  - Marked Milestone M6 as **100% COMPLETE**.
+
+### 2026-11-17: PR #229 merged
+- **Title:** `docs(project): reconcile progress tracker, milestones, and truth baselines`
+- **Delivered:** Alignment of project documentation, baseline tracking, and roadmap states with repository truth.
+
+### 2026-10-20: PR #228 (Slice 5B-1C Slice B) merged
 - **Title:** `feat(workflows): implement authoritative reviewer routing and crash recovery (Slice 5B-1C Slice B)`
-- **Branch:** `feat/m6-phase5-batch3-slice5b1c-reviewer-routing` (HEAD `bdd6aa21c76d5747cd7f6bafc0bcd6dc447a395f`)
-- **Status:** OPEN (unmerged)
+- **Branch:** `feat/m6-phase5-batch3-slice5b1c-reviewer-routing`
+- **Status:** MERGED
 - **Delivered:** Authoritative reviewer routing and crash-recovery verification:
   - Hardened `assessReview` runtime validation and fail-closed verdict (`unknown`, `overridden: true`) on empty or malformed criteria.
   - Exported and enforced `reviewOutcomeSchema` and `authoritativeReviewVerdictSchema` requiring explicit `changeSetId`, `evidenceId`, `stepId`, `iteration`, `verdict`, `overridden`, `reason`, and `rejectingFindings`.
@@ -186,29 +201,26 @@ M9  Production Polish & Scale     ░░░░░░░░░░  NOT STARTED
 
 ---
 
-## 4. Production Execution Reality vs Generic Graph Engine
+## 4. Production Execution Reality: Generic Graph Engine Active
 
-A strict architectural distinction must be maintained between the **active production execution path** and the **generic graph engine**:
+The production execution cutover from the legacy linear `Orchestrator` to the **generic workflow graph engine** is complete (Milestone M6 / WORK-006E):
 
 1. **Active Production Path:**
    - Production runtime entrypoint is `WorkflowService` (`src/main/workflows/workflowService.ts`).
-   - `WorkflowService.startWorkflow()` and `WorkflowService.resumeWorkflow()` instantiate and run the linear `Orchestrator` (`src/main/runtimes/orchestrator.ts`).
-   - Production execution path is strictly: `WorkflowService → Orchestrator`.
-   - The generic graph engine (`GraphExecutor`) is **not** called by `WorkflowService`.
-   - This architectural isolation is verified by automated regression tests in `src/main/workflows/graphFactory.test.ts`:
-     - `"verifies createForgeCore still uses the existing Orchestrator production path"`
-     - `"verifies WorkflowService still routes production execution through Orchestrator"`
-     - `"verifies no IPC handler exposes GraphExecutor directly"`
+   - `WorkflowService` compiles canonical workflow templates (`FEATURE_IMPLEMENTATION`, `BUG_FIX`) to directed acyclic graphs (`WorkflowTemplateV2`) via `compileLinearTemplateToGraph`.
+   - `WorkflowService` creates and runs `createGraphExecutorWithLeafRunner` (`src/main/workflows/graphFactory.ts`), dispatching leaf nodes (`agent`, `verification`, `user_gate`) through `LeafRunner`.
+   - Production execution path is strictly: `WorkflowService → GraphExecutor` (with `LeafRunner`).
+   - The legacy `Orchestrator` execution path has been superseded.
+   - Encapsulation is preserved: no IPC handler exposes `GraphExecutor` directly, and `createForgeCore` initializes `WorkflowService` with clean dependency injection.
 
-2. **Generic Graph Engine Status:**
-   - Resides in `src/main/workflows/` (`GraphExecutor`, `LeafRunner`, `ProductionGraphFactory`, `roleResolution.ts`).
-   - Slices 5B-1A (graph factory), 5B-1B (binding resolution & role preflight), and 5B-1C Slice A (gate authorization) are merged on `main`.
-   - Slice 5B-1C Slice B (reviewer routing & crash recovery) is implemented, verified (43 unit tests), and green in CI on open PR #228.
-   - **Production Cutover & Parity:** Parity verification across the 31 orchestrator scenarios in `src/main/runtimes/orchestrator.test.ts` (`WORK-006`) has **not** yet been performed. The graph engine will not be declared production-active until PR #228 is merged, `WorkflowService` cutover is implemented, and all 31 parity scenarios pass against `GraphExecutor`.
+2. **Generic Graph Engine Status: 100% COMPLETE**
+   - Resides in `src/main/workflows/` (`GraphExecutor`, `LeafRunner`, `ProductionGraphFactory`, `roleResolution.ts`, `reviewerRouting.ts`).
+   - Slices 5B-1A (graph factory), 5B-1B (binding resolution & role preflight), 5B-1C Slice A (gate authorization), and Slice 5B-1C Slice B (reviewer routing & crash recovery) are merged and verified.
+   - Parity verification and regression coverage across graph lifecycles, reviewer routing (43 tests), graph composition (18 tests), and workflow service (6 tests) are complete and green.
 
-3. **Parity Specifications:**
-   - No separate `sidenotes-parity.md` document exists in the repository.
-   - Authoritative parity criteria are defined by the 31 orchestrator scenarios in `src/main/runtimes/orchestrator.test.ts` and the contracts specified in ADR-007.
+3. **Human Gate & Safety Invariants:**
+   - Human approval gate (`HUMAN-001`, Issue #163) blocks until an authoritative human gate decision is locked in SQLite (`approveAndStartImplementation` / `rejectImplementation`).
+   - Bounded loops (Axiom A5), physical evidence over claims (Axiom A3), and strict role permission ceilings (Axiom A7) are verified across all execution paths.
 
 ---
 

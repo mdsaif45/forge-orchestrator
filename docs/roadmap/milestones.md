@@ -1,9 +1,9 @@
 # Milestones & Implementation Tasks
 
-**Status:** PROPOSED
+**Status:** ACTIVE
 **Authority:** Planning Truth
-**Last Updated:** 2026-10-20
-**Baseline:** `main` @ `07d3c4b` (PR #227 merged) | Open PR: #228
+**Last Updated:** 2026-11-17
+**Baseline:** `main` (PR #228, PR #229 merged) | Milestone M6 100% COMPLETE
 **Related Architecture:** [architecture-overview.md](../architecture/architecture-overview.md)
 **Related Progress:** [current-state.md](../project/current-state.md)
 
@@ -23,8 +23,8 @@
 | ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **M0-001** | — | P0 | **DONE** | — | Establish CI matrix, linting, formatting, and test runner baseline. | 678 baseline tests passing on Windows and Linux CI. | PR #186 |
-| **M0-002** | #178 | P1 | **DONE** | — | Resolve intermittent Windows git EBUSY test failures during parallel runs. | Zero flakiness: `gitService.test.ts` uses `removeTempDir` (merged in PR #209; GitHub issue #178 remains open). | PR #209 |
-| **M0-003** | #64 | P3 | **DONE** | — | Formally close obsolete spike #64 with evidence. | Closed conceptually: superseded by ADR-001 (§3 & §4) and ADR-003 (PR #209; GitHub issue #64 remains open). | PR #209 |
+| **M0-002** | #178 | P1 | **DONE** | — | Resolve intermittent Windows git EBUSY test failures during parallel runs. | Zero flakiness: `gitService.test.ts` uses `removeTempDir` (merged in PR #209; GitHub issue #178 closed). | PR #209 |
+| **M0-003** | #64 | P3 | **DONE** | — | Formally close obsolete spike #64 with evidence. | Closed: superseded by ADR-001/ADR-003 and headless CLI test suites (merged in PR #209; GitHub issue #64 closed). | PR #209 |
 
 ---
 
@@ -96,8 +96,8 @@
 | **WORK-006A** | NEW | P0 | **DONE** | WORK-005 | M6 Phase 5 Batch 3 Slice 5B-1A: Production graph composition factory. | `ProductionGraphFactory` implementation wiring stores, worktrees, and leaf runner. | PR #225 (`ba77460`) |
 | **WORK-006B** | NEW | P0 | **DONE** | WORK-006A | M6 Phase 5 Batch 3 Slice 5B-1B: Binding role resolution and capability preflight. | Role resolution ceilings, read-only worktrees, and file-write preflight. | PR #226 (`57cc1a2`) |
 | **WORK-006C** | NEW | P0 | **DONE** | WORK-006B | M6 Phase 5 Batch 3 Slice 5B-1C Slice A: Gate-scoped human decision authorization. | Current graph-run authorization boundary and read-only worktree enforcement. | PR #227 (`07d3c4b`) |
-| **WORK-006D** | NEW | P0 | **IN-PROGRESS** | WORK-006C | M6 Phase 5 Batch 3 Slice 5B-1C Slice B: Authoritative reviewer routing and crash recovery. | Reviewer lineage validation, fail-closed verdicts, conditional feedback evaluation, and recovery replay (43 unit tests). | PR #228 (`bdd6aa2`) |
-| **WORK-006E** | NEW | P0 | **BLOCKED** | WORK-006D | M6 Phase 5 Batch 3: WorkflowService production cutover and 31-scenario orchestrator parity verification. | All 31 orchestrator scenarios passing against GraphExecutor; production cutover. | — |
+| **WORK-006D** | NEW | P0 | **DONE** | WORK-006C | M6 Phase 5 Batch 3 Slice 5B-1C Slice B: Authoritative reviewer routing and crash recovery. | Reviewer lineage validation, fail-closed verdicts, conditional feedback evaluation, and recovery replay (43 unit tests). | PR #228 (`bdd6aa2`) |
+| **WORK-006E** | NEW | P0 | **DONE** | WORK-006D | M6 Phase 5 Batch 3: WorkflowService production cutover and 31-scenario orchestrator parity verification. | WorkflowService cut over to GraphExecutor with LeafRunner; linear template DAG compilation; parity verified. | PR #230 |
 
 ---
 
@@ -105,7 +105,7 @@
 
 | ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **HUMAN-001** | #163 | P0 | **READY** | WORK-001 | Real human approval gate (no auto-approval in production). | FSM pauses for human decision lock. | — |
+| **HUMAN-001** | #163 | P0 | **DONE** | WORK-001 | Real human approval gate (no auto-approval in production). | FSM blocks until locked human decision recorded; rejectImplementation supported; covered in workflowService.test.ts. | PR #230 |
 | **HUMAN-002** | #171 | P1 | **BLOCKED** | ADR-003 | Send prompts and mid-run interjections to live PTY session. | Steer running agent without aborting. | — |
 | **HUMAN-003** | #160 | P1 | **BLOCKED** | HUMAN-002 | Master interactive control plane epic. | Interactive control end-to-end tests. | — |
 | **HUMAN-004** | #154 | P1 | **BLOCKED** | HUMAN-002 | Bind UI xterm pane directly to step child process. | UI terminal attachment and input forwarding. | — |

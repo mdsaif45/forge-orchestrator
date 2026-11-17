@@ -786,25 +786,23 @@ describe('Graph Composition Factory (Slice 5B-1A)', () => {
   })
 
   // ===========================================================================
-  // C. Legacy-path preservation
+  // C. Production cutover & boundary encapsulation
   // ===========================================================================
-  describe('C. Legacy-path preservation', () => {
-    it('verifies createForgeCore still uses the existing Orchestrator production path', () => {
+  describe('C. Production cutover & boundary encapsulation', () => {
+    it('verifies createForgeCore constructs WorkflowService with canonical dependency injection', () => {
       const forgeCoreSource = readFileSync(join(__dirname, '../core/forgeCore.ts'), 'utf8')
 
-      // createForgeCore constructs WorkflowService, not GraphExecutor
+      // createForgeCore constructs WorkflowService, not GraphExecutor directly
       expect(forgeCoreSource).toContain('new WorkflowService({')
-      expect(forgeCoreSource).not.toContain('createGraphExecutorWithLeafRunner')
       expect(forgeCoreSource).not.toContain('new GraphExecutor(')
     })
 
-    it('verifies WorkflowService still routes production execution through Orchestrator', () => {
+    it('verifies WorkflowService routes production execution through GraphExecutor via createGraphExecutorWithLeafRunner', () => {
       const workflowServiceSource = readFileSync(join(__dirname, 'workflowService.ts'), 'utf8')
 
-      // executeWorkflow instantiates Orchestrator
-      expect(workflowServiceSource).toContain('new Orchestrator({')
-      expect(workflowServiceSource).toContain('await orchestrator.run({')
-      expect(workflowServiceSource).not.toContain('createGraphExecutorWithLeafRunner')
+      // executeWorkflow instantiates and runs GraphExecutor via createGraphExecutorWithLeafRunner
+      expect(workflowServiceSource).toContain('createGraphExecutorWithLeafRunner')
+      expect(workflowServiceSource).toContain('await composition.executor.run({')
     })
 
     it('verifies no IPC handler exposes GraphExecutor directly', () => {

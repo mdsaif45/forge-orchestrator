@@ -168,10 +168,13 @@ export { assessCompletion, type CompletionAssessment, type CompletionInput } fro
 
 export {
   assessReview,
+  authoritativeReviewVerdictSchema,
   correctionConstraints,
   findingSchema,
   findingSeveritySchema,
+  reviewOutcomeSchema,
   reviewReportSchema,
+  type AuthoritativeReviewVerdict,
   type Finding,
   type FindingSeverity,
   type ReviewOutcome,

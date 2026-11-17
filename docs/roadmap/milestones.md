@@ -2,8 +2,8 @@
 
 **Status:** PROPOSED
 **Authority:** Planning Truth
-**Last Updated:** 2026-10-16
-**Baseline:** `main` @ `6f7df99` (PR #221 merged)
+**Last Updated:** 2026-10-20
+**Baseline:** `main` @ `07d3c4b` (PR #227 merged) | Open PR: #228
 **Related Architecture:** [architecture-overview.md](../architecture/architecture-overview.md)
 **Related Progress:** [current-state.md](../project/current-state.md)
 
@@ -23,8 +23,8 @@
 | ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **M0-001** | — | P0 | **DONE** | — | Establish CI matrix, linting, formatting, and test runner baseline. | 678 baseline tests passing on Windows and Linux CI. | PR #186 |
-| **M0-002** | #178 | P1 | **DONE** | — | Resolve intermittent Windows git EBUSY test failures during parallel runs. | Zero flakiness: `gitService.test.ts` uses `removeTempDir`. | — |
-| **M0-003** | #64 | P3 | **DONE** | — | Formally close obsolete spike #64 with evidence. | Closed: superseded by ADR-001 (§3 & §4) and ADR-003. | — |
+| **M0-002** | #178 | P1 | **DONE** | — | Resolve intermittent Windows git EBUSY test failures during parallel runs. | Zero flakiness: `gitService.test.ts` uses `removeTempDir` (merged in PR #209; GitHub issue #178 remains open). | PR #209 |
+| **M0-003** | #64 | P3 | **DONE** | — | Formally close obsolete spike #64 with evidence. | Closed conceptually: superseded by ADR-001 (§3 & §4) and ADR-003 (PR #209; GitHub issue #64 remains open). | PR #209 |
 
 ---
 
@@ -78,9 +78,9 @@
 | ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **CRIT-001** | NEW | P0 | **DONE** | EVIDENCE-001 | Durable completion criteria evaluation & task loop integration. | Criterion evaluator engine, task loop evaluation, UNKNOWN!=PASS, evidence persistence, policy-halt preservation. | PR #204 (`5987501`) |
-| **VERIFY-001** | NEW | P0 | **DONE** | EVIDENCE-001 | Physical diff reconciliation enhancements (untracked & binary). | `--untracked-files=all` collection, path codepoint sorting, nested & binary scope halts with status `halted`. | PR #206 |
+| **VERIFY-001** | NEW | P0 | **DONE** | EVIDENCE-001 | Physical diff reconciliation enhancements (untracked & binary). | `--untracked-files=all` collection, path codepoint sorting, nested & binary scope halts with status `halted`. | PR #206 (`92e4e95`) |
 | **VERIFY-002** | NEW | P1 | **DONE** | EVIDENCE-001 | Independent test & build child process execution runner. | `src/main/evidence/verifier.ts`, 14 tests in `verifier.test.ts`. | merged before this baseline |
-| **VERIFY-003** | NEW | P2 | **DONE** | VERIFY-001 | Adversarial edge-case verifier auditor for boundary regressions & deceptive evidence. | `src/main/evidence/adversarial.ts`, `verify003.adversarial.test.ts` (14 tests), `adversarial.test.ts` (12 tests). Detects contradictory/stale/nonexistent evidence, diff discrepancies, false success claims, and out-of-scope breaches. | PR #208 |
+| **VERIFY-003** | NEW | P2 | **DONE** | VERIFY-001 | Adversarial edge-case verifier auditor for boundary regressions & deceptive evidence. | `src/main/evidence/adversarial.ts`, `verify003.adversarial.test.ts` (14 tests), `adversarial.test.ts` (12 tests). Detects contradictory/stale/nonexistent evidence, diff discrepancies, false success claims, and out-of-scope breaches. | PR #208 (`391630e`) |
 
 ---
 
@@ -89,11 +89,15 @@
 | ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **WORK-001** | NEW | P0 | **DONE** | CORE-001 | DAG execution engine for Generic Workflow Graphs. | Arbitrary acyclic graph execution, branch worktree isolation, and pure fan-in patch materialization. | PR #215, PR #216 |
-| **WORK-002** | #164 | P1 | **DONE** | WORK-001 | Stage run, skip, and re-run interactive controls. | Selective node execution in workflow (`runNode`, `skipNode`, `rerunNode`). | PR #217 |
+| **WORK-002** | #164 | P1 | **DONE** | WORK-001 | Stage run, skip, and re-run interactive controls. | Selective node execution in workflow (`runNode`, `skipNode`, `rerunNode`). Partial engine support for Issue #164. | PR #217 |
 | **WORK-003** | NEW | P1 | **DONE** | WORK-001 | Conditional branching, loop edges, bounded iterations, and durable artifact lineage hydration. | Loop / retry integration tests, bounded iterations, and lineage hydration. | PR #218, PR #219, PR #220, PR #221 |
-| **WORK-004** | NEW | P0 | **IN-PROGRESS** | WORK-003 | M6 Phase 5: Graph pause/recovery lifecycle correction and Slice 5A-1 read-model contracts (Batch 1). | 10 lifecycle invariant tests, 25 read model tests. | feat/m6-phase5-batch1-foundation-stabilization |
-| **WORK-005** | NEW | P0 | **READY** | WORK-004 | M6 Phase 5: Generic leaf runner implementation (`leafRunner.ts`, Batch 2). | Injected leaf execution callback tests. | — |
-| **WORK-006** | NEW | P0 | **BLOCKED** | WORK-005 | M6 Phase 5: WorkflowService production cutover and 31-scenario parity verification (Batch 3). | All 31 orchestrator scenarios passing against GraphExecutor. | — |
+| **WORK-004** | NEW | P0 | **DONE** | WORK-003 | M6 Phase 5 Batch 1: Graph pause/recovery lifecycle stabilization and Slice 5A-1 read-model contracts. | 28 lifecycle invariant tests (`graphLifecycle.test.ts`), 25 read-model projection tests (`views.test.ts`). | PR #222 (`bcecb65`), PR #223 (`e434c1e`) |
+| **WORK-005** | NEW | P0 | **DONE** | WORK-004 | M6 Phase 5 Batch 2: Generic leaf runner implementation (`leafRunner.ts`). | Injected leaf execution callback tests with fail-closed change scope and verification evidence mapping. | PR #224 (`a1964a1`) |
+| **WORK-006A** | NEW | P0 | **DONE** | WORK-005 | M6 Phase 5 Batch 3 Slice 5B-1A: Production graph composition factory. | `ProductionGraphFactory` implementation wiring stores, worktrees, and leaf runner. | PR #225 (`ba77460`) |
+| **WORK-006B** | NEW | P0 | **DONE** | WORK-006A | M6 Phase 5 Batch 3 Slice 5B-1B: Binding role resolution and capability preflight. | Role resolution ceilings, read-only worktrees, and file-write preflight. | PR #226 (`57cc1a2`) |
+| **WORK-006C** | NEW | P0 | **DONE** | WORK-006B | M6 Phase 5 Batch 3 Slice 5B-1C Slice A: Gate-scoped human decision authorization. | Current graph-run authorization boundary and read-only worktree enforcement. | PR #227 (`07d3c4b`) |
+| **WORK-006D** | NEW | P0 | **IN-PROGRESS** | WORK-006C | M6 Phase 5 Batch 3 Slice 5B-1C Slice B: Authoritative reviewer routing and crash recovery. | Reviewer lineage validation, fail-closed verdicts, conditional feedback evaluation, and recovery replay (43 unit tests). | PR #228 (`bdd6aa2`) |
+| **WORK-006E** | NEW | P0 | **BLOCKED** | WORK-006D | M6 Phase 5 Batch 3: WorkflowService production cutover and 31-scenario orchestrator parity verification. | All 31 orchestrator scenarios passing against GraphExecutor; production cutover. | — |
 
 ---
 

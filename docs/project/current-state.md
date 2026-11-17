@@ -2,8 +2,8 @@
 
 **Status:** IMPLEMENTED
 **Authority:** Implementation truth (see [documentation-policy.md](../meta/documentation-policy.md))
-**Last Updated:** 2026-10-16
-**Baseline:** `main` @ `6f7df99` (PR #221 merged) | Active Branch: `feat/m6-phase5-batch1-foundation-stabilization`
+**Last Updated:** 2026-10-20
+**Baseline:** `main` @ `07d3c4b` (PR #227 merged) | Active Branch: `feat/m6-phase5-batch3-slice5b1c-reviewer-routing` (PR #228)
 **Verification Baseline:** [verification-baseline.md](verification-baseline.md)
 **Related Roadmap:** [roadmap.md](../roadmap/roadmap.md)
 
@@ -81,7 +81,7 @@ All test counts are per-file assertion counts measured with
 | `AWAITING_USER` pause for human answers | Human-in-the-loop interjection | IMPLEMENTED | VERIFIED | Workflow pauses on open questions and resumes when answered | `src/main/runtimes/orchestrator.ts` | `src/main/runtimes/orchestrator.test.ts` (31) | CORE-002 |
 | Role-capability binding checks | Capability validation | IMPLEMENTED | VERIFIED | Binding rejected if runtime lacks required role capabilities | `src/shared/domain/runtime.ts` | `src/main/runtimes/guards.integration.test.ts` (4) | CORE-002 |
 | Multi-agent closed-loop acceptance | Multi-role autonomous execution | IMPLEMENTED | VERIFIED | Complete plan -> implement -> verify -> review loop verified | `src/main/workflows/workflowService.ts` | `src/main/acceptance/mvpAcceptance.test.ts` (3) | MVP-001 |
-| Generic DAG graph execution engine | Arbitrary directed workflow graph with branch isolation, routing, and loops | IMPLEMENTED | VERIFIED | GraphExecutor executes DAGs with isolated git worktrees (Q-WF-01), fan-in ChangeSet merging, stage controls (run/skip/rerun), bounded loop iterations (A5), and durable artifact lineage hydration. Production cutover of WorkflowService and 31-scenario parity in progress (M6 Phase 5). | `src/main/workflows/graphExecutor.ts`, `src/main/git/worktreeService.ts`, `src/main/evidence/changeSetMerger.ts` | `src/main/workflows/graphExecutor.test.ts` (116) | WORK-001..003 |
+| Generic DAG graph execution engine | Arbitrary directed workflow graph with branch isolation, routing, and loops | IMPLEMENTED | VERIFIED | GraphExecutor executes DAGs with isolated git worktrees (Q-WF-01), fan-in ChangeSet merging, stage controls (run/skip/rerun), bounded loop iterations (A5), durable artifact lineage hydration, pause/recovery stabilization (Batch 1), generic leaf runner (Batch 2), production graph composition factory (Slice 5B-1A), binding role resolution & capability preflight (Slice 5B-1B), and gate-scoped human decision authorization (Slice 5B-1C Slice A) on main. Reviewer routing and crash recovery implemented in open PR #228. Production execution remains WorkflowService → Orchestrator pending cutover and 31-scenario parity verification. | `src/main/workflows/graphExecutor.ts`, `src/main/git/worktreeService.ts`, `src/main/evidence/changeSetMerger.ts`, `src/main/workflows/leafRunner.ts`, `src/main/workflows/graphFactory.ts` | `src/main/workflows/graphExecutor.test.ts` (116), `graphLifecycle.test.ts` (28), `leafRunner.test.ts` (15), `graphFactory.test.ts` (11), `roleResolution.test.ts` (14), `reviewerRouting.test.ts` (43 on PR #228) | WORK-001..006 |
 
 ### 2.5 Agent runtimes
 

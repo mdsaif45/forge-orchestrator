@@ -30,6 +30,35 @@ export const customRuntimeConfigSchema = z.strictObject({
 export type CustomRuntimeConfig = z.infer<typeof customRuntimeConfigSchema>
 
 /**
+ * Schema for profile-level configuration overrides.
+ */
+export const forgeProfileSchema = z.strictObject({
+  dataDir: z.string().optional(),
+  defaultRuntime: z.string().optional(),
+  logLevel: z.enum(['debug', 'info', 'warn', 'error']).optional(),
+  telemetry: z.boolean().optional(),
+  security: z
+    .strictObject({
+      allowExecutionOutsideWorkspace: z.boolean().optional(),
+      maxExecutionTimeMs: z.number().int().positive().optional(),
+    })
+    .optional(),
+  customRuntimes: z.array(customRuntimeConfigSchema).readonly().optional(),
+  providers: z
+    .record(
+      z.string(),
+      z.strictObject({
+        endpoint: z.string().optional(),
+        model: z.string().optional(),
+        apiKeyEnv: z.string().optional(),
+      }),
+    )
+    .optional(),
+})
+
+export type ForgeProfile = z.infer<typeof forgeProfileSchema>
+
+/**
  * Top-level configuration schema for `.forgerc` and `.forgerc.json`.
  */
 export const forgeConfigSchema = z.strictObject({
@@ -41,6 +70,10 @@ export const forgeConfigSchema = z.strictObject({
   logLevel: z.enum(['debug', 'info', 'warn', 'error']).optional(),
   /** Whether anonymous telemetry or metrics collection is enabled. */
   telemetry: z.boolean().optional(),
+  /** Currently active environment profile name. */
+  activeProfile: z.string().optional(),
+  /** Multi-environment configuration profiles. */
+  profiles: z.record(z.string(), forgeProfileSchema).optional(),
   /** Security and execution sandbox policies. */
   security: z
     .strictObject({
@@ -70,6 +103,8 @@ export interface LoadForgeConfigOptions {
   readonly searchFrom?: string | undefined
   /** Explicit config file path (e.g. from `--config`). */
   readonly explicitPath?: string | undefined
+  /** Explicit profile name to activate (overrides activeProfile and FORGE_PROFILE). */
+  readonly profile?: string | undefined
   /** Environment variables dictionary (defaults to `process.env`). */
   readonly env?: Readonly<Record<string, string | undefined>> | undefined
 }
@@ -140,8 +175,22 @@ function stripJsonComments(content: string): string {
 }
 
 /**
+ * Merges profile overrides onto a base ForgeConfig object.
+ */
+export function applyProfileOverrides(base: ForgeConfig, profile: ForgeProfile): ForgeConfig {
+  const merged: ForgeConfig = {
+    ...base,
+    ...profile,
+    security: profile.security ? { ...base.security, ...profile.security } : base.security,
+    providers: profile.providers ? { ...base.providers, ...profile.providers } : base.providers,
+    customRuntimes: profile.customRuntimes ?? base.customRuntimes,
+  }
+  return merged
+}
+
+/**
  * Loads, parses, validates, and resolves Forge configuration.
- * Automatically merges environment variable overrides.
+ * Automatically merges active profile overrides and environment variables.
  */
 export function loadForgeConfig(options?: LoadForgeConfigOptions): ForgeConfig {
   const env = options?.env ?? process.env
@@ -165,6 +214,13 @@ export function loadForgeConfig(options?: LoadForgeConfigOptions): ForgeConfig {
         { cause: error },
       )
     }
+  }
+
+  // Apply profile overrides if specified or active
+  const profileName = options?.profile ?? env.FORGE_PROFILE ?? parsedConfig.activeProfile
+  const activeProfileData = profileName ? parsedConfig.profiles?.[profileName] : undefined
+  if (activeProfileData) {
+    parsedConfig = applyProfileOverrides(parsedConfig, activeProfileData)
   }
 
   return applyEnvOverrides(parsedConfig, env)
@@ -301,5 +357,74 @@ export function setForgeConfigValue(
     previousValue,
     newValue: parsedValue,
     updatedConfig: validated,
+  }
+}
+
+/**
+ * Lists available environment profiles and identifies the active one.
+ */
+export function listForgeProfiles(
+  searchFrom?: string,
+  explicitPath?: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): { readonly activeProfile: string | null; readonly profiles: readonly string[] } {
+  const configPath = findForgeConfigFile(searchFrom, explicitPath, env)
+  if (configPath === null || !existsSync(configPath)) {
+    return { activeProfile: null, profiles: [] }
+  }
+
+  try {
+    const rawContent = readFileSync(configPath, 'utf8')
+    const cleaned = stripJsonComments(rawContent)
+    const json: unknown = JSON.parse(cleaned)
+    const parsed = forgeConfigSchema.parse(json)
+    const active = env.FORGE_PROFILE ?? parsed.activeProfile ?? null
+    const profiles = parsed.profiles ? Object.keys(parsed.profiles).sort() : []
+    return { activeProfile: active, profiles }
+  } catch {
+    return { activeProfile: null, profiles: [] }
+  }
+}
+
+/**
+ * Switches the active configuration profile in .forgerc.
+ */
+export function switchForgeProfile(
+  profileName: string,
+  configPath?: string,
+): {
+  readonly configPath: string
+  readonly previousProfile: string | null
+  readonly newProfile: string
+} {
+  const targetPath = configPath ?? findForgeConfigFile() ?? join(process.cwd(), '.forgerc')
+  if (!existsSync(targetPath)) {
+    throw new Error(`Configuration file not found at "${targetPath}"`)
+  }
+
+  const rawContent = readFileSync(targetPath, 'utf8')
+  const cleaned = stripJsonComments(rawContent)
+  const json: unknown = JSON.parse(cleaned)
+  const parsed = forgeConfigSchema.parse(json)
+
+  if (profileName !== 'default' && !parsed.profiles?.[profileName]) {
+    const available = parsed.profiles ? Object.keys(parsed.profiles).join(', ') : 'none'
+    throw new Error(
+      `Profile "${profileName}" not found in .forgerc. Available profiles: ${available}`,
+    )
+  }
+
+  const previous = parsed.activeProfile ?? null
+  const updated: ForgeConfig = {
+    ...parsed,
+    activeProfile: profileName,
+  }
+
+  saveForgeConfig(targetPath, updated)
+
+  return {
+    configPath: targetPath,
+    previousProfile: previous,
+    newProfile: profileName,
   }
 }

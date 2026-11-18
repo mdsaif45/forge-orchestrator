@@ -3,7 +3,7 @@
 **Status:** IMPLEMENTED
 **Authority:** Implementation truth (see [documentation-policy.md](../meta/documentation-policy.md))
 **Last Updated:** 2026-11-18
-**Baseline:** `main` @ `755b740` (PR #241 merged)
+**Baseline:** `main` @ `ad67cd8` (PR #253 merged)
 **Verification Baseline:** [verification-baseline.md](verification-baseline.md)
 **Related Roadmap:** [roadmap.md](../roadmap/roadmap.md)
 
@@ -65,6 +65,11 @@ All test counts are per-file assertion counts measured with
 | Bounded process log rotation | Prevent disk exhaustion from agent logs | IMPLEMENTED | VERIFIED | `ProcessManager` rotates logs to `.log.1` when `maxLogBytes` ceiling is exceeded (A5) | `src/main/process/processManager.ts` | `src/main/process/process.test.ts` (42) | LOG-002 |
 | Runtime execution benchmark probe | End-to-end execution test for runtimes | IMPLEMENTED | VERIFIED | `forge runtimes test <runtimeId>` validates execution responsiveness and measures roundtrip latency | `src/main/runtimes/probe.ts`, `src/main/cli.ts` | `src/main/runtimes/probe.test.ts` (8), `src/main/cli.test.ts` (19) | RUNTIME-002 |
 | Extended declarative criteria evaluators | Custom guardrail completion rules | IMPLEMENTED | VERIFIED | Evaluates `file-forbidden` (A7), `max-diff-lines` (A5), and `artifact-regex` rules against physical evidence | `src/shared/domain/completion.ts` | `src/shared/domain/completion.test.ts` (33) | CRIT-002 |
+| Workflow DAG execution planning & ASCII visualization | Static topological stage planning & diagram generation | IMPLEMENTED | VERIFIED | `forge workflows plan` calculates topological stages, role ceilings, feedback edges, and ASCII flow diagrams | `src/main/workflows/planner.ts`, `src/main/cli.ts` | `src/main/workflows/planner.test.ts` (4), `src/main/cli.test.ts` (24) | WORK-010 |
+| Physical changeset diff inspection | Structured git diff metrics & scope auditing | IMPLEMENTED | VERIFIED | `forge diff` parses unified git diff patches, line additions/deletions, binary detection, and path scope bounds (A7) | `src/main/evidence/diffInspector.ts`, `src/main/cli.ts` | `src/main/evidence/diffInspector.test.ts` (3), `src/main/cli.test.ts` (24) | DIFF-001 |
+| Cryptographic artifact checksum audit | Physical disk integrity & tamper detection | IMPLEMENTED | VERIFIED | `forge artifacts verify` audits physical SHA-256 disk bytes and size against SQLite artifact records (A3) | `src/main/evidence/checksumAudit.ts`, `src/main/cli.ts` | `src/main/evidence/checksumAudit.test.ts` (4), `src/main/cli.test.ts` (24) | VERIFY-004 |
+| Process watchdog & execution metrics | Child process heartbeat watchdog & resource metrics | IMPLEMENTED | VERIFIED | `ProcessManager` tracks activity heartbeats (`heartbeatTimeoutMs`), runtime durations, and buffers process metrics via `forge processes list` | `src/main/process/processManager.ts`, `src/main/cli.ts` | `src/main/process/processWatchdog.test.ts` (2), `src/main/cli.test.ts` (24) | PROCESS-003 |
+| Multi-environment configuration profiles | Profile management & switching | IMPLEMENTED | VERIFIED | `forge config profile [list|use|show]` configures and switches environment-specific profiles in .forgerc | `src/main/config/forgeConfig.ts`, `src/main/cli.ts` | `src/main/config/forgeConfigProfile.test.ts` (7), `src/main/cli.test.ts` (24) | CONFIG-002 |
 
 ### 2.2 State, storage & events
 

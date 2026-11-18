@@ -41,3 +41,19 @@ export {
   type ArtifactAuditResult,
   type ChecksumAuditReport,
 } from './checksumAudit'
+
+export {
+  executeVerificationPipeline,
+  writeVerificationPipelineArtifact,
+  type VerificationPipelineInput,
+  type VerificationPipelineReport,
+  type VerificationStepResult,
+  type VerificationStepSpec,
+} from './verificationPipeline'
+
+export {
+  applyRollbackPatch,
+  generateReversePatch,
+  rollbackRunChanges,
+  type RollbackResult,
+} from './patchRollback'

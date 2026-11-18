@@ -124,6 +124,7 @@ export interface ForgeCore {
   readonly bindings: BindingService
   readonly enrollment: EnrollmentService
   readonly runs: RunStore
+  readonly eventStore: EventStore
   readonly artifacts: ArtifactService
   readonly artifactStore: ArtifactStore
   readonly appliedMigrations: number
@@ -312,6 +313,7 @@ export function createForgeCore(options: ForgeCoreOptions = {}): ForgeCore {
     bindings: bindingService,
     enrollment: enrollmentService,
     runs: runStore,
+    eventStore,
     artifacts: artifactService,
     artifactStore,
     appliedMigrations,

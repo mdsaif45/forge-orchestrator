@@ -5,8 +5,8 @@ Project:            Forge — AI Engineering Control Plane
 Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
 Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
 Last updated:       2026-11-18
-Evidence baseline:  main @ ad67cd8 (PR #253 merged)
-Active branch:      feat/m3-m5-dag-plan-diff-audit-watchdog-profiles
+Evidence baseline:  main @ b606e8a (PR #259 merged)
+Active branch:      feat/m3-m5-m6-profiler-pipeline-revert-export-doctor
 ```
 
 ---
@@ -302,20 +302,19 @@ An explicit discrepancy exists between GitHub milestone numbers, GitHub mileston
 
 ## 6. Active Work, Dependencies, and Next Action
 
-- **Current State Baseline:** `main` @ `b8aae37` (PR #247 merged).
+- **Current State Baseline:** `main` @ `b606e8a` (PR #259 merged).
 - **Recent Completed PRs:**
-  - **PR #235:** `feat(agent,cli): concurrent tool execution, ollama auto-discovery, workflows cli, and milestone reconciliation (#149, #156, #160, #165)` (`847cce9`).
-  - **PR #241:** `feat(cli,agent,ipc): model discovery, streaming artifacts, security sandboxing, and workflow run (#236, #237, #238, #239, #240)` (`755b740`).
-  - **PR #247:** `feat(cli,runtimes,config,db): workflow init, artifact grep, runtime health, config cli, and db vacuum (#242, #243, #244, #245, #246)` (`b8aae37`).
-- **In-Progress Cluster (feat/m3-m6-dag-validation-context-logs-runtimes-criteria):**
-  - **Issue #248 (WORK-009):** `forge workflows validate` static DAG topology verification and dry-run.
-  - **Issue #249 (PROMPT-002):** `forge context inspect` prompt packet extraction and inspection.
-  - **Issue #250 (LOG-002):** Size-bounded process log rotation (`.log.1`) in `ProcessManager`.
-  - **Issue #251 (RUNTIME-002):** `forge runtimes test` runtime execution diagnostics and benchmark probe.
-  - **Issue #252 (CRIT-002):** Extended declarative criteria evaluators (`file-forbidden`, `max-diff-lines`, `artifact-regex`).
+  - **PR #253:** `feat(workflows,prompt,process,runtimes,criteria): static dag validation, context inspection, log rotation, runtime benchmarks, and criteria evaluators (#248, #249, #250, #251, #252)` (`ad67cd8`).
+  - **PR #259:** `feat(workflows,evidence,process,config): workflow planner, diff inspector, checksum audit, process watchdog, and config profiles (#254, #255, #256, #257, #258)` (`b606e8a`).
+- **In-Progress Cluster (feat/m3-m5-m6-profiler-pipeline-revert-export-doctor):**
+  - **Issue #260 (WORK-011):** `forge workflows profile` workflow execution metrics, bottleneck profiling, and critical path analysis.
+  - **Issue #261 (VERIFY-005):** `forge verify pipeline` multi-command verification pipeline runner with fail-closed short-circuiting.
+  - **Issue #262 (DIFF-002):** `forge diff revert` changeset reverse patch generation and safe rollback execution.
+  - **Issue #263 (ARTIFACT-003):** `forge artifacts export` self-contained execution run bundle export and manifest generation.
+  - **Issue #264 (CONFIG-003):** `forge config doctor` environment health auditor, database integrity, and config doctor.
 - **Milestones Status:** All GitHub Milestones M0 through M11 are completed and closed with zero remaining open issues.
 - **Dependencies & Blockers:** None. Local verification gates and test suites are 100% green.
 - **Immediate Next Action:**
-  1. Open PR for Issues #248, #249, #250, #251, #252.
+  1. Open PR for Issues #260, #261, #262, #263, #264.
   2. Verify all CI checks pass on GitHub Actions.
   3. Merge PR to `main` via squash merge.

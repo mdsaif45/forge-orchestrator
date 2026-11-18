@@ -37,4 +37,5 @@ export {
   type StagePlan,
   type WorkflowExecutionPlan,
 } from './planner'
+export { profileWorkflowExecution, type NodeProfile, type WorkflowProfileReport } from './profiler'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

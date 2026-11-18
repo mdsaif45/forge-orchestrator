@@ -3,7 +3,7 @@
 **Status:** IMPLEMENTED
 **Authority:** Implementation truth (see [documentation-policy.md](../meta/documentation-policy.md))
 **Last Updated:** 2026-11-18
-**Baseline:** `main` @ `ad67cd8` (PR #253 merged)
+**Baseline:** `main` @ `b606e8a` (PR #259 merged)
 **Verification Baseline:** [verification-baseline.md](verification-baseline.md)
 **Related Roadmap:** [roadmap.md](../roadmap/roadmap.md)
 
@@ -70,6 +70,11 @@ All test counts are per-file assertion counts measured with
 | Cryptographic artifact checksum audit | Physical disk integrity & tamper detection | IMPLEMENTED | VERIFIED | `forge artifacts verify` audits physical SHA-256 disk bytes and size against SQLite artifact records (A3) | `src/main/evidence/checksumAudit.ts`, `src/main/cli.ts` | `src/main/evidence/checksumAudit.test.ts` (4), `src/main/cli.test.ts` (24) | VERIFY-004 |
 | Process watchdog & execution metrics | Child process heartbeat watchdog & resource metrics | IMPLEMENTED | VERIFIED | `ProcessManager` tracks activity heartbeats (`heartbeatTimeoutMs`), runtime durations, and buffers process metrics via `forge processes list` | `src/main/process/processManager.ts`, `src/main/cli.ts` | `src/main/process/processWatchdog.test.ts` (2), `src/main/cli.test.ts` (24) | PROCESS-003 |
 | Multi-environment configuration profiles | Profile management & switching | IMPLEMENTED | VERIFIED | `forge config profile [list|use|show]` configures and switches environment-specific profiles in .forgerc | `src/main/config/forgeConfig.ts`, `src/main/cli.ts` | `src/main/config/forgeConfigProfile.test.ts` (7), `src/main/cli.test.ts` (24) | CONFIG-002 |
+| Workflow execution profiling & bottleneck detection | Latency profiling and critical path analysis | IMPLEMENTED | VERIFIED | `forge workflows profile <runId>` computes step durations, bottleneck nodes, and iteration cycles | `src/main/workflows/profiler.ts`, `src/main/cli.ts` | `src/main/workflows/profiler.test.ts` (3), `src/main/cli.test.ts` (29) | WORK-011 |
+| Multi-stage verification pipeline runner | Sequential verification pipeline with short-circuiting | IMPLEMENTED | VERIFIED | `forge verify pipeline <config>` executes verification stages and fails closed on first error (A2) | `src/main/evidence/verificationPipeline.ts`, `src/main/cli.ts` | `src/main/evidence/verificationPipeline.test.ts` (4), `src/main/cli.test.ts` (29) | VERIFY-005 |
+| Changeset reverse patch rollback | Safe atomic patch reversal | IMPLEMENTED | VERIFIED | `forge diff revert <runId>` generates reverse patch, validates via `git apply --check`, and restores files | `src/main/evidence/patchRollback.ts`, `src/main/cli.ts` | `src/main/evidence/patchRollback.test.ts` (4), `src/main/cli.test.ts` (29) | DIFF-002 |
+| Self-contained execution archive exporter | Audit-proof execution bundle export | IMPLEMENTED | VERIFIED | `forge artifacts export <runId>` creates JSON/directory archive with cryptographic SHA-256 manifest | `src/main/artifacts/artifactExporter.ts`, `src/main/cli.ts` | `src/main/artifacts/artifactExporter.test.ts` (3), `src/main/cli.test.ts` (29) | ARTIFACT-003 |
+| Environment health & diagnostic doctor | Environment, SQLite, and config auditor | IMPLEMENTED | VERIFIED | `forge config doctor` verifies .forgerc, SQLite integrity_check/foreign_key_check, git, and provider reachability | `src/main/config/configDoctor.ts`, `src/main/cli.ts` | `src/main/config/configDoctor.test.ts` (2), `src/main/cli.test.ts` (29) | CONFIG-003 |
 
 ### 2.2 State, storage & events
 

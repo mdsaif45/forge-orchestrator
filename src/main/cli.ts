@@ -1,20 +1,30 @@
+import { existsSync, readFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import {
   artifactIdSchema,
+  compileLinearTemplateToGraph,
+  BUG_FIX,
+  FEATURE_IMPLEMENTATION,
   projectIdSchema,
   runIdSchema,
   runStatusSchema,
   workflowIdSchema,
   type ProjectId,
   type RunStatus,
+  type WorkflowTemplateV2,
 } from '@shared/domain'
 import type { WorkflowDetailView, WorkflowSummaryView } from '@shared/views'
 import { createForgeCore, resolveDataDir } from './core/forgeCore'
 import { executeDirectTask, type DirectTaskEvent } from './core/taskRunner'
 import { GitService } from './git'
 import { discoverOllamaModels } from './providers/ollamaDiscovery'
-import { probeRuntimeExecutable, runtimeDescription, runtimeExecutable } from './runtimes'
+import {
+  probeRuntimeExecutable,
+  runtimeDescription,
+  runtimeExecutable,
+  testRuntimeExecution,
+} from './runtimes'
 import {
   findForgeConfigFile,
   getForgeConfigValue,
@@ -22,6 +32,8 @@ import {
   setForgeConfigValue,
 } from './config/forgeConfig'
 import { getDatabaseStats, vacuumDatabase } from './db'
+import { DEFAULT_TEMPLATES_V2 } from './templates/defaultTemplatesV2'
+import { validateTemplateGraph } from './workflows/validation'
 
 const VERSION = '0.3.0-alpha.1'
 
@@ -89,9 +101,12 @@ ${ANSI.bold}EXAMPLES${ANSI.reset}
   forge run "Fix failing tests in src/parser.ts"
   forge run "Add unit test for auth token validation" --model gpt-4o
   forge workflows init --template feature --objective "Implement auth" --run
+  forge workflows validate FEATURE_IMPLEMENTATION
   forge workflows run 123e4567-e89b-12d3-a456-426614174000
   forge artifacts grep 123e4567-e89b-12d3-a456-426614174000 "FAIL" -i
+  forge context inspect 123e4567-e89b-12d3-a456-426614174000
   forge runtimes list
+  forge runtimes test forge-native-agent
   forge config get logLevel
   forge config set logLevel debug
   forge db stats
@@ -240,6 +255,17 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
   if (command === 'runtimes' || command === 'runtime') {
     return handleRuntimes({
       action: positionals[1],
+      targetId: positionals[2],
+      dataDir,
+      json: values.json,
+    })
+  }
+
+  if (command === 'context') {
+    return handleContext({
+      action: positionals[1],
+      runId: positionals[2],
+      stepId: positionals[3],
       dataDir,
       json: values.json,
     })
@@ -1327,7 +1353,16 @@ async function handleWorkflows(opts: {
   const core = createForgeCore({ dataDir: opts.dataDir })
 
   try {
-    const KNOWN_ACTIONS = ['list', 'inspect', 'run', 'resume', 'cancel', 'approve', 'init'] as const
+    const KNOWN_ACTIONS = [
+      'list',
+      'inspect',
+      'run',
+      'resume',
+      'cancel',
+      'approve',
+      'init',
+      'validate',
+    ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
 
@@ -1684,9 +1719,92 @@ async function handleWorkflows(opts: {
       }
     }
 
+    if (action === 'validate') {
+      const allKnownTemplates: WorkflowTemplateV2[] = [
+        ...DEFAULT_TEMPLATES_V2,
+        compileLinearTemplateToGraph(FEATURE_IMPLEMENTATION),
+        compileLinearTemplateToGraph(BUG_FIX),
+      ]
+      const templatesToValidate: WorkflowTemplateV2[] = []
+
+      // If targetId is a file path that exists, load it
+      if (targetId && existsSync(targetId)) {
+        try {
+          const raw: unknown = JSON.parse(readFileSync(targetId, 'utf8'))
+          templatesToValidate.push(raw as WorkflowTemplateV2)
+        } catch (err) {
+          const msg = `Failed to parse template JSON at "${targetId}": ${err instanceof Error ? err.message : String(err)}`
+          if (opts.json) console.log(JSON.stringify({ error: msg }))
+          else console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+          return 1
+        }
+      } else if (targetId && targetId !== 'all') {
+        const normTarget = targetId.toLowerCase().replace(/[-_]/g, '')
+        const found = allKnownTemplates.find((t) => {
+          const normId = t.id.toLowerCase().replace(/[-_]/g, '')
+          const normName = t.name.toLowerCase().replace(/[-_]/g, '')
+          return (
+            t.id.toLowerCase() === targetId.toLowerCase() ||
+            t.name.toLowerCase() === targetId.toLowerCase() ||
+            normId === normTarget ||
+            normName === normTarget ||
+            (normTarget.includes('feature') && normId.includes('feature')) ||
+            (normTarget.includes('bug') && normId.includes('bug'))
+          )
+        })
+        if (!found) {
+          const msg = `Template "${targetId}" not found in default catalog or local path`
+          if (opts.json) console.log(JSON.stringify({ error: msg }))
+          else console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+          return 1
+        }
+        templatesToValidate.push(found)
+      } else {
+        // Validate all default and compiled templates
+        templatesToValidate.push(...allKnownTemplates)
+      }
+
+      const results = templatesToValidate.map((tmpl) => ({
+        templateId: tmpl.id,
+        name: tmpl.name,
+        result: validateTemplateGraph(tmpl),
+      }))
+
+      if (opts.json) {
+        console.log(JSON.stringify({ validations: results }))
+        return results.every((r) => r.result.valid) ? 0 : 1
+      }
+
+      console.log(
+        `\n${ANSI.bold}Workflow Graph Validation (${String(results.length)} template${results.length === 1 ? '' : 's'})${ANSI.reset}:`,
+      )
+      let hasError = false
+      for (const item of results) {
+        const statusBadge = item.result.valid
+          ? `${ANSI.green}✓ VALID${ANSI.reset}`
+          : `${ANSI.red}✗ INVALID${ANSI.reset}`
+        console.log(`\n  ${statusBadge} ${ANSI.bold}${item.name}${ANSI.reset} (${item.templateId})`)
+        console.log(
+          `    Nodes: ${String(item.result.metrics.nodeCount)} | Edges: ${String(item.result.metrics.edgeCount)} | Feedback Loops: ${String(item.result.metrics.feedbackLoopCount)} | Sinks: ${String(item.result.metrics.terminalCount)}`,
+        )
+        if (item.result.topologicalOrder) {
+          console.log(`    Topology: ${item.result.topologicalOrder.join(' → ')}`)
+        }
+        for (const warn of item.result.warnings) {
+          console.log(`    ${ANSI.yellow}⚠ Warning: ${warn}${ANSI.reset}`)
+        }
+        for (const err of item.result.errors) {
+          hasError = true
+          console.log(`    ${ANSI.red}✖ Error: ${err}${ANSI.reset}`)
+        }
+      }
+      console.log('')
+      return hasError ? 1 : 0
+    }
+
     console.error(`${ANSI.red}Unknown workflows action: "${action}"${ANSI.reset}`)
     console.error(
-      'Usage: forge workflows [list|inspect|run|resume|cancel|approve|init] [<id>] [--json]',
+      'Usage: forge workflows [list|inspect|run|resume|cancel|approve|init|validate] [<id>] [--json]',
     )
     return 1
   } catch (error) {
@@ -1704,11 +1822,54 @@ async function handleWorkflows(opts: {
 
 async function handleRuntimes(opts: {
   action?: string | undefined
+  targetId?: string | undefined
   dataDir: string
   json: boolean
 }): Promise<number> {
   const core = createForgeCore({ dataDir: opts.dataDir })
   try {
+    if (opts.action === 'test') {
+      const runtimeId = opts.targetId
+      if (!runtimeId) {
+        const err = 'Usage: forge runtimes test <runtimeId>'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      const runtimesList = core.runtimes.list()
+      const found = runtimesList.find((r) => r.id === runtimeId)
+      if (!found) {
+        const err = `Runtime "${runtimeId}" not found in registered runtimes`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      const named = runtimeExecutable(found.id)
+      const executable = found.simulated || named === found.id ? null : named
+      const result = await testRuntimeExecution(found.id, executable, {
+        isSimulated: found.simulated,
+      })
+
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+        return result.success ? 0 : 1
+      }
+
+      console.log(`\n${ANSI.bold}Runtime Execution Test${ANSI.reset}:`)
+      console.log(`  Runtime:    ${result.runtimeId}`)
+      console.log(`  Executable: ${result.executable ?? '[in-process]'}`)
+      console.log(`  Duration:   ${String(result.durationMs)}ms`)
+      console.log(
+        `  Status:     ${result.success ? `${ANSI.green}SUCCESS${ANSI.reset}` : `${ANSI.red}FAILED${ANSI.reset}`}`,
+      )
+      if (result.output) console.log(`  Output:     ${result.output}`)
+      if (result.error) console.log(`  Error:      ${ANSI.red}${result.error}${ANSI.reset}`)
+      console.log('')
+      return result.success ? 0 : 1
+    }
+
     const runtimesList = core.runtimes.list()
     const probed = await Promise.all(
       runtimesList.map(async (r) => {
@@ -1753,6 +1914,115 @@ async function handleRuntimes(opts: {
         console.log(`    ${ANSI.dim}${p.label.summary}${ANSI.reset}`)
       }
       console.log(`    Capabilities: ${p.capabilities.join(', ')}`)
+    }
+    console.log('')
+    return 0
+  } finally {
+    await core.close()
+  }
+}
+
+async function handleContext(opts: {
+  action: string | undefined
+  runId: string | undefined
+  stepId: string | undefined
+  dataDir: string
+  json: boolean
+}): Promise<number> {
+  const core = createForgeCore({ dataDir: opts.dataDir })
+
+  try {
+    let action = opts.action ?? 'inspect'
+    let runId = opts.runId
+    const stepId = opts.stepId
+
+    if (action !== 'inspect') {
+      runId = action
+      action = 'inspect'
+    }
+
+    if (!runId) {
+      const err = 'Usage: forge context inspect <runId> [stepId]'
+      if (opts.json) console.log(JSON.stringify({ error: err }))
+      else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+      return 1
+    }
+
+    const parsedRunId = runIdSchema.safeParse(runId)
+    if (!parsedRunId.success) {
+      const err = `Invalid run ID "${runId}". Expected a valid UUID.`
+      if (opts.json) console.log(JSON.stringify({ error: err }))
+      else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+      return 1
+    }
+
+    const allArtifacts = core.artifactStore.listForRun(parsedRunId.data)
+    const promptPackets = allArtifacts.filter((a) => a.kind === 'prompt-packet')
+
+    if (promptPackets.length === 0) {
+      const err = `No prompt-packet artifacts found for run "${runId}"`
+      if (opts.json) console.log(JSON.stringify({ error: err }))
+      else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+      return 1
+    }
+
+    const targetPacket = stepId
+      ? promptPackets.find((a) => a.stepId === stepId)
+      : promptPackets[promptPackets.length - 1]
+
+    if (!targetPacket) {
+      const err = `No prompt-packet artifact found for run "${runId}" and step "${stepId ?? ''}"`
+      if (opts.json) console.log(JSON.stringify({ error: err }))
+      else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+      return 1
+    }
+
+    const content = await core.artifacts.readArtifactText(targetPacket.id)
+    let parsed: unknown = content
+    try {
+      parsed = JSON.parse(content)
+    } catch {
+      // Keep as string
+    }
+
+    if (opts.json) {
+      console.log(
+        JSON.stringify({
+          runId,
+          stepId: targetPacket.stepId,
+          artifactId: targetPacket.id,
+          createdAt: targetPacket.createdAt,
+          packet: parsed,
+        }),
+      )
+      return 0
+    }
+
+    console.log(`\n${ANSI.bold}Prompt Context Packet${ANSI.reset}:`)
+    console.log(`  Run ID:      ${runId}`)
+    console.log(`  Step ID:     ${targetPacket.stepId ?? 'none'}`)
+    console.log(`  Artifact ID: ${targetPacket.id}`)
+    console.log(`  Created At:  ${targetPacket.createdAt}`)
+    const estTokens = Math.ceil(content.length / 4)
+    console.log(`  Size:        ${String(content.length)} bytes (~${String(estTokens)} tokens)`)
+
+    if (parsed && typeof parsed === 'object') {
+      const p = parsed as Record<string, unknown>
+      if (typeof p.objective === 'string') {
+        console.log(`\n${ANSI.bold}Objective:${ANSI.reset} ${p.objective}`)
+      }
+      if (typeof p.systemPrompt === 'string') {
+        const sys = p.systemPrompt.slice(0, 200)
+        console.log(`\n${ANSI.bold}System Prompt Snippet:${ANSI.reset}\n${sys}...`)
+      }
+      if (Array.isArray(p.contextFiles)) {
+        console.log(`\n${ANSI.bold}Context Files (${String(p.contextFiles.length)}):${ANSI.reset}`)
+        for (const file of p.contextFiles.slice(0, 10)) {
+          if (typeof file === 'string') {
+            console.log(`  - ${file}`)
+          }
+        }
+      }
     }
     console.log('')
     return 0

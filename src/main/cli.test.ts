@@ -696,4 +696,204 @@ describe('Forge CLI (runCli)', () => {
 
     consoleLog.mockRestore()
   })
+
+  it('initializes a workflow via forge workflows init (WORK-008)', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg?: unknown) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'workflows',
+      'init',
+      '--project',
+      repoPath,
+      '--template',
+      'bugfix',
+      '--objective',
+      'Fix parser edge-case',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+
+    expect(code).toBe(0)
+    const res = JSON.parse(consoleLogs[0] ?? '{}') as {
+      ok: boolean
+      workflowId: string
+      templateId: string
+      objective: string
+      autoRun: boolean
+    }
+    expect(res.ok).toBe(true)
+    expect(res.templateId).toBe('bugfix')
+    expect(res.objective).toBe('Fix parser edge-case')
+    expect(res.autoRun).toBe(false)
+    expect(res.workflowId).toBeDefined()
+
+    consoleLog.mockRestore()
+  })
+
+  it('searches artifact content via forge artifacts grep (ARTIFACT-002)', async () => {
+    const core = createForgeCore({ dataDir })
+    const project = await core.projects.create({
+      name: 'Grep Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'master',
+      buildCommand: null,
+      testCommand: null,
+      tech: [],
+      rules: [],
+    })
+    const projectId = projectIdSchema.parse(project.id)
+    const runId = runIdSchema.parse(randomUUID())
+    const taskId = taskIdSchema.parse(randomUUID())
+
+    core.runs.createRun({
+      id: runId,
+      projectId,
+      taskId,
+      type: 'direct-task',
+      status: 'completed',
+      startedAt: new Date(Date.now() - 2000).toISOString(),
+      finishedAt: new Date().toISOString(),
+      exitCode: 0,
+      summary: 'Sample task for grep test',
+      error: null,
+      metadata: { task: 'Sample task for grep test' },
+    })
+
+    await core.artifacts.writeArtifact({
+      runId,
+      name: 'execution.log',
+      kind: 'stdout',
+      content:
+        '2026-11-18 10:00:00 INFO: Starting task execution\n2026-11-18 10:00:05 CRITICAL: Network connection timeout\n2026-11-18 10:00:06 INFO: Retrying connection\n',
+    })
+    await core.close()
+
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg?: unknown) => {
+      consoleLogs.push(String(msg))
+    })
+
+    // Search case-insensitively for "timeout"
+    const code = await runCli([
+      'artifacts',
+      'grep',
+      runId,
+      'TIMEOUT',
+      '--data-dir',
+      dataDir,
+      '-i',
+      '--json',
+    ])
+
+    expect(code).toBe(0)
+    const res = JSON.parse(consoleLogs[0] ?? '{}') as {
+      runId: string
+      pattern: string
+      matchCount: number
+      matches: { line: number; content: string; artifactName: string }[]
+    }
+
+    expect(res.runId).toBe(runId)
+    expect(res.matchCount).toBe(1)
+    expect(res.matches[0]?.line).toBe(2)
+    expect(res.matches[0]?.content).toContain('CRITICAL: Network connection timeout')
+    expect(res.matches[0]?.artifactName).toBe('execution.log')
+
+    consoleLog.mockRestore()
+  })
+
+  it('inspects registered runtimes and health via forge runtimes list (RUNTIME-001)', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg?: unknown) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const code = await runCli(['runtimes', 'list', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+
+    const res = JSON.parse(consoleLogs[0] ?? '{}') as {
+      runtimes: {
+        id: string
+        health: string
+        capabilities: string[]
+        label: { name: string } | null
+      }[]
+    }
+
+    expect(Array.isArray(res.runtimes)).toBe(true)
+    expect(res.runtimes.length).toBeGreaterThan(0)
+    const native = res.runtimes.find((r) => r.id === 'forge-native-agent')
+    expect(native).toBeDefined()
+    expect(native?.health).toBe('healthy')
+
+    consoleLog.mockRestore()
+  })
+
+  it('inspects and updates user configuration via forge config (CONFIG-002)', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg?: unknown) => {
+      consoleLogs.push(String(msg))
+    })
+
+    // 1. Initial list
+    const listCode = await runCli(['config', 'list', '--cwd', repoPath, '--json'])
+    expect(listCode).toBe(0)
+
+    // 2. Set key
+    const setCode = await runCli([
+      'config',
+      'set',
+      'logLevel',
+      'debug',
+      '--cwd',
+      repoPath,
+      '--json',
+    ])
+    expect(setCode).toBe(0)
+
+    consoleLogs.length = 0
+
+    // 3. Get key
+    const getCode = await runCli(['config', 'get', 'logLevel', '--cwd', repoPath, '--json'])
+    expect(getCode).toBe(0)
+    const getRes = JSON.parse(consoleLogs[0] ?? '{}') as { key: string; value: string }
+    expect(getRes.key).toBe('logLevel')
+    expect(getRes.value).toBe('debug')
+
+    consoleLog.mockRestore()
+  })
+
+  it('inspects database statistics and executes vacuum via forge db (STATE-002)', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg?: unknown) => {
+      consoleLogs.push(String(msg))
+    })
+
+    // 1. Database stats
+    const statsCode = await runCli(['db', 'stats', '--data-dir', dataDir, '--json'])
+    expect(statsCode).toBe(0)
+    const statsRes = JSON.parse(consoleLogs[0] ?? '{}') as {
+      dbFile: string
+      stats: { pageCount: number; tables: { tableName: string }[] }
+    }
+    expect(statsRes.stats.pageCount).toBeGreaterThan(0)
+    expect(statsRes.stats.tables.map((t) => t.tableName)).toContain('projects')
+
+    consoleLogs.length = 0
+
+    // 2. Database vacuum
+    const vacuumCode = await runCli(['db', 'vacuum', '--data-dir', dataDir, '--json'])
+    expect(vacuumCode).toBe(0)
+    const vacuumRes = JSON.parse(consoleLogs[0] ?? '{}') as {
+      dbFile: string
+      result: { durationMs: number; reclaimedBytes: number }
+    }
+    expect(vacuumRes.result.durationMs).toBeGreaterThanOrEqual(0)
+
+    consoleLog.mockRestore()
+  })
 })

@@ -279,6 +279,11 @@ export function createForgeCore(options: ForgeCoreOptions = {}): ForgeCore {
     } catch {
       // Ignore kill failures during shutdown
     }
+    try {
+      sqlite.pragma('optimize')
+    } catch {
+      // Best-effort database optimization pragma
+    }
     closeDatabase()
   }
 

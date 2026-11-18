@@ -9,7 +9,14 @@
  * Enforced by an ESLint boundary rule, not by convention — see `eslint.config.js`.
  */
 
-export { IncapableRuntimeError, RuntimeRegistry, UnknownRuntimeError } from './registry'
+export {
+  IncapableRuntimeError,
+  RuntimeRegistry,
+  UnknownRuntimeError,
+  runtimeDescription,
+  runtimeExecutable,
+  type RuntimeDescription,
+} from './registry'
 
 export {
   AmbiguousRoleBindingError,
@@ -60,3 +67,5 @@ export {
   HostedAntigravityRuntime,
   type HostedAntigravityRuntimeOptions,
 } from './hostedAntigravityRuntime'
+
+export { probeRuntimeExecutable, type RuntimeProbeResult, type RuntimeHealthStatus } from './probe'

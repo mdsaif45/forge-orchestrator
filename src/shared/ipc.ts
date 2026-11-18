@@ -259,6 +259,18 @@ export const IPC_CONTRACT = {
              */
             available: z.boolean().nullable(),
             /**
+             * Detected CLI version string (if available).
+             */
+            version: z.string().nullable().optional(),
+            /**
+             * Health classification based on executable status and responsiveness.
+             */
+            health: z.enum(['healthy', 'degraded', 'unavailable', 'simulated']).optional(),
+            /**
+             * Resolution or probing latency in milliseconds.
+             */
+            latencyMs: z.number().nullable().optional(),
+            /**
              * A display name and one-line summary, resolved in main.
              *
              * Sent rather than derived in the renderer because the ids name

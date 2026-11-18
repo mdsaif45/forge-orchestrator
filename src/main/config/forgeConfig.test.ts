@@ -5,7 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   applyEnvOverrides,
   findForgeConfigFile,
+  getForgeConfigValue,
   loadForgeConfig,
+  saveForgeConfig,
+  setForgeConfigValue,
   type ForgeConfig,
 } from './forgeConfig'
 
@@ -190,5 +193,67 @@ describe('forgeConfig (CORE-003)', () => {
     expect(overridden.defaultRuntime).toBe('new-runtime')
     expect(overridden.logLevel).toBe('warn')
     expect(overridden.telemetry).toBe(true)
+  })
+
+  it('saveForgeConfig persists valid configuration to disk', () => {
+    const configPath = join(tempDir, '.forgerc')
+    const config: ForgeConfig = {
+      defaultRuntime: 'custom:aider',
+      logLevel: 'debug',
+      telemetry: false,
+    }
+
+    saveForgeConfig(configPath, config)
+    const loaded = loadForgeConfig({ explicitPath: configPath, env: {} })
+
+    expect(loaded.defaultRuntime).toBe('custom:aider')
+    expect(loaded.logLevel).toBe('debug')
+    expect(loaded.telemetry).toBe(false)
+  })
+
+  it('getForgeConfigValue and setForgeConfigValue inspect and update nested settings', () => {
+    const configPath = join(tempDir, '.forgerc')
+    const initial: ForgeConfig = {
+      logLevel: 'info',
+      security: {
+        maxExecutionTimeMs: 30000,
+      },
+    }
+    saveForgeConfig(configPath, initial)
+
+    // Inspect
+    const loaded = loadForgeConfig({ explicitPath: configPath, env: {} })
+    expect(getForgeConfigValue('logLevel', loaded)).toBe('info')
+    expect(getForgeConfigValue('security.maxExecutionTimeMs', loaded)).toBe(30000)
+    expect(getForgeConfigValue('nonexistent.key', loaded)).toBeUndefined()
+
+    // Update existing and new nested key
+    const res1 = setForgeConfigValue('logLevel', 'warn', configPath)
+    expect(res1.previousValue).toBe('info')
+    expect(res1.newValue).toBe('warn')
+
+    const res2 = setForgeConfigValue('security.allowExecutionOutsideWorkspace', 'true', configPath)
+    expect(res2.previousValue).toBeUndefined()
+    expect(res2.newValue).toBe(true)
+
+    const updated = loadForgeConfig({ explicitPath: configPath, env: {} })
+    expect(updated.logLevel).toBe('warn')
+    expect(updated.security?.maxExecutionTimeMs).toBe(30000)
+    expect(updated.security?.allowExecutionOutsideWorkspace).toBe(true)
+  })
+
+  it('setForgeConfigValue fails closed when setting invalid values', () => {
+    const configPath = join(tempDir, '.forgerc')
+    saveForgeConfig(configPath, { logLevel: 'info' })
+
+    // Invalid log level
+    expect(() => {
+      setForgeConfigValue('logLevel', 'invalid-level', configPath)
+    }).toThrow()
+
+    // Invalid maxExecutionTimeMs (must be positive number)
+    expect(() => {
+      setForgeConfigValue('security.maxExecutionTimeMs', -100, configPath)
+    }).toThrow()
   })
 })

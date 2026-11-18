@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { z } from 'zod'
@@ -210,4 +210,96 @@ export function applyEnvOverrides(
   }
 
   return result
+}
+
+/**
+ * Saves a Forge configuration to disk after validating against the schema.
+ */
+export function saveForgeConfig(configPath: string, config: ForgeConfig): void {
+  const validated = forgeConfigSchema.parse(config)
+  writeFileSync(configPath, `${JSON.stringify(validated, null, 2)}\n`, 'utf-8')
+}
+
+/**
+ * Traverses a configuration object using dot-notation to read a property.
+ */
+export function getForgeConfigValue(keyPath: string, config: ForgeConfig): unknown {
+  const parts = keyPath.split('.')
+  let current: unknown = config
+  for (const part of parts) {
+    if (current === null || current === undefined || typeof current !== 'object') {
+      return undefined
+    }
+    current = (current as Record<string, unknown>)[part]
+  }
+  return current
+}
+
+/**
+ * Updates a configuration key in .forgerc, validating the entire configuration before saving.
+ */
+export function setForgeConfigValue(
+  keyPath: string,
+  rawValue: unknown,
+  configPath?: string,
+): {
+  readonly configPath: string
+  readonly previousValue: unknown
+  readonly newValue: unknown
+  readonly updatedConfig: ForgeConfig
+} {
+  const targetPath = configPath ?? findForgeConfigFile() ?? join(process.cwd(), '.forgerc')
+
+  let currentConfig: Record<string, unknown> = {}
+  if (existsSync(targetPath)) {
+    try {
+      const content = readFileSync(targetPath, 'utf-8')
+      currentConfig = JSON.parse(stripJsonComments(content)) as Record<string, unknown>
+    } catch {
+      currentConfig = {}
+    }
+  }
+
+  const previousValue = getForgeConfigValue(keyPath, currentConfig)
+
+  // Parse raw value if it is a string representation of boolean or integer
+  let parsedValue = rawValue
+  if (typeof rawValue === 'string') {
+    if (rawValue.toLowerCase() === 'true') {
+      parsedValue = true
+    } else if (rawValue.toLowerCase() === 'false') {
+      parsedValue = false
+    } else if (/^-?\d+$/.test(rawValue)) {
+      parsedValue = parseInt(rawValue, 10)
+    }
+  }
+
+  // Clone and set nested key
+  const updated = JSON.parse(JSON.stringify(currentConfig)) as Record<string, unknown>
+  const parts = keyPath.split('.')
+  let cursor = updated
+  for (let i = 0; i < parts.length - 1; i++) {
+    const part = parts[i]
+    if (part !== undefined) {
+      if (typeof cursor[part] !== 'object' || cursor[part] === null) {
+        cursor[part] = {}
+      }
+      cursor = cursor[part] as Record<string, unknown>
+    }
+  }
+  const lastKey = parts[parts.length - 1]
+  if (lastKey !== undefined) {
+    cursor[lastKey] = parsedValue
+  }
+
+  // Validate whole config
+  const validated = forgeConfigSchema.parse(updated)
+  saveForgeConfig(targetPath, validated)
+
+  return {
+    configPath: targetPath,
+    previousValue,
+    newValue: parsedValue,
+    updatedConfig: validated,
+  }
 }

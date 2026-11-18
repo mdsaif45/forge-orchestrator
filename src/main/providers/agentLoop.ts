@@ -1,4 +1,4 @@
-import { runTool, TOOL_DEFINITIONS, type ToolContext } from './tools'
+import { isReadOnlyTool, runTool, TOOL_DEFINITIONS, type ToolContext } from './tools'
 
 /**
  * The loop that turns a chat model into an agent.
@@ -219,31 +219,83 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
       toolCalls: completion.toolCalls,
     })
 
-    for (const call of completion.toolCalls) {
-      options.onEvent?.({
-        kind: 'tool-start',
-        name: call.name,
-        args: JSON.stringify(call.args).slice(0, 200),
-      })
+    let i = 0
+    while (i < completion.toolCalls.length) {
+      const call = completion.toolCalls[i]
+      if (!call) {
+        i += 1
+        continue
+      }
+      if (isReadOnlyTool(call.name)) {
+        // Collect contiguous read-only tools for concurrent execution (AGENT-003)
+        const batch: ToolCall[] = [call]
+        let j = i + 1
+        while (j < completion.toolCalls.length) {
+          const nextCall = completion.toolCalls[j]
+          if (nextCall && isReadOnlyTool(nextCall.name)) {
+            batch.push(nextCall)
+            j += 1
+          } else {
+            break
+          }
+        }
 
-      const result = await runTool(call.name, call.args, options.tools)
-      toolsUsed.push({ name: call.name, ok: result.ok })
+        for (const c of batch) {
+          options.onEvent?.({
+            kind: 'tool-start',
+            name: c.name,
+            args: JSON.stringify(c.args).slice(0, 200),
+          })
+        }
 
-      options.onEvent?.({
-        kind: 'tool-end',
-        name: call.name,
-        ok: result.ok,
-        summary: summarise(result.content),
-      })
+        const results = await Promise.all(batch.map((c) => runTool(c.name, c.args, options.tools)))
 
-      // A refusal is fed back as a tool result rather than aborting the turn: the
-      // model can then choose a path it is allowed to take, which is the whole
-      // point of explaining why it was refused.
-      conversation.push({
-        role: 'tool',
-        content: result.content,
-        toolCallId: call.id,
-      })
+        for (let k = 0; k < batch.length; k += 1) {
+          const c = batch[k]
+          const result = results[k]
+          if (c && result) {
+            toolsUsed.push({ name: c.name, ok: result.ok })
+            options.onEvent?.({
+              kind: 'tool-end',
+              name: c.name,
+              ok: result.ok,
+              summary: summarise(result.content),
+            })
+            conversation.push({
+              role: 'tool',
+              content: result.content,
+              toolCallId: c.id,
+            })
+          }
+        }
+
+        i = j
+      } else {
+        // Mutating tools (write_file, edit_file, run_command) run sequentially to prevent race conditions
+        options.onEvent?.({
+          kind: 'tool-start',
+          name: call.name,
+          args: JSON.stringify(call.args).slice(0, 200),
+        })
+
+        const result = await runTool(call.name, call.args, options.tools)
+        toolsUsed.push({ name: call.name, ok: result.ok })
+
+        options.onEvent?.({
+          kind: 'tool-end',
+          name: call.name,
+          ok: result.ok,
+          summary: summarise(result.content),
+        })
+
+        conversation.push({
+          role: 'tool',
+          content: result.content,
+          toolCallId: call.id,
+        })
+
+        i += 1
+      }
     }
   }
 

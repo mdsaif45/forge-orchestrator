@@ -2,8 +2,8 @@
 
 **Status:** IMPLEMENTED
 **Authority:** Implementation truth (see [documentation-policy.md](../meta/documentation-policy.md))
-**Last Updated:** 2026-10-20
-**Baseline:** `main` @ `07d3c4b` (PR #227 merged) | Active Branch: `feat/m6-phase5-batch3-slice5b1c-reviewer-routing` (PR #228)
+**Last Updated:** 2026-11-18
+**Baseline:** `main` @ `0fe8d03` (PR #234 merged)
 **Verification Baseline:** [verification-baseline.md](verification-baseline.md)
 **Related Roadmap:** [roadmap.md](../roadmap/roadmap.md)
 

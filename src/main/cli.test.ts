@@ -74,6 +74,21 @@ describe('Forge CLI (runCli)', () => {
     expect(listCode).toBe(0)
   })
 
+  it('handles models auto when daemon is offline with code 1 (MODEL-001)', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg?: unknown) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const autoCode = await runCli(['models', 'auto', '--data-dir', dataDir, '--json'])
+    expect(autoCode).toBe(1)
+    const parsed = JSON.parse(consoleLogs[0] ?? '{}') as { ok: boolean; error: string }
+    expect(parsed.ok).toBe(false)
+    expect(parsed.error).toContain('Ollama is offline')
+
+    consoleLog.mockRestore()
+  })
+
   it('fails with exit code 1 when run is called without a task', async () => {
     const code = await runCli(['run', '--cwd', repoPath, '--data-dir', dataDir])
     expect(code).toBe(1)
@@ -601,6 +616,83 @@ describe('Forge CLI (runCli)', () => {
     ])
     expect(inspectTextCode).toBe(0)
     expect(consoleLogs.some((l) => l.includes(started.id))).toBe(true)
+
+    consoleLog.mockRestore()
+  })
+
+  it('manages workflow lifecycle via run, cancel, and approve subcommands (WORK-007)', async () => {
+    const core = createForgeCore({ dataDir })
+    const project = await core.projects.create({
+      name: 'Lifecycle Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'master',
+      buildCommand: null,
+      testCommand: null,
+      tech: ['ts'],
+      rules: [],
+    })
+    const started = await core.workflows.start({
+      projectId: project.id,
+      objective: 'Verify lifecycle subcommands',
+      autoRun: false,
+    })
+    await core.close()
+
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg?: unknown) => {
+      consoleLogs.push(String(msg))
+    })
+
+    // 1. Cancel workflow via CLI
+    const cancelCode = await runCli([
+      'workflows',
+      'cancel',
+      started.id,
+      '--data-dir',
+      dataDir,
+      '--reason',
+      'User requested cancellation',
+      '--json',
+    ])
+    expect(cancelCode).toBe(0)
+    const cancelRes = JSON.parse(consoleLogs[0] ?? '{}') as {
+      ok: boolean
+      cancelled: boolean
+      state: string
+    }
+    expect(cancelRes.ok).toBe(true)
+    expect(cancelRes.cancelled).toBe(true)
+    expect(cancelRes.state).toBe('CANCELLED')
+
+    consoleLogs.length = 0
+
+    // 2. Running a cancelled workflow fails closed
+    const runCancelledCode = await runCli([
+      'workflows',
+      'run',
+      started.id,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(runCancelledCode).toBe(1)
+
+    consoleLogs.length = 0
+
+    // 3. Start a second workflow to test run/resume
+    const core2 = createForgeCore({ dataDir })
+    const wf2 = await core2.workflows.start({
+      projectId: project.id,
+      objective: 'Second workflow',
+      autoRun: false,
+    })
+    await core2.close()
+
+    const runCode = await runCli(['workflows', 'run', wf2.id, '--data-dir', dataDir, '--json'])
+    expect(runCode).toBe(0)
+    const runRes = JSON.parse(consoleLogs[0] ?? '{}') as { ok: boolean; workflowId: string }
+    expect(runRes.ok).toBe(true)
+    expect(runRes.workflowId).toBe(wf2.id)
 
     consoleLog.mockRestore()
   })

@@ -13,6 +13,7 @@ import type { WorkflowDetailView, WorkflowSummaryView } from '@shared/views'
 import { createForgeCore, resolveDataDir } from './core/forgeCore'
 import { executeDirectTask, type DirectTaskEvent } from './core/taskRunner'
 import { GitService } from './git'
+import { discoverOllamaModels } from './providers/ollamaDiscovery'
 
 const VERSION = '0.3.0-alpha.1'
 
@@ -43,10 +44,10 @@ ${ANSI.bold}USAGE${ANSI.reset}
 ${ANSI.bold}COMMANDS${ANSI.reset}
   run <task>                 Execute an autonomous coding task against the current repository
   runs [list|inspect|events] Inspect past runs, steps, and event streams
-  workflows [list|inspect]   Inspect workflows and multi-step execution graphs
+  workflows [list|inspect|run|resume|cancel|approve] Inspect and manage workflows
   artifacts [list|cat]       Inspect and view run artifacts (patches, stdout, tool logs)
   status                     Display current repository status and Forge control plane state
-  models [list|set]          Inspect or configure the active AI model and provider
+  models [list|scan|auto|set] Inspect, auto-select, or configure the active AI model
 
 ${ANSI.bold}OPTIONS${ANSI.reset}
   -v, --version        Display Forge version
@@ -100,6 +101,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       from: { type: 'string' },
       offset: { type: 'string' },
       length: { type: 'string' },
+      reason: { type: 'string' },
     },
     allowPositionals: true,
   })
@@ -185,6 +187,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       cwd,
       dataDir,
       json: values.json,
+      reason: values.reason,
     })
   }
 
@@ -298,16 +301,95 @@ async function handleModels(opts: {
       return 0
     }
 
+    if (opts.action === 'auto') {
+      const discovery = await discoverOllamaModels({
+        endpointUrl: opts.endpoint,
+        probeCapabilities: false,
+      })
+
+      if (!discovery.reachable) {
+        const err = `Ollama is offline or unreachable at ${discovery.endpoint} (${discovery.error ?? 'Connection failed'})`
+        if (opts.json) {
+          console.log(JSON.stringify({ ok: false, error: err }))
+        } else {
+          console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        }
+        return 1
+      }
+
+      if (discovery.models.length === 0) {
+        const err = `Connected to ${discovery.endpoint}, but no models are installed. Run 'ollama pull <model>' first.`
+        if (opts.json) {
+          console.log(JSON.stringify({ ok: false, error: err }))
+        } else {
+          console.error(`${ANSI.yellow}Warning: ${err}${ANSI.reset}`)
+        }
+        return 1
+      }
+
+      // Priority: 1. Coding model with tools, 2. Any tool-capable model, 3. Any coding model, 4. First available
+      const best =
+        discovery.models.find((m) => m.isCodingModel && m.capabilities.tools) ??
+        discovery.models.find((m) => m.capabilities.tools) ??
+        discovery.models.find((m) => m.isCodingModel) ??
+        discovery.models[0]
+
+      if (!best) {
+        const err = 'No suitable model could be selected.'
+        if (opts.json) console.log(JSON.stringify({ ok: false, error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      core.activeModel.write({
+        providerId: 'ollama',
+        model: best.name,
+        ...(opts.endpoint ? { endpointUrl: opts.endpoint } : {}),
+      })
+
+      if (opts.json) {
+        console.log(
+          JSON.stringify({
+            updated: true,
+            provider: 'ollama',
+            model: best.name,
+            reason: 'auto-selected',
+            details: best,
+          }),
+        )
+      } else {
+        console.log(
+          `${ANSI.green}✓ Auto-selected active model: ${ANSI.bold}ollama (${best.name})${ANSI.reset} [coding=${best.isCodingModel ? 'yes' : 'no'}, tools=${best.capabilities.tools ? 'yes' : 'no'}]`,
+        )
+      }
+      return 0
+    }
+
     const active = core.activeModel.read()
+    const discovery = await discoverOllamaModels({
+      endpointUrl: opts.endpoint,
+      probeCapabilities: false,
+    })
+
     if (opts.json) {
-      console.log(JSON.stringify({ active }))
+      console.log(
+        JSON.stringify({
+          active,
+          ollama: {
+            reachable: discovery.reachable,
+            endpoint: discovery.endpoint,
+            models: discovery.models,
+            error: discovery.error,
+          },
+        }),
+      )
     } else {
       printBanner()
       console.log(`\n${ANSI.bold}ACTIVE MODEL${ANSI.reset}`)
       if (active === null) {
         console.log(`  ${ANSI.yellow}No active model configured.${ANSI.reset}`)
         console.log(
-          `  Configure one with: ${ANSI.cyan}forge models set ollama qwen2.5-coder:7b${ANSI.reset}`,
+          `  Configure one with: ${ANSI.cyan}forge models set ollama qwen2.5-coder:7b${ANSI.reset} or ${ANSI.cyan}forge models auto${ANSI.reset}`,
         )
       } else {
         console.log(`  Provider: ${ANSI.cyan}${active.providerId}${ANSI.reset}`)
@@ -315,6 +397,27 @@ async function handleModels(opts: {
         if (active.endpointUrl) {
           console.log(`  Endpoint: ${ANSI.dim}${active.endpointUrl}${ANSI.reset}`)
         }
+      }
+
+      console.log(`\n${ANSI.bold}LOCAL OLLAMA MODELS${ANSI.reset} (${discovery.endpoint})`)
+      if (!discovery.reachable) {
+        console.log(`  ${ANSI.dim}Ollama daemon unreachable or offline.${ANSI.reset}`)
+      } else if (discovery.models.length === 0) {
+        console.log(`  ${ANSI.dim}No local models found on this Ollama instance.${ANSI.reset}`)
+      } else {
+        for (const m of discovery.models) {
+          const isActive = active?.providerId === 'ollama' && active.model === m.name
+          const marker = isActive ? `${ANSI.green}* ${ANSI.reset}` : '  '
+          const codingTag = m.isCodingModel ? `${ANSI.cyan}[coding]${ANSI.reset}` : ''
+          const toolTag = m.capabilities.tools ? `${ANSI.magenta}[tools]${ANSI.reset}` : ''
+          const sizeStr = m.parameterSize ? `(${m.parameterSize})` : ''
+          console.log(
+            `${marker}${ANSI.bold}${m.name}${ANSI.reset} ${sizeStr} ${codingTag} ${toolTag}`,
+          )
+        }
+        console.log(
+          `\n  Tip: Run ${ANSI.cyan}forge models auto${ANSI.reset} to automatically configure the best coding model.`,
+        )
       }
     }
     return 0
@@ -1046,14 +1149,16 @@ async function handleWorkflows(opts: {
   cwd: string
   dataDir: string
   json: boolean
+  reason?: string | undefined
 }): Promise<number> {
   const core = createForgeCore({ dataDir: opts.dataDir })
 
   try {
+    const KNOWN_ACTIONS = ['list', 'inspect', 'run', 'resume', 'cancel', 'approve'] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
 
-    if (action !== 'list' && action !== 'inspect') {
+    if (!KNOWN_ACTIONS.includes(action as (typeof KNOWN_ACTIONS)[number])) {
       targetId = action
       action = 'inspect'
     }
@@ -1185,8 +1290,153 @@ async function handleWorkflows(opts: {
       return 0
     }
 
+    if (action === 'run' || action === 'resume') {
+      const rawId = targetId
+      if (!rawId) {
+        const err = 'No workflow ID provided.'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else {
+          console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          console.error('Usage: forge workflows run <workflowId> [--json]')
+        }
+        return 1
+      }
+
+      const parsedId = workflowIdSchema.safeParse(rawId)
+      if (!parsedId.success) {
+        const err = `Invalid workflow ID "${rawId}". Expected a valid UUID.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      const wf = core.workflows.get(parsedId.data)
+      if (!wf) {
+        const err = `Workflow "${rawId}" not found.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      if (wf.state === 'CANCELLED' || wf.state === 'COMPLETED' || wf.state === 'FAILED') {
+        const err = `Cannot run or resume workflow in terminal state "${wf.state}".`
+        if (opts.json) console.log(JSON.stringify({ ok: false, error: err, state: wf.state }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      let updatedWf: WorkflowDetailView | null = null
+      if (wf.state === 'WAITING_FOR_APPROVAL') {
+        updatedWf = core.workflows.approveAndStartImplementation(parsedId.data)
+      } else {
+        updatedWf = core.workflows.resume(parsedId.data)
+      }
+
+      if (opts.json) {
+        console.log(
+          JSON.stringify({
+            ok: true,
+            action,
+            workflowId: parsedId.data,
+            state: updatedWf?.state ?? wf.state,
+          }),
+        )
+      } else {
+        console.log(
+          `${ANSI.green}✓ Triggered execution for workflow ${ANSI.bold}${parsedId.data}${ANSI.reset} (state: ${updatedWf?.state ?? wf.state})`,
+        )
+      }
+      return 0
+    }
+
+    if (action === 'cancel') {
+      const rawId = targetId
+      if (!rawId) {
+        const err = 'No workflow ID provided.'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      const parsedId = workflowIdSchema.safeParse(rawId)
+      if (!parsedId.success) {
+        const err = `Invalid workflow ID "${rawId}". Expected a valid UUID.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      const reason = opts.reason ?? 'Cancelled by user via CLI'
+      const updatedWf = core.workflows.cancel(parsedId.data, reason)
+      if (!updatedWf) {
+        const err = `Workflow "${rawId}" not found.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      if (opts.json) {
+        console.log(
+          JSON.stringify({
+            ok: true,
+            cancelled: true,
+            workflowId: parsedId.data,
+            reason,
+            state: updatedWf.state,
+          }),
+        )
+      } else {
+        console.log(
+          `${ANSI.green}✓ Cancelled workflow ${ANSI.bold}${parsedId.data}${ANSI.reset} (${reason})`,
+        )
+      }
+      return 0
+    }
+
+    if (action === 'approve') {
+      const rawId = targetId
+      if (!rawId) {
+        const err = 'No workflow ID provided.'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      const parsedId = workflowIdSchema.safeParse(rawId)
+      if (!parsedId.success) {
+        const err = `Invalid workflow ID "${rawId}". Expected a valid UUID.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      try {
+        const updatedWf = core.workflows.approveAndStartImplementation(parsedId.data)
+        if (opts.json) {
+          console.log(
+            JSON.stringify({
+              ok: true,
+              approved: true,
+              workflowId: parsedId.data,
+              state: updatedWf.state,
+            }),
+          )
+        } else {
+          console.log(
+            `${ANSI.green}✓ Approved plan and started implementation for workflow ${ANSI.bold}${parsedId.data}${ANSI.reset}`,
+          )
+        }
+        return 0
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        if (opts.json) console.log(JSON.stringify({ ok: false, error: msg }))
+        else console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+        return 1
+      }
+    }
+
     console.error(`${ANSI.red}Unknown workflows action: "${action}"${ANSI.reset}`)
-    console.error('Usage: forge workflows [list|inspect <id>] [--json]')
+    console.error('Usage: forge workflows [list|inspect|run|resume|cancel|approve] [<id>] [--json]')
     return 1
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)

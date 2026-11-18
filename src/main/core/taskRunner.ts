@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { basename, resolve } from 'node:path'
+import { PassThrough } from 'node:stream'
 import {
   compileContext,
   evidenceIdSchema,
@@ -18,6 +19,7 @@ import {
   taskSchema,
   workflowIdSchema,
   type AgentReport,
+  type ArtifactMetadata,
   type CriterionResult,
   type Discrepancy,
   type IAgentRuntime,
@@ -290,6 +292,18 @@ export async function executeDirectTask(
 ): Promise<TaskExecutionResult> {
   const startTime = Date.now()
   const workspacePath = resolve(options.workspacePath)
+
+  // Enforce security sandbox policy (CORE-004 / Axiom A7)
+  if (core.config.security?.allowExecutionOutsideWorkspace === false) {
+    const cwd = resolve(process.cwd())
+    if (!workspacePath.startsWith(cwd) && !cwd.startsWith(workspacePath)) {
+      throw new Error(
+        `Security violation: Execution in workspace "${workspacePath}" outside root "${cwd}" is disabled by policy (A7)`,
+      )
+    }
+  }
+
+  const timeoutBudgetMs = core.config.security?.maxExecutionTimeMs
   const git = new GitService({ repositoryPath: workspacePath })
 
   options.onEvent?.({ kind: 'status', text: `Verifying repository at ${workspacePath}...` })
@@ -462,38 +476,52 @@ export async function executeDirectTask(
       mimeType: 'application/json',
     })
 
+    const defaultTimeoutMs = (options.maxRounds ?? 15) * 60_000
+    const timeoutMs =
+      timeoutBudgetMs !== undefined ? Math.min(defaultTimeoutMs, timeoutBudgetMs) : defaultTimeoutMs
+
     const session = await runtime.start({
       repositoryPath: workspacePath,
       role: 'implementer',
-      timeoutMs: (options.maxRounds ?? 15) * 60_000,
+      timeoutMs,
     })
 
+    const passThrough = new PassThrough()
+    let streamPromise: Promise<ArtifactMetadata> | null = null
     let rawContent = ''
     try {
       await runtime.send(session, compiled.packet)
 
       for await (const event of runtime.events(session)) {
+        if (timeoutBudgetMs !== undefined && Date.now() - startTime > timeoutBudgetMs) {
+          throw new Error(
+            `Task execution exceeded security timeout budget (${String(timeoutBudgetMs)}ms)`,
+          )
+        }
         if (event.type === 'tool') {
           emitRunEvent('tool.call', { name: event.name, detail: event.detail })
           options.onEvent?.({ kind: 'tool_start', name: event.name, detail: event.detail })
         } else if (event.type === 'chunk') {
+          streamPromise ??= core.artifacts.writeArtifactStream({
+            runId,
+            stepId,
+            kind: 'agent-raw',
+            name: 'agent-response.txt',
+            stream: passThrough,
+            mimeType: 'text/plain; charset=utf-8',
+          })
+          passThrough.write(event.text)
           rawContent += event.text
           options.onEvent?.({ kind: 'content', text: event.text })
         }
       }
     } finally {
+      passThrough.end()
       await runtime.dispose(session)
     }
 
-    if (rawContent.length > 0) {
-      await core.artifacts.writeArtifact({
-        runId,
-        stepId,
-        kind: 'agent-raw',
-        name: 'agent-response.txt',
-        content: rawContent,
-        mimeType: 'text/plain; charset=utf-8',
-      })
+    if (streamPromise !== null) {
+      await streamPromise
     }
 
     options.onEvent?.({ kind: 'status', text: 'Reconciling physical git diff with agent claim...' })

@@ -1271,4 +1271,107 @@ new file mode 100644
 
     consoleLog.mockRestore()
   })
+
+  it('runs config doctor command and reports environment audit in json mode', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'config',
+      'doctor',
+      '--data-dir',
+      dataDir,
+      '--cwd',
+      repoPath,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(consoleLogs[0] ?? '{}') as { healthy: boolean; checks: unknown[] }
+    expect(parsed.healthy).toBe(true)
+    expect(Array.isArray(parsed.checks)).toBe(true)
+
+    consoleLog.mockRestore()
+  })
+
+  it('handles workflows profile command for non-existent run with exit code 1', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const fakeRunId = randomUUID()
+    const code = await runCli(['workflows', 'profile', fakeRunId, '--data-dir', dataDir, '--json'])
+    expect(code).toBe(1)
+    const parsed = JSON.parse(consoleLogs[0] ?? '{}') as { valid: boolean; error: string }
+    expect(parsed.valid).toBe(false)
+    expect(parsed.error).toContain('Run not found')
+
+    consoleLog.mockRestore()
+  })
+
+  it('handles diff revert command for non-existent run with exit code 1', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const fakeRunId = randomUUID()
+    const code = await runCli([
+      'diff',
+      'revert',
+      fakeRunId,
+      '--data-dir',
+      dataDir,
+      '--cwd',
+      repoPath,
+      '--json',
+    ])
+    expect(code).toBe(1)
+    const parsed = JSON.parse(consoleLogs[0] ?? '{}') as { success: boolean; error: string }
+    expect(parsed.success).toBe(false)
+    expect(parsed.error).toContain('No changeset or diff artifact found')
+
+    consoleLog.mockRestore()
+  })
+
+  it('handles artifacts export command for non-existent run with exit code 1', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const fakeRunId = randomUUID()
+    const code = await runCli(['artifacts', 'export', fakeRunId, '--data-dir', dataDir, '--json'])
+    expect(code).toBe(1)
+    const parsed = JSON.parse(consoleLogs[0] ?? '{}') as { valid: boolean; error: string }
+    expect(parsed.valid).toBe(false)
+    expect(parsed.error).toContain('Run not found')
+
+    consoleLog.mockRestore()
+  })
+
+  it('handles verify pipeline command when pipeline config is missing or invalid', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'verify',
+      'pipeline',
+      'non-existent-config.json',
+      '--data-dir',
+      dataDir,
+      '--cwd',
+      repoPath,
+      '--json',
+    ])
+    expect(code).toBe(1)
+    const parsed = JSON.parse(consoleLogs[0] ?? '{}') as { error: string }
+    expect(parsed.error).toContain('Failed to read pipeline configuration file')
+
+    consoleLog.mockRestore()
+  })
 })

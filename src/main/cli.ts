@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
@@ -9,6 +10,7 @@ import {
   projectIdSchema,
   runIdSchema,
   runStatusSchema,
+  stepIdSchema,
   workflowIdSchema,
   type ProjectId,
   type RunStatus,
@@ -33,10 +35,17 @@ import {
   setForgeConfigValue,
   switchForgeProfile,
 } from './config/forgeConfig'
+import { auditForgeEnvironment } from './config/configDoctor'
+import { exportRunArtifactArchive } from './artifacts'
 import { getDatabaseStats, vacuumDatabase } from './db'
-import { auditArtifactChecksums, inspectRunDiff } from './evidence'
+import {
+  auditArtifactChecksums,
+  executeVerificationPipeline,
+  inspectRunDiff,
+  rollbackRunChanges,
+} from './evidence'
 import { DEFAULT_TEMPLATES_V2 } from './templates/defaultTemplatesV2'
-import { planWorkflowExecution } from './workflows'
+import { planWorkflowExecution, profileWorkflowExecution } from './workflows'
 import { validateTemplateGraph } from './workflows/validation'
 
 const VERSION = '0.3.0-alpha.1'
@@ -68,15 +77,16 @@ ${ANSI.bold}USAGE${ANSI.reset}
 ${ANSI.bold}COMMANDS${ANSI.reset}
   run <task>                 Execute an autonomous coding task against the current repository
   runs [list|inspect|events] Inspect past runs, steps, and event streams
-  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan] Inspect, plan, and manage workflows
-  artifacts [list|cat|grep|verify] Inspect, view, search, and verify run artifacts
-  diff <runId> [stepId]      Inspect physical changeset diff and line statistics
+  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile] Inspect, plan, profile, and manage workflows
+  artifacts [list|cat|grep|verify|export] Inspect, view, search, verify, and export run artifacts
+  diff [revert] <runId> [stepId] Inspect physical changeset diffs or rollback changes
   processes [list]           Inspect active and completed background process metrics
   status                     Display current repository status and Forge control plane state
   models [list|scan|auto|set] Inspect, auto-select, or configure the active AI model
   runtimes [list|test]       Inspect and test registered agent runtimes and capabilities
   context [inspect]          Inspect prompt packet and context files for a run
-  config [list|get|set|profile] Inspect and update .forgerc configuration and profiles
+  verify [pipeline]          Execute ordered multi-stage verification pipeline
+  config [list|get|set|profile|doctor] Inspect and update .forgerc configuration, profiles, and health
   db [stats|vacuum]          Inspect SQLite database storage and run maintenance
 
 ${ANSI.bold}OPTIONS${ANSI.reset}
@@ -158,6 +168,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       pattern: { type: 'string' },
       profile: { type: 'string' },
       stat: { type: 'boolean', default: false },
+      'dry-run': { type: 'boolean', default: false },
     },
     allowPositionals: true,
   })
@@ -285,17 +296,38 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     })
   }
 
+  if (command === 'verify' || command === 'pipeline') {
+    const configPathOrCommand = positionals[1] === 'pipeline' ? positionals[2] : positionals[1]
+    return handleVerifyPipeline({
+      configPathOrCommand,
+      cwd,
+      dataDir,
+      json: values.json,
+    })
+  }
+
   if (command === 'config') {
     return handleConfig({
       action: positionals[1],
       key: positionals[2],
       val: positionals[3],
       cwd,
+      dataDir,
       json: values.json,
     })
   }
 
   if (command === 'diff') {
+    if (positionals[1] === 'revert') {
+      return handleDiffRevert({
+        runId: positionals[2],
+        stepId: positionals[3],
+        dryRun: values['dry-run'],
+        cwd,
+        dataDir,
+        json: values.json,
+      })
+    }
     return handleDiff({
       runId: positionals[1],
       stepId: positionals[2],
@@ -1082,6 +1114,8 @@ async function handleArtifacts(opts: {
       // id is targetId (runId)
     } else if (action === 'verify') {
       // id is targetId (runId)
+    } else if (action === 'export') {
+      // id is targetId (runId)
     } else if (action !== undefined && id === undefined) {
       // User invoked `forge artifacts <runId>`
       id = action
@@ -1398,6 +1432,44 @@ async function handleArtifacts(opts: {
       return report.valid ? 0 : 1
     }
 
+    if (action === 'export') {
+      const rawRunId = id
+      if (!rawRunId) {
+        const err = 'No run ID provided.'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else {
+          console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          console.error('Usage: forge artifacts export <runId> [outputPath] [--json]')
+        }
+        return 1
+      }
+
+      const res = await exportRunArtifactArchive(
+        core.artifacts,
+        core.artifactStore,
+        core.runs,
+        rawRunId,
+        opts.pattern,
+      )
+
+      if (!res.valid) {
+        if (opts.json) console.log(JSON.stringify(res))
+        else console.error(`${ANSI.red}Error: ${res.error ?? 'Export failed'}${ANSI.reset}`)
+        return 1
+      }
+
+      if (opts.json) {
+        console.log(JSON.stringify(res))
+      } else {
+        console.log(`${ANSI.green}Artifact bundle exported successfully:${ANSI.reset}`)
+        console.log(`  Path: ${res.outputPath}`)
+        console.log(`  Artifacts: ${String(res.totalArtifacts)}`)
+        console.log(`  Events: ${String(res.totalEvents)}`)
+        console.log(`  Manifest SHA-256: ${res.manifestSha256}`)
+      }
+      return 0
+    }
+
     const err = `Unknown artifacts action: ${action}`
     if (opts.json) console.log(JSON.stringify({ error: err }))
     else {
@@ -1448,6 +1520,7 @@ async function handleWorkflows(opts: {
       'init',
       'validate',
       'plan',
+      'profile',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -1949,6 +2022,29 @@ async function handleWorkflows(opts: {
       return 0
     }
 
+    if (action === 'profile') {
+      if (!targetId) {
+        const msg = 'Run ID required: forge workflows profile <runId>'
+        if (opts.json) console.log(JSON.stringify({ error: msg }))
+        else console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+        return 1
+      }
+
+      const report = profileWorkflowExecution(core.runs, targetId)
+      if (!report.valid) {
+        if (opts.json) console.log(JSON.stringify(report))
+        else console.error(`${ANSI.red}Error: ${report.error ?? 'Profiling failed'}${ANSI.reset}`)
+        return 1
+      }
+
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+      } else {
+        console.log(`\n${report.formattedSummary}\n`)
+      }
+      return 0
+    }
+
     console.error(`${ANSI.red}Unknown workflows action: "${action}"${ANSI.reset}`)
     console.error(
       'Usage: forge workflows [list|inspect|run|resume|cancel|approve|init|validate|plan] [<id>] [--json]',
@@ -2178,15 +2274,38 @@ async function handleContext(opts: {
   }
 }
 
-function handleConfig(opts: {
+async function handleConfig(opts: {
   action?: string | undefined
   key?: string | undefined
   val?: string | undefined
   cwd: string
+  dataDir: string
   json: boolean
-}): number {
+}): Promise<number> {
   const action = opts.action ?? 'list'
   const configPath = findForgeConfigFile(opts.cwd)
+
+  if (action === 'doctor') {
+    const core = createForgeCore({ dataDir: opts.dataDir })
+    try {
+      const config = loadForgeConfig({ searchFrom: opts.cwd, env: {} })
+      const report = await auditForgeEnvironment({
+        dataDir: core.dataDir,
+        sqlite: core.sqlite,
+        config,
+        configPath: configPath ?? undefined,
+      })
+
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+      } else {
+        console.log(`\n${report.formattedSummary}\n`)
+      }
+      return report.healthy ? 0 : 1
+    } finally {
+      await core.close()
+    }
+  }
 
   if (action === 'list') {
     const config = loadForgeConfig({ searchFrom: opts.cwd, env: {} })
@@ -2410,6 +2529,114 @@ async function handleDb(opts: {
       console.error('Usage: forge db [stats|vacuum] [--json]')
     }
     return 1
+  } finally {
+    await core.close()
+  }
+}
+
+async function handleDiffRevert(opts: {
+  readonly runId?: string | undefined
+  readonly stepId?: string | undefined
+  readonly dryRun?: boolean | undefined
+  readonly cwd: string
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  if (!opts.runId) {
+    const err = 'Usage: forge diff revert <runId> [stepId] [--dry-run] [--json]'
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else console.error(`${ANSI.red}Error: No run ID provided.${ANSI.reset}\n${err}`)
+    return 1
+  }
+
+  const core = createForgeCore({ dataDir: opts.dataDir })
+  try {
+    const res = await rollbackRunChanges(core.artifacts, core.artifactStore, opts.runId, opts.cwd, {
+      stepId: opts.stepId,
+      dryRun: opts.dryRun,
+    })
+
+    if (!res.success) {
+      if (opts.json) console.log(JSON.stringify(res))
+      else console.error(`${ANSI.red}Error: ${res.error ?? 'Rollback failed'}${ANSI.reset}`)
+      return 1
+    }
+
+    if (opts.json) {
+      console.log(JSON.stringify(res))
+    } else {
+      const modeStr = res.dryRun ? ' (dry-run)' : ''
+      console.log(`${ANSI.green}Rollback completed successfully${modeStr}:${ANSI.reset}`)
+      console.log(`  Files restored: ${res.appliedFiles.join(', ') || 'none'}`)
+    }
+    return 0
+  } finally {
+    await core.close()
+  }
+}
+
+async function handleVerifyPipeline(opts: {
+  readonly configPathOrCommand?: string | undefined
+  readonly cwd: string
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  const core = createForgeCore({ dataDir: opts.dataDir })
+  try {
+    let steps: { name: string; command: string; timeoutMs?: number }[] = []
+
+    if (
+      opts.configPathOrCommand &&
+      (opts.configPathOrCommand.endsWith('.json') ||
+        existsSync(resolve(opts.cwd, opts.configPathOrCommand)))
+    ) {
+      const filePath = resolve(opts.cwd, opts.configPathOrCommand)
+      try {
+        const raw = readFileSync(filePath, 'utf-8')
+        const parsed = JSON.parse(raw) as unknown
+        if (Array.isArray(parsed)) {
+          steps = parsed as { name: string; command: string; timeoutMs?: number }[]
+        } else if (
+          parsed &&
+          typeof parsed === 'object' &&
+          Array.isArray((parsed as Record<string, unknown>).steps)
+        ) {
+          steps = (parsed as Record<string, unknown>).steps as {
+            name: string
+            command: string
+            timeoutMs?: number
+          }[]
+        }
+      } catch (err) {
+        const msg = `Failed to read pipeline configuration file: ${err instanceof Error ? err.message : String(err)}`
+        if (opts.json) console.log(JSON.stringify({ error: msg }))
+        else console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+        return 1
+      }
+    } else if (opts.configPathOrCommand) {
+      steps = [{ name: 'custom', command: opts.configPathOrCommand }]
+    } else {
+      steps = [
+        { name: 'format:check', command: 'npm run format:check' },
+        { name: 'lint', command: 'npm run lint' },
+        { name: 'test', command: 'npm test' },
+      ]
+    }
+
+    const report = await executeVerificationPipeline({
+      cwd: opts.cwd,
+      workflowId: workflowIdSchema.parse(randomUUID()),
+      stepId: stepIdSchema.parse(randomUUID()),
+      steps,
+    })
+
+    if (opts.json) {
+      console.log(JSON.stringify(report))
+      return report.allPassed ? 0 : 1
+    }
+
+    console.log(`\n${report.formattedSummary}\n`)
+    return report.allPassed ? 0 : 1
   } finally {
     await core.close()
   }

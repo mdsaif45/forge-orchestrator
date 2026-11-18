@@ -435,6 +435,46 @@ export const accounts = sqliteTable('accounts', {
 })
 
 /**
+ * Persisted agent instances with generated names and editable labels (#138).
+ */
+export const agentInstances = sqliteTable(
+  'agent_instances',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    label: text('label').notNull(),
+    provider: text('provider').notNull(),
+    accountId: text('account_id'),
+    role: text('role').notNull(),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    unique('agent_instances_project_name').on(table.projectId, table.name),
+    index('agent_instances_project').on(table.projectId),
+  ],
+)
+
+/**
+ * User-configured custom CLI runtimes persisted in database (#174).
+ */
+export const customRuntimes = sqliteTable('custom_runtimes', {
+  id: text('id').primaryKey(),
+  slug: text('slug').notNull().unique(),
+  name: text('name').notNull(),
+  command: text('command').notNull(),
+  argsTemplate: text('args_template'),
+  capabilities: text('capabilities').notNull(),
+  permissionMode: text('permission_mode').notNull(),
+  instructionFilenames: text('instruction_filenames').notNull(),
+  env: text('env'),
+  createdAt: text('created_at').notNull(),
+})
+
+/**
  * Execution runs (direct tasks or workflows).
  */
 export const runs = sqliteTable(

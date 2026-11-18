@@ -50,6 +50,13 @@
       "when": 1792417075826,
       "tag": "0006_gate_decisions",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1795013618624,
+      "tag": "0007_striped_meltdown",
+      "breakpoints": true
     }
   ]
 }

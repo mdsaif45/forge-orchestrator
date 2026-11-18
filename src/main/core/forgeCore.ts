@@ -13,6 +13,9 @@ import type { ChangeSetStore } from '../db/changeSetStore'
 import { OrphanTracker, ProcessManager } from '../process'
 import { AccountService } from '../accounts/accountService'
 import { AccountStore } from '../db/accountStore'
+import { AgentInstanceStore } from '../db/agentInstanceStore'
+import { CustomRuntimeStore } from '../db/customRuntimeStore'
+import { CustomCliRuntime } from '../runtimes/customCliRuntime'
 import { EventStore } from '../db/eventStore'
 import { ChangeSetService } from '../changesets/changeSetService'
 import { DecisionService } from '../decisions/decisionService'
@@ -115,6 +118,8 @@ export interface ForgeCore {
   readonly changeSets: ChangeSetService
   readonly changeSetStore: ChangeSetStore
   readonly accounts: AccountService
+  readonly agentInstances: AgentInstanceStore
+  readonly customRuntimes: CustomRuntimeStore
   readonly terminal: TerminalService
   readonly bindings: BindingService
   readonly enrollment: EnrollmentService
@@ -228,6 +233,25 @@ export function createForgeCore(options: ForgeCoreOptions = {}): ForgeCore {
   const eventStore = new EventStore(db)
   const accountStore = new AccountStore(db, eventStore)
   const accountService = new AccountService(accountStore)
+  const agentInstanceStore = new AgentInstanceStore(db, eventStore)
+  const customRuntimeStore = new CustomRuntimeStore(db, eventStore)
+
+  // Register persisted custom CLI runtimes from database (Axiom A1 & A6, #174)
+  for (const custom of customRuntimeStore.list()) {
+    if (!registry.has(custom.slug)) {
+      registry.register(
+        new CustomCliRuntime({
+          id: custom.slug,
+          name: custom.name,
+          command: custom.command,
+          argsTemplate: custom.argsTemplate ? custom.argsTemplate.split(' ') : undefined,
+          env: custom.env ?? undefined,
+          capabilities: custom.capabilities,
+          instructionFilenames: custom.instructionFilenames,
+        }),
+      )
+    }
+  }
 
   const terminalService = new TerminalService({
     processes,
@@ -277,6 +301,8 @@ export function createForgeCore(options: ForgeCoreOptions = {}): ForgeCore {
     changeSets: changeSetService,
     changeSetStore: workflowService.getChangeSetStore(),
     accounts: accountService,
+    agentInstances: agentInstanceStore,
+    customRuntimes: customRuntimeStore,
     terminal: terminalService,
     bindings: bindingService,
     enrollment: enrollmentService,

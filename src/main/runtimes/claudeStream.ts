@@ -1,3 +1,5 @@
+import { isClaudeRateLimitSpent } from './claudeRateLimit'
+
 /**
  * Parses the Claude CLI's `--output-format stream-json` transport.
  *
@@ -152,23 +154,8 @@ function observeRateLimit(message: Record<string, unknown>): StreamObservation {
   const info = asRecord(message.rate_limit_info)
   if (info === null) return EMPTY
 
-  const status = asString(info.status)
-  const overageStatus = asString(info.overageStatus)
-
-  // `status` alone is NOT a limit. Measured on a turn that completed normally:
-  //
-  //   {"status":"rejected","rateLimitType":"five_hour",
-  //    "overageStatus":"allowed_warning","isUsingOverage":true,"overageInUse":true}
-  //
-  // The primary window was exhausted and the request was served from overage — the work
-  // succeeded. An earlier version of this treated any non-`allowed` status as spent, and
-  // halted a real run that was working. The account is only actually spent when the
-  // fallback is refused too, so both must be non-allowed before Forge stops (#147).
-  const primarySpent = status !== null && status !== 'allowed'
-  const overageSpent =
-    overageStatus !== null && overageStatus !== 'allowed' && !overageStatus.startsWith('allowed')
-
-  return { ...EMPTY, providerLimitReached: primarySpent && overageSpent }
+  const providerLimitReached = isClaudeRateLimitSpent(info)
+  return { ...EMPTY, providerLimitReached }
 }
 
 function observeResult(message: Record<string, unknown>): StreamObservation {

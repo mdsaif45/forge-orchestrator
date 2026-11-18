@@ -234,6 +234,51 @@ describe('transitions', () => {
     expect(resumed.resumeState).toBeNull()
   })
 
+  it('runs planning alone and stops with stageCompleted (#164)', () => {
+    const store = startWorkflow()
+    store.apply(workflowId, 'start', 'system', NOW)
+    store.apply(workflowId, 'planProduced', 'agent:mock', NOW)
+
+    const stopped = store.apply(workflowId, 'stageCompleted', 'user', NOW)
+    expect(stopped.state).toBe('DONE')
+    expect(stopped.finishedAt).toBe(NOW)
+  })
+
+  it('skips unrequested stages with stageSkipped (#164)', () => {
+    const store = startWorkflow()
+    for (const trigger of [
+      'start',
+      'planProduced',
+      'userApproved',
+      'implementationStarted',
+      'implemented',
+    ] as const) {
+      store.apply(workflowId, trigger, 'user', NOW)
+    }
+
+    // In VERIFYING: skip review stage directly to DONE
+    const skippedReview = store.apply(workflowId, 'stageSkipped', 'user', NOW)
+    expect(skippedReview.state).toBe('DONE')
+    expect(skippedReview.finishedAt).toBe(NOW)
+  })
+
+  it('re-runs a stage with stageRerun and increments iteration (#164)', () => {
+    const store = startWorkflow()
+    store.apply(workflowId, 'start', 'system', NOW)
+    store.apply(workflowId, 'planProduced', 'agent:mock', NOW)
+
+    // First rerun advances iteration from 0 to 1
+    const rerun = store.apply(workflowId, 'stageRerun', 'user', NOW)
+    expect(rerun.state).toBe('PLANNING')
+    expect(rerun.iteration).toBe(1)
+
+    // Second rerun advances iteration from 1 to 2
+    store.apply(workflowId, 'planProduced', 'agent:mock', NOW)
+    const rerun2 = store.apply(workflowId, 'stageRerun', 'user', NOW)
+    expect(rerun2.state).toBe('PLANNING')
+    expect(rerun2.iteration).toBe(2)
+  })
+
   it('finishes a workflow, clearing the checkpoint', () => {
     const store = startWorkflow()
     for (const trigger of [

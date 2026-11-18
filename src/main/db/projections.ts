@@ -4,7 +4,9 @@ import type { ForgeDatabase } from './connection'
 import {
   accounts,
   agentBindings,
+  agentInstances,
   changeSets,
+  customRuntimes,
   decisions,
   evidenceArtifacts,
   graphCheckpoints,
@@ -540,6 +542,89 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
 
   if (isType(event, 'account.removed')) {
     db.delete(accounts).where(eq(accounts.id, event.payload.accountId)).run()
+    return
+  }
+
+  if (isType(event, 'agent_instance.created')) {
+    const inst = event.payload.agentInstance
+    db.insert(agentInstances)
+      .values({
+        id: inst.id,
+        projectId: inst.projectId,
+        name: inst.name,
+        label: inst.label,
+        provider: inst.provider,
+        accountId: inst.accountId,
+        role: inst.role,
+        createdAt: inst.createdAt,
+        updatedAt: inst.updatedAt,
+      })
+      .onConflictDoUpdate({
+        target: agentInstances.id,
+        set: {
+          name: inst.name,
+          label: inst.label,
+          provider: inst.provider,
+          accountId: inst.accountId,
+          role: inst.role,
+          updatedAt: inst.updatedAt,
+        },
+      })
+      .run()
+    return
+  }
+
+  if (isType(event, 'agent_instance.updated')) {
+    const payload = event.payload
+    db.update(agentInstances)
+      .set({
+        label: payload.label,
+        updatedAt: payload.updatedAt,
+      })
+      .where(eq(agentInstances.id, payload.id))
+      .run()
+    return
+  }
+
+  if (isType(event, 'agent_instance.removed')) {
+    db.delete(agentInstances).where(eq(agentInstances.id, event.payload.id)).run()
+    return
+  }
+
+  if (isType(event, 'custom_runtime.created')) {
+    const r = event.payload
+    db.insert(customRuntimes)
+      .values({
+        id: r.id,
+        slug: r.slug,
+        name: r.name,
+        command: r.command,
+        argsTemplate: r.argsTemplate ?? null,
+        capabilities: JSON.stringify(r.capabilities),
+        permissionMode: r.permissionMode,
+        instructionFilenames: JSON.stringify(r.instructionFilenames),
+        env: r.env ? JSON.stringify(r.env) : null,
+        createdAt: r.createdAt,
+      })
+      .onConflictDoUpdate({
+        target: customRuntimes.id,
+        set: {
+          slug: r.slug,
+          name: r.name,
+          command: r.command,
+          argsTemplate: r.argsTemplate ?? null,
+          capabilities: JSON.stringify(r.capabilities),
+          permissionMode: r.permissionMode,
+          instructionFilenames: JSON.stringify(r.instructionFilenames),
+          env: r.env ? JSON.stringify(r.env) : null,
+        },
+      })
+      .run()
+    return
+  }
+
+  if (isType(event, 'custom_runtime.removed')) {
+    db.delete(customRuntimes).where(eq(customRuntimes.id, event.payload.id)).run()
     return
   }
 

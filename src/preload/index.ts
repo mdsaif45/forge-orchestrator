@@ -103,6 +103,12 @@ const api: ForgeApi = {
       call('account:beginEnrollment', { accountId, runtimeId }),
     revokeEnrollment: (accountId) => call('account:revokeEnrollment', { accountId }),
   },
+  agentInstance: {
+    list: (projectId) => call('agentInstance:list', { projectId }),
+    create: (request) => call('agentInstance:create', request),
+    update: (request) => call('agentInstance:update', request),
+    remove: (id) => call('agentInstance:remove', { id }),
+  },
   git: {
     getWorkingDiff: (projectId) => call('git:getWorkingDiff', { projectId }),
     listFiles: (projectId) => call('git:listFiles', { projectId }),

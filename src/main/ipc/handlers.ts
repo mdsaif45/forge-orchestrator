@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises'
 import { app, clipboard, dialog, BrowserWindow } from 'electron'
 import { APP_NAME } from '@shared/app'
-import type { ProviderChunkPayload } from '@shared/ipc'
+import type { ModelDetail, ProviderChunkPayload } from '@shared/ipc'
 import {
   artifactIdSchema,
   runIdSchema,
@@ -26,6 +26,7 @@ import { runtimeDescription, runtimeExecutable, type RuntimeRegistry } from '../
 import { isCommandAvailable } from '../process/processManager'
 import { streamChat } from '../providers/chatStream'
 import { runAgentTurn } from '../providers/agentTurn'
+import { discoverOllamaModels } from '../providers/ollamaDiscovery'
 import type { BindingService } from '../bindings/bindingService'
 import type { EnrollmentService } from '../accounts/enrollmentService'
 import { openTerminal } from '../accounts/terminalLauncher'
@@ -547,22 +548,32 @@ export function createIpcHandlers({
       try {
         const cleanBase = endpointUrl.replace(/\/$/, '')
         let detected: string[] = []
+        let details: ModelDetail[] | undefined = undefined
 
         if (providerId === 'ollama' || cleanBase.includes('11434')) {
-          const res = await fetch(`${cleanBase}/api/tags`)
-          if (!res.ok) {
+          const discovery = await discoverOllamaModels({
+            endpointUrl: cleanBase,
+            probeCapabilities: false,
+          })
+          if (!discovery.reachable && discovery.error) {
             return {
               ok: false,
               models: [],
-              error: `Ollama returned HTTP ${String(res.status)}: ${res.statusText}`,
+              error: discovery.error,
             }
           }
-          const data = (await res.json()) as { models?: { name?: string; model?: string }[] }
-          if (Array.isArray(data.models)) {
-            detected = data.models
-              .map((m) => m.name ?? m.model ?? '')
-              .filter((name) => name.length > 0)
-          }
+          detected = discovery.models.map((m) => m.name)
+          details = discovery.models.map((m) => ({
+            name: m.name,
+            model: m.model,
+            family: m.family,
+            parameterSize: m.parameterSize,
+            quantization: m.quantization,
+            sizeBytes: m.sizeBytes,
+            modifiedAt: m.modifiedAt,
+            isCodingModel: m.isCodingModel,
+            capabilities: m.capabilities,
+          }))
         } else {
           const endpoint = cleanBase.endsWith('/v1')
             ? `${cleanBase}/models`
@@ -592,6 +603,7 @@ export function createIpcHandlers({
         return {
           ok: true,
           models: detected,
+          ...(details ? { details } : {}),
           error: null,
         }
       } catch (err) {

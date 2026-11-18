@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
@@ -545,6 +545,159 @@ FORGE_REPORT_END`,
         { criteria?: readonly CriterionResult[] } | undefined
       expect(storedPayload?.criteria).toBeDefined()
       expect(storedPayload?.criteria?.some((c) => c.kind === 'no-assumptions')).toBe(true)
+    },
+  )
+
+  it(
+    'streams agent response chunks into artifact store via writeArtifactStream (AGENT-002)',
+    { timeout: 30_000 },
+    async () => {
+      const chunks = [
+        'First line of streamed output\n',
+        'Second line of streamed output\n',
+        '{"status":"completed","summary":"Streamed response written directly"}',
+      ]
+      const customRuntime: IAgentRuntime = {
+        id: runtimeIdSchema.parse('test-streaming-runtime'),
+        simulated: true,
+        supportsAccountIsolation: true,
+        capabilities: ['repo-read', 'file-write'],
+        instructionFilenames: [],
+        async start(): Promise<SessionHandle> {
+          await Promise.resolve()
+          return {
+            sessionId: sessionIdSchema.parse(`stream-session-${randomUUID()}`),
+            runtimeId: runtimeIdSchema.parse('test-streaming-runtime'),
+          }
+        },
+        async send(): Promise<void> {
+          await Promise.resolve()
+        },
+        async *events(): AsyncIterable<RuntimeEvent> {
+          await Promise.resolve()
+          for (const text of chunks) {
+            yield { type: 'chunk', at: new Date().toISOString(), text }
+          }
+        },
+        status(session): Promise<RuntimeStatus> {
+          return Promise.resolve({
+            sessionId: session.sessionId,
+            state: 'completed',
+            lastActivityAt: new Date().toISOString(),
+            failure: null,
+          })
+        },
+        cancel(): Promise<void> {
+          return Promise.resolve()
+        },
+        async dispose(): Promise<void> {
+          await Promise.resolve()
+        },
+      }
+
+      const result = await executeDirectTask(core, {
+        workspacePath: repoPath,
+        task: 'Streaming test',
+        runtime: customRuntime,
+      })
+
+      expect(result.ok).toBe(true)
+      const artifacts = core.artifacts.listArtifacts(result.runId)
+      const rawArt = artifacts.find((a) => a.name === 'agent-response.txt')
+      expect(rawArt).toBeDefined()
+      const content = await core.artifacts.readArtifact(rawArt!.id)
+      expect(content.toString('utf-8')).toBe(chunks.join(''))
+      expect(rawArt!.sizeBytes).toBe(Buffer.byteLength(chunks.join('')))
+    },
+  )
+
+  it(
+    'enforces execution timeout budget from ForgeConfig (CORE-004 / A5)',
+    { timeout: 30_000 },
+    async () => {
+      const slowRuntime: IAgentRuntime = {
+        id: runtimeIdSchema.parse('test-timeout-runtime'),
+        simulated: true,
+        supportsAccountIsolation: true,
+        capabilities: ['repo-read', 'file-write'],
+        instructionFilenames: [],
+        async start(): Promise<SessionHandle> {
+          await Promise.resolve()
+          return {
+            sessionId: sessionIdSchema.parse(`timeout-session-${randomUUID()}`),
+            runtimeId: runtimeIdSchema.parse('test-timeout-runtime'),
+          }
+        },
+        async send(): Promise<void> {
+          await Promise.resolve()
+        },
+        async *events(): AsyncIterable<RuntimeEvent> {
+          yield { type: 'chunk', at: new Date().toISOString(), text: 'starting' }
+          await new Promise((r) => setTimeout(r, 60))
+          yield { type: 'chunk', at: new Date().toISOString(), text: 'finished' }
+        },
+        status(session): Promise<RuntimeStatus> {
+          return Promise.resolve({
+            sessionId: session.sessionId,
+            state: 'completed',
+            lastActivityAt: new Date().toISOString(),
+            failure: null,
+          })
+        },
+        cancel(): Promise<void> {
+          return Promise.resolve()
+        },
+        async dispose(): Promise<void> {
+          await Promise.resolve()
+        },
+      }
+      const timeoutCore = createForgeCore({
+        dataDir: join(tempDir, 'timeout-data'),
+        config: {
+          security: {
+            maxExecutionTimeMs: 25,
+          },
+        },
+      })
+      try {
+        await expect(
+          executeDirectTask(timeoutCore, {
+            workspacePath: repoPath,
+            task: 'Timeout test',
+            runtime: slowRuntime,
+          }),
+        ).rejects.toThrow(/Task execution exceeded security timeout budget \(25ms\)/)
+      } finally {
+        await timeoutCore.close()
+      }
+    },
+  )
+
+  it(
+    'rejects execution outside workspace boundary when allowExecutionOutsideWorkspace is false (CORE-004 / A7)',
+    { timeout: 30_000 },
+    async () => {
+      const secureCore = createForgeCore({
+        dataDir: join(tempDir, 'secure-data'),
+        config: {
+          security: {
+            allowExecutionOutsideWorkspace: false,
+          },
+        },
+      })
+      const outsidePath = resolve(tempDir, '..', 'completely-outside-sandbox')
+      try {
+        await expect(
+          executeDirectTask(secureCore, {
+            workspacePath: outsidePath,
+            task: 'Boundary test',
+          }),
+        ).rejects.toThrow(
+          /Security violation: Execution in workspace .* is disabled by policy \(A7\)/,
+        )
+      } finally {
+        await secureCore.close()
+      }
     },
   )
 })

@@ -56,6 +56,25 @@ import {
   workflowLogPayloadSchema,
 } from './views'
 
+export const modelDetailSchema = z.strictObject({
+  name: z.string(),
+  model: z.string(),
+  family: z.string().nullable(),
+  parameterSize: z.string().nullable(),
+  quantization: z.string().nullable(),
+  sizeBytes: z.number(),
+  modifiedAt: z.string(),
+  isCodingModel: z.boolean(),
+  capabilities: z.strictObject({
+    tools: z.boolean(),
+    vision: z.boolean(),
+    thinking: z.boolean(),
+    source: z.string(),
+  }),
+})
+
+export type ModelDetail = z.infer<typeof modelDetailSchema>
+
 export const IPC_CONTRACT = {
   'app:getInfo': { request: empty, response: appInfoSchema },
   'dialog:pickDirectory': { request: empty, response: pickDirectoryResponseSchema },
@@ -624,6 +643,7 @@ export const IPC_CONTRACT = {
     response: z.strictObject({
       ok: z.boolean(),
       models: z.array(z.string()).readonly(),
+      details: z.array(modelDetailSchema).readonly().optional(),
       error: z.string().nullable(),
     }),
   },

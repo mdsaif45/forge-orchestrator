@@ -2,8 +2,8 @@
 
 **Status:** ACTIVE
 **Authority:** Planning Truth
-**Last Updated:** 2026-11-17
-**Baseline:** `main` (PR #228, PR #229 merged) | Milestone M6 100% COMPLETE
+**Last Updated:** 2026-11-18
+**Baseline:** `main` @ `0fe8d03` (PR #234 merged) | Milestones M0..M11 100% COMPLETE
 **Related Architecture:** [architecture-overview.md](../architecture/architecture-overview.md)
 **Related Progress:** [current-state.md](../project/current-state.md)
 
@@ -34,7 +34,7 @@
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **CORE-001** | #199 | P0 | **DONE** | M0-001 | Decouple domain and task orchestrator from Electron runtime. | `createForgeCore` exported in `src/main/core/forgeCore.ts`. | PR #198 (`26ac6e3`) |
 | **CORE-002** | #199 | P0 | **DONE** | CORE-001 | Support arbitrary data directory via `--data-dir` flag. | `resolveDataDir` verified in `src/main/core/forgeCore.test.ts`. | PR #198 (`26ac6e3`) |
-| **CORE-003** | NEW | P1 | **READY** | CORE-001 | Headless configuration and environment loader (`.forgerc`). | Reads configuration without GUI context. | — |
+| **CORE-003** | NEW | P1 | **DONE** | CORE-001 | Headless configuration and environment loader (`.forgerc`). | Reads configuration without GUI context; `loadForgeConfig` in `forgeConfig.ts`. | PR #231 |
 
 ---
 
@@ -44,8 +44,8 @@
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **AGENT-001** | #200 | P0 | **DONE** | CORE-001 | In-process native agent task loop and tool calling engine. | `executeDirectTask` in `src/main/core/taskRunner.ts`. | PR #198 (`26ac6e3`) |
 | **AGENT-002** | NEW | P1 | **DONE** | AGENT-001 | Streaming artifact ingestion (`writeArtifactStream`) for large tool output; `writeArtifact` currently buffers in memory. | `ArtifactService.writeArtifactStream()` covered by `artifactService.test.ts`. | — |
-| **AGENT-003** | NEW | P1 | **READY** | AGENT-001 | Eager concurrent tool execution via `Promise.all`. | Benchmarked reduction in step wall-clock time. | — |
-| **AGENT-004** | NEW | P1 | **READY** | AGENT-001 | Local Ollama auto-discovery and capability probing. | Offline execution on Qwen 2.5 coder models. | — |
+| **AGENT-003** | NEW | P1 | **DONE** | AGENT-001 | Eager concurrent read-only tool execution via `Promise.all`. | Contiguous read-only tool calls executed concurrently; verified in `agentLoop.test.ts`. | PR #235 |
+| **AGENT-004** | NEW | P1 | **DONE** | AGENT-001 | Local Ollama auto-discovery and capability probing. | `discoverOllamaModels` queries `/api/tags` and `/api/show`; verified in `ollamaDiscovery.test.ts`. | PR #235 |
 
 ---
 
@@ -57,7 +57,8 @@
 | **CLI-002** | #201 | P1 | **DONE** | CLI-001 | Headless NDJSON event streaming mode (`--json`). | Emits parseable line-delimited events to stdout. | PR #198 (`26ac6e3`) |
 | **CLI-003** | #201 | P1 | **DONE** | CLI-001 | Clean exit code contract (0=Success, 1=Fail, 2=Halt). | Verified in `cli.test.ts`. | PR #198 (`26ac6e3`) |
 | **CLI-004** | NEW | P1 | **NOT STARTED** | CLI-001 | Interactive terminal TUI for live CLI monitoring. | Multi-pane status and diff display. | — (see note below) |
-| **CLI-005** | #155 | P2 | **READY** | CLI-004 | Live tool-call timeline rendering in terminal. | Tool invocation visual timeline. | — |
+| **CLI-005** | #155 | P2 | **DONE** | CLI-004 | Live tool-call timeline rendering in terminal. | Tool invocation visual timeline. | PR #232 |
+| **CLI-006** | NEW | P1 | **DONE** | CLI-001 | Headless CLI workflow inspection command (`forge workflows`). | Lists and inspects workflows headlessly in text/JSON; verified in `cli.test.ts`. | PR #235 |
 
 ---
 
@@ -68,8 +69,8 @@
 | **STATE-001** | NEW | P0 | **DONE** | CORE-002 | Dual-tier SQLite store (`RunStore`, `EventStore`, `ArtifactStore`) + disk. | `<dataDir>/artifacts/<run-id>/` + SQLite tables. | PR #203 (`1dfb444`) |
 | **ARTIFACT-001** | NEW | P1 | **DONE** | STATE-001 | Windowed byte-offset artifact reader for large terminal logs. | `ArtifactService.readWindow()` covered by `artifactService.test.ts`. | PR #203 (`1dfb444`) |
 | **EVIDENCE-001** | #202 | P0 | **DONE** | CORE-001 | Authoritative evidence model & git diff reconciliation. | `ChangeSet` snapshotting in `taskRunner.ts`. | PR #198 (`26ac6e3`) |
-| **IPC-001** | #153 | P2 | **READY** | CORE-001 | Push runtime events over typed IPC channels to Renderer. | Real-time event streaming tests. | — |
-| **EVENT-001** | #149 | P1 | **READY** | CORE-001 | Live agent channel subscription and event log replay. | Deterministic replay from event log. | — |
+| **IPC-001** | #153 | P2 | **DONE** | CORE-001 | Push runtime events over typed IPC channels to Renderer. | Real-time event streaming tests; verified in `workflowService.test.ts`. | PR #231 |
+| **EVENT-001** | #149 | P1 | **DONE** | CORE-001 | Live agent channel subscription and event log replay. | Deterministic replay from event log; closed with PR #231 & #232. | PR #231 |
 
 ---
 
@@ -89,7 +90,7 @@
 | ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **WORK-001** | NEW | P0 | **DONE** | CORE-001 | DAG execution engine for Generic Workflow Graphs. | Arbitrary acyclic graph execution, branch worktree isolation, and pure fan-in patch materialization. | PR #215, PR #216 |
-| **WORK-002** | #164 | P1 | **DONE** | WORK-001 | Stage run, skip, and re-run interactive controls. | Selective node execution in workflow (`runNode`, `skipNode`, `rerunNode`). Partial engine support for Issue #164. | PR #217 |
+| **WORK-002** | #164 | P1 | **DONE** | WORK-001 | Stage run, skip, and re-run interactive controls. | Selective node execution in workflow (`runNode`, `skipNode`, `rerunNode`). | PR #217, PR #233 |
 | **WORK-003** | NEW | P1 | **DONE** | WORK-001 | Conditional branching, loop edges, bounded iterations, and durable artifact lineage hydration. | Loop / retry integration tests, bounded iterations, and lineage hydration. | PR #218, PR #219, PR #220, PR #221 |
 | **WORK-004** | NEW | P0 | **DONE** | WORK-003 | M6 Phase 5 Batch 1: Graph pause/recovery lifecycle stabilization and Slice 5A-1 read-model contracts. | 28 lifecycle invariant tests (`graphLifecycle.test.ts`), 25 read-model projection tests (`views.test.ts`). | PR #222 (`bcecb65`), PR #223 (`e434c1e`) |
 | **WORK-005** | NEW | P0 | **DONE** | WORK-004 | M6 Phase 5 Batch 2: Generic leaf runner implementation (`leafRunner.ts`). | Injected leaf execution callback tests with fail-closed change scope and verification evidence mapping. | PR #224 (`a1964a1`) |
@@ -106,10 +107,10 @@
 | ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **HUMAN-001** | #163 | P0 | **DONE** | WORK-001 | Real human approval gate (no auto-approval in production). | FSM blocks until locked human decision recorded; rejectImplementation supported; covered in workflowService.test.ts. | PR #230 |
-| **HUMAN-002** | #171 | P1 | **BLOCKED** | ADR-003 | Send prompts and mid-run interjections to live PTY session. | Steer running agent without aborting. | — |
-| **HUMAN-003** | #160 | P1 | **BLOCKED** | HUMAN-002 | Master interactive control plane epic. | Interactive control end-to-end tests. | — |
-| **HUMAN-004** | #154 | P1 | **BLOCKED** | HUMAN-002 | Bind UI xterm pane directly to step child process. | UI terminal attachment and input forwarding. | — |
-| **HUMAN-005** | #117 | P3 | **READY** | — | Unify Tasks page vs Workflow page UX. | Product UI resolution. | — |
+| **HUMAN-002** | #171 | P1 | **DONE** | ADR-003 | Send prompts and mid-run interjections to live PTY session. | Steer running agent without aborting; `WorkflowService.interject()` + IPC. | PR #234 |
+| **HUMAN-003** | #160 | P1 | **DONE** | HUMAN-002 | Master interactive control plane epic. | Interactive control end-to-end tests; closed with PR #230, #233, #234. | PR #234 |
+| **HUMAN-004** | #154 | P1 | **DONE** | HUMAN-002 | Bind UI xterm pane directly to step child process. | UI terminal attachment and input forwarding to running step. | PR #232 |
+| **HUMAN-005** | #117 | P3 | **DONE** | — | Unify Tasks page vs Workflow page UX. | ADR-005 Task Domain Boundary recorded; tasks surfaced on workflow canvas. | PR #234 |
 
 ---
 
@@ -117,9 +118,9 @@
 
 | ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **RUNTIME-001** | #174 | P1 | **READY** | ADR-001 | Data-driven custom CLI adapter configuration. | New CLI registered from JSON config. | — |
-| **RUNTIME-002** | #168 | P1 | **READY** | ADR-003 | Launch Antigravity CLI interactively in hosted PTY session. | Bidirectional PTY stream to Antigravity. | — |
-| **RUNTIME-003** | #180 | P2 | **READY** | ADR-001 | Provider quota and limit detection via CLI hooks. | Detects provider limit without failing step. | — |
+| **RUNTIME-001** | #174 | P1 | **DONE** | ADR-001 | Data-driven custom CLI adapter configuration. | New CLI registered from JSON config; `CustomRuntimeStore` + `CustomCliRuntime`. | PR #231 |
+| **RUNTIME-002** | #168 | P1 | **DONE** | ADR-003 | Launch Antigravity CLI interactively in hosted PTY session. | Bidirectional PTY stream to Antigravity; `HostedAntigravityRuntime`. | PR #234 |
+| **RUNTIME-003** | #180 | P2 | **DONE** | ADR-001 | Provider quota and limit detection via CLI hooks. | Detects provider limit without failing step; `claudeRateLimit.ts`. | PR #233 |
 
 ---
 
@@ -127,6 +128,9 @@
 
 | ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **WARM-001** | #157 | P1 | **DONE** | ADR-002 | Resumable sessions in `IAgentRuntime`. | Warm session persistence across steps via `WarmSessionStore`. | PR #232 |
+| **WARM-002** | #158 | P1 | **DONE** | WARM-001 | Resume CLI sessions in adapters (`claude --resume`, `agy --conversation`). | Session resumption in Claude & Antigravity adapters. | PR #232 |
+| **WARM-003** | #159 | P1 | **DONE** | WARM-001 | Benchmark harness measuring stage wall-clock against baseline. | Benchmark measurement spike in `docs/spikes/session-resume-benchmark.md`. | PR #233 |
 | **POLISH-001** | — | P2 | **DEFERRED** | M7 | Multi-repository workspace management. | Multiple git checkouts in one workspace. | See `deferred.md` |
 | **POLISH-002** | — | P2 | **DEFERRED** | M6 | Cloud synchronization and team backplanes. | Remote state replication. | See `deferred.md` |
 

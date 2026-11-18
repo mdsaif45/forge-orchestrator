@@ -5,9 +5,11 @@ import {
   projectIdSchema,
   runIdSchema,
   runStatusSchema,
+  workflowIdSchema,
   type ProjectId,
   type RunStatus,
 } from '@shared/domain'
+import type { WorkflowDetailView, WorkflowSummaryView } from '@shared/views'
 import { createForgeCore, resolveDataDir } from './core/forgeCore'
 import { executeDirectTask, type DirectTaskEvent } from './core/taskRunner'
 import { GitService } from './git'
@@ -41,6 +43,7 @@ ${ANSI.bold}USAGE${ANSI.reset}
 ${ANSI.bold}COMMANDS${ANSI.reset}
   run <task>                 Execute an autonomous coding task against the current repository
   runs [list|inspect|events] Inspect past runs, steps, and event streams
+  workflows [list|inspect]   Inspect workflows and multi-step execution graphs
   artifacts [list|cat]       Inspect and view run artifacts (patches, stdout, tool logs)
   status                     Display current repository status and Forge control plane state
   models [list|set]          Inspect or configure the active AI model and provider
@@ -167,6 +170,18 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       status: values.status,
       all: values.all,
       from: values.from,
+      cwd,
+      dataDir,
+      json: values.json,
+    })
+  }
+
+  if (command === 'workflows' || command === 'workflow') {
+    return handleWorkflows({
+      action: positionals[1],
+      targetId: positionals[2],
+      limit: values.limit,
+      all: values.all,
       cwd,
       dataDir,
       json: values.json,
@@ -1009,6 +1024,169 @@ async function handleArtifacts(opts: {
       console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
       console.error('Usage: forge artifacts [list] <runId> | forge artifacts cat <artifactId>')
     }
+    return 1
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (opts.json) {
+      console.log(JSON.stringify({ error: msg }))
+    } else {
+      console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+    }
+    return 1
+  } finally {
+    await core.close()
+  }
+}
+
+async function handleWorkflows(opts: {
+  action: string | undefined
+  targetId: string | undefined
+  limit: string | undefined
+  all: boolean
+  cwd: string
+  dataDir: string
+  json: boolean
+}): Promise<number> {
+  const core = createForgeCore({ dataDir: opts.dataDir })
+
+  try {
+    let action = opts.action ?? 'list'
+    let targetId = opts.targetId
+
+    if (action !== 'list' && action !== 'inspect') {
+      targetId = action
+      action = 'inspect'
+    }
+
+    if (action === 'list') {
+      let limit: number | undefined
+      if (opts.limit !== undefined) {
+        limit = parseInt(opts.limit, 10)
+        if (isNaN(limit) || limit < 0) {
+          const err = `Invalid limit: ${opts.limit}`
+          if (opts.json) console.log(JSON.stringify({ error: err }))
+          else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          return 1
+        }
+      }
+
+      let workflows: readonly (WorkflowSummaryView | WorkflowDetailView)[] = []
+      if (opts.all) {
+        const allProjects = core.projects.list()
+        const accumulated: WorkflowSummaryView[] = []
+        for (const proj of allProjects) {
+          accumulated.push(...core.workflows.list(proj.id))
+        }
+        workflows = accumulated
+      } else {
+        const projects = core.projects.list()
+        const normCwd = resolve(opts.cwd).toLowerCase()
+        const match = projects.find(
+          (p) => resolve(p.repository.absolutePath).toLowerCase() === normCwd,
+        )
+        if (!match) {
+          if (opts.json) {
+            console.log(JSON.stringify({ workflows: [] }))
+            return 0
+          }
+          console.log(
+            `\n${ANSI.yellow}Current directory is not a registered Forge project.${ANSI.reset}`,
+          )
+          console.log(
+            `Use ${ANSI.bold}forge workflows --all${ANSI.reset} to view workflows across all projects.\n`,
+          )
+          return 0
+        }
+        workflows = core.workflows.list(match.id)
+      }
+
+      if (limit !== undefined) {
+        workflows = workflows.slice(0, limit)
+      }
+
+      if (opts.json) {
+        console.log(JSON.stringify({ workflows }))
+        return 0
+      }
+
+      if (workflows.length === 0) {
+        console.log(`\n${ANSI.dim}No workflows found.${ANSI.reset}\n`)
+        return 0
+      }
+
+      console.log(`\n${ANSI.bold}Workflows (${String(workflows.length)})${ANSI.reset}:`)
+      for (const wf of workflows) {
+        const stateColor =
+          wf.state === 'COMPLETED'
+            ? ANSI.green
+            : wf.state === 'FAILED' || wf.state === 'HALTED'
+              ? ANSI.red
+              : ANSI.yellow
+        const stepsStr = 'stepCount' in wf ? String(wf.stepCount) : String(wf.steps.length)
+        console.log(
+          `  ${ANSI.bold}${wf.id}${ANSI.reset}  ${stateColor}${wf.state}${ANSI.reset}  template:${wf.templateId}  steps:${stepsStr}`,
+        )
+        console.log(`    Task: ${wf.taskId}`)
+        console.log(`    Started: ${ANSI.dim}${wf.startedAt}${ANSI.reset}`)
+      }
+      console.log('')
+      return 0
+    }
+
+    if (action === 'inspect') {
+      const rawId = targetId
+      if (!rawId) {
+        const err = 'No workflow ID provided.'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else {
+          console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          console.error('Usage: forge workflows inspect <workflowId> [--json]')
+        }
+        return 1
+      }
+
+      const parsedId = workflowIdSchema.safeParse(rawId)
+      if (!parsedId.success) {
+        const err = `Invalid workflow ID "${rawId}". Expected a valid UUID.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      const wf = core.workflows.get(parsedId.data)
+      if (!wf) {
+        const err = `Workflow "${rawId}" not found.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      if (opts.json) {
+        console.log(JSON.stringify(wf, null, 2))
+        return 0
+      }
+
+      console.log(`\n${ANSI.bold}Workflow ${wf.id}${ANSI.reset}`)
+      console.log(`  State:      ${wf.state}`)
+      console.log(`  Task:       ${wf.taskId}`)
+      console.log(`  Template:   ${wf.templateId}`)
+      console.log(`  Iteration:  ${String(wf.iteration)}`)
+      console.log(`  Started:    ${wf.startedAt}`)
+      if (wf.finishedAt) console.log(`  Finished:   ${wf.finishedAt}`)
+      if (wf.haltReason) console.log(`  Halt Reason: ${wf.haltReason}`)
+
+      console.log(`\n  ${ANSI.bold}Steps (${String(wf.steps.length)}):${ANSI.reset}`)
+      for (const st of wf.steps) {
+        console.log(
+          `    [${String(st.index)}] ${st.role} -> ${st.state} (runtime: ${st.runtimeId ?? 'system'})`,
+        )
+      }
+      console.log('')
+      return 0
+    }
+
+    console.error(`${ANSI.red}Unknown workflows action: "${action}"${ANSI.reset}`)
+    console.error('Usage: forge workflows [list|inspect <id>] [--json]')
     return 1
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)

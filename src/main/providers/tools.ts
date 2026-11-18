@@ -41,6 +41,12 @@ export interface ToolContext {
     | undefined
 }
 
+export const READ_ONLY_TOOLS = new Set(['read_file', 'list_dir', 'search_files'])
+
+export function isReadOnlyTool(name: string): boolean {
+  return READ_ONLY_TOOLS.has(name)
+}
+
 /** The JSON-schema tool declarations sent to the model. */
 export const TOOL_DEFINITIONS = [
   {

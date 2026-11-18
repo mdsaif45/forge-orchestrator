@@ -535,4 +535,73 @@ describe('Forge CLI (runCli)', () => {
     consoleError.mockRestore()
     consoleLog.mockRestore()
   })
+
+  it('lists and inspects workflows in json and text mode (CLI-006)', async () => {
+    const core = createForgeCore({ dataDir })
+    const project = await core.projects.create({
+      name: 'Workflow CLI Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'master',
+      buildCommand: null,
+      testCommand: null,
+      tech: ['ts'],
+      rules: [],
+    })
+    const started = await core.workflows.start({
+      projectId: project.id,
+      objective: 'Verify workflows cli command',
+      autoRun: false,
+    })
+    await core.close()
+
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg?: unknown) => {
+      consoleLogs.push(String(msg))
+    })
+
+    // List workflows in json mode
+    const listJsonCode = await runCli([
+      'workflows',
+      'list',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(listJsonCode).toBe(0)
+    const parsedList = JSON.parse(consoleLogs[0] ?? '{}') as { workflows: { id: string }[] }
+    expect(parsedList.workflows).toHaveLength(1)
+    expect(parsedList.workflows[0]?.id).toBe(started.id)
+
+    consoleLogs.length = 0
+
+    // Inspect workflow in json mode
+    const inspectJsonCode = await runCli([
+      'workflows',
+      'inspect',
+      started.id,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(inspectJsonCode).toBe(0)
+    const parsedInspect = JSON.parse(consoleLogs[0] ?? '{}') as { id: string; templateId: string }
+    expect(parsedInspect.id).toBe(started.id)
+
+    consoleLogs.length = 0
+
+    // Inspect in human-readable mode
+    const inspectTextCode = await runCli([
+      'workflows',
+      'inspect',
+      started.id,
+      '--data-dir',
+      dataDir,
+    ])
+    expect(inspectTextCode).toBe(0)
+    expect(consoleLogs.some((l) => l.includes(started.id))).toBe(true)
+
+    consoleLog.mockRestore()
+  })
 })

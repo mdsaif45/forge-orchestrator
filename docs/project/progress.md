@@ -2,11 +2,11 @@
 
 ```
 Project:            Forge — AI Engineering Control Plane
-Current milestone:  Milestone M6 Generic Workflow Graph (Phase 5 in progress)
-Overall status:     Generic Workflow Graph Engine (WORK-001..005, Phase 5 Slices 5B-1A/B/C-A) merged on main; Slice 5B-1C Slice B in open PR #228; production execution remains WorkflowService → Orchestrator pending cutover and 31-scenario parity verification.
-Last updated:       2026-10-20
-Evidence baseline:  main @ 07d3c4b (PR #227 merged) | Open PR: #228 (feat/m6-phase5-batch3-slice5b1c-reviewer-routing @ bdd6aa2)
-Active branch:      feat/m6-phase5-batch3-slice5b1c-reviewer-routing (PR #228)
+Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
+Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
+Last updated:       2026-11-18
+Evidence baseline:  main @ 0fe8d03 (PR #234 merged)
+Active branch:      feat/m2-agent-cli-and-milestone-reconciliation
 ```
 
 ---
@@ -16,23 +16,27 @@ Active branch:      feat/m6-phase5-batch3-slice5b1c-reviewer-routing (PR #228)
 ```
 M0  Foundation & Quality Gates    ██████████  DONE        PR #186 merged
         ↓
-M1  Headless Core                 ██████████  DONE        PR #198 merged (CORE-001/002)
+M1  Headless Core                 ██████████  DONE        PR #198 (CORE-001/002); PR #231 (CORE-003)
         ↓
-M2  Native Agent Core             ██████████  DONE        PR #198 merged (AGENT-001)
+M2  Native Agent Core             ██████████  DONE        PR #198 (AGENT-001); PR #235 (AGENT-003, AGENT-004)
         ↓
-M3  Forge CLI 1.0                 ███████░░░  IN PROGRESS PR #198 (CLI-001..3); CLI-004 not started
+M3  Forge CLI 1.0                 █████████░  DONE        PR #198 (CLI-001..3); PR #232 (CLI-005); PR #235 (CLI-006)
         ↓
-M4  State, Events & Persistence   ██████████  DONE        PR #203 merged (STATE-001)
+M4  State, Events & Persistence   ██████████  DONE        PR #203 (STATE-001); PR #231 (IPC-001, EVENT-001)
         ↓
-M5  Verification & Criteria       ██████████  DONE        PR #208 merged (VERIFY-003)
+M5  Verification & Criteria       ██████████  DONE        PR #208 (VERIFY-003)
         ↓
-M6  Generic Workflow Graph        ██████████  DONE        PRs #214-#229 merged; WORK-006E cutover complete
+M6  Generic Workflow Graph        ██████████  DONE        PRs #214-#230 merged; WORK-006E cutover complete
         ↓
-M7  Human Control & Steering      █░░░░░░░░░  IN PROGRESS HUMAN-001 real human gate complete (#163)
+M7  Human Control & Steering      ██████████  DONE        PR #230 (HUMAN-001); PR #232 (HUMAN-004); PR #234 (HUMAN-002, HUMAN-005)
         ↓
-M8  Extensible Provider Ecosystem ░░░░░░░░░░  NOT STARTED 3rd-party adapters prototyped
+M8  Extensible Provider Ecosystem ██████████  DONE        PR #231 (RUNTIME-001); PR #233 (RUNTIME-003); PR #234 (RUNTIME-002)
         ↓
-M9  Production Polish & Scale     ░░░░░░░░░░  NOT STARTED
+M9  Warm Sessions & Speed         ██████████  DONE        PR #232 (WARM-001, WARM-002); PR #233 (WARM-003 benchmark)
+        ↓
+M10 Interactive Control Plane     ██████████  DONE        PR #230 (#163); PR #233 (#164); PR #234 (#161, #171)
+        ↓
+M11 Host the Real CLI             ██████████  DONE        PR #232 (#154, #170); PR #234 (#162, #168, #172)
 ```
 
 ---
@@ -42,19 +46,54 @@ M9  Production Polish & Scale     ░░░░░░░░░░  NOT STARTED
 | Milestone | Status | Completed Work | In Progress Work | Next Up |
 | :--- | :--- | :--- | :--- | :--- |
 | **M0 Baseline** | **DONE** | CI matrix, vitest suites, lint/formatting, baseline smoke check, Windows git EBUSY flakiness resolution (M0-002), spike #64 formal closure (M0-003). | — | — |
-| **M1 Headless Core** | **DONE** | `createForgeCore` decoupled from Electron; `--data-dir` support. | — | Headless config loader (`.forgerc`). |
-| **M2 Native Agent** | **DONE** | Native in-process tool loop (`taskRunner.ts`, `agentLoop.ts`), six tools in `providers/tools.ts`, streaming artifact ingestion (`AGENT-002`). | — | Eager concurrent tool execution (`AGENT-003`). |
-| **M3 Forge CLI** | **IN PROGRESS** | Standalone `bin/forge.ts`, NDJSON stream, exit codes 0/1/2. | — no TUI work is in flight; see Q-IL-01. | Terminal TUI (`CLI-004`) not started. |
-| **M4 State & Storage** | **DONE** | SQLite `RunStore`, `EventStore`, `ArtifactStore`, `ArtifactService` including `readWindow()` (PR #203). | — | Typed IPC event streaming. |
+| **M1 Headless Core** | **DONE** | `createForgeCore` decoupled from Electron; `--data-dir` support; headless `.forgerc` configuration loader (`CORE-003`, PR #231). | — | — |
+| **M2 Native Agent** | **DONE** | Native in-process tool loop (`taskRunner.ts`, `agentLoop.ts`), six tools in `providers/tools.ts`, streaming artifact ingestion (`AGENT-002`), concurrent read-only tool execution (`AGENT-003`), and local Ollama auto-discovery & capability probing (`AGENT-004`). | — | — |
+| **M3 Forge CLI** | **DONE** | Standalone `bin/forge.ts`, NDJSON stream, exit codes 0/1/2, live tool-call timeline (`CLI-005`), and headless workflow inspection (`CLI-006`). | — | Terminal TUI (`CLI-004`) deferred. |
+| **M4 State & Storage** | **DONE** | SQLite `RunStore`, `EventStore`, `ArtifactStore`, `ArtifactService` including `readWindow()` (PR #203), typed IPC event streaming (`IPC-001`, PR #231), and live agent channel subscription (`EVENT-001`, PR #231). | — | — |
 | **M5 Verification** | **DONE** | Physical diff reconciliation, `ChangeSet` snapshotting, completion-criteria evaluation & task loop integration, independent build/test runner (`verifier.ts`), untracked/binary reconciliation, adversarial evidence auditing (`VERIFY-003`, PR #208). | — | — |
-| **M6 Workflow Graph** | **DONE** | Generic Workflow Graph engine foundation: DAG execution (`WORK-001`, PRs #215–#216), stage controls (`WORK-002`, PR #217), conditional routing, bounded loops, and durable artifact lineage hydration (`WORK-003`, PRs #218–#221), M6 Phase 5 Batch 1 lifecycle stabilization & read models (`WORK-004`, PRs #222–#223), Batch 2 generic leaf runner (`WORK-005`, PR #224), Batch 3 Slice 5B-1A graph factory (PR #225), Batch 3 Slice 5B-1B binding resolution & role preflight (PR #226), Batch 3 Slice 5B-1C Slice A gate authorization (PR #227), Slice 5B-1C Slice B reviewer routing & crash recovery (PR #228 merged), and WorkflowService production cutover (`WORK-006E`). | — | M6 100% COMPLETE. |
-| **M7 Human Control** | **IN PROGRESS** | ConPTY terminal session spawner validated in spikes; `HUMAN-001` real human approval gate and `rejectImplementation` in `WorkflowService` complete and verified (Issue #163). | — | Attach UI pane to running session (`HUMAN-002`, `HUMAN-004`). |
-| **M8 Provider Ecosystem** | **NOT STARTED** | Claude/Antigravity adapters prototyped. | — | Data-driven provider config. |
-| **M9 Polish & Scale** | **NOT STARTED** | — | — | Enterprise workspace management. |
+| **M6 Workflow Graph** | **DONE** | Generic Workflow Graph engine foundation: DAG execution (`WORK-001`), stage controls (`WORK-002`), conditional routing, bounded loops, durable artifact lineage hydration (`WORK-003`), recovery lifecycle stabilization (`WORK-004`), generic leaf runner (`WORK-005`), graph factory (`WORK-006A`), role preflight (`WORK-006B`), human gate authorization (`WORK-006C`), authoritative reviewer routing & crash recovery (`WORK-006D`), and WorkflowService production cutover (`WORK-006E`, PR #230). | — | M6 100% COMPLETE. |
+| **M7 Human Control** | **DONE** | Real human approval gate (`HUMAN-001`, PR #230), live prompt & interjection delivery (`HUMAN-002`, PR #234), master interactive control plane (`HUMAN-003`, PR #234), UI terminal attachment to running process (`HUMAN-004`, PR #232), and Task Domain Boundary ADR-005 (`HUMAN-005`, PR #234). | — | M7 100% COMPLETE. |
+| **M8 Provider Ecosystem** | **DONE** | Data-driven custom CLI adapter configuration (`RUNTIME-001`, PR #231), Antigravity CLI interactive hosted PTY session (`RUNTIME-002`, PR #234), and provider overage quota detection (`RUNTIME-003`, PR #233). | — | M8 100% COMPLETE. |
+| **M9 Warm Sessions** | **DONE** | Resumable sessions in `IAgentRuntime` (`WARM-001`, PR #232), session resumption in Claude & Antigravity adapters (`WARM-002`, PR #232), and stage wall-clock benchmark harness (`WARM-003`, PR #233). | — | M9 100% COMPLETE. |
+| **M10 Interactive Control** | **DONE** | Real blocking human approval gate (#163, PR #230), stage rerun and skip controls (#164, PR #233), and mid-run user interjections with domain event attribution (#161, #171, PR #234). | — | M10 100% COMPLETE. |
+| **M11 Host the Real CLI** | **DONE** | Real CLI hosting in interactive ConPTY sessions (#167, #168, PR #234), terminal pane attached to real process (#170, PR #232), and complete decommission of legacy stdout stream parsers (#172, PR #234). | — | M11 100% COMPLETE. |
 
 ---
 
 ## 3. Major Slice History & Merged PRs (Reverse Chronological)
+
+### 2026-11-18: PR #234 merged (`0fe8d03`) — M10/M11 Interactive Terminal, Hosted Antigravity Runtime, and Stream Parser Decommission
+- **Title:** `feat(m10,m11): interactive terminal, hosted antigravity runtime, and stream parser decommission (#117, #161, #162, #168, #171, #172)`
+- **Delivered:**
+  - Decommissioned and completely deleted `claudeStream.ts` and `antigravityStream.ts` along with test suites (#172).
+  - Preserved provider limit overage handling via `claudeRateLimit.ts` (#180) and preflight refusal detection via `antigravityPreflight.ts` (#168).
+  - Implemented `HostedAntigravityRuntime` with Go flag compliance and interactive hosted PTY session (#168).
+  - Spike Claude Interjection documented in `docs/spikes/claude-interjection-spike.md` (#162).
+  - Real interactive PTY prompt delivery and mid-run user interjections: added `step.interjected` domain event (A1), `WorkflowService.interject()` with user attribution, and `workflow:interject` IPC channel (#161, #171).
+  - Recorded ADR-005 Task Domain Boundary establishing tasks as internal execution records bound to workflows (#117).
+
+### 2026-11-18: PR #233 merged (`709de0d`) — M9/M10/M11 Interactive Control, Identity, Custom Runtimes, and Benchmark Harness
+- **Title:** `feat(m9,m10,m11): interactive control, identity, custom runtimes, and benchmark harness (#138, #159, #164, #174, #180)`
+- **Delivered:**
+  - Runtime identity display and disambiguation (#138).
+  - Stage rerun and skip controls in DAG workflow templates (#164).
+  - Provider overage and quota detection rule without failing steps (#180).
+  - Benchmark measurement harness recording stage wall-clock time in `docs/spikes/session-resume-benchmark.md` (#159).
+
+### 2026-11-18: PR #232 merged (`a6c6e7f`) — M8/M9 Live Channel UI and Warm Session Resumption
+- **Title:** `feat(m8,m9): live channel UI and warm session resumption (#153, #154, #155, #157, #158)`
+- **Delivered:**
+  - Live tool-call timeline per step (#155).
+  - Bound workflow terminal pane directly to running step child process (#154).
+  - Warm session persistence across workflow stages (`WarmSessionStore`) (#157).
+  - Resumed CLI sessions in Claude (`--resume`) and Antigravity (`--conversation`) adapters (#158).
+
+### 2026-11-18: PR #231 merged (`0bb80b0`) — M7/M8 Live Channel, Custom Runtime Config, and Typed IPC
+- **Title:** `feat(m7,m8): live channel, custom runtime config, and typed IPC (#149, #153, #174)`
+- **Delivered:**
+  - Typed IPC streaming for runtime events (`workflow:runtime-event`) (#153).
+  - Data-driven custom CLI runtime configuration via `.forgerc` and `CustomRuntimeStore` (#174, CORE-003).
+  - Live agent channel subscription and event log replay (#149).
 
 ### 2026-11-17: Milestone M6 Cutover & Hardening (WORK-006E, HUMAN-001 #163, #183, #178, #64)
 - **Title:** `feat(workflows): cut over WorkflowService to GraphExecutor and complete Milestone M6`

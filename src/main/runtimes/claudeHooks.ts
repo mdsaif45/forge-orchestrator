@@ -1,6 +1,7 @@
 import { readFile, rename, writeFile, mkdir } from 'node:fs/promises'
 import { watch, type FSWatcher } from 'node:fs'
 import { join, dirname } from 'node:path'
+import { extractRateLimitInfo, type ClaudeRateLimitInfo } from './claudeRateLimit'
 
 /**
  * Learns when a hosted turn ends from the CLI's own `Stop` hook, instead of
@@ -56,10 +57,11 @@ import { join, dirname } from 'node:path'
  * working end to end against the real CLI.
  */
 export interface HookEvent {
-  readonly kind: 'stop' | 'permission-request'
+  readonly kind: 'stop' | 'permission-request' | 'notification'
   readonly sessionId: string
   readonly lastAssistantMessage: string | null
   readonly toolName: string | null
+  readonly rateLimitInfo: ClaudeRateLimitInfo | null
 }
 
 /** The subset of a settings file Forge reads and writes; everything else survives untouched. */
@@ -154,6 +156,10 @@ export class ClaudeHookBridge {
       ...withoutForgeEntries(hooks.PermissionRequest),
       { hooks: [{ type: 'command', command: command('permission-request') }] },
     ]
+    hooks.Notification = [
+      ...withoutForgeEntries(hooks.Notification),
+      { hooks: [{ type: 'command', command: command('notification') }] },
+    ]
 
     const merged: ClaudeSettings = { ...settings, hooks }
     const temp = `${settingsPath}.forge-${String(process.pid)}`
@@ -177,7 +183,7 @@ export class ClaudeHookBridge {
 
     const hooks: Record<string, readonly HookSpec[]> = {}
     for (const [event, specs] of Object.entries(settings.hooks ?? {})) {
-      if (event !== 'Stop' && event !== 'PermissionRequest') {
+      if (event !== 'Stop' && event !== 'PermissionRequest' && event !== 'Notification') {
         hooks[event] = specs
         continue
       }
@@ -269,6 +275,8 @@ interface RawHookPayload {
   session_id?: unknown
   last_assistant_message?: unknown
   tool_name?: unknown
+  rate_limit_info?: unknown
+  rateLimitInfo?: unknown
 }
 
 function parseHookLine(line: string): HookEvent {
@@ -281,11 +289,14 @@ function parseHookLine(line: string): HookEvent {
     // fired; report it with nothing extracted rather than dropping it.
   }
 
+  const rateLimitInfo = extractRateLimitInfo(inner)
+
   return {
     kind: outer.kind,
     sessionId: typeof inner.session_id === 'string' ? inner.session_id : '',
     lastAssistantMessage:
       typeof inner.last_assistant_message === 'string' ? inner.last_assistant_message : null,
     toolName: typeof inner.tool_name === 'string' ? inner.tool_name : null,
+    rateLimitInfo,
   }
 }

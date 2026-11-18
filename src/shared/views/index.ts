@@ -575,6 +575,20 @@ export const accountViewSchema = z.strictObject({
 
 export type AccountView = z.infer<typeof accountViewSchema>
 
+export const agentInstanceViewSchema = z.strictObject({
+  id: z.string(),
+  projectId: z.string(),
+  name: z.string(),
+  label: z.string(),
+  provider: z.string(),
+  accountId: z.string().nullable(),
+  role: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+})
+
+export type AgentInstanceView = z.infer<typeof agentInstanceViewSchema>
+
 export const agentBindingViewSchema = z.strictObject({
   id: z.string(),
   role: z.string(),

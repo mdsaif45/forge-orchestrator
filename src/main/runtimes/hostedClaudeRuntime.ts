@@ -15,6 +15,7 @@ import {
 } from '@shared/domain'
 import type { ProcessHandle, ProcessManager } from '../process/processManager'
 import { ClaudeHookBridge } from './claudeHooks'
+import { isClaudeRateLimitSpent, type ClaudeRateLimitInfo } from './claudeRateLimit'
 import { claudeSessionId } from './claudeSession'
 import { ClaudeTrustStore } from './claudeTrust'
 import { HostedSession } from './hostedSession'
@@ -86,6 +87,7 @@ interface ActiveSession {
    * needless 1.5s+ pause per step.
    */
   bootSettled: boolean
+  rateLimitInfo: ClaudeRateLimitInfo | null
 }
 
 const CLAUDE_CAPABILITIES: readonly Capability[] = [
@@ -193,6 +195,7 @@ export class HostedClaudeRuntime implements IAgentRuntime {
       closed: false,
       dialogWatchCancelled: false,
       bootSettled: false,
+      rateLimitInfo: null,
     }
 
     // RAW output, not the redacted stream. `ProcessManager` strips ANSI before
@@ -356,6 +359,15 @@ export class HostedClaudeRuntime implements IAgentRuntime {
       return
     }
 
+    if (winner.event.rateLimitInfo) {
+      session.rateLimitInfo = winner.event.rateLimitInfo
+    }
+
+    if (isClaudeRateLimitSpent(session.rateLimitInfo)) {
+      this.fail(session, 'The Claude provider rate limit is spent', false)
+      return
+    }
+
     // The reply arrives whole from the hook; parseAgentReport (via exchange())
     // reads it from the accumulated chunk text exactly as it does for the
     // headless adapter, so it is emitted once here rather than left to have
@@ -458,18 +470,27 @@ export class HostedClaudeRuntime implements IAgentRuntime {
     ]
   }
 
+  /**
+   * Injects a structured rate limit signal onto an active session (#180).
+   * Used when notification hooks or CLI signals report rate limit state.
+   */
+  recordRateLimitSignal(sessionHandle: SessionHandle, info: ClaudeRateLimitInfo): void {
+    const session = this.sessions.get(sessionHandle.sessionId)
+    if (session) {
+      session.rateLimitInfo = info
+    }
+  }
+
   private fail(session: ActiveSession, message: string, retryable: boolean): void {
     session.state = 'failed'
     session.failure = message
+    const isLimit = isClaudeRateLimitSpent(session.rateLimitInfo)
     this.pushEvent(session, {
       type: 'error',
       at: this.now(),
       message,
-      retryable,
-      // A limit is detected from the CLI's own signal in the headless adapter; a
-      // hosted screen has no equivalent yet, so this is never claimed here rather
-      // than guessed from prose.
-      providerLimit: false,
+      retryable: !isLimit && retryable,
+      providerLimit: isLimit,
     })
   }
 

@@ -1,12 +1,14 @@
 import { z } from 'zod'
 import type { EventType } from './event'
 import { accountSchema } from './account'
+import { agentInstanceSchema } from './agentInstance'
 import { changeSetSchema } from './changeset'
 import { decisionSchema } from './decision'
 import { accountStatusSchema, roleSchema, verdictSchema, workflowStateSchema } from './enums'
 import { evidenceArtifactSchema } from './evidence'
 import {
   accountIdSchema,
+  agentInstanceIdSchema,
   actorSchema,
   changeSetIdSchema,
   decisionIdSchema,
@@ -204,6 +206,37 @@ const accountRemoved = z.strictObject({
   accountId: accountIdSchema,
 })
 
+const agentInstanceCreated = z.strictObject({
+  agentInstance: agentInstanceSchema,
+})
+
+const agentInstanceUpdated = z.strictObject({
+  id: agentInstanceIdSchema,
+  label: z.string().min(1),
+  updatedAt: timestampSchema,
+})
+
+const agentInstanceRemoved = z.strictObject({
+  id: agentInstanceIdSchema,
+})
+
+const customRuntimeCreated = z.strictObject({
+  id: z.string().min(1),
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  command: z.string().min(1),
+  argsTemplate: z.string().nullable().optional(),
+  capabilities: z.array(z.string()).readonly(),
+  permissionMode: z.string().min(1),
+  instructionFilenames: z.array(z.string()).readonly(),
+  env: z.record(z.string(), z.string()).nullable().optional(),
+  createdAt: timestampSchema,
+})
+
+const customRuntimeRemoved = z.strictObject({
+  id: z.string().min(1),
+})
+
 const graphStarted = z.strictObject({
   graphRunId: z.string().min(1),
   workflowId: workflowIdSchema,
@@ -300,6 +333,11 @@ export const EVENT_PAYLOADS = {
   'account.registered': accountRegistered,
   'account.status_updated': accountStatusUpdated,
   'account.removed': accountRemoved,
+  'agent_instance.created': agentInstanceCreated,
+  'agent_instance.updated': agentInstanceUpdated,
+  'agent_instance.removed': agentInstanceRemoved,
+  'custom_runtime.created': customRuntimeCreated,
+  'custom_runtime.removed': customRuntimeRemoved,
   'graph.started': graphStarted,
   'graph.status_updated': graphStatusUpdated,
   'graph.checkpointed': graphCheckpointed,

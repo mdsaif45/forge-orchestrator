@@ -1,5 +1,6 @@
 import type {
   AccountView,
+  AgentInstanceView,
   AgentBindingView,
   RoleBindingsView,
   AppInfo,
@@ -133,6 +134,10 @@ export interface ForgeApi {
       readonly name: string
       readonly executable: string
       readonly defaultArgs?: readonly string[] | undefined
+      readonly capabilities?: readonly string[] | undefined
+      readonly permissionMode?: string | undefined
+      readonly instructionFilenames?: readonly string[] | undefined
+      readonly env?: Readonly<Record<string, string>> | undefined
     }) => Promise<IpcResult<{ readonly success: boolean }>>
     removeCustomCli: (id: string) => Promise<IpcResult<{ readonly success: boolean }>>
   }
@@ -307,6 +312,23 @@ export interface ForgeApi {
       runtimeId: string,
     ) => Promise<IpcResult<{ readonly home: string }>>
     revokeEnrollment: (accountId: string) => Promise<IpcResult<Record<string, never>>>
+  }
+  readonly agentInstance: {
+    list: (
+      projectId: string,
+    ) => Promise<IpcResult<{ readonly instances: readonly AgentInstanceView[] }>>
+    create: (request: {
+      readonly projectId: string
+      readonly label?: string
+      readonly provider: string
+      readonly accountId?: string | null
+      readonly role: 'planner' | 'user' | 'implementer' | 'system' | 'reviewer'
+    }) => Promise<IpcResult<AgentInstanceView>>
+    update: (request: {
+      readonly id: string
+      readonly label: string
+    }) => Promise<IpcResult<AgentInstanceView>>
+    remove: (id: string) => Promise<IpcResult<{ readonly success: boolean }>>
   }
   readonly git: {
     getWorkingDiff: (projectId: string) => Promise<

@@ -2,7 +2,17 @@ import { writeFile } from 'node:fs/promises'
 import { app, clipboard, dialog, BrowserWindow } from 'electron'
 import { APP_NAME } from '@shared/app'
 import type { ProviderChunkPayload } from '@shared/ipc'
-import { artifactIdSchema, runIdSchema, TEMPLATES } from '@shared/domain'
+import {
+  artifactIdSchema,
+  runIdSchema,
+  TEMPLATES,
+  type AccountId,
+  type AgentInstanceId,
+  type Capability,
+  type ProjectId,
+} from '@shared/domain'
+import type { AgentInstanceStore } from '../db/agentInstanceStore'
+import type { CustomRuntimeStore } from '../db/customRuntimeStore'
 import { generateWorkflowReportMarkdown } from '../audit/workflowReportGenerator'
 import type { ProjectService } from '../projects/projectService'
 import { validateRepository } from '../projects/validateRepository'
@@ -38,6 +48,8 @@ export interface IpcDependencies {
   readonly decisions: DecisionService
   readonly changeSets: ChangeSetService
   readonly accounts: AccountService
+  readonly agentInstances?: AgentInstanceStore
+  readonly customRuntimes?: CustomRuntimeStore
   readonly registry: RuntimeRegistry
   readonly bindings: BindingService
   readonly enrollment: EnrollmentService
@@ -79,6 +91,8 @@ export function createIpcHandlers({
   decisions,
   changeSets,
   accounts,
+  agentInstances,
+  customRuntimes,
   registry,
   bindings,
   enrollment,
@@ -215,12 +229,41 @@ export function createIpcHandlers({
         executable: request.executable,
         defaultArgs: request.defaultArgs,
       })
+      if (customRuntimes) {
+        customRuntimes.create(
+          {
+            slug: request.id,
+            name: request.name,
+            command: request.executable,
+            argsTemplate: request.defaultArgs ? request.defaultArgs.join(' ') : null,
+            capabilities: (request.capabilities as readonly Capability[] | undefined) ?? [
+              'repo-read',
+              'file-write',
+              'terminal',
+            ],
+            permissionMode: request.permissionMode ?? 'developer',
+            instructionFilenames: request.instructionFilenames ?? [],
+            env: request.env ?? null,
+          },
+          'user',
+          new Date().toISOString(),
+        )
+      }
       registerCustomCli?.(request)
       return { success: true }
     },
 
     'runtime:removeCustomCli': ({ id }) => {
       removeCustomCli(id)
+      if (customRuntimes) {
+        const found = customRuntimes.findBySlug(id) ?? customRuntimes.find(id)
+        if (found) {
+          customRuntimes.remove(found.id, 'user', new Date().toISOString())
+        }
+      }
+      if (registry.has(id)) {
+        registry.unregister(id)
+      }
       return { success: true }
     },
 
@@ -412,6 +455,48 @@ export function createIpcHandlers({
 
     'account:remove': ({ accountId }) => {
       accounts.remove(accountId)
+      return { success: true }
+    },
+
+    'agentInstance:list': ({ projectId }) => {
+      const instances = agentInstances ? agentInstances.list(projectId as ProjectId) : []
+      return { instances }
+    },
+
+    'agentInstance:create': (request) => {
+      if (!agentInstances) {
+        throw new Error('AgentInstanceStore is not configured')
+      }
+      return agentInstances.create(
+        {
+          projectId: request.projectId as ProjectId,
+          ...(request.label !== undefined ? { label: request.label } : {}),
+          provider: request.provider,
+          accountId: request.accountId ? (request.accountId as AccountId) : null,
+          role: request.role,
+        },
+        'user',
+        new Date().toISOString(),
+      )
+    },
+
+    'agentInstance:update': (request) => {
+      if (!agentInstances) {
+        throw new Error('AgentInstanceStore is not configured')
+      }
+      return agentInstances.updateLabel(
+        request.id as AgentInstanceId,
+        request.label,
+        'user',
+        new Date().toISOString(),
+      )
+    },
+
+    'agentInstance:remove': ({ id }) => {
+      if (!agentInstances) {
+        throw new Error('AgentInstanceStore is not configured')
+      }
+      agentInstances.remove(id as AgentInstanceId, 'user', new Date().toISOString())
       return { success: true }
     },
 

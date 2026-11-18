@@ -31,6 +31,7 @@ export {
   timestampSchema,
   workflowIdSchema,
   accountIdSchema,
+  agentInstanceIdSchema,
   runIdSchema,
   artifactIdSchema,
   type Actor,
@@ -50,6 +51,7 @@ export {
   type Timestamp,
   type WorkflowId,
   type AccountId,
+  type AgentInstanceId,
   type RunId,
   type ArtifactId,
 } from './ids'
@@ -84,6 +86,7 @@ export {
 } from './enums'
 
 export { accountSchema, type Account } from './account'
+export { agentInstanceSchema, type AgentInstance, generateAgentName } from './agentInstance'
 
 export {
   agentBindingSchema,

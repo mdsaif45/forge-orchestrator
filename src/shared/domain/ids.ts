@@ -37,6 +37,7 @@ export const changeSetIdSchema = id<'ChangeSetId'>()
 export const evidenceIdSchema = id<'EvidenceId'>()
 export const eventIdSchema = id<'EventId'>()
 export const accountIdSchema = id<'AccountId'>()
+export const agentInstanceIdSchema = id<'AgentInstanceId'>()
 export const runIdSchema = id<'RunId'>()
 export const artifactIdSchema = id<'ArtifactId'>()
 
@@ -53,6 +54,7 @@ export type ChangeSetId = z.infer<typeof changeSetIdSchema>
 export type EvidenceId = z.infer<typeof evidenceIdSchema>
 export type EventId = z.infer<typeof eventIdSchema>
 export type AccountId = z.infer<typeof accountIdSchema>
+export type AgentInstanceId = z.infer<typeof agentInstanceIdSchema>
 export type RunId = z.infer<typeof runIdSchema>
 export type ArtifactId = z.infer<typeof artifactIdSchema>
 

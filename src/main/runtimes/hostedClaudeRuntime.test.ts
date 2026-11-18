@@ -2,6 +2,7 @@ import { appendFileSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { RuntimeEvent } from '@shared/domain'
 import { removeTempDir } from '../../test/tempDir'
 import type { ProcessManager } from '../process/processManager'
 import { HostedClaudeRuntime } from './hostedClaudeRuntime'
@@ -406,6 +407,66 @@ describe('HostedClaudeRuntime hook-driven turns', () => {
       readFileSync(join(worktree, '.claude', 'settings.local.json'), 'utf8'),
     ) as { hooks?: Record<string, unknown> }
     expect(Object.keys(settings.hooks ?? {})).toContain('Stop')
+  })
+
+  it('does not treat overage allowed as a spent limit (Issue #180)', async () => {
+    const { worktree, receiverDir } = makeDirs()
+    const { processes, state } = makeProcesses()
+    const hosted = hookRuntime(processes, receiverDir)
+    const session = await startHooked(hosted, worktree)
+
+    hosted.recordRateLimitSignal(session, {
+      status: 'rejected',
+      rateLimitType: 'five_hour',
+      overageStatus: 'allowed_warning',
+      isUsingOverage: true,
+      overageInUse: true,
+    })
+
+    state.emit(READY)
+    const sending = hosted.send(session, packet())
+    await until(() => state.written.includes('\r'))
+    fireStopHook(worktree, 'REPORT: success using overage')
+    await sending
+
+    const status = await hosted.status(session)
+    expect(status.state).toBe('completed')
+  })
+
+  it('fails with providerLimit: true when both primary quota and overage are spent (Issue #180)', async () => {
+    const { worktree, receiverDir } = makeDirs()
+    const { processes, state } = makeProcesses()
+    const hosted = hookRuntime(processes, receiverDir)
+    const session = await startHooked(hosted, worktree)
+
+    hosted.recordRateLimitSignal(session, {
+      status: 'rejected',
+      rateLimitType: 'five_hour',
+      overageStatus: 'rejected',
+      isUsingOverage: false,
+    })
+
+    const events: RuntimeEvent[] = []
+    void (async () => {
+      for await (const event of hosted.events(session)) {
+        events.push(event)
+      }
+    })()
+
+    state.emit(READY)
+    const sending = hosted.send(session, packet())
+    await until(() => state.written.includes('\r'))
+    fireStopHook(worktree, 'Rate limit error: quota exhausted')
+    await sending
+
+    const status = await hosted.status(session)
+    expect(status.state).toBe('failed')
+    const errorEvent = events.find(
+      (e): e is Extract<RuntimeEvent, { type: 'error' }> => e.type === 'error',
+    )
+    expect(errorEvent).toBeDefined()
+    expect(errorEvent?.providerLimit).toBe(true)
+    expect(errorEvent?.retryable).toBe(false)
   })
 })
 

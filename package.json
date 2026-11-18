@@ -15,6 +15,7 @@
   },
   "scripts": {
     "cli": "tsx bin/forge.ts",
+    "benchmark": "tsx scripts/run-benchmark.mjs",
     "dev": "electron-vite dev",
     "start": "electron-vite preview",
     "build": "npm run typecheck && electron-vite build",

@@ -1335,6 +1335,9 @@ function CliAgentsGlobalSettings(): React.JSX.Element {
         name: config.name,
         executable: config.command,
         defaultArgs: config.argsTemplate ? config.argsTemplate.split(' ') : undefined,
+        capabilities: config.capabilities,
+        permissionMode: config.permissionMode,
+        env: config.env,
       })
       show({
         tone: 'success',

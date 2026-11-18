@@ -101,13 +101,23 @@ stateDiagram-v2
     DISCOVERY --> PLANNING: start
     PLANNING --> PLAN_READY: planProduced
     PLAN_READY --> DECISIONS_LOCKED: userApproved
+    PLAN_READY --> DONE: stageCompleted
+    PLAN_READY --> PLANNING: stageRerun
     DECISIONS_LOCKED --> IMPLEMENTING: implementationStarted
     IMPLEMENTING --> VERIFYING: implemented
+    IMPLEMENTING --> DONE: stageCompleted
+    IMPLEMENTING --> REVIEWING: stageSkipped
     VERIFYING --> REVIEWING: verified
     VERIFYING --> CORRECTION_REQUIRED: verificationFailed
+    VERIFYING --> DONE: stageCompleted
+    VERIFYING --> DONE: stageSkipped
+    VERIFYING --> IMPLEMENTING: stageRerun
     REVIEWING --> DONE: reviewPassed
     REVIEWING --> CORRECTION_REQUIRED: reviewFailed
+    REVIEWING --> DONE: stageCompleted
+    REVIEWING --> REVIEWING: stageRerun
     CORRECTION_REQUIRED --> IMPLEMENTING: correctionStarted
+    CORRECTION_REQUIRED --> IMPLEMENTING: stageRerun
     AWAITING_USER --> AWAITING_USER: questionAnswered (returns to resumeState)
     DONE --> [*]
     HALTED_LIMIT --> [*]

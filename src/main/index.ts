@@ -156,6 +156,8 @@ if (!claimSingleInstance()) {
         decisions: activeCore.decisions,
         changeSets: activeCore.changeSets,
         accounts: activeCore.accounts,
+        agentInstances: activeCore.agentInstances,
+        customRuntimes: activeCore.customRuntimes,
         registry: activeCore.registry,
         bindings: activeCore.bindings,
         enrollment: activeCore.enrollment,

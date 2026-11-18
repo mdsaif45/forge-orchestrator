@@ -34,6 +34,8 @@ export {
 } from './workflowStore'
 export { RunStore } from './runStore'
 export { ArtifactStore } from './artifactStore'
+export { AgentInstanceStore } from './agentInstanceStore'
+export { CustomRuntimeStore, type CustomRuntimeRecord } from './customRuntimeStore'
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'
 

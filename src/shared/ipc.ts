@@ -50,6 +50,7 @@ import {
   changedFileViewSchema,
   changeSetViewSchema,
   accountViewSchema,
+  agentInstanceViewSchema,
   agentBindingViewSchema,
   roleBindingsViewSchema,
   workflowLogPayloadSchema,
@@ -301,6 +302,10 @@ export const IPC_CONTRACT = {
       name: z.string(),
       executable: z.string(),
       defaultArgs: z.array(z.string()).readonly().optional(),
+      capabilities: z.array(z.string()).readonly().optional(),
+      permissionMode: z.string().optional(),
+      instructionFilenames: z.array(z.string()).readonly().optional(),
+      env: z.record(z.string(), z.string()).optional(),
     }),
     response: z.strictObject({
       success: z.boolean(),
@@ -495,6 +500,31 @@ export const IPC_CONTRACT = {
   },
   'account:remove': {
     request: z.strictObject({ accountId: z.string() }),
+    response: z.strictObject({ success: z.boolean() }),
+  },
+  'agentInstance:list': {
+    request: z.strictObject({ projectId: z.string() }),
+    response: z.strictObject({ instances: z.array(agentInstanceViewSchema).readonly() }),
+  },
+  'agentInstance:create': {
+    request: z.strictObject({
+      projectId: z.string(),
+      label: z.string().optional(),
+      provider: z.string().min(1),
+      accountId: z.string().nullable().optional(),
+      role: z.enum(['planner', 'user', 'implementer', 'system', 'reviewer']),
+    }),
+    response: agentInstanceViewSchema,
+  },
+  'agentInstance:update': {
+    request: z.strictObject({
+      id: z.string(),
+      label: z.string().min(1),
+    }),
+    response: agentInstanceViewSchema,
+  },
+  'agentInstance:remove': {
+    request: z.strictObject({ id: z.string() }),
     response: z.strictObject({ success: z.boolean() }),
   },
   'template:list': {

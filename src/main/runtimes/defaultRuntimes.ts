@@ -3,6 +3,7 @@ import type { ProcessManager } from '../process'
 import type { RuntimeRegistry } from './registry'
 import { NativeAgentRuntime } from './nativeAgentRuntime'
 import { HostedClaudeRuntime } from './hostedClaudeRuntime'
+import { HostedAntigravityRuntime } from './hostedAntigravityRuntime'
 import { GenericCliAgentRuntime } from './genericCliRuntime'
 import {
   setCustomCliStorePath,
@@ -45,6 +46,13 @@ export function registerDefaultRuntimes(
     new HostedClaudeRuntime({
       processes: options.processes,
       hookReceiverDir: join(options.dataDir, 'hooks'),
+    }),
+  )
+
+  // Hosted Antigravity CLI runtime (#168)
+  registry.register(
+    new HostedAntigravityRuntime({
+      processes: options.processes,
     }),
   )
 

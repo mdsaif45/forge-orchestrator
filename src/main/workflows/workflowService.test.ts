@@ -9,6 +9,9 @@ import {
   decisionIdSchema,
   permissionsSchema,
   projectIdSchema,
+  stepIdSchema,
+  type WorkflowId,
+  type WorkflowStep,
   workflowIdSchema,
 } from '@shared/domain'
 import type {
@@ -17,6 +20,7 @@ import type {
   WorkflowEventPayload,
   WorkflowRuntimeEventPayload,
 } from '@shared/views'
+import { AgentSessionRegistry, agentSessionKey } from '../terminal/sessionRegistry'
 import { initialiseDatabase, type ForgeDatabase } from '../db'
 import { ProjectService } from '../projects/projectService'
 import { MockAgentRuntime } from '../runtimes/mockRuntime'
@@ -40,6 +44,7 @@ describe('WorkflowService', () => {
   let projects: ProjectService
   let workflows: WorkflowService
   let registry: RuntimeRegistry
+  let sessions: AgentSessionRegistry
   let capturedEvents: WorkflowEventPayload[]
   let capturedRuntimeEvents: WorkflowRuntimeEventPayload[]
 
@@ -49,6 +54,7 @@ describe('WorkflowService', () => {
     dbHandle = initialiseDatabase(dbFile)
     projects = new ProjectService(dbHandle.db)
     registry = new RuntimeRegistry()
+    sessions = new AgentSessionRegistry()
     registry.register(new MockAgentRuntime({ scenario: SCENARIOS.question, id: 'mock:default' }))
     capturedEvents = []
     capturedRuntimeEvents = []
@@ -58,6 +64,7 @@ describe('WorkflowService', () => {
       projects,
       packetDir: join(tempDir, 'packets'),
       registry,
+      sessions,
       emitEvent: (event) => capturedEvents.push(event),
       emitRuntimeEvent: (payload) => capturedRuntimeEvents.push(payload),
     })
@@ -398,4 +405,78 @@ describe('WorkflowService', () => {
       await new Promise((resolve) => setTimeout(resolve, 100))
     },
   )
+
+  it('interjects into a running step, emits step.interjected, logs transcript, and writes to PTY (#161, #171)', async () => {
+    const repoPath = join(tempDir, 'repo-interject')
+    mkdirSync(repoPath, { recursive: true })
+    initRepository(repoPath)
+
+    const project: ProjectView = await projects.create({
+      name: 'Interject Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'main',
+      buildCommand: null,
+      testCommand: null,
+      tech: [],
+      rules: [],
+    })
+
+    const started = await workflows.start({
+      projectId: project.id,
+      autoRun: false,
+    })
+
+    // Start step 0 in running state
+    const now = new Date().toISOString()
+    const domainStep: WorkflowStep = {
+      id: stepIdSchema.parse(randomUUID()),
+      role: 'planner',
+      runtimeId: 'mock:default',
+      state: 'PLANNING',
+      reportStatus: null,
+      index: 0,
+      startedAt: now,
+      finishedAt: null,
+      contextRef: null,
+      verdict: null,
+      changeSetId: null,
+    }
+    workflows.getWorkflowStore().startStep(started.id as WorkflowId, domainStep, 'system', now)
+
+    const runningWf = workflows.get(started.id)
+    expect(runningWf?.steps[0]?.finishedAt).toBeNull()
+
+    // Attach mock session to registry
+    const written: string[] = []
+    const key = agentSessionKey(started.id, 0)
+    sessions.publish(key, {
+      write: (data) => written.push(data),
+    })
+
+    // Perform interjection
+    const res = workflows.interject(started.id, 0, 'focus on tests first')
+    expect(res.success).toBe(true)
+
+    // Verify written to PTY with carriage return
+    expect(written).toEqual(['focus on tests first\r'])
+
+    // Verify logs
+    const logsRes = workflows.getLogs({ workflowId: started.id, stepIndex: 0 })
+    expect(
+      logsRes.logs.some((l) => l.text.includes('[USER INTERJECTION] focus on tests first')),
+    ).toBe(true)
+
+    // Verify failure when step is finished
+    workflows.getWorkflowStore().finishStep(
+      started.id as WorkflowId,
+      domainStep.id,
+      {
+        verdict: null,
+        changeSetId: null,
+      },
+      'system',
+      now,
+    )
+    expect(() => workflows.interject(started.id, 0, 'too late')).toThrow(/Cannot interject/)
+  })
 })

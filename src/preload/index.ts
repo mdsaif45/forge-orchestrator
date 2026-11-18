@@ -63,6 +63,8 @@ const api: ForgeApi = {
     resume: (workflowId) => call('workflow:resume', { workflowId }),
     approveAndStartImplementation: (workflowId) =>
       call('workflow:approveAndStartImplementation', { workflowId }),
+    interject: (workflowId, stepIndex, text) =>
+      call('workflow:interject', { workflowId, stepIndex, text }),
     getPacket: (packetRef) => call('workflow:getPacket', { packetRef }),
     exportReport: (workflowId) => call('workflow:exportReport', { workflowId }),
     saveReport: (workflowId) => call('workflow:saveReport', { workflowId }),

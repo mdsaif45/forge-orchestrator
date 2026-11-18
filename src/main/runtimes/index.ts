@@ -53,3 +53,10 @@ export {
 export { CustomCliRuntime, type CustomCliRuntimeOptions } from './customCliRuntime'
 
 export { AntigravityCliRuntime, type AntigravityCliRuntimeOptions } from './antigravityCliRuntime'
+
+export { HostedClaudeRuntime, type HostedClaudeRuntimeOptions } from './hostedClaudeRuntime'
+
+export {
+  HostedAntigravityRuntime,
+  type HostedAntigravityRuntimeOptions,
+} from './hostedAntigravityRuntime'

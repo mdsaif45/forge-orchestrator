@@ -361,6 +361,58 @@ export class WorkflowService {
     return this.toDetailView(wf)
   }
 
+  interject(workflowId: string, stepIndex: number, text: string): { success: boolean } {
+    const wId = workflowIdSchema.parse(workflowId)
+    const wf = this.workflows.find(wId)
+    if (wf === null) {
+      throw new Error(`Workflow "${workflowId}" not found`)
+    }
+
+    const step = wf.steps[stepIndex]
+    if (!step) {
+      throw new Error(`Step ${String(stepIndex)} not found in workflow "${workflowId}"`)
+    }
+    if (step.finishedAt !== null) {
+      throw new Error(`Cannot interject: step ${String(stepIndex)} is already finished`)
+    }
+
+    const projectId = this.workflows.projectIdOf(wId)
+    const key = agentSessionKey(wId, stepIndex)
+    const session = this.options.sessions?.lookup(key)
+    if (!session || typeof session.write !== 'function') {
+      throw new Error(
+        `No active interactive process attached to step ${String(stepIndex)}; cannot interject`,
+      )
+    }
+
+    const now = new Date().toISOString()
+    // A1: Record the interjection in the domain event log with user attribution
+    const appended = this.events.append(
+      {
+        type: 'step.interjected',
+        payload: {
+          workflowId: wId,
+          stepIndex,
+          text,
+        },
+      },
+      { projectId, actor: 'user', occurredAt: now },
+    )
+    applyEvent(this.options.db, appended)
+
+    // Log the user's interjection into the step transcript
+    this.logStep(wId, {
+      stepIndex,
+      text: `[USER INTERJECTION] ${text}`,
+    })
+
+    // Deliver to PTY
+    const inputWithEnter = text.endsWith('\r') || text.endsWith('\n') ? text : `${text}\r`
+    session.write(inputWithEnter)
+
+    return { success: true }
+  }
+
   approveAndStartImplementation(workflowId: string): WorkflowDetailView {
     const wId = workflowIdSchema.parse(workflowId)
     const wf = this.workflows.find(wId)

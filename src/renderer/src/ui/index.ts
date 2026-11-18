@@ -98,3 +98,4 @@ export {
   type AddCliAgentDialogProps,
   type CliAgentConfig,
 } from './primitives/AddCliAgentDialog'
+export { ToolCallTimeline, type ToolCallTimelineProps } from './primitives/ToolCallTimeline'

@@ -1,33 +1,40 @@
 import React, { useEffect, useState } from 'react'
 import type { PromptPacketView, WorkflowStepView } from '@shared/ipc'
-import { Badge, Button, MarkdownRenderer, Spinner, TabPanel, Tabs } from '@renderer/ui'
+import type { ToolCallEntry } from '@shared/domain'
+import {
+  Badge,
+  Button,
+  MarkdownRenderer,
+  Spinner,
+  TabPanel,
+  Tabs,
+  ToolCallTimeline,
+} from '@renderer/ui'
 import { unwrap } from '@renderer/ipc'
 
 export interface StepInspectorProps {
   readonly step: WorkflowStepView | null
+  readonly tools?: readonly ToolCallEntry[] | undefined
   readonly onClose?: () => void
 }
 
-type StepTab = 'summary' | 'packet' | 'verdict'
+type StepTab = 'summary' | 'tools' | 'packet' | 'verdict'
 
 /**
- * Four tabs became three.
- *
- * "Live Console & Output" rendered the same log the terminal below already shows, at a
- * third of the width — two panes competing to be the place you watch. The terminal won,
- * because it is the one the user asked to be real.
- *
- * "Prompt Packet" stays but is renamed: it is the exact text Forge sent this agent, and
- * it is the only way to tell a bad instruction from a bad agent. "Prompt Packet" named
- * Forge's internal type; "Instruction Sent" names what the user is looking at.
+ * Step Inspector provides comprehensive visibility into a workflow stage:
+ * - Summary: Stage status, timing, persona, and overview
+ * - Tool Timeline: Live chronological tool calls with Axiom A3 demarcation
+ * - Prompt Packet: Exact instruction packet sent to the agent
+ * - Verdict & Evidence: Authoritative review findings and verified changesets
  */
 const TAB_ITEMS: readonly { readonly value: StepTab; readonly label: string }[] = [
   { value: 'summary', label: 'Summary' },
+  { value: 'tools', label: 'Tool Timeline' },
   { value: 'packet', label: 'Prompt Packet' },
   { value: 'verdict', label: 'Verdict & Evidence' },
 ]
 
-export function StepInspector({ step, onClose }: StepInspectorProps): React.JSX.Element {
+export function StepInspector({ step, tools, onClose }: StepInspectorProps): React.JSX.Element {
   const [packetState, setPacketState] = useState<{
     ref: string
     packet: PromptPacketView | null
@@ -198,6 +205,11 @@ export function StepInspector({ step, onClose }: StepInspectorProps): React.JSX.
               </div>
             )}
           </div>
+        </TabPanel>
+
+        {/* TOOL CALL TIMELINE TAB */}
+        <TabPanel active={activeTab === 'tools'}>
+          <ToolCallTimeline tools={tools ?? []} />
         </TabPanel>
 
         {/* INSTRUCTION SENT TAB */}

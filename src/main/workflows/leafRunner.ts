@@ -42,6 +42,7 @@ import type { GitService } from '../git'
 import type { BindingSet } from '../runtimes/bindings'
 import { exchange, type ExchangeOutcome } from '../runtimes/exchange'
 import type { RuntimeRegistry } from '../runtimes/registry'
+import type { WarmSessionStore } from '../context/warmSessionStore'
 import type { LeafNodeExecutor, NodeExecutionContext, NodeExecutionResult } from './graphExecutor'
 import { nodeRequiresFileWrite, resolveRoleRuntime } from './roleResolution'
 
@@ -54,6 +55,7 @@ export interface LeafRunnerOptions {
   readonly defaultRuntimeId?: string | undefined
   readonly bindingStore?: BindingStore | undefined
   readonly bindings?: BindingSet | undefined
+  readonly warmSessionStore?: WarmSessionStore | undefined
   readonly gitServiceFactory?: ((path: string) => GitService) | undefined
   readonly decisionStore?: DecisionStore | undefined
   readonly workflowStore?: WorkflowStore | undefined
@@ -369,6 +371,10 @@ export class LeafRunner {
       packet = this.buildDefaultPacket(ctx, role)
     }
 
+    // Check for prior warm session for this workflow/role/runtime (#157, #158)
+    const workflowId = ctx.graphRunId
+    const priorSessionId = this.options.warmSessionStore?.find(workflowId, role, runtimeId)
+
     // Session lifecycle: start and dispose in finally block
     const worktreePath = ctx.worktreePath ?? '.'
     const session = await runtime.start({
@@ -380,6 +386,7 @@ export class LeafRunner {
           : permissionForRole(role, isWritable).mode,
       timeoutMs: ctx.node.config.timeoutMs,
       ...(this.options.onProcess ? { onProcess: this.options.onProcess } : {}),
+      ...(priorSessionId ? { resumeSessionId: priorSessionId } : {}),
     })
 
     // Listen to abort signal to cancel active session
@@ -470,6 +477,9 @@ export class LeafRunner {
     }
 
     if (!outcome?.ok) {
+      if (priorSessionId) {
+        this.options.warmSessionStore?.invalidate(workflowId, role, runtimeId)
+      }
       const baseMsg = outcome?.providerLimit
         ? `provider-limit: ${outcome.message}`
         : (outcome?.message ?? 'Exchange failed')
@@ -481,6 +491,17 @@ export class LeafRunner {
             ? `${baseMsg} (disposal error: ${formatError(disposalError)})`
             : baseMsg,
       }
+    }
+
+    if (outcome.providerSessionId) {
+      this.options.warmSessionStore?.save({
+        workflowId,
+        role,
+        runtimeId,
+        providerSessionId: outcome.providerSessionId,
+        stepIndex: ctx.iteration ?? ctx.attempt,
+        updatedAt: new Date().toISOString(),
+      })
     }
 
     // Fail closed if session disposal failed, even when exchange succeeded

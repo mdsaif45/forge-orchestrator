@@ -57,6 +57,7 @@ import type { RuntimeRegistry } from '../runtimes/registry'
 import type { ProjectService } from '../projects/projectService'
 import { ArtifactService } from '../artifacts/artifactService'
 import { ArtifactStore } from '../db/artifactStore'
+import type { WarmSessionStore } from '../context/warmSessionStore'
 import { createGraphExecutorWithLeafRunner } from './graphFactory'
 
 export interface WorkflowServiceOptions {
@@ -83,6 +84,7 @@ export interface WorkflowServiceOptions {
   readonly emitEvent?: (event: WorkflowEventPayload) => void
   readonly emitLog?: (log: WorkflowLogPayload) => void
   readonly emitRuntimeEvent?: ((payload: WorkflowRuntimeEventPayload) => void) | undefined
+  readonly warmSessionStore?: WarmSessionStore | undefined
 }
 
 export class WorkflowService {
@@ -627,6 +629,7 @@ export class WorkflowService {
         artifactService: this.artifactService,
         registry: this.registry,
         bindings,
+        warmSessionStore: this.options.warmSessionStore,
         actor: 'system',
         compilePacket: async (_ctx, role) => {
           const projectDetail = await this.options.projects.get(projectId)

@@ -476,4 +476,130 @@ describe('usage reported by the provider (#137)', () => {
 
     expect(events.some((event) => event.type === 'usage')).toBe(false)
   })
+
+  it('passes --resume when resumeSessionId is configured (#157, #158)', async () => {
+    let capturedArgs: readonly string[] = []
+    const runner: ProcessRunner = (_cmd, args, options) => {
+      capturedArgs = args
+      options.onStdout?.(
+        JSON.stringify({
+          type: 'result',
+          result: 'Resumed successfully',
+          session_id: 'prior-session-123',
+        }),
+      )
+      return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' })
+    }
+
+    const runtime = new ClaudeCliRuntime({ runner })
+    const session = await runtime.start({
+      repositoryPath: 'd:/repo',
+      role: 'implementer',
+      resumeSessionId: 'prior-session-123',
+    })
+
+    await runtime.send(
+      session,
+      promptPacketSchema.parse({
+        role: 'implementer',
+        objective: 'Continue work',
+        constraints: [],
+        rules: [],
+        lockedDecisions: [],
+        allowedPaths: [],
+        forbiddenPaths: [],
+        relevantFiles: [],
+        reviewFindings: [],
+        previousAttempt: null,
+        completionCriteria: [],
+        answeredQuestions: [],
+      }),
+    )
+
+    const events: RuntimeEvent[] = []
+    for await (const event of runtime.events(session)) {
+      events.push(event)
+      if (event.type === 'state' && event.state === 'completed') break
+    }
+
+    expect(capturedArgs).toContain('--resume')
+    expect(capturedArgs).toContain('prior-session-123')
+
+    const completed = events.find(
+      (e): e is Extract<RuntimeEvent, { type: 'state' }> =>
+        e.type === 'state' && e.state === 'completed',
+    )
+    expect(completed).toBeDefined()
+    expect(completed?.providerSessionId).toBe('prior-session-123')
+    await runtime.dispose(session)
+  })
+
+  it('falls back to cold start when provider rejects resumeSessionId (#157, #158)', async () => {
+    const invocations: (readonly string[])[] = []
+    const runner: ProcessRunner = (_cmd, args, options) => {
+      invocations.push(args)
+      if (args.includes('--resume')) {
+        return Promise.resolve({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'Error: Session ID dead-session is already in use',
+        })
+      }
+      options.onStdout?.(
+        JSON.stringify({
+          type: 'result',
+          result: 'Cold start successful',
+          session_id: 'new-fresh-session',
+        }),
+      )
+      return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' })
+    }
+
+    const runtime = new ClaudeCliRuntime({ runner })
+    const session = await runtime.start({
+      repositoryPath: 'd:/repo',
+      role: 'implementer',
+      resumeSessionId: 'dead-session',
+    })
+
+    await runtime.send(
+      session,
+      promptPacketSchema.parse({
+        role: 'implementer',
+        objective: 'Retry after rejection',
+        constraints: [],
+        rules: [],
+        lockedDecisions: [],
+        allowedPaths: [],
+        forbiddenPaths: [],
+        relevantFiles: [],
+        reviewFindings: [],
+        previousAttempt: null,
+        completionCriteria: [],
+        answeredQuestions: [],
+      }),
+    )
+
+    const events: RuntimeEvent[] = []
+    for await (const event of runtime.events(session)) {
+      events.push(event)
+      if (event.type === 'state' && event.state === 'completed') break
+    }
+
+    expect(invocations).toHaveLength(2)
+    expect(invocations[0]).toContain('--resume')
+    expect(invocations[1]).not.toContain('--resume')
+
+    const fallbackChunk = events.find(
+      (e) => e.type === 'chunk' && e.text.includes('Session rejected; falling back to cold start'),
+    )
+    expect(fallbackChunk).toBeDefined()
+
+    const completed = events.find(
+      (e): e is Extract<RuntimeEvent, { type: 'state' }> =>
+        e.type === 'state' && e.state === 'completed',
+    )
+    expect(completed?.providerSessionId).toBe('new-fresh-session')
+    await runtime.dispose(session)
+  })
 })

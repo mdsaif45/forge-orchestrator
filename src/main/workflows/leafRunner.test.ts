@@ -15,6 +15,7 @@ import {
   taskIdSchema,
   workflowIdSchema,
   type AgentReport,
+  type AgentSessionId,
   type Capability,
   type IAgentRuntime,
   type Repository,
@@ -36,6 +37,7 @@ import { graphRuns, workflows } from '../db/schema'
 import { WorkflowStore } from '../db/workflowStore'
 import { GitService, WorktreeService } from '../git'
 import { RuntimeRegistry } from '../runtimes/registry'
+import { WarmSessionStore } from '../context/warmSessionStore'
 import { GraphExecutor } from './graphExecutor'
 import { LeafRunner, createLeafRunner } from './leafRunner'
 import type { NodeExecutionContext, NodeExecutionResult } from './graphExecutor'
@@ -4249,6 +4251,101 @@ describe('LeafRunner', () => {
           // ignore
         }
       }
+    }
+  })
+
+  it('33. WarmSessionStore integration: captures providerSessionId and passes resumeSessionId across turns (#157, #158)', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'warm-test-'))
+    try {
+      const warmStore = new WarmSessionStore(tempDir)
+      const capturedResumeIds: (string | undefined)[] = []
+
+      const mockRuntimeInstance: IAgentRuntime = {
+        id: 'mock-warm-runtime' as RuntimeId,
+        capabilities: ['repo-read', 'file-write', 'plan'],
+        simulated: true,
+        supportsAccountIsolation: true,
+        instructionFilenames: [],
+        start: (options) => {
+          capturedResumeIds.push(options.resumeSessionId)
+          return Promise.resolve({
+            sessionId: 'sess-1' as AgentSessionId,
+            runtimeId: 'mock-warm-runtime' as RuntimeId,
+          })
+        },
+        send: () => Promise.resolve(),
+        // eslint-disable-next-line @typescript-eslint/require-await
+        events: async function* () {
+          yield { type: 'chunk', at: new Date().toISOString(), text: 'running' }
+        },
+        status: () =>
+          Promise.resolve({
+            sessionId: 'sess-1' as AgentSessionId,
+            state: 'idle',
+            failure: null,
+            lastActivityAt: new Date().toISOString(),
+          }),
+        cancel: () => Promise.resolve(),
+        dispose: () => Promise.resolve(),
+      }
+
+      const registry = new RuntimeRegistry()
+      registry.register(mockRuntimeInstance)
+
+      const report: AgentReport = {
+        status: 'completed',
+        summary: 'Stage done',
+        filesChanged: [],
+        commandsRun: [],
+        testsRun: false,
+        openQuestions: [],
+        assumptions: [],
+      }
+
+      const exchangeFn = vi.fn().mockResolvedValue({
+        ok: true,
+        report,
+        assessment: { status: 'completed' },
+        retried: false,
+        transcript: [],
+        providerSessionId: 'provider-sess-xyz',
+      })
+
+      const runner = new LeafRunner({
+        registry,
+        defaultRuntimeId: 'mock-warm-runtime',
+        exchangeFn,
+        warmSessionStore: warmStore,
+      })
+
+      const node = makeNode('agent-node', {
+        type: 'agent',
+        config: { role: 'implementer', skills: [], permissionMode: 'developer' },
+      })
+
+      const ctx1 = makeContext(node, {
+        graphRunId: 'run-alpha',
+        iteration: 1,
+      })
+
+      const res1 = await runner.execute(ctx1)
+      expect(res1.status).toBe('completed')
+      expect(capturedResumeIds[0]).toBeUndefined()
+      expect(warmStore.find('run-alpha', 'implementer', 'mock-warm-runtime')).toBe(
+        'provider-sess-xyz',
+      )
+
+      // Turn 2: should receive the warm session id
+      const ctx2 = makeContext(node, {
+        graphRunId: 'run-alpha',
+        iteration: 2,
+      })
+
+      const res2 = await runner.execute(ctx2)
+      expect(res2.status).toBe('completed')
+      expect(capturedResumeIds[1]).toBe('provider-sess-xyz')
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true })
     }
   })
 })

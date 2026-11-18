@@ -227,133 +227,80 @@ export class ClaudeCliRuntime implements IAgentRuntime {
     promptText: string,
     accountHome: string | null,
   ): Promise<void> {
-    if (!this.runner) return
+    const runner = this.runner
+    if (!runner) return
 
-    let accumulatedOutput = ''
-    // Held across `onStdout` calls: a read boundary falls mid-line, so the tail of one
-    // chunk is the head of the next (`takeCompleteLines`).
-    let streamBuffer = ''
-    // A holder rather than a `let`: control-flow analysis narrows `let x = false` to the
-    // literal type and cannot see the `onStdout` closure assigning it, so the check after
-    // the run is reported as always-falsy — while annotating the `let` trips the
-    // inferrable-types rule instead. A mutable field is also honest about the aliasing.
-    const stream = { limitReached: false }
+    let currentResumeId = session.options.resumeSessionId
+
+    const runAttempt = async (targetResumeId: string | undefined) => {
+      let accumulatedOutput = ''
+      let streamBuffer = ''
+      const stream = { limitReached: false }
+
+      const result = await runner(this.executable, claudeArgs(session, targetResumeId), {
+        cwd: session.options.repositoryPath,
+        stdin: promptText,
+        ...(accountHome === null ? {} : { env: accountEnv(accountHome) }),
+        ...(session.options.onProcess === undefined
+          ? {}
+          : { onProcess: session.options.onProcess }),
+        signal: session.abortController.signal,
+        onStdout: (chunk) => {
+          accumulatedOutput += chunk
+          session.lastActivityAt = this.now()
+
+          streamBuffer += chunk
+          const { lines, rest } = takeCompleteLines(streamBuffer)
+          streamBuffer = rest
+
+          for (const line of lines) {
+            const observed = observeStreamLine(line)
+
+            for (const tool of observed.tools) {
+              this.pushEvent(session, {
+                type: 'tool',
+                at: this.now(),
+                name: tool.name,
+                detail: tool.detail,
+              })
+            }
+
+            if (observed.providerLimitReached) stream.limitReached = true
+          }
+        },
+        onStderr: (chunk) => {
+          session.lastActivityAt = this.now()
+          this.pushEvent(session, {
+            type: 'chunk',
+            at: session.lastActivityAt,
+            text: chunk,
+          })
+        },
+      })
+
+      return { result, accumulatedOutput, stream }
+    }
 
     try {
-      const result = await this.runner(
-        this.executable,
-        // The prompt is NOT an argument here. Passed through `-p` on Windows it reached
-        // the CLI empty, and every step got "What would you like me to do?" — the
-        // dogfood run in #130 halted on that, reported as a protocol violation because
-        // an agent with no instructions has nothing to report. It goes over stdin
-        // instead (#131), which no quoting layer can touch.
-        //
-        // `--permission-mode` matters for the opposite reason: without it the CLI denies
-        // every tool call and waits for an approval a `-p` run can never give, so the
-        // agent could reason and never read a file or write a change.
-        //
-        // `--safe-mode` disables the ambient customisations a spawned agent would
-        // otherwise inherit from whoever's machine it runs on — CLAUDE.md, plugins,
-        // hooks, MCP servers. That is not tidiness: a hook on this machine blocked the
-        // prompt outright with "UserPromptSubmit operation blocked by hook", so the
-        // agent never saw it. Forge decides what enters an agent's context (A1), and a
-        // packet that survives only on an unconfigured machine is not a packet.
-        //
-        // Chosen over `--bare`, which isolates the same things but forces API-key auth
-        // and so cannot be used with a Pro subscription (measured in the #20 spike).
-        [
-          '-p',
-          // `stream-json` rather than `json`, so tool calls and provider-limit signals
-          // arrive while the turn is running instead of only at the end (#150). It
-          // requires `--verbose`; without it the CLI emits the envelope alone and the
-          // live view is blind again.
-          '--output-format',
-          'stream-json',
-          '--verbose',
-          '--safe-mode',
-          // A stable id for this step's conversation, derived rather than stored so
-          // it survives a Forge restart (#167). Measured: the CLI honours a supplied
-          // id exactly and `--resume` against it recalls the earlier turn, which is
-          // what a warm session across steps will be built on.
-          // KNOWN DEFECT, and why this adapter is no longer registered.
-          //
-          // `send` spawns a fresh process per call, and `exchange` sends twice on
-          // one session when a report comes back malformed. Both spawns pass the
-          // same deterministic id, and the real CLI refuses the second:
-          //
-          //   Error: Session ID 2b0c1990-… is already in use
-          //
-          // Observed halting a real five-stage workflow at stage 1. `--session-id`
-          // creates a session; reusing one requires `--resume`. Fixing it means
-          // either resuming on the second send or deriving a per-attempt id — but
-          // this whole headless path is superseded by `claude-cli-hosted`, which
-          // spawns once and types the retry into the live session, so it has no
-          // equivalent collision. Recorded rather than patched (#172).
-          ...(session.options.resumeKey === undefined
-            ? []
-            : ['--session-id', claudeSessionId(session.options.resumeKey)]),
-          ...claudePermissionArgs(session.options.permissionMode ?? DEFAULT_PERMISSION_MODE),
-        ],
-        {
-          cwd: session.options.repositoryPath,
-          stdin: promptText,
-          // `accountEnv` rather than the two variables inline: it is the one place that
-          // decides what isolating a process to an account means, and enrolment already
-          // depends on it. Two copies would be two places to get Windows wrong.
-          ...(accountHome === null ? {} : { env: accountEnv(accountHome) }),
-          // Forwarded so the caller can attach to the running process (#170).
-          ...(session.options.onProcess === undefined
-            ? {}
-            : { onProcess: session.options.onProcess }),
-          signal: session.abortController.signal,
-          onStdout: (chunk) => {
-            // Accumulated, and deliberately NOT emitted as a chunk.
-            //
-            // `exchange()` builds the reply from chunk text, and `parseAgentReport`
-            // takes the *first* REPORT_BEGIN it finds. Emitting the raw envelope as
-            // well as the unwrapped text put two copies of the block in that reply —
-            // the escaped one first — so the parse ran across both and failed on the
-            // backslashes. That is the second half of #130: the agent had already
-            // fixed the bug correctly and the workflow halted anyway.
-            //
-            // The envelope is a wire format, not a transcript. Only the unwrapped text
-            // below is emitted.
-            accumulatedOutput += chunk
-            session.lastActivityAt = this.now()
+      let { result, accumulatedOutput, stream } = await runAttempt(currentResumeId)
 
-            // Observed for the live view only (#150). Tool calls and provider limits are
-            // emitted as they happen so a user can watch the work; assistant prose is
-            // not, for the double-parse reason above — the reply text still reaches
-            // `exchange()` exactly once, from the terminal result below.
-            streamBuffer += chunk
-            const { lines, rest } = takeCompleteLines(streamBuffer)
-            streamBuffer = rest
-
-            for (const line of lines) {
-              const observed = observeStreamLine(line)
-
-              for (const tool of observed.tools) {
-                this.pushEvent(session, {
-                  type: 'tool',
-                  at: this.now(),
-                  name: tool.name,
-                  detail: tool.detail,
-                })
-              }
-
-              if (observed.providerLimitReached) stream.limitReached = true
-            }
-          },
-          onStderr: (chunk) => {
-            session.lastActivityAt = this.now()
-            this.pushEvent(session, {
-              type: 'chunk',
-              at: session.lastActivityAt,
-              text: chunk,
-            })
-          },
-        },
-      )
+      // Stale / rejected session ID fallback (#157, #158):
+      // If the CLI refused the resume flag, don't crash the step; log notice and retry cold.
+      if (
+        currentResumeId !== undefined &&
+        isClaudeResumeRejection(result.stderr, result.exitCode, accumulatedOutput)
+      ) {
+        this.pushEvent(session, {
+          type: 'chunk',
+          at: this.now(),
+          text: `[RESUME] Session rejected; falling back to cold start\n`,
+        })
+        currentResumeId = undefined
+        const cold = await runAttempt(undefined)
+        result = cold.result
+        accumulatedOutput = cold.accumulatedOutput
+        stream = cold.stream
+      }
 
       // A spent limit is checked before the empty-output case: the CLI reports the limit
       // *in* its output, so `accumulatedOutput` is never empty when one occurs and the
@@ -424,11 +371,13 @@ export class ClaudeCliRuntime implements IAgentRuntime {
       // result instead of failing or getting the correction retry the protocol promises.
       // Ending the turn on `state: 'completed'` is exactly what tells `exchange()`'s
       // `collectTurn` to parse the accumulated text itself.
+      const providerSessionId = extractClaudeSessionId(accumulatedOutput) ?? currentResumeId ?? null
       session.state = 'completed'
       this.pushEvent(session, {
         type: 'state',
         at: this.now(),
         state: 'completed',
+        ...(providerSessionId ? { providerSessionId } : {}),
       })
     } catch (err: unknown) {
       if (session.abortController.signal.aborted) {
@@ -637,4 +586,40 @@ function extractUsage(output: string): {
 function claudePermissionArgs(mode: PermissionMode): readonly string[] {
   if (mode === 'bypassPermissions') return ['--dangerously-skip-permissions']
   return ['--permission-mode', mode]
+}
+
+function claudeArgs(session: ActiveSession, resumeId: string | undefined): readonly string[] {
+  return [
+    '-p',
+    '--output-format',
+    'stream-json',
+    '--verbose',
+    '--safe-mode',
+    ...(resumeId !== undefined
+      ? ['--resume', resumeId]
+      : session.options.resumeKey === undefined
+        ? []
+        : ['--session-id', claudeSessionId(session.options.resumeKey)]),
+    ...claudePermissionArgs(session.options.permissionMode ?? DEFAULT_PERMISSION_MODE),
+  ]
+}
+
+function isClaudeResumeRejection(stderr: string, exitCode: number, output: string): boolean {
+  if (exitCode === 0) return false
+  const combined = `${stderr} ${output}`.toLowerCase()
+  return (
+    combined.includes('already in use') ||
+    combined.includes('not found') ||
+    combined.includes('no conversation found') ||
+    combined.includes('invalid session') ||
+    combined.includes('no session') ||
+    combined.includes('session id')
+  )
+}
+
+function extractClaudeSessionId(output: string): string | null {
+  const result = findTerminalResult(output)
+  if (result === null) return null
+  const id = result.session_id ?? result.sessionId
+  return typeof id === 'string' && id.trim() !== '' ? id.trim() : null
 }

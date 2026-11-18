@@ -1,4 +1,4 @@
-import { resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import {
   artifactIdSchema,
@@ -14,6 +14,14 @@ import { createForgeCore, resolveDataDir } from './core/forgeCore'
 import { executeDirectTask, type DirectTaskEvent } from './core/taskRunner'
 import { GitService } from './git'
 import { discoverOllamaModels } from './providers/ollamaDiscovery'
+import { probeRuntimeExecutable, runtimeDescription, runtimeExecutable } from './runtimes'
+import {
+  findForgeConfigFile,
+  getForgeConfigValue,
+  loadForgeConfig,
+  setForgeConfigValue,
+} from './config/forgeConfig'
+import { getDatabaseStats, vacuumDatabase } from './db'
 
 const VERSION = '0.3.0-alpha.1'
 
@@ -44,10 +52,13 @@ ${ANSI.bold}USAGE${ANSI.reset}
 ${ANSI.bold}COMMANDS${ANSI.reset}
   run <task>                 Execute an autonomous coding task against the current repository
   runs [list|inspect|events] Inspect past runs, steps, and event streams
-  workflows [list|inspect|run|resume|cancel|approve] Inspect and manage workflows
-  artifacts [list|cat]       Inspect and view run artifacts (patches, stdout, tool logs)
+  workflows [list|inspect|run|resume|cancel|approve|init] Inspect and manage workflows
+  artifacts [list|cat|grep]  Inspect, view, and search run artifacts (patches, stdout, tool logs)
   status                     Display current repository status and Forge control plane state
   models [list|scan|auto|set] Inspect, auto-select, or configure the active AI model
+  runtimes [list]            Inspect registered agent runtimes, capabilities, and health
+  config [list|get|set]      Inspect and update .forgerc configuration settings
+  db [stats|vacuum]          Inspect SQLite database storage and run maintenance
 
 ${ANSI.bold}OPTIONS${ANSI.reset}
   -v, --version        Display Forge version
@@ -65,18 +76,26 @@ ${ANSI.bold}OPTIONS${ANSI.reset}
   --from <seq>         Starting event sequence number for events inspection
   --offset <n>         Byte offset for reading artifact window
   --length <n>         Byte length for reading artifact window
+  --project <path|id>  Target project path or ID for workflow operations
+  --template <name>    Workflow template (feature, bugfix, refactor, spike)
+  --objective <text>   Task objective summary for workflow initialization
+  --run                Immediately execute initialized workflow
+  -i, --ignore-case    Case-insensitive search for artifact grep
+  --max-matches <n>    Maximum matches to output for artifact grep (default: 50)
   --json               Output machine-readable JSON (NDJSON stream for 'run', JSON document for inspection commands)
   -y, --yes            Unattended mode (auto-confirm operations)
 
 ${ANSI.bold}EXAMPLES${ANSI.reset}
   forge run "Fix failing tests in src/parser.ts"
   forge run "Add unit test for auth token validation" --model gpt-4o
-  forge runs
-  forge runs inspect 123e4567-e89b-12d3-a456-426614174000
-  forge runs events 123e4567-e89b-12d3-a456-426614174000 --from 1
-  forge artifacts list 123e4567-e89b-12d3-a456-426614174000
-  forge artifacts cat 123e4567-e89b-12d3-a456-426614174000 --offset 0 --length 1024
-  forge models set ollama qwen2.5-coder:7b
+  forge workflows init --template feature --objective "Implement auth" --run
+  forge workflows run 123e4567-e89b-12d3-a456-426614174000
+  forge artifacts grep 123e4567-e89b-12d3-a456-426614174000 "FAIL" -i
+  forge runtimes list
+  forge config get logLevel
+  forge config set logLevel debug
+  forge db stats
+  forge db vacuum
 `)
 }
 
@@ -102,6 +121,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       offset: { type: 'string' },
       length: { type: 'string' },
       reason: { type: 'string' },
+      project: { type: 'string' },
+      template: { type: 'string' },
+      objective: { type: 'string' },
+      task: { type: 'string' },
+      run: { type: 'boolean', default: false },
+      'ignore-case': { type: 'boolean', short: 'i', default: false },
+      'max-matches': { type: 'string' },
+      pattern: { type: 'string' },
     },
     allowPositionals: true,
   })
@@ -188,6 +215,11 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       dataDir,
       json: values.json,
       reason: values.reason,
+      project: values.project,
+      template: values.template,
+      objective: values.objective,
+      task: values.task,
+      run: values.run,
     })
   }
 
@@ -195,8 +227,37 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     return handleArtifacts({
       subcommandOrId: positionals[1],
       targetId: positionals[2],
+      pattern: positionals[3] ?? values.pattern,
       offset: values.offset,
       length: values.length,
+      ignoreCase: values['ignore-case'],
+      maxMatches: values['max-matches'],
+      dataDir,
+      json: values.json,
+    })
+  }
+
+  if (command === 'runtimes' || command === 'runtime') {
+    return handleRuntimes({
+      action: positionals[1],
+      dataDir,
+      json: values.json,
+    })
+  }
+
+  if (command === 'config') {
+    return handleConfig({
+      action: positionals[1],
+      key: positionals[2],
+      val: positionals[3],
+      cwd,
+      json: values.json,
+    })
+  }
+
+  if (command === 'db') {
+    return handleDb({
+      action: positionals[1],
       dataDir,
       json: values.json,
     })
@@ -940,8 +1001,11 @@ function isTextArtifact(meta: { mimeType: string; name: string }, sample: Buffer
 async function handleArtifacts(opts: {
   subcommandOrId?: string | undefined
   targetId?: string | undefined
+  pattern?: string | undefined
   offset?: string | undefined
   length?: string | undefined
+  ignoreCase?: boolean | undefined
+  maxMatches?: string | undefined
   dataDir: string
   json: boolean
 }): Promise<number> {
@@ -954,6 +1018,8 @@ async function handleArtifacts(opts: {
       // id is targetId
     } else if (action === 'list') {
       // id is targetId
+    } else if (action === 'grep') {
+      // id is targetId (runId)
     } else if (action !== undefined && id === undefined) {
       // User invoked `forge artifacts <runId>`
       id = action
@@ -963,7 +1029,7 @@ async function handleArtifacts(opts: {
       if (opts.json) console.log(JSON.stringify({ error: err }))
       else {
         console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
-        console.error('Usage: forge artifacts [list] <runId> | forge artifacts cat <artifactId>')
+        console.error('Usage: forge artifacts [list|cat|grep] <id> [<pattern>]')
       }
       return 1
     }
@@ -1121,6 +1187,108 @@ async function handleArtifacts(opts: {
       return 0
     }
 
+    if (action === 'grep') {
+      const rawRunId = id
+      const pattern = opts.pattern
+      if (!rawRunId || !pattern) {
+        const err =
+          'Usage: forge artifacts grep <runId> <pattern> [-i] [--max-matches <n>] [--json]'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else {
+          console.error(`${ANSI.red}Error: Missing runId or pattern.${ANSI.reset}`)
+          console.error(err)
+        }
+        return 1
+      }
+
+      const parsedRunId = runIdSchema.safeParse(rawRunId)
+      if (!parsedRunId.success) {
+        const err = `Invalid run ID "${rawRunId}". Expected a valid UUID.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const runId = parsedRunId.data
+
+      let regex: RegExp
+      try {
+        regex = new RegExp(pattern, opts.ignoreCase ? 'i' : undefined)
+      } catch (e) {
+        const err = `Invalid regular expression: ${e instanceof Error ? e.message : String(e)}`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      const maxMatches = opts.maxMatches ? parseInt(opts.maxMatches, 10) : 50
+      if (isNaN(maxMatches) || maxMatches <= 0) {
+        const err = `Invalid --max-matches value: ${opts.maxMatches ?? ''}`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      const artifacts = core.artifacts.listArtifacts(runId)
+      interface GrepMatch {
+        readonly artifactId: string
+        readonly artifactName: string
+        readonly kind: string
+        readonly line: number
+        readonly content: string
+      }
+      const matches: GrepMatch[] = []
+
+      for (const art of artifacts) {
+        if (matches.length >= maxMatches) break
+        try {
+          const buf = await core.artifacts.readArtifact(art.id)
+          const text = buf.toString('utf-8')
+          const lines = text.split(/\r?\n/)
+          for (let i = 0; i < lines.length; i++) {
+            if (matches.length >= maxMatches) break
+            const lineContent = lines[i]
+            if (lineContent !== undefined && regex.test(lineContent)) {
+              matches.push({
+                artifactId: art.id,
+                artifactName: art.name,
+                kind: art.kind,
+                line: i + 1,
+                content: lineContent.trimEnd(),
+              })
+            }
+          }
+        } catch {
+          // Skip unreadable or corrupted artifacts
+        }
+      }
+
+      if (opts.json) {
+        console.log(JSON.stringify({ runId, pattern, matchCount: matches.length, matches }))
+        return 0
+      }
+
+      console.log(
+        `\n${ANSI.bold}Grep results for run ${ANSI.cyan}${runId}${ANSI.reset} (pattern: "${pattern}"):`,
+      )
+      if (matches.length === 0) {
+        console.log(`  ${ANSI.dim}No matches found.${ANSI.reset}\n`)
+        return 0
+      }
+
+      for (const m of matches) {
+        console.log(
+          `  ${ANSI.cyan}${m.artifactName}${ANSI.reset}:${ANSI.yellow}${String(m.line)}${ANSI.reset} - ${m.content}`,
+        )
+      }
+      if (matches.length >= maxMatches) {
+        console.log(
+          `\n  ${ANSI.dim}(Truncated at max matches limit: ${String(maxMatches)})${ANSI.reset}`,
+        )
+      }
+      console.log('')
+      return 0
+    }
+
     const err = `Unknown artifacts action: ${action}`
     if (opts.json) console.log(JSON.stringify({ error: err }))
     else {
@@ -1150,11 +1318,16 @@ async function handleWorkflows(opts: {
   dataDir: string
   json: boolean
   reason?: string | undefined
+  project?: string | undefined
+  template?: string | undefined
+  objective?: string | undefined
+  task?: string | undefined
+  run?: boolean | undefined
 }): Promise<number> {
   const core = createForgeCore({ dataDir: opts.dataDir })
 
   try {
-    const KNOWN_ACTIONS = ['list', 'inspect', 'run', 'resume', 'cancel', 'approve'] as const
+    const KNOWN_ACTIONS = ['list', 'inspect', 'run', 'resume', 'cancel', 'approve', 'init'] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
 
@@ -1435,8 +1608,86 @@ async function handleWorkflows(opts: {
       }
     }
 
+    if (action === 'init') {
+      const targetPath = resolve(opts.project ?? opts.cwd)
+      const projects = core.projects.list()
+      let project = projects.find(
+        (p) =>
+          p.id === opts.project ||
+          resolve(p.repository.absolutePath).toLowerCase() === targetPath.toLowerCase() ||
+          p.name.toLowerCase() === (opts.project ?? '').toLowerCase(),
+      )
+
+      if (!project) {
+        try {
+          const git = new GitService({ repositoryPath: targetPath })
+          const currentBranch = await git.currentBranch()
+          project = await core.projects.create({
+            name: basename(targetPath),
+            repositoryPath: targetPath,
+            defaultBranch: currentBranch ?? 'main',
+            buildCommand: null,
+            testCommand: null,
+            tech: [],
+            rules: [],
+          })
+        } catch (e) {
+          const err = `Could not resolve or register project at "${targetPath}": ${e instanceof Error ? e.message : String(e)}`
+          if (opts.json) console.log(JSON.stringify({ error: err }))
+          else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          return 1
+        }
+      }
+
+      const templateId = opts.template ?? 'feature'
+      const objective = opts.objective ?? `Headless workflow on ${project.name}`
+      const autoRun = opts.run === true
+
+      try {
+        const wf = await core.workflows.start({
+          projectId: project.id,
+          taskId: opts.task,
+          templateId,
+          objective,
+          autoRun,
+        })
+
+        if (opts.json) {
+          console.log(
+            JSON.stringify({
+              ok: true,
+              workflowId: wf.id,
+              projectId: project.id,
+              templateId: wf.templateId,
+              state: wf.state,
+              objective,
+              autoRun,
+              workflow: wf,
+            }),
+          )
+        } else {
+          console.log(
+            `\n${ANSI.green}✓${ANSI.reset} Initialized workflow ${ANSI.bold}${wf.id}${ANSI.reset}`,
+          )
+          console.log(`  Project:   ${project.name} (${project.id})`)
+          console.log(`  Template:  ${wf.templateId}`)
+          console.log(`  State:     ${wf.state}`)
+          console.log(`  Objective: ${objective}`)
+          console.log(`  Execution: ${autoRun ? 'Started in background' : 'Ready'}\n`)
+        }
+        return 0
+      } catch (e) {
+        const err = `Failed to initialize workflow: ${e instanceof Error ? e.message : String(e)}`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+    }
+
     console.error(`${ANSI.red}Unknown workflows action: "${action}"${ANSI.reset}`)
-    console.error('Usage: forge workflows [list|inspect|run|resume|cancel|approve] [<id>] [--json]')
+    console.error(
+      'Usage: forge workflows [list|inspect|run|resume|cancel|approve|init] [<id>] [--json]',
+    )
     return 1
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
@@ -1444,6 +1695,221 @@ async function handleWorkflows(opts: {
       console.log(JSON.stringify({ error: msg }))
     } else {
       console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+    }
+    return 1
+  } finally {
+    await core.close()
+  }
+}
+
+async function handleRuntimes(opts: {
+  action?: string | undefined
+  dataDir: string
+  json: boolean
+}): Promise<number> {
+  const core = createForgeCore({ dataDir: opts.dataDir })
+  try {
+    const runtimesList = core.runtimes.list()
+    const probed = await Promise.all(
+      runtimesList.map(async (r) => {
+        const named = runtimeExecutable(r.id)
+        const executable = r.simulated || named === r.id ? null : named
+        const probe = await probeRuntimeExecutable(executable, { isSimulated: r.simulated })
+        return {
+          id: r.id,
+          simulated: r.simulated,
+          executable,
+          available: probe.available,
+          version: probe.version,
+          health: probe.health,
+          latencyMs: probe.latencyMs,
+          capabilities: [...r.capabilities],
+          label: runtimeDescription(r.id),
+        }
+      }),
+    )
+
+    if (opts.json) {
+      console.log(JSON.stringify({ runtimes: probed }))
+      return 0
+    }
+
+    console.log(`\n${ANSI.bold}REGISTERED RUNTIMES (${String(probed.length)})${ANSI.reset}:`)
+    for (const p of probed) {
+      const statusBadge =
+        p.health === 'healthy'
+          ? `${ANSI.green}HEALTHY${ANSI.reset}`
+          : p.health === 'degraded'
+            ? `${ANSI.yellow}DEGRADED${ANSI.reset}`
+            : p.health === 'simulated'
+              ? `${ANSI.cyan}SIMULATED${ANSI.reset}`
+              : `${ANSI.red}UNAVAILABLE${ANSI.reset}`
+
+      const name = p.label?.name ?? p.id
+      const ver = p.version ? ` (v${p.version})` : ''
+      const exec = p.executable ? ` [exec: ${p.executable}]` : ' [in-process]'
+      console.log(`  • ${ANSI.bold}${name}${ANSI.reset}${ver} - ${statusBadge}${exec}`)
+      if (p.label?.summary) {
+        console.log(`    ${ANSI.dim}${p.label.summary}${ANSI.reset}`)
+      }
+      console.log(`    Capabilities: ${p.capabilities.join(', ')}`)
+    }
+    console.log('')
+    return 0
+  } finally {
+    await core.close()
+  }
+}
+
+function handleConfig(opts: {
+  action?: string | undefined
+  key?: string | undefined
+  val?: string | undefined
+  cwd: string
+  json: boolean
+}): number {
+  const action = opts.action ?? 'list'
+  const configPath = findForgeConfigFile(opts.cwd)
+
+  if (action === 'list') {
+    const config = loadForgeConfig({ searchFrom: opts.cwd, env: {} })
+    if (opts.json) {
+      console.log(JSON.stringify({ configPath, config }))
+      return 0
+    }
+    console.log(`\n${ANSI.bold}FORGE CONFIGURATION${ANSI.reset}:`)
+    console.log(
+      `  Source: ${configPath ?? `${ANSI.dim}(no config file found, using defaults)${ANSI.reset}`}`,
+    )
+    console.log(`\n${JSON.stringify(config, null, 2)}\n`)
+    return 0
+  }
+
+  if (action === 'get') {
+    if (!opts.key) {
+      const err = 'Usage: forge config get <key> [--json]'
+      if (opts.json) console.log(JSON.stringify({ error: err }))
+      else console.error(`${ANSI.red}Error: Missing configuration key.${ANSI.reset}\n${err}`)
+      return 1
+    }
+    const config = loadForgeConfig({ searchFrom: opts.cwd, env: {} })
+    const value = getForgeConfigValue(opts.key, config)
+    if (opts.json) {
+      console.log(JSON.stringify({ key: opts.key, value }))
+      return 0
+    }
+    if (value === undefined) {
+      console.log(`  ${ANSI.dim}Key "${opts.key}" is not set.${ANSI.reset}`)
+    } else {
+      const formatted =
+        typeof value === 'object' && value !== null
+          ? JSON.stringify(value)
+          : typeof value === 'string'
+            ? value
+            : typeof value === 'number' || typeof value === 'boolean'
+              ? String(value)
+              : JSON.stringify(value)
+      console.log(`  ${ANSI.bold}${opts.key}${ANSI.reset} = ${formatted}`)
+    }
+    return 0
+  }
+
+  if (action === 'set') {
+    if (!opts.key || opts.val === undefined) {
+      const err = 'Usage: forge config set <key> <value> [--json]'
+      if (opts.json) console.log(JSON.stringify({ error: err }))
+      else console.error(`${ANSI.red}Error: Missing key or value.${ANSI.reset}\n${err}`)
+      return 1
+    }
+    try {
+      const res = setForgeConfigValue(opts.key, opts.val, configPath ?? join(opts.cwd, '.forgerc'))
+      if (opts.json) {
+        console.log(JSON.stringify(res))
+        return 0
+      }
+      console.log(
+        `\n${ANSI.green}✓${ANSI.reset} Updated ${ANSI.bold}${opts.key}${ANSI.reset} in ${res.configPath}`,
+      )
+      console.log(`  Previous: ${String(res.previousValue)}`)
+      console.log(`  New:      ${String(res.newValue)}\n`)
+      return 0
+    } catch (e) {
+      const err = `Failed to set configuration: ${e instanceof Error ? e.message : String(e)}`
+      if (opts.json) console.log(JSON.stringify({ error: err }))
+      else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+      return 1
+    }
+  }
+
+  const err = `Unknown config action: ${action}`
+  if (opts.json) console.log(JSON.stringify({ error: err }))
+  else {
+    console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+    console.error('Usage: forge config [list|get|set] [<key>] [<value>] [--json]')
+  }
+  return 1
+}
+
+async function handleDb(opts: {
+  action?: string | undefined
+  dataDir: string
+  json: boolean
+}): Promise<number> {
+  const action = opts.action ?? 'stats'
+  const core = createForgeCore({ dataDir: opts.dataDir })
+  const dbFile = join(core.dataDir, 'forge.db')
+
+  try {
+    if (action === 'stats') {
+      const stats = getDatabaseStats(core.sqlite, dbFile)
+      if (opts.json) {
+        console.log(JSON.stringify({ dbFile, stats }))
+        return 0
+      }
+      console.log(`\n${ANSI.bold}DATABASE STATISTICS${ANSI.reset}:`)
+      console.log(`  File:           ${dbFile}`)
+      console.log(
+        `  Disk Size:      ${
+          stats.diskSizeBytes !== null ? `${String(stats.diskSizeBytes)} bytes` : 'unknown'
+        }`,
+      )
+      if (stats.walSizeBytes !== null) {
+        console.log(`  WAL Size:       ${String(stats.walSizeBytes)} bytes`)
+      }
+      console.log(`  Page Size:      ${String(stats.pageSize)} bytes`)
+      console.log(`  Page Count:     ${String(stats.pageCount)}`)
+      console.log(`  Freelist Pages: ${String(stats.freelistCount)}`)
+      console.log(`\n${ANSI.bold}Tables (${String(stats.tables.length)})${ANSI.reset}:`)
+      for (const t of stats.tables) {
+        console.log(`  • ${t.tableName}: ${String(t.rowCount)} rows`)
+      }
+      console.log('')
+      return 0
+    }
+
+    if (action === 'vacuum') {
+      const result = vacuumDatabase(core.sqlite, dbFile)
+      if (opts.json) {
+        console.log(JSON.stringify({ dbFile, result }))
+        return 0
+      }
+      console.log(
+        `\n${ANSI.green}✓${ANSI.reset} Database vacuum completed in ${String(result.durationMs)}ms`,
+      )
+      if (result.sizeBeforeBytes !== null && result.sizeAfterBytes !== null) {
+        console.log(`  Size Before: ${String(result.sizeBeforeBytes)} bytes`)
+        console.log(`  Size After:  ${String(result.sizeAfterBytes)} bytes`)
+        console.log(`  Reclaimed:   ${String(result.reclaimedBytes)} bytes`)
+      }
+      console.log('')
+      return 0
+    }
+
+    const err = `Unknown db action: ${action}`
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else {
+      console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+      console.error('Usage: forge db [stats|vacuum] [--json]')
     }
     return 1
   } finally {

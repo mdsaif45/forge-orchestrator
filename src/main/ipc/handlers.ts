@@ -23,7 +23,6 @@ import type { DecisionService } from '../decisions/decisionService'
 import type { ChangeSetService } from '../changesets/changeSetService'
 import type { AccountService } from '../accounts/accountService'
 import { runtimeDescription, runtimeExecutable, type RuntimeRegistry } from '../runtimes/registry'
-import { isCommandAvailable } from '../process/processManager'
 import { streamChat } from '../providers/chatStream'
 import { runAgentTurn } from '../providers/agentTurn'
 import { discoverOllamaModels } from '../providers/ollamaDiscovery'
@@ -41,6 +40,7 @@ import {
   saveCustomCli,
   removeCustomCli,
 } from '../runtimes/cliDetector'
+import { probeRuntimeExecutable } from '../runtimes'
 
 export interface IpcDependencies {
   readonly projects: ProjectService
@@ -182,38 +182,32 @@ export function createIpcHandlers({
       return {}
     },
 
-    'runtime:list': () => ({
-      runtimes: registry.list().map((runtime) => {
-        /*
-         * Null when this runtime drives no external command.
-         *
-         * The gate used to be `simulated`, which was the wrong question. The
-         * native agent is `simulated: false` — it does real work — but it
-         * reaches a provider over HTTP and spawns nothing, so it fell through
-         * to `runtimeExecutable('forge-native-agent')`, which has no entry in
-         * its map and returns the id itself. Settings then probed PATH for a
-         * command called `forge-native-agent`, found none, and rendered a red
-         * "Not on PATH" against a runtime that was working perfectly.
-         *
-         * `runtimeExecutable` returning its own argument IS the "no external
-         * command" signal, so read it here rather than adding a second
-         * declaration a new runtime could forget to set. The UI already has a
-         * "Spawns nothing" state for null.
-         */
-        const named = runtimeExecutable(runtime.id)
-        const executable = runtime.simulated || named === runtime.id ? null : named
+    'runtime:list': async () => {
+      const runtimes = await Promise.all(
+        registry.list().map(async (runtime) => {
+          const named = runtimeExecutable(runtime.id)
+          const executable = runtime.simulated || named === runtime.id ? null : named
+          const probe = await probeRuntimeExecutable(executable, {
+            isSimulated: runtime.simulated,
+          })
 
-        return {
-          id: runtime.id,
-          simulated: runtime.simulated,
-          supportsAccountIsolation: runtime.supportsAccountIsolation,
-          capabilities: [...runtime.capabilities],
-          executable,
-          available: executable === null ? null : isCommandAvailable(executable),
-          label: runtimeDescription(runtime.id),
-        }
-      }),
-    }),
+          return {
+            id: runtime.id,
+            simulated: runtime.simulated,
+            supportsAccountIsolation: runtime.supportsAccountIsolation,
+            capabilities: [...runtime.capabilities],
+            executable,
+            available: probe.available,
+            version: probe.version,
+            health: probe.health,
+            latencyMs: probe.latencyMs,
+            label: runtimeDescription(runtime.id),
+          }
+        }),
+      )
+
+      return { runtimes }
+    },
 
     'runtime:detectClis': async () => ({
       clis: await detectInstalledClis(),

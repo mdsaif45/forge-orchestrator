@@ -3,7 +3,7 @@
 **Status:** IMPLEMENTED
 **Authority:** Implementation truth (see [documentation-policy.md](../meta/documentation-policy.md))
 **Last Updated:** 2026-11-18
-**Baseline:** `main` @ `0fe8d03` (PR #234 merged)
+**Baseline:** `main` @ `755b740` (PR #241 merged)
 **Verification Baseline:** [verification-baseline.md](verification-baseline.md)
 **Related Roadmap:** [roadmap.md](../roadmap/roadmap.md)
 
@@ -50,6 +50,16 @@ All test counts are per-file assertion counts measured with
 | NDJSON event stream (`--json`) | Machine-readable streaming output | IMPLEMENTED | VERIFIED | Emits parseable NDJSON lines for CI / automated consumers | `src/main/cli.ts` | `src/main/cli.test.ts` (8) | CLI-001 |
 | Process-tree termination & orphan tracking | Clean child process lifecycle | IMPLEMENTED | VERIFIED | Process trees killed recursively; orphans reaped across restarts | `src/main/process/processManager.ts`, `orphans.ts` | `src/main/process/process.test.ts` (40) | CORE-001 |
 | Secret redaction in captured output | No credentials leaked in logs/prompts | IMPLEMENTED | VERIFIED | Sensitive tokens and keys replaced with redacted markers | `src/main/process/redact.ts` | `src/main/process/process.test.ts` (40) | CORE-001 |
+| Local Ollama discovery & auto-selection | Auto-configure coding model | IMPLEMENTED | VERIFIED | `forge models auto` selects best tool-capable coding model; `models list` reports local Ollama daemon state | `src/main/cli.ts` | `src/main/cli.test.ts` (11) | MODEL-001 |
+| Rich Ollama scan IPC response | Structured capability discovery | IMPLEMENTED | VERIFIED | `provider:scanModels` returns parameter size, quantization, family, and tool capabilities | `src/main/ipc/handlers.ts`, `src/shared/ipc.ts` | `scripts/router-check.mjs` (7) | MODEL-002 |
+| Streaming artifact ingestion | Zero in-memory buffer spike for runs | IMPLEMENTED | VERIFIED | Streams raw agent response chunks via `writeArtifactStream` concurrently with execution | `src/main/core/taskRunner.ts` | `src/main/core/taskRunner.test.ts` (11) | AGENT-002 |
+| Security sandboxing & timeout budget | Enforce workspace boundary & duration | IMPLEMENTED | VERIFIED | Aborts runs exceeding `maxExecutionTimeMs` (A5) and blocks out-of-workspace execution (A7) | `src/main/core/taskRunner.ts` | `src/main/core/taskRunner.test.ts` (11) | CORE-004 |
+| Headless workflow control CLI | Terminal execution steering | IMPLEMENTED | VERIFIED | `forge workflows run`, `resume`, `cancel`, and `approve` drive execution directly | `src/main/cli.ts` | `src/main/cli.test.ts` (16) | WORK-007 |
+| Headless workflow initialization CLI | CLI workflow instance generation | IMPLEMENTED | VERIFIED | `forge workflows init` creates workflow instances directly from templates with CLI arguments | `src/main/cli.ts` | `src/main/cli.test.ts` (16) | WORK-008 |
+| Artifact content grep CLI | Search inside run artifacts | IMPLEMENTED | VERIFIED | `forge artifacts grep <runId> <pattern>` performs bounded regex and case-insensitive searches | `src/main/cli.ts` | `src/main/cli.test.ts` (16) | ARTIFACT-002 |
+| Runtime health & version probing | Diagnostic runtime discovery | IMPLEMENTED | VERIFIED | `runtime:list` IPC and `forge runtimes list` report binary resolution, version, and health | `src/main/runtimes/probe.ts`, `src/main/cli.ts`, `src/main/ipc/handlers.ts` | `src/main/runtimes/probe.test.ts` (4), `src/main/cli.test.ts` (16) | RUNTIME-001 |
+| Configuration inspection & management | Command-line .forgerc configuration | IMPLEMENTED | VERIFIED | `forge config [list|get|set]` inspects and modifies configuration keys safely | `src/main/config/forgeConfig.ts`, `src/main/cli.ts` | `src/main/config/forgeConfig.test.ts` (11), `src/main/cli.test.ts` (16) | CONFIG-002 |
+| Database maintenance & compaction | SQLite storage compaction & stats | IMPLEMENTED | VERIFIED | `forge db [stats|vacuum]` reports table statistics and executes SQLite VACUUM and optimize | `src/main/db/maintenance.ts`, `src/main/cli.ts` | `src/main/db/maintenance.test.ts` (2), `src/main/cli.test.ts` (16) | STATE-002 |
 
 ### 2.2 State, storage & events
 

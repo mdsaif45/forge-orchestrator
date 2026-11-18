@@ -292,10 +292,19 @@ An explicit discrepancy exists between GitHub milestone numbers, GitHub mileston
 
 ## 6. Active Work, Dependencies, and Next Action
 
-- **Current In-Progress Work:** PR #228 (`feat/m6-phase5-batch3-slice5b1c-reviewer-routing`, head `bdd6aa21c76d5747cd7f6bafc0bcd6dc447a395f`).
-- **Dependencies:** All upstream dependencies of PR #228 are merged into `main` (PRs #221–#227).
-- **Blockers:** None. PR #228 CI is completely green ([39438649157](https://github.com/mdsaif45/forge-orchestrator/actions/runs/39438649157)).
+- **Current State Baseline:** `main` @ `755b740` (PR #241 merged).
+- **Recent Completed PRs:**
+  - **PR #235:** `feat(agent,cli): concurrent tool execution, ollama auto-discovery, workflows cli, and milestone reconciliation (#149, #156, #160, #165)` (`847cce9`).
+  - **PR #241:** `feat(cli,agent,ipc): model discovery, streaming artifacts, security sandboxing, and workflow run (#236, #237, #238, #239, #240)` (`755b740`).
+- **In-Progress Cluster (feat/m3-m4-cli-tools-config-and-db-maintenance):**
+  - **Issue #242 (WORK-008):** `forge workflows init` headless workflow initialization.
+  - **Issue #243 (ARTIFACT-002):** `forge artifacts grep` content search inside run artifacts.
+  - **Issue #244 (RUNTIME-001):** Runtime health & version probing in `runtime:list` IPC and `forge runtimes list`.
+  - **Issue #245 (CONFIG-002):** Configuration management via `forge config [list|get|set]`.
+  - **Issue #246 (STATE-002):** Database maintenance & storage compaction via `forge db [stats|vacuum]`.
+- **Milestones Status:** All GitHub Milestones M0 through M11 are completed and closed with zero remaining open issues.
+- **Dependencies & Blockers:** None. Local verification gates and GitHub Actions CI are 100% green.
 - **Immediate Next Action:**
-  1. Review and merge PR #228 to `main`.
-  2. Implement `WorkflowService` cutover from `Orchestrator` to `GraphExecutor` (`WORK-006`).
-  3. Verify all 31 orchestrator scenarios against `GraphExecutor` to establish true milestone parity before closing M6 Phase 5.
+  1. Open PR for Issues #242, #243, #244, #245, #246.
+  2. Verify all CI checks pass on GitHub Actions.
+  3. Merge PR to `main` via squash merge.

@@ -29,6 +29,7 @@ export const EVENT_TYPES = [
   'workflow.finished',
   'step.started',
   'step.finished',
+  'step.interjected',
   'changeset.captured',
   'changeset.reviewed',
   'evidence.recorded',

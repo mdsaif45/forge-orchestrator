@@ -153,6 +153,13 @@ const stepFinished = z.strictObject({
   finishedAt: timestampSchema,
 })
 
+const stepInterjected = z.strictObject({
+  workflowId: workflowIdSchema,
+  stepIndex: z.number().int().nonnegative(),
+  text: z.string().min(1),
+  turn: z.number().int().positive().optional(),
+})
+
 const changeSetCaptured = z.strictObject({
   changeSet: changeSetSchema,
 })
@@ -327,6 +334,7 @@ export const EVENT_PAYLOADS = {
   'workflow.finished': workflowFinished,
   'step.started': stepStarted,
   'step.finished': stepFinished,
+  'step.interjected': stepInterjected,
   'changeset.captured': changeSetCaptured,
   'changeset.reviewed': changeSetReviewed,
   'evidence.recorded': evidenceRecorded,

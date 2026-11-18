@@ -303,6 +303,9 @@ export function createIpcHandlers({
     'workflow:approveAndStartImplementation': ({ workflowId }) =>
       workflows.approveAndStartImplementation(workflowId),
 
+    'workflow:interject': ({ workflowId, stepIndex, text }) =>
+      workflows.interject(workflowId, stepIndex, text),
+
     'workflow:getPacket': ({ packetRef }) => workflows.getPacket(packetRef),
 
     'workflow:exportReport': ({ workflowId }) => ({

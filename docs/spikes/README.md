@@ -10,6 +10,7 @@ This directory contains timeboxed, exploratory spikes executed to validate techn
 | :--- | :--- | :--- | :--- | :--- |
 | [**Agent CLI Capability**](agent-cli-capability.md) | Can agent CLIs (Claude, Antigravity) be driven headlessly on Pro plans? | 2026-08-19 | **Mixed**: Claude Code supports headless `-p`; Antigravity requires GUI/PTY. Spawning two headless CLIs for MVP is not viable. | [ADR-001](../decisions/ADR-001-agents-runtimes-accounts.md) |
 | [**Interactive CLI PTY**](interactive-cli-pty.md) | Why does an interactive prompt typed into a hosted TUI fail to complete? | 2026-08-31 | **GO**: Terminal trust dialog in fresh worktrees blocked input; pre-recording trust unblocks prompt loop. | [ADR-003](../decisions/ADR-003-host-the-real-cli.md) |
+| [**Claude Interjection**](claude-interjection-spike.md) | How does the Claude CLI accept mid-session input, if at all? | 2026-11-18 | **GO**: Interactive PTY hosting with `\r` and Escape interrupts provides warm multi-turn steering; declared capability for domain layer. | [ADR-003](../decisions/ADR-003-host-the-real-cli.md) |
 
 ---
 

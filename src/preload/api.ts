@@ -204,6 +204,11 @@ export interface ForgeApi {
     cancel: (workflowId: string, reason?: string) => Promise<IpcResult<WorkflowDetailView | null>>
     resume: (workflowId: string) => Promise<IpcResult<WorkflowDetailView | null>>
     approveAndStartImplementation: (workflowId: string) => Promise<IpcResult<WorkflowDetailView>>
+    interject: (
+      workflowId: string,
+      stepIndex: number,
+      text: string,
+    ) => Promise<IpcResult<{ readonly success: boolean }>>
     getPacket: (packetRef: string) => Promise<IpcResult<PromptPacketView | null>>
     exportReport: (workflowId: string) => Promise<
       IpcResult<{

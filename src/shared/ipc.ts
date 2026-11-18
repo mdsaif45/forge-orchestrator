@@ -161,6 +161,16 @@ export const IPC_CONTRACT = {
     request: z.strictObject({ workflowId: z.string() }),
     response: workflowDetailViewSchema,
   },
+  'workflow:interject': {
+    request: z.strictObject({
+      workflowId: z.string(),
+      stepIndex: z.number().int().nonnegative(),
+      text: z.string(),
+    }),
+    response: z.strictObject({
+      success: z.boolean(),
+    }),
+  },
   'workflow:getPacket': {
     request: z.strictObject({ packetRef: z.string() }),
     response: promptPacketViewSchema.nullable(),

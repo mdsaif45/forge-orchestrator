@@ -13,8 +13,7 @@ import {
   type SessionOptions,
 } from '@shared/domain'
 import type { ProcessRunner } from './claudeCliRuntime'
-import { observeAntigravityLine } from './antigravityStream'
-import { takeCompleteLines } from './claudeStream'
+import { checkAntigravityPreflightRefusal } from './antigravityPreflight'
 
 export interface AntigravityCliRuntimeOptions {
   readonly executablePath?: string
@@ -144,8 +143,6 @@ export class AntigravityCliRuntime implements IAgentRuntime {
 
     const runAttempt = async (targetResumeId: string | undefined) => {
       let accumulatedOutput = ''
-      let streamBuffer = ''
-      const stream = { refusedBeforeStarting: false }
 
       const result = await runner(
         this.executable,
@@ -158,36 +155,8 @@ export class AntigravityCliRuntime implements IAgentRuntime {
             : { onProcess: session.options.onProcess }),
           signal: session.abortController.signal,
           onStdout: (chunk) => {
-            // Accumulated, deliberately not emitted. The envelope wraps the reply, so the
-            // report block arrives JSON-escaped inside `response`. Emitting the envelope
-            // alongside the unwrapped text would put two copies of the block in the reply,
-            // and `parseAgentReport` takes the first it finds — the escaped one — and
-            // fails on the backslashes. Same defect as #130 on the Claude side.
             accumulatedOutput += chunk
             session.lastActivityAt = this.now()
-
-            // Observed for the live view only (#151): tool invocations are emitted as the
-            // agent makes them. The reply text still reaches `exchange()` exactly once,
-            // from the terminal result below.
-            streamBuffer += chunk
-            const { lines, rest } = takeCompleteLines(streamBuffer)
-            streamBuffer = rest
-
-            for (const line of lines) {
-              const observed = observeAntigravityLine(line)
-
-              for (const tool of observed.tools) {
-                this.pushEvent(session, {
-                  type: 'tool',
-                  at: this.now(),
-                  name: tool.name,
-                  detail: tool.detail,
-                })
-              }
-
-              if (observed.result?.refusedBeforeStarting === true)
-                stream.refusedBeforeStarting = true
-            }
           },
           onStderr: (chunk) => {
             session.lastActivityAt = this.now()
@@ -200,11 +169,11 @@ export class AntigravityCliRuntime implements IAgentRuntime {
         },
       )
 
-      return { result, accumulatedOutput, stream }
+      return { result, accumulatedOutput }
     }
 
     try {
-      let { result, accumulatedOutput, stream } = await runAttempt(currentResumeId)
+      let { result, accumulatedOutput } = await runAttempt(currentResumeId)
 
       // Stale / rejected conversation ID fallback (#157, #158):
       // If the CLI refused the conversation flag, don't crash the step; log notice and retry cold.
@@ -221,7 +190,6 @@ export class AntigravityCliRuntime implements IAgentRuntime {
         const cold = await runAttempt(undefined)
         result = cold.result
         accumulatedOutput = cold.accumulatedOutput
-        stream = cold.stream
       }
 
       // Checked before the empty-output case: the refusal is reported *in* the output, so
@@ -233,7 +201,8 @@ export class AntigravityCliRuntime implements IAgentRuntime {
       // run, then succeeded on retry. Reported as retryable and explicitly not as the
       // agent's failure: the CLI never reached the model, so blaming the step would
       // consume an iteration and mislabel whose failure it was.
-      if (stream.refusedBeforeStarting) {
+      const preflight = checkAntigravityPreflightRefusal(accumulatedOutput, result.stderr)
+      if (preflight.refused) {
         session.state = 'failed'
         session.failure =
           'The Antigravity CLI refused before starting the turn (pre-flight eligibility check failed); no work was attempted'
@@ -280,9 +249,15 @@ export class AntigravityCliRuntime implements IAgentRuntime {
       // other. Read from the terminal result, whose figures are the turn's total;
       // per-step counts are partial. `agy` reports no cost, so `costUsd` stays null
       // rather than being derived from token counts.
-      const usage = observeAntigravityLine(lastResultLine(accumulatedOutput) ?? '').usage
+      const usage = extractUsage(accumulatedOutput)
       if (usage !== null) {
-        this.pushEvent(session, { type: 'usage', at: this.now(), ...usage })
+        this.pushEvent(session, {
+          type: 'usage',
+          at: this.now(),
+          costUsd: null,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+        })
       }
 
       // See ClaudeCliRuntime.executeWithRunner: parsing and the single re-prompt on a
@@ -546,5 +521,33 @@ function extractConversationId(output: string): string | null {
     }
   }
 
+  return null
+}
+
+function extractUsage(
+  output: string,
+): { readonly inputTokens: number | null; readonly outputTokens: number | null } | null {
+  const line = lastResultLine(output)
+  if (!line) return null
+  try {
+    const raw = JSON.parse(line) as unknown
+    if (!raw || typeof raw !== 'object') return null
+    const parsed = raw as Record<string, unknown>
+    const rec =
+      parsed.result && typeof parsed.result === 'object'
+        ? (parsed.result as Record<string, unknown>)
+        : parsed
+    const u = rec.usage
+    if (u && typeof u === 'object') {
+      const usageRec = u as Record<string, unknown>
+      const inTok = typeof usageRec.input_tokens === 'number' ? usageRec.input_tokens : null
+      const outTok = typeof usageRec.output_tokens === 'number' ? usageRec.output_tokens : null
+      if (inTok !== null || outTok !== null) {
+        return { inputTokens: inTok, outputTokens: outTok }
+      }
+    }
+  } catch {
+    // ignore
+  }
   return null
 }

@@ -16,7 +16,7 @@ import {
 import { accountEnv } from '../process/accountEnv'
 import { ClaudeTrustStore } from './claudeTrust'
 import { claudeSessionId } from './claudeSession'
-import { observeStreamLine, takeCompleteLines } from './claudeStream'
+import { extractRateLimitInfo, isClaudeRateLimitSpent } from './claudeRateLimit'
 
 export interface ProcessRunnerResult {
   readonly exitCode: number
@@ -234,7 +234,6 @@ export class ClaudeCliRuntime implements IAgentRuntime {
 
     const runAttempt = async (targetResumeId: string | undefined) => {
       let accumulatedOutput = ''
-      let streamBuffer = ''
       const stream = { limitReached: false }
 
       const result = await runner(this.executable, claudeArgs(session, targetResumeId), {
@@ -249,23 +248,9 @@ export class ClaudeCliRuntime implements IAgentRuntime {
           accumulatedOutput += chunk
           session.lastActivityAt = this.now()
 
-          streamBuffer += chunk
-          const { lines, rest } = takeCompleteLines(streamBuffer)
-          streamBuffer = rest
-
-          for (const line of lines) {
-            const observed = observeStreamLine(line)
-
-            for (const tool of observed.tools) {
-              this.pushEvent(session, {
-                type: 'tool',
-                at: this.now(),
-                name: tool.name,
-                detail: tool.detail,
-              })
-            }
-
-            if (observed.providerLimitReached) stream.limitReached = true
+          const limitInfo = extractRateLimitInfo(chunk)
+          if (isClaudeRateLimitSpent(limitInfo)) {
+            stream.limitReached = true
           }
         },
         onStderr: (chunk) => {

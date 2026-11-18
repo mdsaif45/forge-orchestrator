@@ -844,7 +844,9 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
  * Event types that are logged now and projected later, with the issue that will
  * do it. Listing them explicitly means a genuinely unknown type still throws.
  */
-const PROJECTED_LATER: ReadonlySet<EventType> = new Set([])
+const PROJECTED_LATER: ReadonlySet<EventType> = new Set([
+  'step.interjected', // Issue #171: user interjection recorded in log, projected into step transcript
+])
 
 /**
  * Rebuilds every read model for a project from its events.

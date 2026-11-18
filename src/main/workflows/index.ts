@@ -26,4 +26,9 @@ export {
   type ResolveRoleRuntimeOptions,
   type ResolvedRoleRuntime,
 } from './roleResolution'
+export {
+  validateTemplateGraph,
+  type TemplateValidationMetrics,
+  type TemplateValidationResult,
+} from './validation'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

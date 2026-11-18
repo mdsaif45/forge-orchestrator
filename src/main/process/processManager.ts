@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { accessSync, constants } from 'node:fs'
-import { appendFile, mkdir } from 'node:fs/promises'
+import { appendFile, mkdir, rename, stat } from 'node:fs/promises'
 import { delimiter, isAbsolute, join } from 'node:path'
 import { spawn as spawnPty, type IPty } from 'node-pty'
 import type { OrphanTracker } from './orphans'
@@ -581,29 +581,52 @@ export class ProcessManager {
     }
   }
 
-  /** Writes the run's log, so a workflow step can link to what actually happened. */
+  /** Writes the run's log with size-bounded rotation, so a workflow step can link to what actually happened. */
   private async persist(run: Run, outcome: ProcessOutcome): Promise<void> {
     if (this.logDirectory === null) return
 
-    await mkdir(this.logDirectory, { recursive: true })
+    try {
+      await mkdir(this.logDirectory, { recursive: true })
 
-    const header = [
-      `run: ${outcome.runId}`,
-      `command: ${run.request.command} ${run.request.args.join(' ')}`,
-      `cwd: ${run.request.cwd}`,
-      `reason: ${outcome.reason}`,
-      `exitCode: ${String(outcome.exitCode)}`,
-      `durationMs: ${String(outcome.durationMs)}`,
-      // Recorded so the redaction decision is auditable rather than invisible.
-      `withheldEnv: ${withheldEnvNames(process.env).join(', ')}`,
-      '',
-    ].join('\n')
+      const header = [
+        `run: ${outcome.runId}`,
+        `command: ${run.request.command} ${run.request.args.join(' ')}`,
+        `cwd: ${run.request.cwd}`,
+        `reason: ${outcome.reason}`,
+        `exitCode: ${String(outcome.exitCode)}`,
+        `durationMs: ${String(outcome.durationMs)}`,
+        // Recorded so the redaction decision is auditable rather than invisible.
+        `withheldEnv: ${withheldEnvNames(process.env).join(', ')}`,
+        '',
+      ].join('\n')
 
-    await appendFile(
-      join(this.logDirectory, `${outcome.runId}.log`),
-      header + outcome.output,
-      'utf8',
-    )
+      const logPath = join(this.logDirectory, `${outcome.runId}.log`)
+      const logArchive = `${logPath}.1`
+      const content = header + outcome.output
+
+      let existingSize = 0
+      try {
+        const fileStat = await stat(logPath)
+        existingSize = fileStat.size
+      } catch {
+        // File does not exist yet
+      }
+
+      if (
+        existingSize > 0 &&
+        existingSize + Buffer.byteLength(content, 'utf8') > this.maxLogBytes
+      ) {
+        try {
+          await rename(logPath, logArchive)
+        } catch {
+          // Non-fatal rotation failure
+        }
+      }
+
+      await appendFile(logPath, content, 'utf8')
+    } catch {
+      // Non-fatal logging failure (Axiom A2: fail-safe)
+    }
   }
 
   /**
@@ -628,4 +651,21 @@ export class ProcessManager {
       [...this.running.values()].map((run) => this.terminate(run, 'cancelled', reason)),
     )
   }
+}
+
+/**
+ * Safely rotates a log file to `<filePath>.1` if its size exceeds `maxBytes`.
+ * Bounded to at most one archive file so disk growth is strictly limited (Axiom A5).
+ */
+export async function rotateLogFile(filePath: string, maxBytes: number): Promise<boolean> {
+  try {
+    const fileStat = await stat(filePath)
+    if (fileStat.size >= maxBytes) {
+      await rename(filePath, `${filePath}.1`)
+      return true
+    }
+  } catch {
+    // File not found or inaccessible; rotation not needed
+  }
+  return false
 }

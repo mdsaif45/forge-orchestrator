@@ -119,6 +119,9 @@ export const criterionKindSchema = z.enum([
   'reviewer-verdict',
   'file-exists',
   'custom-command',
+  'file-forbidden',
+  'max-diff-lines',
+  'artifact-regex',
 ])
 export type CriterionKind = z.infer<typeof criterionKindSchema>
 

@@ -1,5 +1,6 @@
 export {
   ProcessManager,
+  rotateLogFile,
   type ProcessHandle,
   type ProcessManagerOptions,
   type ProcessOutcome,

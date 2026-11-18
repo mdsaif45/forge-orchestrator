@@ -68,4 +68,10 @@ export {
   type HostedAntigravityRuntimeOptions,
 } from './hostedAntigravityRuntime'
 
-export { probeRuntimeExecutable, type RuntimeProbeResult, type RuntimeHealthStatus } from './probe'
+export {
+  probeRuntimeExecutable,
+  testRuntimeExecution,
+  type RuntimeProbeResult,
+  type RuntimeHealthStatus,
+  type RuntimeExecutionTestResult,
+} from './probe'

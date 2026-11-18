@@ -292,19 +292,20 @@ An explicit discrepancy exists between GitHub milestone numbers, GitHub mileston
 
 ## 6. Active Work, Dependencies, and Next Action
 
-- **Current State Baseline:** `main` @ `755b740` (PR #241 merged).
+- **Current State Baseline:** `main` @ `b8aae37` (PR #247 merged).
 - **Recent Completed PRs:**
   - **PR #235:** `feat(agent,cli): concurrent tool execution, ollama auto-discovery, workflows cli, and milestone reconciliation (#149, #156, #160, #165)` (`847cce9`).
   - **PR #241:** `feat(cli,agent,ipc): model discovery, streaming artifacts, security sandboxing, and workflow run (#236, #237, #238, #239, #240)` (`755b740`).
-- **In-Progress Cluster (feat/m3-m4-cli-tools-config-and-db-maintenance):**
-  - **Issue #242 (WORK-008):** `forge workflows init` headless workflow initialization.
-  - **Issue #243 (ARTIFACT-002):** `forge artifacts grep` content search inside run artifacts.
-  - **Issue #244 (RUNTIME-001):** Runtime health & version probing in `runtime:list` IPC and `forge runtimes list`.
-  - **Issue #245 (CONFIG-002):** Configuration management via `forge config [list|get|set]`.
-  - **Issue #246 (STATE-002):** Database maintenance & storage compaction via `forge db [stats|vacuum]`.
+  - **PR #247:** `feat(cli,runtimes,config,db): workflow init, artifact grep, runtime health, config cli, and db vacuum (#242, #243, #244, #245, #246)` (`b8aae37`).
+- **In-Progress Cluster (feat/m3-m6-dag-validation-context-logs-runtimes-criteria):**
+  - **Issue #248 (WORK-009):** `forge workflows validate` static DAG topology verification and dry-run.
+  - **Issue #249 (PROMPT-002):** `forge context inspect` prompt packet extraction and inspection.
+  - **Issue #250 (LOG-002):** Size-bounded process log rotation (`.log.1`) in `ProcessManager`.
+  - **Issue #251 (RUNTIME-002):** `forge runtimes test` runtime execution diagnostics and benchmark probe.
+  - **Issue #252 (CRIT-002):** Extended declarative criteria evaluators (`file-forbidden`, `max-diff-lines`, `artifact-regex`).
 - **Milestones Status:** All GitHub Milestones M0 through M11 are completed and closed with zero remaining open issues.
-- **Dependencies & Blockers:** None. Local verification gates and GitHub Actions CI are 100% green.
+- **Dependencies & Blockers:** None. Local verification gates and test suites are 100% green.
 - **Immediate Next Action:**
-  1. Open PR for Issues #242, #243, #244, #245, #246.
+  1. Open PR for Issues #248, #249, #250, #251, #252.
   2. Verify all CI checks pass on GitHub Actions.
   3. Merge PR to `main` via squash merge.

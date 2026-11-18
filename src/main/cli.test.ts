@@ -896,4 +896,140 @@ describe('Forge CLI (runCli)', () => {
 
     consoleLog.mockRestore()
   })
+
+  it('validates workflow DAG topologies via forge workflows validate (WORK-009)', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg?: unknown) => {
+      consoleLogs.push(String(msg))
+    })
+
+    // 1. Validate all default templates in JSON mode
+    const validateAllCode = await runCli(['workflows', 'validate', '--data-dir', dataDir, '--json'])
+    expect(validateAllCode).toBe(0)
+
+    const res = JSON.parse(consoleLogs[0] ?? '{}') as {
+      validations: {
+        templateId: string
+        name: string
+        result: { valid: boolean; metrics: { nodeCount: number; edgeCount: number } }
+      }[]
+    }
+    expect(Array.isArray(res.validations)).toBe(true)
+    expect(res.validations.length).toBeGreaterThan(0)
+    expect(res.validations.every((v) => v.result.valid)).toBe(true)
+
+    consoleLogs.length = 0
+
+    // 2. Validate a specific known template
+    const validateFeatureCode = await runCli([
+      'workflows',
+      'validate',
+      'feature',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(validateFeatureCode).toBe(0)
+    const featureRes = JSON.parse(consoleLogs[0] ?? '{}') as {
+      validations: { templateId: string; result: { valid: boolean } }[]
+    }
+    expect(featureRes.validations[0]?.templateId).toBe('compiled-feature')
+    expect(featureRes.validations[0]?.result.valid).toBe(true)
+
+    consoleLog.mockRestore()
+  })
+
+  it('inspects compiled prompt context packets via forge context inspect (PROMPT-002)', async () => {
+    const core = createForgeCore({ dataDir })
+    const project = await core.projects.create({
+      name: 'Context Test Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'master',
+      buildCommand: null,
+      testCommand: null,
+      tech: ['ts'],
+      rules: [],
+    })
+    const runId = runIdSchema.parse(randomUUID())
+    const stepId = stepIdSchema.parse(randomUUID())
+    const projectId = projectIdSchema.parse(project.id)
+    const taskId = taskIdSchema.parse(randomUUID())
+
+    core.runs.createRun({
+      id: runId,
+      projectId,
+      taskId,
+      type: 'direct-task',
+      status: 'completed',
+      startedAt: new Date(Date.now() - 2000).toISOString(),
+      finishedAt: new Date().toISOString(),
+      exitCode: 0,
+      summary: 'Context packet inspection test',
+      error: null,
+      metadata: { task: 'Context packet inspection test' },
+    })
+
+    await core.artifacts.writeArtifact({
+      runId,
+      stepId,
+      kind: 'prompt-packet',
+      name: 'prompt-packet.json',
+      content: JSON.stringify({
+        objective: 'Test prompt packet inspection',
+        systemPrompt: 'You are Forge test assistant.',
+        contextFiles: ['src/main.ts', 'src/cli.ts'],
+      }),
+      mimeType: 'application/json',
+    })
+    await core.close()
+
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg?: unknown) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const inspectCode = await runCli(['context', 'inspect', runId, '--data-dir', dataDir, '--json'])
+    expect(inspectCode).toBe(0)
+
+    const parsed = JSON.parse(consoleLogs[0] ?? '{}') as {
+      runId: string
+      stepId: string
+      packet: { objective: string; contextFiles: string[] }
+    }
+    expect(parsed.runId).toBe(runId)
+    expect(parsed.stepId).toBe(stepId)
+    expect(parsed.packet.objective).toBe('Test prompt packet inspection')
+    expect(parsed.packet.contextFiles).toEqual(['src/main.ts', 'src/cli.ts'])
+
+    consoleLog.mockRestore()
+  })
+
+  it('tests runtime execution and latency via forge runtimes test (RUNTIME-002)', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg?: unknown) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const testCode = await runCli([
+      'runtimes',
+      'test',
+      'forge-native-agent',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(testCode).toBe(0)
+
+    const res = JSON.parse(consoleLogs[0] ?? '{}') as {
+      success: boolean
+      runtimeId: string
+      executable: string | null
+      durationMs: number
+    }
+    expect(res.success).toBe(true)
+    expect(res.runtimeId).toBe('forge-native-agent')
+    expect(res.executable).toBeNull()
+
+    consoleLog.mockRestore()
+  })
 })

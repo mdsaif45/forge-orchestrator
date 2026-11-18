@@ -159,6 +159,15 @@ const api: ForgeApi = {
       ipcRenderer.removeListener('workflow:log', handler)
     }
   },
+  onWorkflowRuntimeEvent: (listener) => {
+    const handler = (_event: unknown, payload: unknown) => {
+      listener(payload as Parameters<typeof listener>[0])
+    }
+    ipcRenderer.on('workflow:runtimeEvent', handler)
+    return () => {
+      ipcRenderer.removeListener('workflow:runtimeEvent', handler)
+    }
+  },
   onTerminalData: (listener) => {
     const handler = (_event: unknown, payload: unknown) => {
       listener(payload as Parameters<typeof listener>[0])

@@ -11,12 +11,15 @@ import {
   STANDARD_AGENT_CATALOG,
 } from './cliDetector'
 import type { ActiveModel, ActiveModelStore } from '../providers/activeModel'
+import { CustomCliRuntime } from './customCliRuntime'
+import type { CustomRuntimeConfig } from '../config/forgeConfig'
 
 export interface DefaultRuntimesOptions {
   readonly processes: ProcessManager
   readonly dataDir: string
   readonly activeModel: ActiveModelStore
   readonly resolveActiveModel?: (() => ActiveModel | null) | undefined
+  readonly customRuntimes?: readonly CustomRuntimeConfig[] | undefined
 }
 
 /**
@@ -62,18 +65,36 @@ export function registerDefaultRuntimes(
     }
   }
 
-  // Register user-configured custom CLIs
+  // Register user-configured custom CLIs from storage
   for (const customCli of loadCustomClis()) {
     if (!registry.has(customCli.id)) {
       registry.register(
-        new GenericCliAgentRuntime({
+        new CustomCliRuntime({
           id: customCli.id,
           name: customCli.name,
-          executable: customCli.executable,
-          defaultArgs: customCli.defaultArgs,
-          processes: options.processes,
+          command: customCli.executable,
+          argsTemplate: customCli.defaultArgs,
         }),
       )
+    }
+  }
+
+  // Register custom CLIs from .forgerc configuration
+  if (options.customRuntimes) {
+    for (const customCfg of options.customRuntimes) {
+      if (!registry.has(customCfg.id)) {
+        registry.register(
+          new CustomCliRuntime({
+            id: customCfg.id,
+            name: customCfg.name,
+            command: customCfg.command,
+            argsTemplate: customCfg.argsTemplate,
+            env: customCfg.env,
+            capabilities: customCfg.capabilities,
+            instructionFilenames: customCfg.instructionFilenames,
+          }),
+        )
+      }
     }
   }
 }

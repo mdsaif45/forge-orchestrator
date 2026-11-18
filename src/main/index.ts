@@ -114,6 +114,13 @@ if (!claimSingleInstance()) {
             }
           }
         },
+        emitWorkflowRuntimeEvent: (payload) => {
+          for (const win of BrowserWindow.getAllWindows()) {
+            if (!win.isDestroyed()) {
+              win.webContents.send('workflow:runtimeEvent', payload)
+            }
+          }
+        },
         emitTerminalData: (payload) => {
           for (const win of BrowserWindow.getAllWindows()) {
             if (!win.isDestroyed()) {

@@ -11,7 +11,12 @@ import {
   projectIdSchema,
   workflowIdSchema,
 } from '@shared/domain'
-import type { ProjectView, WorkflowDetailView, WorkflowEventPayload } from '@shared/views'
+import type {
+  ProjectView,
+  WorkflowDetailView,
+  WorkflowEventPayload,
+  WorkflowRuntimeEventPayload,
+} from '@shared/views'
 import { initialiseDatabase, type ForgeDatabase } from '../db'
 import { ProjectService } from '../projects/projectService'
 import { MockAgentRuntime } from '../runtimes/mockRuntime'
@@ -36,6 +41,7 @@ describe('WorkflowService', () => {
   let workflows: WorkflowService
   let registry: RuntimeRegistry
   let capturedEvents: WorkflowEventPayload[]
+  let capturedRuntimeEvents: WorkflowRuntimeEventPayload[]
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'forge-workflow-service-test-'))
@@ -45,6 +51,7 @@ describe('WorkflowService', () => {
     registry = new RuntimeRegistry()
     registry.register(new MockAgentRuntime({ scenario: SCENARIOS.question, id: 'mock:default' }))
     capturedEvents = []
+    capturedRuntimeEvents = []
 
     workflows = new WorkflowService({
       db: dbHandle.db,
@@ -52,6 +59,7 @@ describe('WorkflowService', () => {
       packetDir: join(tempDir, 'packets'),
       registry,
       emitEvent: (event) => capturedEvents.push(event),
+      emitRuntimeEvent: (payload) => capturedRuntimeEvents.push(payload),
     })
   })
 
@@ -345,6 +353,46 @@ describe('WorkflowService', () => {
       )
       expect(substitutionEvent).toBeDefined()
       expect(substitutionEvent?.detail).toContain('antigravity-cli')
+
+      workflows.cancel(started.id)
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    },
+  )
+
+  it(
+    'emits typed runtime events via emitRuntimeEvent during agent execution',
+    { timeout: 30_000 },
+    async () => {
+      const repoPath = join(tempDir, 'repo-runtime-events')
+      mkdirSync(repoPath, { recursive: true })
+      initRepository(repoPath)
+
+      const project: ProjectView = await projects.create({
+        name: 'Runtime Event Test Project',
+        repositoryPath: repoPath,
+        defaultBranch: 'main',
+        buildCommand: null,
+        testCommand: null,
+        tech: [],
+        rules: [],
+      })
+
+      const started = await workflows.start({
+        projectId: project.id,
+        autoRun: true,
+      })
+
+      for (let i = 0; i < 60; i += 1) {
+        if (capturedRuntimeEvents.length > 0) break
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+
+      expect(capturedRuntimeEvents.length).toBeGreaterThan(0)
+      const matchingEvents = capturedRuntimeEvents.filter((e) => e.workflowId === started.id)
+      expect(matchingEvents.length).toBeGreaterThan(0)
+      expect(matchingEvents[0]?.workflowId).toBe(started.id)
+      expect(typeof matchingEvents[0]?.stepIndex).toBe('number')
+      expect(matchingEvents[0]?.event.type).toBeDefined()
 
       workflows.cancel(started.id)
       await new Promise((resolve) => setTimeout(resolve, 100))

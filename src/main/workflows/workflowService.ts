@@ -37,6 +37,7 @@ import type {
   WorkflowDetailView,
   WorkflowEventPayload,
   WorkflowLogPayload,
+  WorkflowRuntimeEventPayload,
   WorkflowSummaryView,
 } from '@shared/views'
 import type { ForgeDatabase } from '../db/connection'
@@ -81,6 +82,7 @@ export interface WorkflowServiceOptions {
   readonly sessions?: AgentSessionRegistry
   readonly emitEvent?: (event: WorkflowEventPayload) => void
   readonly emitLog?: (log: WorkflowLogPayload) => void
+  readonly emitRuntimeEvent?: ((payload: WorkflowRuntimeEventPayload) => void) | undefined
 }
 
 export class WorkflowService {
@@ -600,6 +602,11 @@ export class WorkflowService {
     // Retired in the `finally` below, so a crashed or cancelled run does not leave
     // the pane attached to processes that are gone.
     const liveSessions: { key: string; handle: { write?: (i: string) => void } }[] = []
+    const activeStepInfo = {
+      graphRunId: null as string | null,
+      nodeId: null as string | null,
+      stepIndex: 0,
+    }
 
     try {
       const baseSha = await new GitService({ repositoryPath }).headSha()
@@ -695,9 +702,20 @@ export class WorkflowService {
           liveSessions.push({ key, handle: agentProcess })
         },
         onEvent: (event: RuntimeEvent) => {
+          this.options.emitRuntimeEvent?.({
+            workflowId,
+            graphRunId: activeStepInfo.graphRunId,
+            nodeId: activeStepInfo.nodeId,
+            stepIndex: activeStepInfo.stepIndex,
+            event,
+          })
+
           if (event.type === 'tool') {
             const detail = event.detail === '' ? '' : ` ${event.detail}`
-            this.logStep(workflowId, { stepIndex: 0, text: `[TOOL] ${event.name}${detail}` })
+            this.logStep(workflowId, {
+              stepIndex: activeStepInfo.stepIndex,
+              text: `[TOOL] ${event.name}${detail}`,
+            })
             return
           }
 
@@ -709,7 +727,10 @@ export class WorkflowService {
             ].filter((part): part is string => part !== null)
 
             if (parts.length > 0) {
-              this.logStep(workflowId, { stepIndex: 0, text: `[USAGE] ${parts.join(' · ')}` })
+              this.logStep(workflowId, {
+                stepIndex: activeStepInfo.stepIndex,
+                text: `[USAGE] ${parts.join(' · ')}`,
+              })
             }
           }
         },
@@ -719,6 +740,10 @@ export class WorkflowService {
             const match = /^step-(\d+)-(.*)$/.exec(ctx.node.id)
             const stepIndex = match?.[1] !== undefined ? parseInt(match[1], 10) - 1 : 0
             const stepRole = (ctx.node.config.role ?? match?.[2] ?? 'implementer') as Role
+
+            activeStepInfo.graphRunId = ctx.graphRunId
+            activeStepInfo.nodeId = ctx.node.id
+            activeStepInfo.stepIndex = stepIndex
 
             const currentWf = this.workflows.find(workflowId)
             if (currentWf?.state === 'DISCOVERY') {

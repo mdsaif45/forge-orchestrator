@@ -1,7 +1,12 @@
 import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
-import type { ProviderChunkPayload, WorkflowEventPayload, WorkflowLogPayload } from '@shared/views'
+import type {
+  ProviderChunkPayload,
+  WorkflowEventPayload,
+  WorkflowLogPayload,
+  WorkflowRuntimeEventPayload,
+} from '@shared/views'
 import { initialiseDatabase, RunStore, ArtifactStore } from '../db'
 import type { ForgeDatabase, OpenDatabaseResult } from '../db'
 import type { ChangeSetStore } from '../db/changeSetStore'
@@ -29,6 +34,7 @@ import { AccountHomes } from '../accounts/accountHomes'
 import { EnrollmentService } from '../accounts/enrollmentService'
 import { BindingStore } from '../db/bindingStore'
 import { createDefaultTemplateResolver } from '../templates/templateV2Store'
+import { loadForgeConfig, type ForgeConfig } from '../config/forgeConfig'
 
 /**
  * Resolves the configuration and storage directory for Forge.
@@ -36,9 +42,10 @@ import { createDefaultTemplateResolver } from '../templates/templateV2Store'
  * Precedence:
  * 1. Explicit directory argument passed to Forge
  * 2. `FORGE_DATA_DIR` environment variable
- * 3. System-standard application directory (%APPDATA%\forge on Windows, ~/.forge on POSIX)
+ * 3. `dataDir` from `.forgerc` configuration
+ * 4. System-standard application directory (%APPDATA%\forge on Windows, ~/.forge on POSIX)
  */
-export function resolveDataDir(explicit?: string): string {
+export function resolveDataDir(explicit?: string, configDataDir?: string): string {
   if (explicit !== undefined && explicit.trim() !== '') {
     return resolve(explicit)
   }
@@ -46,6 +53,10 @@ export function resolveDataDir(explicit?: string): string {
   const envDir = process.env.FORGE_DATA_DIR
   if (envDir !== undefined && envDir.trim() !== '') {
     return resolve(envDir)
+  }
+
+  if (configDataDir !== undefined && configDataDir.trim() !== '') {
+    return resolve(configDataDir)
   }
 
   if (process.platform === 'win32' && process.env.APPDATA !== undefined) {
@@ -59,11 +70,17 @@ export interface ForgeCoreOptions {
   /** Root directory for databases, logs, worktrees, packets, and account storage. */
   readonly dataDir?: string | undefined
 
+  /** Optional loaded Forge configuration (.forgerc). If omitted, loaded from disk. */
+  readonly config?: ForgeConfig | undefined
+
   /** Optional callback when workflow lifecycle events are emitted. */
   readonly emitWorkflowEvent?: ((payload: WorkflowEventPayload) => void) | undefined
 
   /** Optional callback when workflow step logs are emitted. */
   readonly emitWorkflowLog?: ((payload: WorkflowLogPayload) => void) | undefined
+
+  /** Optional callback when workflow runtime events are emitted. */
+  readonly emitWorkflowRuntimeEvent?: ((payload: WorkflowRuntimeEventPayload) => void) | undefined
 
   /** Optional callback for terminal output streaming. */
   readonly emitTerminalData?: ((payload: TerminalEventDataPayload) => void) | undefined
@@ -103,6 +120,7 @@ export interface ForgeCore {
   readonly artifacts: ArtifactService
   readonly artifactStore: ArtifactStore
   readonly appliedMigrations: number
+  readonly config: ForgeConfig
 
   /** Closes database connection, terminates child processes, and flushes storage. */
   readonly close: () => Promise<void>
@@ -120,7 +138,8 @@ const NOOP = (): void => {
 }
 
 export function createForgeCore(options: ForgeCoreOptions = {}): ForgeCore {
-  const dataDir = resolveDataDir(options.dataDir)
+  const config = options.config ?? loadForgeConfig()
+  const dataDir = resolveDataDir(options.dataDir, config.dataDir)
 
   // Ensure standard directory tree exists
   mkdirSync(dataDir, { recursive: true })
@@ -160,6 +179,7 @@ export function createForgeCore(options: ForgeCoreOptions = {}): ForgeCore {
     dataDir,
     activeModel,
     ...(options.resolveActiveModel ? { resolveActiveModel: options.resolveActiveModel } : {}),
+    ...(config.customRuntimes ? { customRuntimes: config.customRuntimes } : {}),
   })
 
   // Late-bound circular dependency between workflows and projects
@@ -179,6 +199,9 @@ export function createForgeCore(options: ForgeCoreOptions = {}): ForgeCore {
     registry,
     ...(options.emitWorkflowEvent ? { emitEvent: options.emitWorkflowEvent } : {}),
     ...(options.emitWorkflowLog ? { emitLog: options.emitWorkflowLog } : {}),
+    ...(options.emitWorkflowRuntimeEvent
+      ? { emitRuntimeEvent: options.emitWorkflowRuntimeEvent }
+      : {}),
   })
 
   workflowsRef = workflowService
@@ -256,6 +279,7 @@ export function createForgeCore(options: ForgeCoreOptions = {}): ForgeCore {
     artifacts: artifactService,
     artifactStore,
     appliedMigrations,
+    config,
     close,
   }
 }

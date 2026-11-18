@@ -647,3 +647,22 @@ export const providerChunkPayloadSchema = z.strictObject({
 })
 
 export type ProviderChunkPayload = z.infer<typeof providerChunkPayloadSchema>
+
+import { runtimeEventSchema } from '../domain/runtime'
+
+export const workflowRuntimeEventPayloadSchema = z.strictObject({
+  workflowId: z.string(),
+  graphRunId: z.string().nullable().default(null),
+  nodeId: z.string().nullable().default(null),
+  stepIndex: z.number().int().nonnegative(),
+  event: runtimeEventSchema,
+})
+
+export type WorkflowRuntimeEventPayload = z.infer<typeof workflowRuntimeEventPayloadSchema>
+
+export {
+  toolCallEntrySchema,
+  toolCallStatusSchema,
+  type ToolCallEntry,
+  type ToolCallStatus,
+} from '../domain/toolTimeline'

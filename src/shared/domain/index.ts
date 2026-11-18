@@ -450,3 +450,14 @@ export {
 } from './artifact'
 
 export { runEventSchema, type RunEvent, type RunEventInput } from './runEvents'
+
+export {
+  extractToolTarget,
+  filterToolTimelineByNode,
+  filterToolTimelineByStep,
+  reduceToolTimeline,
+  toolCallEntrySchema,
+  toolCallStatusSchema,
+  type ToolCallEntry,
+  type ToolCallStatus,
+} from './toolTimeline'

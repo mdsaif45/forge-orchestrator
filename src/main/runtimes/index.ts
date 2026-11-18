@@ -50,4 +50,6 @@ export {
   type ProcessRunnerResult,
 } from './claudeCliRuntime'
 
+export { CustomCliRuntime, type CustomCliRuntimeOptions } from './customCliRuntime'
+
 export { AntigravityCliRuntime, type AntigravityCliRuntimeOptions } from './antigravityCliRuntime'

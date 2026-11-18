@@ -19,6 +19,7 @@ import type {
   WorkflowDetailView,
   WorkflowEventPayload,
   WorkflowLogPayload,
+  WorkflowRuntimeEventPayload,
   WorkflowSummaryView,
   WorkflowTemplateV2View,
   WorkflowTemplateView,
@@ -461,6 +462,9 @@ export interface ForgeApi {
   readonly onProviderChunk: (listener: (payload: ProviderChunkPayload) => void) => () => void
   readonly onWorkflowEvent: (listener: (event: WorkflowEventPayload) => void) => () => void
   readonly onWorkflowLog: (listener: (log: WorkflowLogPayload) => void) => () => void
+  readonly onWorkflowRuntimeEvent: (
+    listener: (payload: WorkflowRuntimeEventPayload) => void,
+  ) => () => void
   readonly onTerminalData: (
     listener: (payload: { readonly terminalId: string; readonly chunk: string }) => void,
   ) => () => void

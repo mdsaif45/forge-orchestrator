@@ -27,3 +27,17 @@ export {
   type MergeConflictDetail,
   type MergeConflictType,
 } from './changeSetMerger'
+
+export {
+  inspectRunDiff,
+  parseUnifiedDiff,
+  type FileDiffStat,
+  type InspectRunDiffOptions,
+  type RunDiffReport,
+} from './diffInspector'
+
+export {
+  auditArtifactChecksums,
+  type ArtifactAuditResult,
+  type ChecksumAuditReport,
+} from './checksumAudit'

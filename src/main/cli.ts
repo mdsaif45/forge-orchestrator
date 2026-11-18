@@ -28,11 +28,15 @@ import {
 import {
   findForgeConfigFile,
   getForgeConfigValue,
+  listForgeProfiles,
   loadForgeConfig,
   setForgeConfigValue,
+  switchForgeProfile,
 } from './config/forgeConfig'
 import { getDatabaseStats, vacuumDatabase } from './db'
+import { auditArtifactChecksums, inspectRunDiff } from './evidence'
 import { DEFAULT_TEMPLATES_V2 } from './templates/defaultTemplatesV2'
+import { planWorkflowExecution } from './workflows'
 import { validateTemplateGraph } from './workflows/validation'
 
 const VERSION = '0.3.0-alpha.1'
@@ -64,12 +68,15 @@ ${ANSI.bold}USAGE${ANSI.reset}
 ${ANSI.bold}COMMANDS${ANSI.reset}
   run <task>                 Execute an autonomous coding task against the current repository
   runs [list|inspect|events] Inspect past runs, steps, and event streams
-  workflows [list|inspect|run|resume|cancel|approve|init] Inspect and manage workflows
-  artifacts [list|cat|grep]  Inspect, view, and search run artifacts (patches, stdout, tool logs)
+  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan] Inspect, plan, and manage workflows
+  artifacts [list|cat|grep|verify] Inspect, view, search, and verify run artifacts
+  diff <runId> [stepId]      Inspect physical changeset diff and line statistics
+  processes [list]           Inspect active and completed background process metrics
   status                     Display current repository status and Forge control plane state
   models [list|scan|auto|set] Inspect, auto-select, or configure the active AI model
-  runtimes [list]            Inspect registered agent runtimes, capabilities, and health
-  config [list|get|set]      Inspect and update .forgerc configuration settings
+  runtimes [list|test]       Inspect and test registered agent runtimes and capabilities
+  context [inspect]          Inspect prompt packet and context files for a run
+  config [list|get|set|profile] Inspect and update .forgerc configuration and profiles
   db [stats|vacuum]          Inspect SQLite database storage and run maintenance
 
 ${ANSI.bold}OPTIONS${ANSI.reset}
@@ -94,6 +101,11 @@ ${ANSI.bold}OPTIONS${ANSI.reset}
   --run                Immediately execute initialized workflow
   -i, --ignore-case    Case-insensitive search for artifact grep
   --max-matches <n>    Maximum matches to output for artifact grep (default: 50)
+  --pattern <pattern>  Regex or substring search pattern
+  --stat               Display file statistics only for diff command
+  --profile <name>     Activate specific environment configuration profile
+  --json               Output machine-readable JSON (NDJSON stream for 'run', JSON document for inspection commands)
+  -y, --yes            Unattended mode (auto-confirm operations)
   --json               Output machine-readable JSON (NDJSON stream for 'run', JSON document for inspection commands)
   -y, --yes            Unattended mode (auto-confirm operations)
 
@@ -144,6 +156,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       'ignore-case': { type: 'boolean', short: 'i', default: false },
       'max-matches': { type: 'string' },
       pattern: { type: 'string' },
+      profile: { type: 'string' },
+      stat: { type: 'boolean', default: false },
     },
     allowPositionals: true,
   })
@@ -277,6 +291,26 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       key: positionals[2],
       val: positionals[3],
       cwd,
+      json: values.json,
+    })
+  }
+
+  if (command === 'diff') {
+    return handleDiff({
+      runId: positionals[1],
+      stepId: positionals[2],
+      stat: values.stat,
+      cwd,
+      dataDir,
+      json: values.json,
+    })
+  }
+
+  if (command === 'processes' || command === 'process') {
+    return handleProcesses({
+      action: positionals[1],
+      cwd,
+      dataDir,
       json: values.json,
     })
   }
@@ -1046,6 +1080,8 @@ async function handleArtifacts(opts: {
       // id is targetId
     } else if (action === 'grep') {
       // id is targetId (runId)
+    } else if (action === 'verify') {
+      // id is targetId (runId)
     } else if (action !== undefined && id === undefined) {
       // User invoked `forge artifacts <runId>`
       id = action
@@ -1315,11 +1351,60 @@ async function handleArtifacts(opts: {
       return 0
     }
 
+    if (action === 'verify') {
+      const rawRunId = id
+      if (!rawRunId) {
+        const err = 'No run ID provided.'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else {
+          console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          console.error('Usage: forge artifacts verify <runId> [--json]')
+        }
+        return 1
+      }
+
+      const report = await auditArtifactChecksums(core.artifacts, core.artifactStore, rawRunId)
+
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return report.valid ? 0 : 1
+      }
+
+      console.log(
+        `\n${ANSI.bold}Artifact Cryptographic Checksum Audit for Run ${rawRunId}${ANSI.reset}:`,
+      )
+      console.log(
+        `  Total: ${String(report.totalArtifacts)} | Verified: ${ANSI.green}${String(report.verifiedCount)}${ANSI.reset} | Tampered: ${report.tamperedCount > 0 ? ANSI.red : ANSI.dim}${String(report.tamperedCount)}${ANSI.reset} | Missing: ${report.missingCount > 0 ? ANSI.red : ANSI.dim}${String(report.missingCount)}${ANSI.reset}\n`,
+      )
+
+      for (const item of report.results) {
+        const statusBadge = item.valid
+          ? `${ANSI.green}✓ VALID${ANSI.reset}`
+          : `${ANSI.red}✗ ${item.error?.toUpperCase() ?? 'INVALID'}${ANSI.reset}`
+        console.log(`  ${statusBadge} ${ANSI.bold}${item.name}${ANSI.reset} (${item.kind})`)
+        console.log(
+          `    ID: ${item.artifactId} | Size: ${String(item.actualSize ?? item.recordedSize)} bytes`,
+        )
+        console.log(`    Hash: ${item.recordedHash}`)
+        if (item.computedHash && item.computedHash !== item.recordedHash) {
+          console.log(`    ${ANSI.red}Computed Hash: ${item.computedHash}${ANSI.reset}`)
+        }
+      }
+
+      const overall = report.valid
+        ? `\n${ANSI.green}✓ All artifacts verified authentic and intact.${ANSI.reset}\n`
+        : `\n${ANSI.red}✗ Verification failed: discrepancies detected.${ANSI.reset}\n`
+      console.log(overall)
+      return report.valid ? 0 : 1
+    }
+
     const err = `Unknown artifacts action: ${action}`
     if (opts.json) console.log(JSON.stringify({ error: err }))
     else {
       console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
-      console.error('Usage: forge artifacts [list] <runId> | forge artifacts cat <artifactId>')
+      console.error(
+        'Usage: forge artifacts [list] <runId> | forge artifacts cat <artifactId> | forge artifacts grep <runId> <pattern> | forge artifacts verify <runId>',
+      )
     }
     return 1
   } catch (error) {
@@ -1362,6 +1447,7 @@ async function handleWorkflows(opts: {
       'approve',
       'init',
       'validate',
+      'plan',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -1802,9 +1888,70 @@ async function handleWorkflows(opts: {
       return hasError ? 1 : 0
     }
 
+    if (action === 'plan') {
+      const allKnownTemplates: WorkflowTemplateV2[] = [
+        ...DEFAULT_TEMPLATES_V2,
+        compileLinearTemplateToGraph(FEATURE_IMPLEMENTATION),
+        compileLinearTemplateToGraph(BUG_FIX),
+      ]
+
+      let targetTemplate: WorkflowTemplateV2 | undefined
+
+      if (targetId && (targetId.endsWith('.json') || existsSync(resolve(opts.cwd, targetId)))) {
+        const filePath = resolve(opts.cwd, targetId)
+        try {
+          const raw = readFileSync(filePath, 'utf-8')
+          targetTemplate = JSON.parse(raw) as WorkflowTemplateV2
+        } catch (err) {
+          const msg = `Failed to parse template JSON at "${targetId}": ${err instanceof Error ? err.message : String(err)}`
+          if (opts.json) console.log(JSON.stringify({ error: msg }))
+          else console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+          return 1
+        }
+      } else {
+        const query = targetId ?? opts.template ?? 'feature'
+        const normTarget = query.toLowerCase().replace(/[-_]/g, '')
+        targetTemplate = allKnownTemplates.find((t) => {
+          const normId = t.id.toLowerCase().replace(/[-_]/g, '')
+          const normName = t.name.toLowerCase().replace(/[-_]/g, '')
+          return (
+            t.id.toLowerCase() === query.toLowerCase() ||
+            t.name.toLowerCase() === query.toLowerCase() ||
+            normId === normTarget ||
+            normName === normTarget ||
+            (normTarget.includes('feature') && normId.includes('feature')) ||
+            (normTarget.includes('bug') && normId.includes('bug'))
+          )
+        })
+      }
+
+      if (!targetTemplate) {
+        const msg = `Template "${targetId ?? opts.template ?? 'feature'}" not found in catalog or path`
+        if (opts.json) console.log(JSON.stringify({ error: msg }))
+        else console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+        return 1
+      }
+
+      const plan = planWorkflowExecution(targetTemplate)
+
+      if (opts.json) {
+        console.log(JSON.stringify(plan))
+        return plan.valid ? 0 : 1
+      }
+
+      console.log(`\n${plan.asciiDiagram}\n`)
+      if (!plan.valid && plan.errors) {
+        for (const err of plan.errors) {
+          console.error(`  ${ANSI.red}✖ ${err}${ANSI.reset}`)
+        }
+        return 1
+      }
+      return 0
+    }
+
     console.error(`${ANSI.red}Unknown workflows action: "${action}"${ANSI.reset}`)
     console.error(
-      'Usage: forge workflows [list|inspect|run|resume|cancel|approve|init|validate] [<id>] [--json]',
+      'Usage: forge workflows [list|inspect|run|resume|cancel|approve|init|validate|plan] [<id>] [--json]',
     )
     return 1
   } catch (error) {
@@ -2111,11 +2258,92 @@ function handleConfig(opts: {
     }
   }
 
+  if (action === 'profile') {
+    const subaction = opts.key ?? 'list'
+    if (subaction === 'list') {
+      const result = listForgeProfiles(opts.cwd, configPath ?? undefined, {})
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+        return 0
+      }
+      console.log(`\n${ANSI.bold}FORGE CONFIGURATION PROFILES${ANSI.reset}:`)
+      console.log(`  Source: ${configPath ?? '(none)'}`)
+      console.log(
+        `  Active: ${result.activeProfile ? `${ANSI.green}${result.activeProfile}${ANSI.reset}` : `${ANSI.dim}default (none)${ANSI.reset}`}`,
+      )
+      console.log(`\n  Profiles (${String(result.profiles.length)}):`)
+      for (const p of result.profiles) {
+        const marker = p === result.activeProfile ? `${ANSI.green}* ${p}${ANSI.reset}` : `  ${p}`
+        console.log(`    ${marker}`)
+      }
+      console.log('')
+      return 0
+    }
+
+    if (subaction === 'use') {
+      const profileName = opts.val
+      if (!profileName) {
+        const err = 'Usage: forge config profile use <profileName> [--json]'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: Missing profile name.${ANSI.reset}\n${err}`)
+        return 1
+      }
+      try {
+        const res = switchForgeProfile(profileName, configPath ?? join(opts.cwd, '.forgerc'))
+        if (opts.json) {
+          console.log(JSON.stringify(res))
+          return 0
+        }
+        console.log(
+          `\n${ANSI.green}✓${ANSI.reset} Switched active profile to ${ANSI.bold}${res.newProfile}${ANSI.reset} in ${res.configPath}`,
+        )
+        if (res.previousProfile) {
+          console.log(`  Previous profile: ${res.previousProfile}`)
+        }
+        console.log('')
+        return 0
+      } catch (e) {
+        const err = `Failed to switch profile: ${e instanceof Error ? e.message : String(e)}`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+    }
+
+    if (subaction === 'show') {
+      const profileName = opts.val
+      const config = loadForgeConfig({
+        searchFrom: opts.cwd,
+        profile: profileName,
+        env: {},
+      })
+      if (opts.json) {
+        console.log(
+          JSON.stringify({
+            profile: profileName ?? config.activeProfile ?? 'default',
+            config,
+          }),
+        )
+        return 0
+      }
+      console.log(
+        `\n${ANSI.bold}Configuration for profile: ${profileName ?? config.activeProfile ?? 'default'}${ANSI.reset}:`,
+      )
+      console.log(`\n${JSON.stringify(config, null, 2)}\n`)
+      return 0
+    }
+
+    const err = `Unknown profile action: "${subaction}". Available: list, use, show`
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+    return 1
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
     console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
-    console.error('Usage: forge config [list|get|set] [<key>] [<value>] [--json]')
+    console.error('Usage: forge config [list|get|set|profile] [<key>] [<value>] [--json]')
   }
   return 1
 }
@@ -2180,6 +2408,146 @@ async function handleDb(opts: {
     else {
       console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
       console.error('Usage: forge db [stats|vacuum] [--json]')
+    }
+    return 1
+  } finally {
+    await core.close()
+  }
+}
+
+async function handleDiff(opts: {
+  readonly runId?: string | undefined
+  readonly stepId?: string | undefined
+  readonly stat?: boolean | undefined
+  readonly cwd: string
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  if (!opts.runId) {
+    if (opts.json) {
+      console.log(JSON.stringify({ error: 'Usage: forge diff <runId> [stepId] [--stat] [--json]' }))
+    } else {
+      console.error(`${ANSI.red}Error: No run ID provided.${ANSI.reset}`)
+      console.error('Usage: forge diff <runId> [stepId] [--stat] [--json]')
+    }
+    return 1
+  }
+
+  const parsedRunId = runIdSchema.safeParse(opts.runId)
+  if (!parsedRunId.success) {
+    const err = `Invalid run ID "${opts.runId}". Expected a valid UUID.`
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+    return 1
+  }
+
+  const core = createForgeCore({ dataDir: opts.dataDir })
+  try {
+    const report = await inspectRunDiff(core.artifacts, core.artifactStore, parsedRunId.data, {
+      stepId: opts.stepId,
+    })
+
+    if (!report.valid) {
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+      } else {
+        console.error(`${ANSI.red}Error: ${report.error ?? 'Diff inspection failed'}${ANSI.reset}`)
+      }
+      return 1
+    }
+
+    if (opts.json) {
+      console.log(JSON.stringify(report))
+      return 0
+    }
+
+    console.log(
+      `\n${ANSI.bold}Changeset Diff for Run ${report.runId}${report.stepId ? ` (Step ${report.stepId})` : ''}${ANSI.reset}:`,
+    )
+    console.log(
+      `  Files changed: ${String(report.totalFiles)} | Additions: ${ANSI.green}+${String(report.totalAdditions)}${ANSI.reset} | Deletions: ${ANSI.red}-${String(report.totalDeletions)}${ANSI.reset}\n`,
+    )
+
+    for (const file of report.files) {
+      const statusColor =
+        file.status === 'added' ? ANSI.green : file.status === 'deleted' ? ANSI.red : ANSI.yellow
+      const stats = file.isBinary
+        ? '[binary]'
+        : `+${String(file.additions)} / -${String(file.deletions)}`
+      console.log(`  ${statusColor}${file.status.padEnd(8)}${ANSI.reset} ${file.path} (${stats})`)
+    }
+
+    if (report.scopeBreaches && report.scopeBreaches.length > 0) {
+      console.log(`\n  ${ANSI.red}⚠ Change Scope Breaches:${ANSI.reset}`)
+      for (const breach of report.scopeBreaches) {
+        console.log(`    ${ANSI.red}✖ ${breach}${ANSI.reset}`)
+      }
+    }
+
+    if (!opts.stat && report.rawPatch.trim() !== '') {
+      console.log(`\n${ANSI.bold}--- Patch ---${ANSI.reset}`)
+      console.log(report.rawPatch)
+    }
+
+    return 0
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (opts.json) {
+      console.log(JSON.stringify({ error: msg }))
+    } else {
+      console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+    }
+    return 1
+  } finally {
+    await core.close()
+  }
+}
+
+async function handleProcesses(opts: {
+  readonly action?: string | undefined
+  readonly cwd: string
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  const core = createForgeCore({ dataDir: opts.dataDir })
+  try {
+    const metrics = core.processes.listMetrics()
+
+    if (opts.json) {
+      console.log(JSON.stringify({ processes: metrics }))
+      return 0
+    }
+
+    console.log(`\n${ANSI.bold}Process Execution Metrics (${String(metrics.length)})${ANSI.reset}:`)
+
+    if (metrics.length === 0) {
+      console.log(`  ${ANSI.dim}(No active or recent processes recorded)${ANSI.reset}\n`)
+      return 0
+    }
+
+    for (const proc of metrics) {
+      const statusBadge =
+        proc.status === 'running'
+          ? `${ANSI.cyan}RUNNING${ANSI.reset}`
+          : proc.outcomeReason === 'exited' && proc.exitCode === 0
+            ? `${ANSI.green}EXITED (0)${ANSI.reset}`
+            : `${ANSI.red}${proc.outcomeReason?.toUpperCase() ?? 'FAILED'}${proc.exitCode !== null && proc.exitCode !== undefined ? ` (${String(proc.exitCode)})` : ''}${ANSI.reset}`
+
+      const pidStr = proc.pid !== null ? `PID ${String(proc.pid)}` : 'PID -'
+      console.log(`\n  ${statusBadge} ${ANSI.bold}${proc.runId}${ANSI.reset} [${pidStr}]`)
+      console.log(`    Command: ${proc.command} ${proc.args.join(' ')}`)
+      console.log(
+        `    Duration: ${String(proc.durationMs)}ms | Output: ${String(proc.outputBytes)} bytes`,
+      )
+    }
+    console.log('')
+    return 0
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (opts.json) {
+      console.log(JSON.stringify({ error: msg }))
+    } else {
+      console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
     }
     return 1
   } finally {

@@ -31,4 +31,10 @@ export {
   type TemplateValidationMetrics,
   type TemplateValidationResult,
 } from './validation'
+export {
+  planWorkflowExecution,
+  type PlannedNode,
+  type StagePlan,
+  type WorkflowExecutionPlan,
+} from './planner'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

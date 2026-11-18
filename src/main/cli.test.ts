@@ -1032,4 +1032,243 @@ describe('Forge CLI (runCli)', () => {
 
     consoleLog.mockRestore()
   })
+
+  it('plans workflow execution DAG via forge workflows plan (WORK-010)', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg?: unknown) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const planCode = await runCli(['workflows', 'plan', 'feature', '--json'])
+    expect(planCode).toBe(0)
+
+    const plan = JSON.parse(consoleLogs[0] ?? '{}') as {
+      valid: boolean
+      templateId: string
+      stageCount: number
+      asciiDiagram: string
+    }
+    expect(plan.valid).toBe(true)
+    expect(plan.templateId).toBe('compiled-feature')
+    expect(plan.stageCount).toBe(5)
+    expect(plan.asciiDiagram).toContain('Workflow Execution Plan: compiled-feature')
+
+    consoleLog.mockRestore()
+  })
+
+  it('inspects physical changeset diff via forge diff (DIFF-001)', async () => {
+    const core = createForgeCore({ dataDir })
+    const runId = runIdSchema.parse(randomUUID())
+    const stepId = stepIdSchema.parse(randomUUID())
+    const project = await core.projects.create({
+      name: 'Diff Test Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'master',
+      buildCommand: null,
+      testCommand: null,
+      tech: ['ts'],
+      rules: [],
+    })
+    const projectId = projectIdSchema.parse(project.id)
+    const taskId = taskIdSchema.parse(randomUUID())
+
+    core.runs.createRun({
+      id: runId,
+      projectId,
+      taskId,
+      type: 'direct-task',
+      status: 'completed',
+      startedAt: new Date(Date.now() - 2000).toISOString(),
+      finishedAt: new Date().toISOString(),
+      exitCode: 0,
+      summary: 'Diff inspection test',
+      error: null,
+      metadata: { task: 'Diff inspection test' },
+    })
+
+    const samplePatch = `
+diff --git a/file.txt b/file.txt
+new file mode 100644
+--- /dev/null
++++ b/file.txt
+@@ -0,0 +1,2 @@
++line 1
++line 2
+`.trim()
+
+    await core.artifacts.writeArtifact({
+      runId,
+      stepId,
+      kind: 'changeset',
+      name: 'changes.patch',
+      content: samplePatch,
+      mimeType: 'text/x-diff',
+    })
+    await core.close()
+
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg?: unknown) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const diffCode = await runCli(['diff', runId, '--data-dir', dataDir, '--json'])
+    expect(diffCode).toBe(0)
+
+    const parsed = JSON.parse(consoleLogs[0] ?? '{}') as {
+      valid: boolean
+      runId: string
+      totalFiles: number
+      totalAdditions: number
+      files: { path: string; status: string }[]
+    }
+    expect(parsed.valid).toBe(true)
+    expect(parsed.runId).toBe(runId)
+    expect(parsed.totalFiles).toBe(1)
+    expect(parsed.totalAdditions).toBe(2)
+    expect(parsed.files[0]?.path).toBe('file.txt')
+
+    consoleLog.mockRestore()
+  })
+
+  it('verifies artifact checksums and integrity via forge artifacts verify (VERIFY-004)', async () => {
+    const core = createForgeCore({ dataDir })
+    const runId = runIdSchema.parse(randomUUID())
+    const project = await core.projects.create({
+      name: 'Verify Test Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'master',
+      buildCommand: null,
+      testCommand: null,
+      tech: ['ts'],
+      rules: [],
+    })
+    const projectId = projectIdSchema.parse(project.id)
+    const taskId = taskIdSchema.parse(randomUUID())
+
+    core.runs.createRun({
+      id: runId,
+      projectId,
+      taskId,
+      type: 'direct-task',
+      status: 'completed',
+      startedAt: new Date(Date.now() - 2000).toISOString(),
+      finishedAt: new Date().toISOString(),
+      exitCode: 0,
+      summary: 'Checksum audit test',
+      error: null,
+      metadata: { task: 'Checksum audit test' },
+    })
+
+    await core.artifacts.writeArtifact({
+      runId,
+      kind: 'diff',
+      name: 'audit.patch',
+      content: 'genuine physical content',
+      mimeType: 'text/plain',
+    })
+    await core.close()
+
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg?: unknown) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const verifyCode = await runCli(['artifacts', 'verify', runId, '--data-dir', dataDir, '--json'])
+    expect(verifyCode).toBe(0)
+
+    const parsed = JSON.parse(consoleLogs[0] ?? '{}') as {
+      valid: boolean
+      verifiedCount: number
+      tamperedCount: number
+      missingCount: number
+    }
+    expect(parsed.valid).toBe(true)
+    expect(parsed.verifiedCount).toBe(1)
+    expect(parsed.tamperedCount).toBe(0)
+
+    consoleLog.mockRestore()
+  })
+
+  it('lists background process metrics via forge processes list (PROCESS-003)', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg?: unknown) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const procCode = await runCli(['processes', 'list', '--data-dir', dataDir, '--json'])
+    expect(procCode).toBe(0)
+
+    const parsed = JSON.parse(consoleLogs[0] ?? '{}') as {
+      processes: unknown[]
+    }
+    expect(Array.isArray(parsed.processes)).toBe(true)
+
+    consoleLog.mockRestore()
+  })
+
+  it('manages configuration profiles via forge config profile (CONFIG-002)', async () => {
+    const configContent = JSON.stringify(
+      {
+        activeProfile: 'staging',
+        profiles: {
+          dev: { logLevel: 'debug' },
+          staging: { logLevel: 'info' },
+          prod: { logLevel: 'warn' },
+        },
+      },
+      null,
+      2,
+    )
+    const configPath = join(repoPath, '.forgerc')
+    writeFileSync(configPath, configContent, 'utf8')
+
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg?: unknown) => {
+      consoleLogs.push(String(msg))
+    })
+
+    // 1. List profiles
+    const listCode = await runCli(['config', 'profile', 'list', '--cwd', repoPath, '--json'])
+    expect(listCode).toBe(0)
+    const listParsed = JSON.parse(consoleLogs[0] ?? '{}') as {
+      activeProfile: string
+      profiles: string[]
+    }
+    expect(listParsed.activeProfile).toBe('staging')
+    expect(listParsed.profiles).toEqual(['dev', 'prod', 'staging'])
+
+    consoleLogs.length = 0
+
+    // 2. Switch profile
+    const useCode = await runCli(['config', 'profile', 'use', 'prod', '--cwd', repoPath, '--json'])
+    expect(useCode).toBe(0)
+    const useParsed = JSON.parse(consoleLogs[0] ?? '{}') as {
+      previousProfile: string
+      newProfile: string
+    }
+    expect(useParsed.previousProfile).toBe('staging')
+    expect(useParsed.newProfile).toBe('prod')
+
+    consoleLogs.length = 0
+
+    // 3. Show profile config
+    const showCode = await runCli([
+      'config',
+      'profile',
+      'show',
+      'prod',
+      '--cwd',
+      repoPath,
+      '--json',
+    ])
+    expect(showCode).toBe(0)
+    const showParsed = JSON.parse(consoleLogs[0] ?? '{}') as {
+      profile: string
+      config: { logLevel: string }
+    }
+    expect(showParsed.profile).toBe('prod')
+    expect(showParsed.config.logLevel).toBe('warn')
+
+    consoleLog.mockRestore()
+  })
 })

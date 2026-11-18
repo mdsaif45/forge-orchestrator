@@ -3,6 +3,7 @@ export {
   rotateLogFile,
   type ProcessHandle,
   type ProcessManagerOptions,
+  type ProcessMetrics,
   type ProcessOutcome,
   type ProcessOutcomeReason,
   type SpawnRequest,

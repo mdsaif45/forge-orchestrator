@@ -5,8 +5,8 @@ Project:            Forge — AI Engineering Control Plane
 Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
 Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
 Last updated:       2026-11-18
-Evidence baseline:  main @ 0fe8d03 (PR #234 merged)
-Active branch:      feat/m2-agent-cli-and-milestone-reconciliation
+Evidence baseline:  main @ ad67cd8 (PR #253 merged)
+Active branch:      feat/m3-m5-dag-plan-diff-audit-watchdog-profiles
 ```
 
 ---
@@ -61,6 +61,16 @@ M11 Host the Real CLI             ██████████  DONE        PR
 ---
 
 ## 3. Major Slice History & Merged PRs (Reverse Chronological)
+
+### 2026-11-18: PR #253 merged (`ad67cd8`) — M3/M4/M5 Extended Declarative Criteria, Prompt Inspection, Vacuum, DAG Validation, and Benchmark Probes
+- **Title:** `feat(criteria,cli,db,workflows,runtimes): extended declarative criteria, prompt inspection, vacuum, dag validation, and benchmark probes (#248, #249, #250, #251, #252)`
+- **Delivered:**
+  - `CRIT-002`: Added extended declarative completion criteria evaluators (`file-forbidden`, `max-diff-lines`, `artifact-regex`) with fail-closed physical evidence evaluation (A3, A5, A7).
+  - `PROMPT-002`: Implemented `forge context inspect <runId> [stepId]` for CLI inspection of compiled prompt context packets.
+  - `STATE-002`: Implemented SQLite maintenance utilities (`inspectDbStats`, `vacuumAndOptimizeDatabase`) and CLI command `forge db [stats|vacuum]`.
+  - `WORK-009`: Built static offline workflow DAG validator (`validateWorkflowDag`) and CLI command `forge workflows validate <path>`.
+  - `RUNTIME-002`: Added end-to-end runtime responsiveness and roundtrip latency benchmark probing (`testRuntimeResponsiveness`) and CLI command `forge runtimes test <runtimeId>`.
+  - Closed GitHub issues #248, #249, #250, #251, #252.
 
 ### 2026-11-18: PR #234 merged (`0fe8d03`) — M10/M11 Interactive Terminal, Hosted Antigravity Runtime, and Stream Parser Decommission
 - **Title:** `feat(m10,m11): interactive terminal, hosted antigravity runtime, and stream parser decommission (#117, #161, #162, #168, #171, #172)`

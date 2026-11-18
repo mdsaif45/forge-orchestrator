@@ -33,6 +33,7 @@ import { BindingService } from '../bindings/bindingService'
 import { AccountHomes } from '../accounts/accountHomes'
 import { EnrollmentService } from '../accounts/enrollmentService'
 import { BindingStore } from '../db/bindingStore'
+import { WarmSessionStore } from '../context/warmSessionStore'
 import { createDefaultTemplateResolver } from '../templates/templateV2Store'
 import { loadForgeConfig, type ForgeConfig } from '../config/forgeConfig'
 
@@ -108,6 +109,7 @@ export interface ForgeCore {
   readonly agentSessions: AgentSessionRegistry
   readonly projects: ProjectService
   readonly workflows: WorkflowService
+  readonly warmSessions: WarmSessionStore
   readonly questions: QuestionService
   readonly decisions: DecisionService
   readonly changeSets: ChangeSetService
@@ -170,6 +172,7 @@ export function createForgeCore(options: ForgeCoreOptions = {}): ForgeCore {
 
   const accountHomes = new AccountHomes(join(dataDir, 'accounts'))
   const activeModel = new ActiveModelStore(join(dataDir, 'active-model.json'))
+  const warmSessions = new WarmSessionStore(join(dataDir, 'warm-sessions'))
 
   const registry = new RuntimeRegistry()
   const agentSessions = new AgentSessionRegistry()
@@ -197,6 +200,7 @@ export function createForgeCore(options: ForgeCoreOptions = {}): ForgeCore {
     sessions: agentSessions,
     worktreeRoot: join(dataDir, 'worktrees'),
     registry,
+    warmSessionStore: warmSessions,
     ...(options.emitWorkflowEvent ? { emitEvent: options.emitWorkflowEvent } : {}),
     ...(options.emitWorkflowLog ? { emitLog: options.emitWorkflowLog } : {}),
     ...(options.emitWorkflowRuntimeEvent
@@ -267,6 +271,7 @@ export function createForgeCore(options: ForgeCoreOptions = {}): ForgeCore {
     agentSessions,
     projects: projectService,
     workflows: workflowService,
+    warmSessions,
     questions: questionService,
     decisions: decisionService,
     changeSets: changeSetService,

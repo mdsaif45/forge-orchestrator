@@ -1,5 +1,6 @@
 import { isAbsolute, normalize, resolve } from 'node:path'
 import type { Actor, OpenQuestion, PromptPacket, Role, RuntimeEvent } from '@shared/domain'
+import type { WarmSessionStore } from '../context/warmSessionStore'
 import { ArtifactService } from '../artifacts/artifactService'
 import { BindingStore } from '../db/bindingStore'
 import type { ForgeDatabase } from '../db/connection'
@@ -51,6 +52,10 @@ export interface ProductionGraphCompositionOptions {
    * Optional leaf runner wrapper hook to intercept or observe node execution.
    */
   readonly wrapLeafRunner?: ((defaultRunner: LeafNodeExecutor) => LeafNodeExecutor) | undefined
+  /**
+   * Optional warm session store for carrying context across steps (#157, #158).
+   */
+  readonly warmSessionStore?: WarmSessionStore | undefined
   /**
    * Optional PromptPacket compiler for agent leaf nodes.
    */
@@ -216,6 +221,7 @@ export function createGraphExecutorWithLeafRunner(
     actor,
     defaultRuntimeId: options.defaultRuntimeId,
     compilePacket: options.compilePacket,
+    warmSessionStore: options.warmSessionStore,
     onQuestion: options.onQuestion,
     onEvent: options.onEvent,
     onProcess: options.onProcess,

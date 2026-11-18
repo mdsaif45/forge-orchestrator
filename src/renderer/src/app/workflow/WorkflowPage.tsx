@@ -12,7 +12,8 @@ import type {
 import { WorkflowCatalogView } from './WorkflowCatalogView'
 import { WorkflowCanvas } from './WorkflowCanvas'
 import { WorkflowArtifactViewer } from './WorkflowArtifactViewer'
-import { agentSessionKey } from '@shared/domain'
+import { agentSessionKey, filterToolTimelineByStep } from '@shared/domain'
+import { useWorkflowRuntimeEvents } from './useWorkflowRuntimeEvents'
 import {
   AgentTerminal,
   Badge,
@@ -96,6 +97,7 @@ export function WorkflowPage(): React.JSX.Element {
   const project = detail?.project ?? null
 
   const [workflow, setWorkflow] = useState<WorkflowDetailView | null>(null)
+  const { toolTimeline } = useWorkflowRuntimeEvents(workflow?.id ?? null)
   const [activeTaskTitle, setActiveTaskTitle] = useState<string | null>(null)
   const [baseTemplates, setBaseTemplates] = useState<readonly WorkflowTemplateView[]>([])
   const [customTemplates, setCustomTemplates] = useState<readonly WorkflowTemplateView[]>(() => {
@@ -1092,6 +1094,11 @@ export function WorkflowPage(): React.JSX.Element {
         <Card tone="raised" className="flex flex-col overflow-hidden">
           <StepInspector
             step={effectiveSelectedStep}
+            tools={
+              effectiveSelectedStep === null
+                ? toolTimeline
+                : filterToolTimelineByStep(toolTimeline, effectiveSelectedStep.index)
+            }
             onClose={() => {
               setSelectedStep(null)
             }}

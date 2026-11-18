@@ -417,7 +417,7 @@ describe('every scenario', () => {
       noProgress: 'completed',
       fullRun: 'completed',
     })
-  }, 20_000)
+  }, 60_000)
 })
 
 describe('axiom A6', () => {

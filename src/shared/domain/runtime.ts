@@ -236,12 +236,16 @@ export const runtimeEventSchema = z.discriminatedUnion('type', [
     type: z.literal('state'),
     at: timestampSchema,
     state: runtimeSessionStateSchema,
+    /** Provider session ID captured from the CLI envelope for warm resumption (#157, #158). */
+    providerSessionId: z.string().nullable().optional(),
   }),
   /** The agent's structured report. Terminal for the step. */
   z.strictObject({
     type: z.literal('result'),
     at: timestampSchema,
     report: agentReportSchema,
+    /** Provider session ID captured from the CLI envelope for warm resumption across stages (#157). */
+    providerSessionId: z.string().nullable().optional(),
   }),
   /**
    * What the turn cost, as the provider reported it (#137).
@@ -330,6 +334,15 @@ export interface SessionOptions {
         readonly iteration: number
       }
     | undefined
+  /**
+   * Prior provider session ID to warm-resume across steps (#157, #158).
+   *
+   * When provided, the adapter instructs its CLI to attach to or resume this conversation
+   * (e.g. `claude -p --resume <id>` or `agy --conversation <id>`) rather than starting cold.
+   * If the CLI rejects the id (e.g. expired or unknown), the adapter falls back to a cold
+   * start rather than failing the step.
+   */
+  readonly resumeSessionId?: string | undefined
   /**
    * Hands the caller a way to reach this session's process once it starts (#170).
    *

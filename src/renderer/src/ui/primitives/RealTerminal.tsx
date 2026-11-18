@@ -322,6 +322,16 @@ export function RealTerminal({
             {title}
           </span>
 
+          {attachSessionKey ? (
+            <Badge tone="accent" size="sm" className="font-mono text-[10px]">
+              Active Step
+            </Badge>
+          ) : (
+            <Badge tone="warning" size="sm" className="font-mono text-[10px]">
+              Scratch Session (Isolated)
+            </Badge>
+          )}
+
           {personaName && (
             <Badge tone="accent" size="sm" className="font-sans text-[10px] font-semibold">
               {personaName}

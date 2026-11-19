@@ -74,6 +74,16 @@ export {
   type StorageQuotaReport,
   type WalCheckpointResult,
 } from './walCheckpointSupervisor'
+export {
+  computeChainedEventHash,
+  exportEventJournal,
+  GENESIS_HASH,
+  verifyEventJournalHashChain,
+  type EventJournalExportReport,
+  type JournalEntry,
+  type JournalVerificationReport,
+  type RawLedgerEvent,
+} from './eventJournalExporter'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

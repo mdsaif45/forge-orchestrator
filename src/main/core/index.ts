@@ -56,3 +56,10 @@ export {
   type ToolCacheConfig,
   type ToolCacheMetrics,
 } from './toolIdempotencyCache'
+export {
+  coerceToolParameters,
+  type ParameterPrimitiveType,
+  type ParameterPropertySchema,
+  type ToolCoercionResult,
+  type ToolParametersSchema,
+} from './toolParameterCoercer'

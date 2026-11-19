@@ -43,12 +43,15 @@ import {
   backupDatabase,
   compactRunEvents,
   executeWalCheckpoint,
+  exportEventJournal,
   getDatabaseStats,
   inspectProjectRegistry,
   pruneMissingProjects,
   pruneOrphanedDatabaseRecords,
   restoreDatabase,
   vacuumDatabase,
+  verifyEventJournalHashChain,
+  type RawLedgerEvent,
 } from './db'
 import { ProjectStore } from './db/projectStore'
 import {
@@ -57,6 +60,7 @@ import {
   auditRunChangesetConflicts,
   auditRunChangesetSecurity,
   executeVerificationPipeline,
+  generateArtifactMerkleTree,
   inspectRunDiff,
   parseLcov,
   rollbackRunChanges,
@@ -73,6 +77,7 @@ import {
 import {
   createWorkflowSnapshot,
   estimateWorkflowCost,
+  evaluateConditionExpression,
   listDeadLetterQueue,
   listWorkflowSnapshots,
   planParallelBatches,
@@ -81,6 +86,7 @@ import {
   purgeDeadLetterQueue,
   restoreWorkflowSnapshot,
   StepTimeoutSupervisor,
+  type WorkflowConditionContext,
 } from './workflows'
 import { validateTemplateGraph } from './workflows/validation'
 import { auditRuntimeQuotas, createResourceBudget, sanitizeRuntimeEnvironment } from './runtimes'
@@ -93,6 +99,8 @@ import {
   ModelCircuitBreaker,
   ToolRateLimiter,
   ToolIdempotencyCache,
+  coerceToolParameters,
+  type ToolParametersSchema,
 } from './core'
 import {
   bootstrapForgeConfig,
@@ -102,6 +110,7 @@ import {
   auditConfigAgainstPolicies,
   interpolateEnvString,
   maskSensitiveConfig,
+  resolveFeatureFlags,
   type PolicyLockRule,
 } from './config'
 
@@ -134,19 +143,19 @@ ${ANSI.bold}USAGE${ANSI.reset}
 ${ANSI.bold}COMMANDS${ANSI.reset}
   run <task>                 Execute an autonomous coding task against the current repository
   runs [list|inspect|events|cost] Inspect past runs, steps, token accounting, and event streams
-  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot|dlq|timeout|estimate] Inspect, plan, profile, snapshot workflows, manage DLQ, timeouts, and cost estimation
-  artifacts [list|cat|grep|verify|export] Inspect, view, search, verify, and export run artifacts
+  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot|dlq|timeout|estimate|eval] Inspect, plan, profile, snapshot workflows, manage DLQ, timeouts, cost estimation, and evaluate expressions
+  artifacts [list|cat|grep|verify|export|merkle] Inspect, view, search, verify, export, and Merkle provenance audit
   diff [revert|security|secrets|commit|merge] <runId> [stepId|runIdB] Inspect physical diffs, rollback changes, security/secrets audit, commit synthesis, or merge conflicts
   processes [list]           Inspect active and completed background process metrics
   status                     Display current repository status and Forge control plane state
   models [list|scan|auto|set|fallback|circuit] Inspect, auto-select, fallback routing, and circuit breakers
-  runtimes [list|test|env|quota|rate-limit|cache] Inspect registered runtimes, test execution, sanitized environment, quotas, tool rate limits, and idempotency cache
+  runtimes [list|test|env|quota|rate-limit|cache|coerce] Inspect registered runtimes, test execution, sanitized environment, quotas, tool rate limits, cache, and parameter coercion
   context [inspect|optimize] Inspect prompt packet, context files, or prefix caching optimization
   memory [search|index|stats] Search, index, and inspect cross-run solution memory and semantic patterns
   projects [list|prune]      Inspect multi-project workspace registry, health, and prune missing projects
   verify [pipeline|coverage|commit] Execute ordered verification pipeline, audit code coverage, or validate commit messages
-  config [list|get|set|profile|doctor|vault|init|policy|interpolate|export] Inspect, profile, doctor, secret vault encryption, workspace bootstrap, policy lock, env interpolation, and safe export
-  db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota] Inspect SQLite database storage, backup, restore, compaction, integrity/orphan audit, WAL checkpoint, and quota monitor
+  config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features] Inspect, profile, doctor, secret vault encryption, workspace bootstrap, policy lock, env interpolation, safe export, and feature flags
+  db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal] Inspect SQLite database storage, backup, restore, compaction, integrity/orphan audit, WAL checkpoint, quota monitor, and audit journals
 
 ${ANSI.bold}OPTIONS${ANSI.reset}
   -v, --version        Display Forge version
@@ -237,6 +246,9 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       fix: { type: 'boolean', default: false },
       safe: { type: 'boolean', default: true },
       threshold: { type: 'string' },
+      schema: { type: 'string' },
+      context: { type: 'string' },
+      verify: { type: 'boolean', default: false },
     },
     allowPositionals: true,
   })
@@ -330,6 +342,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       objective: values.objective,
       task: values.task,
       run: values.run,
+      context: values.context,
     })
   }
 
@@ -351,6 +364,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     return handleRuntimes({
       action: positionals[1],
       targetId: positionals[2],
+      extraParam: positionals[3],
+      schema: values.schema,
       dataDir,
       json: values.json,
     })
@@ -498,6 +513,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     return handleDb({
       action: positionals[1],
       targetPath: positionals[2],
+      targetId: positionals[2],
+      verify: values.verify,
       force: values.force,
       dryRun: values['dry-run'],
       beforeDate: values.before,
@@ -1711,6 +1728,44 @@ async function handleArtifacts(opts: {
       return 0
     }
 
+    if (action === 'merkle') {
+      const rawRunId = id
+      if (!rawRunId) {
+        const err = 'No run ID provided.'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else {
+          console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          console.error('Usage: forge artifacts merkle <runId> [--json]')
+        }
+        return 1
+      }
+      const parsedRunId = runIdSchema.safeParse(rawRunId)
+      if (!parsedRunId.success) {
+        const err = `Invalid run ID "${rawRunId}". Expected a valid UUID.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const runId = parsedRunId.data
+      const rawArtifacts = core.artifacts.listArtifacts(runId)
+      const report = generateArtifactMerkleTree(
+        rawArtifacts.map((a) => ({
+          id: a.id,
+          name: a.name,
+          checksum: a.sha256,
+          stepId: a.stepId ?? undefined,
+          kind: a.kind,
+          sizeBytes: a.sizeBytes,
+        })),
+      )
+      if (opts.json) {
+        console.log(JSON.stringify({ runId, ...report }))
+        return 0
+      }
+      console.log(`\n${report.formattedSummary}\n`)
+      return 0
+    }
+
     const err = `Unknown artifacts action: ${action}`
     if (opts.json) console.log(JSON.stringify({ error: err }))
     else {
@@ -1749,6 +1804,7 @@ async function handleWorkflows(opts: {
   objective?: string | undefined
   task?: string | undefined
   run?: boolean | undefined
+  context?: string | undefined
 }): Promise<number> {
   const core = createForgeCore({ dataDir: opts.dataDir })
 
@@ -1771,6 +1827,7 @@ async function handleWorkflows(opts: {
       'dlq',
       'timeout',
       'estimate',
+      'eval',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -1778,6 +1835,35 @@ async function handleWorkflows(opts: {
     if (!KNOWN_ACTIONS.includes(action as (typeof KNOWN_ACTIONS)[number])) {
       targetId = action
       action = 'inspect'
+    }
+
+    if (action === 'eval') {
+      const expr = targetId
+      if (!expr) {
+        const err =
+          'Usage: forge workflows eval "<expression>" [--context \'<jsonContext>\'] [--json]'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: No expression provided.${ANSI.reset}\n${err}`)
+        return 1
+      }
+      let context: WorkflowConditionContext = {}
+      if (opts.context) {
+        try {
+          context = JSON.parse(opts.context) as WorkflowConditionContext
+        } catch (e) {
+          const err = `Invalid context JSON: ${e instanceof Error ? e.message : String(e)}`
+          if (opts.json) console.log(JSON.stringify({ error: err }))
+          else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          return 1
+        }
+      }
+      const report = evaluateConditionExpression(expr, context)
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return report.valid ? 0 : 1
+      }
+      console.log(`\n${report.formattedSummary}\n`)
+      return report.valid ? 0 : 1
     }
 
     if (action === 'estimate') {
@@ -2587,6 +2673,8 @@ async function handleWorkflows(opts: {
 async function handleRuntimes(opts: {
   action?: string | undefined
   targetId?: string | undefined
+  extraParam?: string | undefined
+  schema?: string | undefined
   dataDir: string
   json: boolean
 }): Promise<number> {
@@ -2703,6 +2791,62 @@ async function handleRuntimes(opts: {
       if (result.error) console.log(`  Error:      ${ANSI.red}${result.error}${ANSI.reset}`)
       console.log('')
       return result.success ? 0 : 1
+    }
+
+    if (opts.action === 'coerce') {
+      const toolName = opts.targetId
+      const rawArgsStr = opts.extraParam
+      if (!toolName || !rawArgsStr) {
+        const err =
+          'Usage: forge runtimes coerce <toolName> <rawArgsJson> [--schema <schemaJson>] [--json]'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      let rawArgs: unknown
+      try {
+        rawArgs = JSON.parse(rawArgsStr)
+      } catch {
+        const err = `Invalid JSON for raw arguments: ${rawArgsStr}`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      let schema: ToolParametersSchema = {}
+      if (opts.schema) {
+        try {
+          schema = JSON.parse(opts.schema) as ToolParametersSchema
+        } catch {
+          const err = `Invalid JSON for schema: ${opts.schema}`
+          if (opts.json) console.log(JSON.stringify({ error: err }))
+          else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          return 1
+        }
+      }
+      const result = coerceToolParameters(rawArgs, schema)
+      if (opts.json) {
+        console.log(JSON.stringify({ toolName, ...result }))
+        return result.valid ? 0 : 1
+      }
+      printBanner()
+      console.log(`\n${ANSI.bold}TOOL PARAMETER COERCION: ${toolName}${ANSI.reset}`)
+      console.log(
+        `  Valid:          ${result.valid ? `${ANSI.green}YES${ANSI.reset}` : `${ANSI.red}NO${ANSI.reset}`}`,
+      )
+      console.log(`  Coerced Params: ${JSON.stringify(result.coercedParams)}`)
+      if (result.strippedKeys.length > 0) {
+        console.log(
+          `  ${ANSI.yellow}Stripped Keys:  ${result.strippedKeys.join(', ')}${ANSI.reset}`,
+        )
+      }
+      if (result.errors.length > 0) {
+        console.log(`  ${ANSI.red}Errors:${ANSI.reset}`)
+        for (const e of result.errors) {
+          console.log(`    - ${e}`)
+        }
+      }
+      console.log('')
+      return result.valid ? 0 : 1
     }
 
     const runtimesList = core.runtimes.list()
@@ -3219,12 +3363,22 @@ async function handleConfig(opts: {
     return 1
   }
 
+  if (action === 'features') {
+    const report = resolveFeatureFlags()
+    if (opts.json) {
+      console.log(JSON.stringify(report))
+      return report.valid ? 0 : 1
+    }
+    console.log(`\n${report.formattedSummary}\n`)
+    return report.valid ? 0 : 1
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
     console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
     console.error(
-      'Usage: forge config [list|get|set|profile|doctor|vault|init|policy|interpolate|export] [<key>] [<value>] [--json]',
+      'Usage: forge config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features] [<key>] [<value>] [--json]',
     )
   }
   return 1
@@ -3233,6 +3387,8 @@ async function handleConfig(opts: {
 async function handleDb(opts: {
   action?: string | undefined
   targetPath?: string | undefined
+  targetId?: string | undefined
+  verify?: boolean | undefined
   force?: boolean | undefined
   dryRun?: boolean | undefined
   beforeDate?: string | undefined
@@ -3392,12 +3548,73 @@ async function handleDb(opts: {
       return report.quotaExceeded ? 1 : 0
     }
 
+    if (action === 'journal') {
+      const runId = opts.targetId
+      if (!runId) {
+        const err = 'Usage: forge db journal <runId> [--verify] [--json]'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const parsedRunId = runIdSchema.safeParse(runId)
+      if (!parsedRunId.success) {
+        const err = `Invalid run ID "${runId}". Expected a valid UUID.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const runRecord = core.runs.getRun(parsedRunId.data)
+      if (!runRecord) {
+        const err = `Run "${runId}" not found.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const events = core.runs.listEventsForRun(parsedRunId.data)
+      const rawEvents: RawLedgerEvent[] = events.map((ev) => ({
+        id: ev.id,
+        seq: ev.seq,
+        runId: ev.runId,
+        type: ev.type,
+        timestamp: ev.occurredAt,
+        stepId: ev.stepId ?? undefined,
+        payload: ev.payload,
+      }))
+      const report = exportEventJournal(parsedRunId.data, rawEvents)
+      if (opts.verify) {
+        const verification = verifyEventJournalHashChain(report.journalEntries)
+        if (opts.json) {
+          console.log(JSON.stringify({ export: report, verification }))
+          return verification.valid ? 0 : 1
+        }
+        console.log(`\n${report.formattedSummary}`)
+        console.log(`\n${ANSI.bold}HASH CHAIN VERIFICATION${ANSI.reset}:`)
+        console.log(
+          `  Valid: ${verification.valid ? `${ANSI.green}YES${ANSI.reset}` : `${ANSI.red}NO${ANSI.reset}`}`,
+        )
+        console.log(`  Entries Verified: ${String(verification.eventCount)}`)
+        if (!verification.valid && verification.brokenSeq !== undefined) {
+          console.log(
+            `  ${ANSI.red}Chain broken at sequence: ${String(verification.brokenSeq)}${ANSI.reset}`,
+          )
+        }
+        console.log('')
+        return verification.valid ? 0 : 1
+      }
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return report.valid ? 0 : 1
+      }
+      console.log(`\n${report.formattedSummary}\n`)
+      return report.valid ? 0 : 1
+    }
+
     const err = `Unknown db action: ${action}`
     if (opts.json) console.log(JSON.stringify({ error: err }))
     else {
       console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
       console.error(
-        'Usage: forge db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota] [options]',
+        'Usage: forge db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal] [options]',
       )
     }
     return 1

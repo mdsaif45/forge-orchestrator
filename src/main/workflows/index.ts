@@ -79,4 +79,9 @@ export {
   type WorkflowCostEstimateOptions,
   type WorkflowCostEstimateReport,
 } from './workflowCostEstimator'
+export {
+  evaluateConditionExpression,
+  type ConditionEvaluationResult,
+  type WorkflowConditionContext,
+} from './conditionEvaluator'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

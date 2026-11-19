@@ -5,8 +5,8 @@ Project:            Forge — AI Engineering Control Plane
 Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
 Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
 Last updated:       2026-11-19
-Evidence baseline:  main @ c3fd9df (PR #295 merged)
-Active branch:      feat/m1-m6-cache-estimator-commit-wal-masker
+Evidence baseline:  main @ aaa7522 (PR #301 merged)
+Active branch:      feat/m1-m6-coercer-condition-merkle-journal-features
 ```
 
 ---
@@ -61,6 +61,16 @@ M11 Host the Real CLI             ██████████  DONE        PR
 ---
 
 ## 3. Major Slice History & Merged PRs (Reverse Chronological)
+
+### 2026-11-19: PR #301 merged (`aaa7522`) — M1/M2/M4/M5/M6 Tool Idempotency Cache, Workflow Cost Estimator, Commit Validator, WAL Checkpoint Supervisor, and Config Masker
+- **Title:** `feat(core,workflows,evidence,db,config,cli): tool idempotency cache, workflow cost estimator, commit validator, wal checkpoint supervisor, and config masker (#296, #297, #298, #299, #300)`
+- **Delivered:**
+  - `AGENT-010`: In-memory tool execution idempotency cache with TTL, LRU eviction, and mutation invalidation (`ToolIdempotencyCache`) and `forge runtimes cache [stats|clear]`.
+  - `WORK-017`: Static offline workflow execution cost and token estimation modeling iteration loops and model costs (`estimateWorkflowCost`) and `forge workflows estimate <templateId>`.
+  - `EVIDENCE-005`: Conventional Commits 1.0.0 specification, breaking change detection, and header length validator (`validateConventionalCommit`) and `forge verify commit "<msg>"`.
+  - `STATE-007`: SQLite WAL checkpoint supervisor with TRUNCATE mode and total data directory storage quota auditor (`executeWalCheckpoint`, `auditDatabaseStorageQuota`) and `forge db checkpoint` / `forge db quota`.
+  - `CONFIG-008`: Recursive sensitive configuration redaction and safe diagnostic sanitizer (`maskSensitiveConfig`) and `forge config export [--safe]`.
+  - Closed GitHub issues #296, #297, #298, #299, #300.
 
 ### 2026-11-19: PR #295 merged (`c3fd9df`) — M1/M2/M4/M5/M6 Tool Rate Limiter, Timeout Supervisor, Secret Scanner, DB Integrity Auditor, and Env Interpolator
 - **Title:** `feat(core,workflows,evidence,db,config,cli): tool rate limiter, timeout supervisor, secret leak scanner, db integrity auditor, and env interpolator (#290, #291, #292, #293, #294)`

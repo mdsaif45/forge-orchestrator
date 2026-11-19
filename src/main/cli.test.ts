@@ -2205,4 +2205,202 @@ new file mode 100644
 
     logSpy.mockRestore()
   })
+
+  it('coerces tool parameters with schema via CLI (AGENT-011)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'runtimes',
+      'coerce',
+      'read_file',
+      '{"path": 42, "encoding": "utf-8"}',
+      '--schema',
+      JSON.stringify({
+        properties: {
+          path: { type: 'string', required: true },
+          encoding: { type: 'string' },
+        },
+      }),
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.toolName).toBe('read_file')
+    expect(parsed.valid).toBe(true)
+    expect(parsed.coercedParams).toBeDefined()
+    const coerced = parsed.coercedParams as Record<string, unknown>
+    expect(coerced.path).toBe('42')
+
+    logSpy.mockRestore()
+  })
+
+  it('evaluates workflow condition expressions via CLI (WORK-018)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'workflows',
+      'eval',
+      'exitCode == 0',
+      '--context',
+      '{"exitCode": 0}',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.result).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('generates artifact merkle lineage tree via CLI (EVIDENCE-006)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const core = createForgeCore({ dataDir })
+    const projectView = await core.projects.create({
+      name: 'Merkle Test Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'master',
+      buildCommand: null,
+      testCommand: null,
+      tech: [],
+      rules: [],
+    })
+    const projectId = projectIdSchema.parse(projectView.id)
+    const taskId = taskIdSchema.parse(randomUUID())
+    const runId = runIdSchema.parse(randomUUID())
+    const stepId = stepIdSchema.parse(randomUUID())
+    core.runs.createRun({
+      id: runId,
+      projectId,
+      taskId,
+      type: 'direct-task',
+      status: 'completed',
+      startedAt: new Date(Date.now() - 10000).toISOString(),
+      finishedAt: new Date().toISOString(),
+      exitCode: 0,
+      summary: 'merkle test run',
+      error: null,
+      metadata: {},
+    })
+    await core.artifacts.writeArtifact({
+      runId,
+      stepId,
+      kind: 'stdout',
+      name: 'merkle-test-output.txt',
+      content: 'Merkle lineage test artifact content',
+    })
+    await core.close()
+
+    const code = await runCli([
+      'artifacts',
+      'merkle',
+      runId,
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.runId).toBe(runId)
+    expect(typeof parsed.rootHash).toBe('string')
+    expect(parsed.artifactCount).toBeGreaterThanOrEqual(1)
+
+    logSpy.mockRestore()
+  })
+
+  it('exports event journal with hash chain via CLI (STATE-008)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const core = createForgeCore({ dataDir })
+    const projectView = await core.projects.create({
+      name: 'Journal Test Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'master',
+      buildCommand: null,
+      testCommand: null,
+      tech: [],
+      rules: [],
+    })
+    const projectId = projectIdSchema.parse(projectView.id)
+    const taskId = taskIdSchema.parse(randomUUID())
+    const runId = runIdSchema.parse(randomUUID())
+    core.runs.createRun({
+      id: runId,
+      projectId,
+      taskId,
+      type: 'direct-task',
+      status: 'completed',
+      startedAt: new Date(Date.now() - 10000).toISOString(),
+      finishedAt: new Date().toISOString(),
+      exitCode: 0,
+      summary: 'journal test run',
+      error: null,
+      metadata: {},
+    })
+    core.runs.appendEvent(runId, {
+      type: 'step:start',
+      payload: { step: 'init' },
+    })
+    core.runs.appendEvent(runId, {
+      type: 'step:complete',
+      payload: { step: 'init', exitCode: 0 },
+    })
+    await core.close()
+
+    const code = await runCli(['db', 'journal', runId, '--verify', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    const exportReport = parsed.export as Record<string, unknown>
+    const verification = parsed.verification as Record<string, unknown>
+    expect(exportReport.runId).toBe(runId)
+    expect(exportReport.eventCount).toBeGreaterThanOrEqual(2)
+    expect(verification.valid).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('resolves workspace feature flags via CLI (CONFIG-009)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'config',
+      'features',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.valid).toBe(true)
+    expect(parsed.flags).toBeDefined()
+    const flags = parsed.flags as Record<string, unknown>
+    expect(typeof flags.toolCaching).toBe('boolean')
+
+    logSpy.mockRestore()
+  })
 })

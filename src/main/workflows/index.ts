@@ -54,4 +54,17 @@ export {
   type WorkflowSnapshotRestoreResult,
   type WorkflowSnapshotSummary,
 } from './graphSnapshotter'
+export {
+  computeBackoffDelay,
+  DEFAULT_RETRY_POLICY,
+  enqueueToDeadLetterQueue,
+  isRetryableNodeError,
+  listDeadLetterQueue,
+  purgeDeadLetterQueue,
+  retryPolicySchema,
+  deadLetterQueueRecordSchema,
+  type DeadLetterQueueRecord,
+  type DlqInspectionReport,
+  type RetryPolicy,
+} from './retryPolicyEngine'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

@@ -55,6 +55,13 @@ export {
   type EventCompactionOptions,
   type EventCompactionResult,
 } from './eventCompactor'
+export {
+  inspectProjectRegistry,
+  pruneMissingProjects,
+  type ProjectPruneResult,
+  type ProjectRegistryReport,
+  type ProjectSummary,
+} from './projectRegistry'
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'
 

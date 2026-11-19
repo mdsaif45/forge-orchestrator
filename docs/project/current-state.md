@@ -3,7 +3,7 @@
 **Status:** IMPLEMENTED
 **Authority:** Implementation truth (see [documentation-policy.md](../meta/documentation-policy.md))
 **Last Updated:** 2026-11-19
-**Baseline:** `main` @ `954f4c2` (PR #277 merged)
+**Baseline:** `main` @ `b02c9dd` (PR #283 merged)
 **Verification Baseline:** [verification-baseline.md](verification-baseline.md)
 **Related Roadmap:** [roadmap.md](../roadmap/roadmap.md)
 
@@ -90,6 +90,11 @@ All test counts are per-file assertion counts measured with
 | Multi-branch changeset conflict detector & three-way merger | Deterministic line-level hunk collision detection & patch merging | IMPLEMENTED | VERIFIED | Parses unified diff headers and line hunks; detects line-range overlap collisions and cleanly merges non-overlapping diffs | `src/main/evidence/changesetConflictDetector.ts`, `src/main/cli.ts` | `src/main/evidence/changesetConflictDetector.test.ts` (5), `src/main/cli.test.ts` (45) | DIFF-004 |
 | Process memory quota & resource budget enforcement | Bounded memory and duration enforcement preventing OOM | IMPLEMENTED | VERIFIED | Monitors RSS against byte thresholds; issues warnings and escalation actions; generates V8 heap flags | `src/main/runtimes/resourceLimiter.ts`, `src/main/cli.ts` | `src/main/runtimes/resourceLimiter.test.ts` (6), `src/main/cli.test.ts` (45) | RUNTIME-005 |
 | Workspace configuration bootstrapper & setup wizard | Zero-friction workspace initialization with profile defaults | IMPLEMENTED | VERIFIED | Initializes default .forgerc with profile templates; protects existing configs unless --force is passed | `src/main/config/configBootstrapper.ts`, `src/main/cli.ts` | `src/main/config/configBootstrapper.test.ts` (3), `src/main/cli.test.ts` (45) | CONFIG-005 |
+| Dynamic multi-model fallback router & circuit breaker | Auto-failover across fallback chain on transient failures with circuit break cooldown | IMPLEMENTED | VERIFIED | `forge models fallback` and `circuit` inspect fallback tiers, error circuit states, and cooldown timers (A2, A6) | `src/main/core/modelFallbackRouter.ts`, `src/main/cli.ts` | `src/main/core/modelFallbackRouter.test.ts` (5), `src/main/cli.test.ts` (50) | AGENT-008 |
+| Workflow dead-letter queue (DLQ) & retry policy engine | Bounded exponential backoff with jitter and unrecoverable error DLQ | IMPLEMENTED | VERIFIED | `forge workflows dlq [list|purge]` persists and inspects unrecoverable stage failures with exponential backoff (A1, A5) | `src/main/workflows/retryPolicyEngine.ts`, `src/main/cli.ts` | `src/main/workflows/retryPolicyEngine.test.ts` (4), `src/main/cli.test.ts` (50) | WORK-015 |
+| Test coverage regression auditor & quality delta gate | Correlates modified diff lines with LCOV data to enforce minimum quality thresholds | IMPLEMENTED | VERIFIED | `forge verify coverage` extracts touched diff lines and validates line-coverage against minimum percentage threshold (A3) | `src/main/evidence/coverageAuditor.ts`, `src/main/cli.ts` | `src/main/evidence/coverageAuditor.test.ts` (4), `src/main/cli.test.ts` (50) | EVIDENCE-003 |
+| Multi-project workspace registry & run indexer | Cross-repository project discovery, disk health verification, and missing repo pruning | IMPLEMENTED | VERIFIED | `forge projects [list|prune]` queries SQLite project and run stores, audits repository filesystem existence, and prunes missing roots | `src/main/db/projectRegistry.ts`, `src/main/cli.ts` | `src/main/db/projectRegistry.test.ts` (2), `src/main/cli.test.ts` (50) | STATE-005 |
+| Hierarchical configuration inheritance & administrative policy lock | Multi-tier precedence (Global -> Workspace -> Profile -> CLI) with fail-closed administrative locks | IMPLEMENTED | VERIFIED | `forge config policy` resolves hierarchical configuration tiers and enforces fail-closed policy lock rules (A2, A7) | `src/main/config/configPolicyEngine.ts`, `src/main/cli.ts` | `src/main/config/configPolicyEngine.test.ts` (4), `src/main/cli.test.ts` (50) | CONFIG-006 |
 
 ### 2.2 State, storage & events
 

@@ -60,16 +60,16 @@ export async function createWorkflowSnapshot(
 
   // Canonical serialization payload without sha256
   const payloadToHash = JSON.stringify({
+    ...input,
     snapshotId,
     timestamp,
-    ...input,
   })
   const sha256 = computeSha256(payloadToHash)
 
   const snapshot: WorkflowSnapshot = {
+    ...input,
     snapshotId,
     timestamp,
-    ...input,
     sha256,
   }
 

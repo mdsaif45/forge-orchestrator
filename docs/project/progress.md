@@ -5,8 +5,8 @@ Project:            Forge — AI Engineering Control Plane
 Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
 Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
 Last updated:       2026-11-18
-Evidence baseline:  main @ b606e8a (PR #259 merged)
-Active branch:      feat/m3-m5-m6-profiler-pipeline-revert-export-doctor
+Evidence baseline:  main @ 7ee02ba (PR #265 merged)
+Active branch:      feat/m2-m4-m6-templates-sandbox-tokens-security-backup
 ```
 
 ---

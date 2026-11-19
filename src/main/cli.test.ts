@@ -1374,4 +1374,135 @@ new file mode 100644
 
     consoleLog.mockRestore()
   })
+
+  it('lists custom workflow templates with forge workflows templates --json (WORK-012)', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'workflows',
+      'templates',
+      '--data-dir',
+      dataDir,
+      '--cwd',
+      repoPath,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(consoleLogs[0] ?? '{}') as { templates: unknown[]; errors: unknown[] }
+    expect(Array.isArray(parsed.templates)).toBe(true)
+    expect(Array.isArray(parsed.errors)).toBe(true)
+
+    consoleLog.mockRestore()
+  })
+
+  it('inspects sanitized child process environment with forge runtimes env --json (RUNTIME-004)', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const code = await runCli(['runtimes', 'env', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(consoleLogs[0] ?? '{}') as {
+      mode: string
+      env: Record<string, string>
+      withheldKeys: string[]
+    }
+    expect(parsed.mode).toBe('strict')
+    expect(parsed.env).toBeDefined()
+    expect(Array.isArray(parsed.withheldKeys)).toBe(true)
+
+    consoleLog.mockRestore()
+  })
+
+  it('fails closed when calculating cost for non-existent run with forge runs cost (AGENT-005)', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const fakeRunId = randomUUID()
+    const code = await runCli(['runs', 'cost', fakeRunId, '--data-dir', dataDir, '--json'])
+    expect(code).toBe(1)
+    const parsed = JSON.parse(consoleLogs[0] ?? '{}') as { valid: boolean; error: string }
+    expect(parsed.valid).toBe(false)
+    expect(parsed.error).toContain('Run not found')
+
+    consoleLog.mockRestore()
+  })
+
+  it('reports clean audit when no changeset exists with forge diff security (EVIDENCE-002)', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const fakeRunId = randomUUID()
+    const code = await runCli(['diff', 'security', fakeRunId, '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(consoleLogs[0] ?? '{}') as {
+      clean: boolean
+      formattedSummary: string
+    }
+    expect(parsed.clean).toBe(true)
+    expect(parsed.formattedSummary).toContain('No changeset or diff artifacts found')
+
+    consoleLog.mockRestore()
+  })
+
+  it('fails closed with invalid runId on forge diff security (EVIDENCE-002)', async () => {
+    const consoleLogs: string[] = []
+    const consoleLog = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      consoleLogs.push(String(msg))
+    })
+
+    const code = await runCli(['diff', 'security', 'invalid-uuid', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(1)
+    const parsed = JSON.parse(consoleLogs[0] ?? '{}') as { error: string }
+    expect(parsed.error).toContain('Invalid run ID')
+
+    consoleLog.mockRestore()
+  })
+
+  it('executes database backup and restore with forge db backup and restore (STATE-003)', async () => {
+    // 1. Initialize core to ensure forge.db exists
+    const core = createForgeCore({ dataDir })
+    await core.close()
+
+    const backupFile = join(tempDir, 'snapshot.db')
+    const backupLogs: string[] = []
+    const logSpy1 = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      backupLogs.push(String(msg))
+    })
+
+    const backupCode = await runCli(['db', 'backup', backupFile, '--data-dir', dataDir, '--json'])
+    expect(backupCode).toBe(0)
+    const backupParsed = JSON.parse(backupLogs[0] ?? '{}') as { valid: boolean; sha256: string }
+    expect(backupParsed.valid).toBe(true)
+    expect(backupParsed.sha256).toBeDefined()
+    logSpy1.mockRestore()
+
+    // 2. Restore from snapshot
+    const restoreLogs: string[] = []
+    const logSpy2 = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      restoreLogs.push(String(msg))
+    })
+
+    const restoreCode = await runCli([
+      'db',
+      'restore',
+      backupFile,
+      '--force',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(restoreCode).toBe(0)
+    const restoreParsed = JSON.parse(restoreLogs[0] ?? '{}') as { success: boolean; sha256: string }
+    expect(restoreParsed.success).toBe(true)
+    logSpy2.mockRestore()
+  })
 })

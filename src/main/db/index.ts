@@ -43,6 +43,13 @@ export {
   type TableRowStat,
   type VacuumResult,
 } from './maintenance'
+export {
+  backupDatabase,
+  restoreDatabase,
+  type DatabaseBackupResult,
+  type DatabaseRestoreResult,
+  type RestoreOptions,
+} from './backup'
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'
 

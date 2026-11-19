@@ -57,3 +57,12 @@ export {
   rollbackRunChanges,
   type RollbackResult,
 } from './patchRollback'
+
+export {
+  auditDiffSecurity,
+  auditRunChangesetSecurity,
+  type SecurityAuditOptions,
+  type SecurityAuditReport,
+  type SecurityViolation,
+  type SecurityViolationSeverity,
+} from './securityAuditor'

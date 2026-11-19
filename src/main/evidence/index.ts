@@ -92,3 +92,13 @@ export {
   type FileCoverageData,
   type ModifiedFileLineCoverage,
 } from './coverageAuditor'
+export {
+  calculateShannonEntropy,
+  redactSecret,
+  scanDiffForSecretLeaks,
+  scanTextForSecretLeaks,
+  type SecretPattern,
+  type SecretScanResult,
+  type SecretSeverity,
+  type SecretViolation,
+} from './secretLeakScanner'

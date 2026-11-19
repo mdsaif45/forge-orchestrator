@@ -3,7 +3,7 @@
 **Status:** IMPLEMENTED
 **Authority:** Implementation truth (see [documentation-policy.md](../meta/documentation-policy.md))
 **Last Updated:** 2026-11-19
-**Baseline:** `main` @ `b02c9dd` (PR #283 merged)
+**Baseline:** `main` @ `22ef6ac` (PR #289 merged)
 **Verification Baseline:** [verification-baseline.md](verification-baseline.md)
 **Related Roadmap:** [roadmap.md](../roadmap/roadmap.md)
 
@@ -95,6 +95,11 @@ All test counts are per-file assertion counts measured with
 | Test coverage regression auditor & quality delta gate | Correlates modified diff lines with LCOV data to enforce minimum quality thresholds | IMPLEMENTED | VERIFIED | `forge verify coverage` extracts touched diff lines and validates line-coverage against minimum percentage threshold (A3) | `src/main/evidence/coverageAuditor.ts`, `src/main/cli.ts` | `src/main/evidence/coverageAuditor.test.ts` (4), `src/main/cli.test.ts` (50) | EVIDENCE-003 |
 | Multi-project workspace registry & run indexer | Cross-repository project discovery, disk health verification, and missing repo pruning | IMPLEMENTED | VERIFIED | `forge projects [list|prune]` queries SQLite project and run stores, audits repository filesystem existence, and prunes missing roots | `src/main/db/projectRegistry.ts`, `src/main/cli.ts` | `src/main/db/projectRegistry.test.ts` (2), `src/main/cli.test.ts` (50) | STATE-005 |
 | Hierarchical configuration inheritance & administrative policy lock | Multi-tier precedence (Global -> Workspace -> Profile -> CLI) with fail-closed administrative locks | IMPLEMENTED | VERIFIED | `forge config policy` resolves hierarchical configuration tiers and enforces fail-closed policy lock rules (A2, A7) | `src/main/config/configPolicyEngine.ts`, `src/main/cli.ts` | `src/main/config/configPolicyEngine.test.ts` (4), `src/main/cli.test.ts` (50) | CONFIG-006 |
+| Agent tool call rate limiter and token bucket throttler | In-memory token bucket rate limiting and concurrency throttling preventing API flooding | IMPLEMENTED | VERIFIED | `forge runtimes rate-limit` inspects token bucket capacity, refill rate, and active concurrency slots (A2, A5) | `src/main/core/toolRateLimiter.ts`, `src/main/cli.ts` | `src/main/core/toolRateLimiter.test.ts` (4), `src/main/cli.test.ts` (55) | AGENT-009 |
+| Workflow step timeout supervisor & zombie stage terminator | Execution lease tracking and deterministic AbortController timeout enforcement | IMPLEMENTED | VERIFIED | `forge workflows timeout` tracks active execution leases, audit history, and terminates hung/zombie stages (A2, A5) | `src/main/workflows/stepTimeoutSupervisor.ts`, `src/main/cli.ts` | `src/main/workflows/stepTimeoutSupervisor.test.ts` (3), `src/main/cli.test.ts` (55) | WORK-016 |
+| Static security & secret leak scanner for git changesets | Shannon entropy detection and regex rule gate preventing credential leaks in diffs | IMPLEMENTED | VERIFIED | `forge diff secrets <runId>` scans unified diff additions for AWS/OpenAI/GitHub tokens and high-entropy keys (A3, A7) | `src/main/evidence/secretLeakScanner.ts`, `src/main/cli.ts` | `src/main/evidence/secretLeakScanner.test.ts` (5), `src/main/cli.test.ts` (55) | EVIDENCE-004 |
+| Database integrity checker & foreign key orphan auditor | PRAGMA integrity/foreign_key verification and relational orphan record pruning | IMPLEMENTED | VERIFIED | `forge db audit [--fix]` checks SQLite structural integrity, counts orphaned run steps/events/artifacts, and cleanly prunes orphans (A1, A4) | `src/main/db/dbIntegrityAuditor.ts`, `src/main/cli.ts` | `src/main/db/dbIntegrityAuditor.test.ts` (2), `src/main/cli.test.ts` (55) | STATE-006 |
+| Environment variable interpolation engine with fallback defaults | Safe recursive variable substitution (`${VAR:-default}`) with recursion depth ceiling | IMPLEMENTED | VERIFIED | `forge config interpolate <template>` interpolates environment variables with default fallbacks and recursion limits (A2, A6) | `src/main/config/envInterpolator.ts`, `src/main/cli.ts` | `src/main/config/envInterpolator.test.ts` (5), `src/main/cli.test.ts` (55) | CONFIG-007 |
 
 ### 2.2 State, storage & events
 

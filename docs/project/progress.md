@@ -5,8 +5,8 @@ Project:            Forge — AI Engineering Control Plane
 Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
 Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
 Last updated:       2026-11-19
-Evidence baseline:  main @ b02c9dd (PR #283 merged)
-Active branch:      feat/m1-m6-fallback-dlq-coverage-registry-policy
+Evidence baseline:  main @ 22ef6ac (PR #289 merged)
+Active branch:      feat/m1-m6-rate-limiter-timeout-secrets-integrity-env
 ```
 
 ---
@@ -322,20 +322,20 @@ An explicit discrepancy exists between GitHub milestone numbers, GitHub mileston
 
 ## 6. Active Work, Dependencies, and Next Action
 
-- **Current State Baseline:** `main` @ `b02c9dd` (PR #283 merged).
+- **Current State Baseline:** `main` @ `22ef6ac` (PR #289 merged).
 - **Recent Completed PRs:**
-  - **PR #271:** `feat(templates,sandbox,tokens,security,backup): custom template loader, execution sandbox, token accounting, security auditor, and database backup (#266, #267, #268, #269, #270)` (`9eb1b70`).
   - **PR #277:** `feat(prompt,workflows,diff,config,db): prefix caching optimizer, parallel workflow planner, commit synthesizer, secret vault, and event compactor (#272, #273, #274, #275, #276)` (`954f4c2`).
   - **PR #283:** `feat(core,workflows,evidence,runtimes,config): solution memory indexer, workflow snapshot engine, changeset conflict detector, runtime quota manager, and config bootstrapper (#278, #279, #280, #281, #282)` (`b02c9dd`).
-- **In-Progress Cluster (feat/m1-m6-fallback-dlq-coverage-registry-policy):**
-  - **Issue #284 (AGENT-008):** `feat(core): dynamic multi-model fallback router and circuit breaker (AGENT-008)`.
-  - **Issue #285 (WORK-015):** `feat(workflows): workflow dead-letter queue (DLQ) and retry policy engine (WORK-015)`.
-  - **Issue #286 (EVIDENCE-003):** `feat(evidence): test coverage regression auditor and quality delta gate (EVIDENCE-003)`.
-  - **Issue #287 (STATE-005):** `feat(state): multi-project workspace registry and cross-repository run indexer (STATE-005)`.
-  - **Issue #288 (CONFIG-006):** `feat(config): hierarchical configuration inheritance and administrative policy lock (CONFIG-006)`.
+  - **PR #289:** `feat(core,workflows,evidence,state,config): model fallback router, workflow DLQ, coverage delta auditor, project registry, and policy lock (#284, #285, #286, #287, #288)` (`22ef6ac`).
+- **In-Progress Cluster (feat/m1-m6-rate-limiter-timeout-secrets-integrity-env):**
+  - **Issue #290 (AGENT-009):** `feat(core): agent tool call rate limiter and token bucket throttler (AGENT-009)`.
+  - **Issue #291 (WORK-016):** `feat(workflows): workflow step timeout supervisor and zombie stage terminator (WORK-016)`.
+  - **Issue #292 (EVIDENCE-004):** `feat(evidence): static security and secret leak scanner for git commits and patch queues (EVIDENCE-004)`.
+  - **Issue #293 (STATE-006):** `feat(db): database integrity checker and foreign key orphan auditor (STATE-006)`.
+  - **Issue #294 (CONFIG-007):** `feat(config): environment variable interpolation engine with fallback defaults (CONFIG-007)`.
 - **Milestones Status:** All GitHub Milestones M0 through M11 are completed and closed with zero remaining open issues.
 - **Dependencies & Blockers:** None. Local verification gates and test suites are 100% green.
 - **Immediate Next Action:**
-  1. Open PR for Issues #284, #285, #286, #287, #288.
+  1. Open PR for Issues #290, #291, #292, #293, #294.
   2. Verify all CI checks pass on GitHub Actions.
   3. Merge PR to `main` via squash merge.

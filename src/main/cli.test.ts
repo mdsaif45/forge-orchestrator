@@ -1923,4 +1923,141 @@ new file mode 100644
 
     logSpy.mockRestore()
   })
+
+  it('inspects tool rate limiter and throttler metrics via CLI (AGENT-009)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const codeJson = await runCli(['runtimes', 'rate-limit', '--data-dir', dataDir, '--json'])
+    expect(codeJson).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      capacity: number
+      refillRatePerSec: number
+      maxConcurrency: number
+      currentTokens: number
+    }
+    expect(parsed.capacity).toBe(60)
+    expect(parsed.maxConcurrency).toBe(5)
+    expect(parsed.refillRatePerSec).toBe(1)
+
+    logs.length = 0
+    const codeText = await runCli(['runtimes', 'rate-limit', '--data-dir', dataDir])
+    expect(codeText).toBe(0)
+    expect(logs.some((l) => l.includes('TOOL RATE LIMITER & THROTTLER METRICS'))).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('inspects workflow step timeout supervisor status via CLI (WORK-016)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const codeJson = await runCli(['workflows', 'timeout', '--data-dir', dataDir, '--json'])
+    expect(codeJson).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      supervisorStatus: string
+      activeLeases: unknown[]
+      history: unknown[]
+    }
+    expect(parsed.supervisorStatus).toBe('active')
+    expect(Array.isArray(parsed.activeLeases)).toBe(true)
+    expect(Array.isArray(parsed.history)).toBe(true)
+
+    logs.length = 0
+    const codeText = await runCli(['workflows', 'timeout', '--data-dir', dataDir])
+    expect(codeText).toBe(0)
+    expect(logs.some((l) => l.includes('WORKFLOW STEP TIMEOUT SUPERVISOR'))).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('audits diff changesets for credential and secret leaks via CLI (EVIDENCE-004)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+    const errLogs: string[] = []
+    const errSpy = vi.spyOn(console, 'error').mockImplementation((msg) => {
+      errLogs.push(String(msg))
+    })
+
+    // Missing run ID fails with code 1
+    const missingCode = await runCli(['diff', 'secrets', '--data-dir', dataDir, '--json'])
+    expect(missingCode).toBe(1)
+
+    // Run ID with no artifacts returns valid clean result
+    logs.length = 0
+    const runId = randomUUID()
+    const cleanCode = await runCli(['diff', 'secrets', runId, '--data-dir', dataDir, '--json'])
+    expect(cleanCode).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      valid: boolean
+      hasLeaks: boolean
+      violations: unknown[]
+    }
+    expect(parsed.valid).toBe(true)
+    expect(parsed.hasLeaks).toBe(false)
+
+    logSpy.mockRestore()
+    errSpy.mockRestore()
+  })
+
+  it('audits database integrity and prunes orphaned records via CLI (STATE-006)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    // Audit SQLite database
+    const auditCode = await runCli(['db', 'audit', '--data-dir', dataDir, '--json'])
+    expect(auditCode).toBe(0)
+    const auditParsed = JSON.parse(logs[0] ?? '{}') as {
+      valid: boolean
+      integrityCheckPassed: boolean
+      totalOrphans: number
+    }
+    expect(auditParsed.valid).toBe(true)
+    expect(auditParsed.integrityCheckPassed).toBe(true)
+    expect(auditParsed.totalOrphans).toBe(0)
+
+    // Prune orphans with --fix
+    logs.length = 0
+    const fixCode = await runCli(['db', 'audit', '--fix', '--data-dir', dataDir, '--json'])
+    expect(fixCode).toBe(0)
+    const fixParsed = JSON.parse(logs[0] ?? '{}') as {
+      valid: boolean
+      totalPruned: number
+    }
+    expect(fixParsed.valid).toBe(true)
+    expect(fixParsed.totalPruned).toBe(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('interpolates environment variables with default fallbacks via CLI (CONFIG-007)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'config',
+      'interpolate',
+      'http://${FORGE_CLI_TEST_HOST:-localhost}:${FORGE_CLI_TEST_PORT:-8080}/api',
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      success: boolean
+      interpolated: string
+    }
+    expect(parsed.success).toBe(true)
+    expect(parsed.interpolated).toBe('http://localhost:8080/api')
+
+    logSpy.mockRestore()
+  })
 })

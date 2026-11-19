@@ -67,4 +67,11 @@ export {
   type DlqInspectionReport,
   type RetryPolicy,
 } from './retryPolicyEngine'
+export {
+  StepTimeoutError,
+  StepTimeoutSupervisor,
+  stepTimeoutLeaseSchema,
+  type StepTimeoutEvent,
+  type StepTimeoutLease,
+} from './stepTimeoutSupervisor'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

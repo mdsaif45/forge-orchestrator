@@ -108,3 +108,12 @@ export {
   type CommitFooter,
   type CommitValidationResult,
 } from './commitValidator'
+export {
+  computeArtifactLeafHash,
+  generateArtifactMerkleTree,
+  verifyMerkleProof,
+  type ArtifactInfo,
+  type ArtifactMerkleReport,
+  type MerkleLeafRecord,
+  type MerkleProofStep,
+} from './merkleLineage'

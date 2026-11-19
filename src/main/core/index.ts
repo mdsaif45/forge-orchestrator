@@ -85,3 +85,14 @@ export {
   type StreamTurnSummary,
   type MultiplexerOptions,
 } from './streamMultiplexer'
+export {
+  AgentToolReflectionRegistry,
+  type ToolParameterType,
+  type ToolParameterProperty,
+  type ToolDefinition,
+  type OpenAIFunctionDefinition,
+  type AnthropicToolDefinition,
+  type GeminiFunctionDefinition,
+  type ToolValidationResult,
+  type ToolSchemaDescriptor,
+} from './toolReflection'

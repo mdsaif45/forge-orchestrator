@@ -372,21 +372,22 @@ An explicit discrepancy exists between GitHub milestone numbers, GitHub mileston
 
 ## 6. Active Work, Dependencies, and Next Action
 
-- **Current State Baseline:** `main` @ `9727b6c` (PR #319 merged).
+- **Current State Baseline:** `main` @ `bf6c9e1` (PR #325 merged).
 - **Recent Completed PRs:**
   - **PR #301:** `feat(core,workflows,evidence,state,config): prompt coercer, condition evaluator, merkle lineage, event journal, and feature flags (#296, #297, #298, #299, #300)` (`6ba52f7`).
   - **PR #307:** `feat(core,workflows,evidence,state,config): rate limiter, step timeout supervisor, secret leak scanner, db integrity auditor, and env interpolator (#290, #291, #292, #293, #294)` (`8748f6e`).
   - **PR #313:** `feat(core,workflows,evidence,state,config): tool output limiter, workflow checkpoint, verification manifest, event replay, and config migrator (#308, #309, #310, #311, #312)` (`3bda40d`).
   - **PR #319:** `feat(core,workflows,evidence,db,config,cli): prompt compactor, workflow simulator, export surface auditor, ledger verifier, and env sync (#314, #315, #316, #317, #318)` (`9727b6c`).
-- **In-Progress Cluster (feat/m1-m6-stream-subgraph-fuzz-snapdiff-drift):**
-  - **Issue #320 (AGENT-014):** `feat(core): agent streaming turn event dispatcher and structured tool output consumer (AGENT-014)`.
-  - **Issue #321 (WORK-021):** `feat(workflows): workflow step dependency topological sub-graph extractor and cycle isolator (WORK-021)`.
-  - **Issue #322 (EVIDENCE-009):** `feat(evidence): changeset hunk boundary validator and patch fuzziness auditor (EVIDENCE-009)`.
-  - **Issue #323 (STATE-011):** `feat(db): sqlite database snapshot time-travel diffing and table delta analyzer (STATE-011)`.
-  - **Issue #324 (CONFIG-012):** `feat(config): configuration schema drift auditor and undocumented key detector (CONFIG-012)`.
+  - **PR #325:** `feat(core,workflows,evidence,db,config,cli): stream dispatcher, subgraph extractor, patch fuzz auditor, snapshot differ, and config drift (#320, #321, #322, #323, #324)` (`bf6c9e1`).
+- **In-Progress Cluster VIII (feat/m1-m6-reflect-retry-report-savepoint-tmpl):**
+  - **Issue #326 (AGENT-015):** `feat(core): agent dynamic tool schema reflection and runtime capability descriptor (AGENT-015)`.
+  - **Issue #327 (WORK-022):** `feat(workflows): workflow execution step retry policy and exponential backoff scheduler (WORK-022)`.
+  - **Issue #328 (EVIDENCE-010):** `feat(evidence): verification assertion result aggregator and junit tap reporter (EVIDENCE-010)`.
+  - **Issue #329 (STATE-012):** `feat(db): sqlite transactional savepoint manager and nested rollback coordinator (STATE-012)`.
+  - **Issue #330 (CONFIG-013):** `feat(config): configuration template generator and workspace bootstrapper (CONFIG-013)`.
 - **Milestones Status:** All GitHub Milestones M0 through M11 are completed and closed with zero remaining open issues.
 - **Dependencies & Blockers:** None. Local verification gates and test suites are 100% green.
 - **Immediate Next Action:**
-  1. Open PR for Issues #320, #321, #322, #323, #324.
+  1. Open PR for Issues #326, #327, #328, #329, #330.
   2. Verify all CI checks pass on GitHub Actions.
   3. Merge PR to `main` via squash merge.

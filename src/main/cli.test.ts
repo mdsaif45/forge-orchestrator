@@ -1684,4 +1684,112 @@ new file mode 100644
 
     logSpy.mockRestore()
   })
+
+  it('inspects cross-run solution memory stats via CLI', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['memory', 'stats', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as { totalRuns: number; completedRuns: number }
+    expect(parsed.totalRuns).toBeDefined()
+    expect(parsed.completedRuns).toBeDefined()
+
+    logSpy.mockRestore()
+  })
+
+  it('creates and lists workflow snapshots via CLI', async () => {
+    const runId = runIdSchema.parse(randomUUID())
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const createCode = await runCli([
+      'workflows',
+      'snapshot',
+      'create',
+      runId,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(createCode).toBe(0)
+
+    const listCode = await runCli([
+      'workflows',
+      'snapshot',
+      'list',
+      runId,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(listCode).toBe(0)
+    const listResult = JSON.parse(logs[1] ?? '{}') as {
+      totalSnapshots: number
+      snapshots: unknown[]
+    }
+    expect(listResult.totalSnapshots).toBe(1)
+
+    logSpy.mockRestore()
+  })
+
+  it('audits diff conflicts between runs via CLI', async () => {
+    const runIdA = runIdSchema.parse(randomUUID())
+    const runIdB = runIdSchema.parse(randomUUID())
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['diff', 'merge', runIdA, runIdB, '--data-dir', dataDir, '--json'])
+    // Without conflicting diffs, returns 0 (clean / no conflicts)
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as { hasConflicts: boolean; totalFiles: number }
+    expect(parsed.hasConflicts).toBe(false)
+
+    logSpy.mockRestore()
+  })
+
+  it('inspects runtime resource quotas via CLI', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['runtimes', 'quota', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      valid: boolean
+      budget: unknown
+      memoryFlags: string[]
+    }
+    expect(parsed.valid).toBe(true)
+    expect(parsed.budget).toBeDefined()
+    expect(parsed.memoryFlags).toBeDefined()
+
+    logSpy.mockRestore()
+  })
+
+  it('bootstraps workspace configuration via CLI', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['config', 'init', '--cwd', repoPath, '--force', '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      valid: boolean
+      created: boolean
+      configPath: string
+    }
+    expect(parsed.valid).toBe(true)
+    expect(parsed.created).toBe(true)
+
+    logSpy.mockRestore()
+  })
 })

@@ -46,6 +46,7 @@ import {
 } from './db'
 import {
   auditArtifactChecksums,
+  auditRunChangesetConflicts,
   auditRunChangesetSecurity,
   executeVerificationPipeline,
   inspectRunDiff,
@@ -57,12 +58,20 @@ import {
   discoverCustomTemplates,
   validateCustomTemplateFile,
 } from './templates/customTemplateLoader'
-import { planParallelBatches, planWorkflowExecution, profileWorkflowExecution } from './workflows'
+import {
+  createWorkflowSnapshot,
+  listWorkflowSnapshots,
+  planParallelBatches,
+  planWorkflowExecution,
+  profileWorkflowExecution,
+  restoreWorkflowSnapshot,
+} from './workflows'
 import { validateTemplateGraph } from './workflows/validation'
-import { sanitizeRuntimeEnvironment } from './runtimes/environmentSanitizer'
+import { auditRuntimeQuotas, createResourceBudget, sanitizeRuntimeEnvironment } from './runtimes'
 import { calculateRunTokenAccounting } from './core/tokenAccounting'
 import { optimizePromptPacket } from './core/promptOptimizer'
-import { getVaultSecret, listVaultSecrets, setVaultSecret } from './config/secretVault'
+import { getMemoryStats, indexRunMemory, queryAgentMemory } from './core'
+import { bootstrapForgeConfig, getVaultSecret, listVaultSecrets, setVaultSecret } from './config'
 
 const VERSION = '0.3.0-alpha.1'
 
@@ -93,16 +102,17 @@ ${ANSI.bold}USAGE${ANSI.reset}
 ${ANSI.bold}COMMANDS${ANSI.reset}
   run <task>                 Execute an autonomous coding task against the current repository
   runs [list|inspect|events|cost] Inspect past runs, steps, token accounting, and event streams
-  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel] Inspect, plan, profile, and manage workflows & custom templates
+  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot] Inspect, plan, profile, and snapshot workflows & templates
   artifacts [list|cat|grep|verify|export] Inspect, view, search, verify, and export run artifacts
-  diff [revert|security|commit] <runId> [stepId] Inspect physical diffs, rollback changes, security audit, or conventional commit synthesis
+  diff [revert|security|commit|merge] <runId> [stepId|runIdB] Inspect physical diffs, rollback changes, security audit, commit synthesis, or merge conflicts
   processes [list]           Inspect active and completed background process metrics
   status                     Display current repository status and Forge control plane state
   models [list|scan|auto|set] Inspect, auto-select, or configure the active AI model
-  runtimes [list|test|env]   Inspect registered runtimes, test execution, or inspect sanitized environment
+  runtimes [list|test|env|quota] Inspect registered runtimes, test execution, sanitized environment, or resource quotas
   context [inspect|optimize] Inspect prompt packet, context files, or prefix caching optimization
+  memory [search|index|stats] Search, index, and inspect cross-run solution memory and semantic patterns
   verify [pipeline]          Execute ordered multi-stage verification pipeline
-  config [list|get|set|profile|doctor|vault] Inspect, profile, doctor, and secret vault encryption
+  config [list|get|set|profile|doctor|vault|init] Inspect, profile, doctor, secret vault encryption, and workspace bootstrap
   db [stats|vacuum|backup|restore|compact] Inspect SQLite database storage, backup, restore, and event compaction
 
 ${ANSI.bold}OPTIONS${ANSI.reset}
@@ -270,6 +280,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       action: positionals[1],
       targetId: positionals[2],
       extraParam: positionals[3],
+      thirdParam: positionals[4],
       limit: values.limit,
       all: values.all,
       cwd,
@@ -334,6 +345,10 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       val: positionals[3],
       extraParam: positionals[4],
       passphrase: values.passphrase,
+      force: values.force,
+      profile: values.profile,
+      model: values.model,
+      provider: values.provider,
       cwd,
       dataDir,
       json: values.json,
@@ -341,6 +356,15 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
   }
 
   if (command === 'diff') {
+    if (positionals[1] === 'merge') {
+      return handleDiffMerge({
+        runIdA: positionals[2],
+        runIdB: positionals[3],
+        dryRun: values['dry-run'],
+        dataDir,
+        json: values.json,
+      })
+    }
     if (positionals[1] === 'commit') {
       return handleDiffCommit({
         runId: positionals[2],
@@ -373,6 +397,16 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       stepId: positionals[2],
       stat: values.stat,
       cwd,
+      dataDir,
+      json: values.json,
+    })
+  }
+
+  if (command === 'memory') {
+    return handleMemory({
+      action: positionals[1],
+      target: positionals[2],
+      limit: values.limit,
       dataDir,
       json: values.json,
     })
@@ -1578,6 +1612,7 @@ async function handleWorkflows(opts: {
   action: string | undefined
   targetId: string | undefined
   extraParam?: string | undefined
+  thirdParam?: string | undefined
   limit: string | undefined
   all: boolean
   cwd: string
@@ -1607,6 +1642,7 @@ async function handleWorkflows(opts: {
       'templates',
       'template',
       'parallel',
+      'snapshot',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2253,9 +2289,95 @@ async function handleWorkflows(opts: {
       return 0
     }
 
+    if (action === 'snapshot') {
+      const sub = targetId ?? 'list'
+
+      if (sub === 'restore') {
+        const targetRunId = opts.extraParam
+        const snapshotId = opts.thirdParam
+        if (!targetRunId || !snapshotId) {
+          const err = 'Usage: forge workflows snapshot restore <runId> <snapshotId> [--json]'
+          if (opts.json) console.log(JSON.stringify({ error: err }))
+          else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          return 1
+        }
+        const parsedRunId = runIdSchema.safeParse(targetRunId)
+        if (!parsedRunId.success) {
+          const err = `Invalid run ID "${targetRunId}". Expected a valid UUID.`
+          if (opts.json) console.log(JSON.stringify({ error: err }))
+          else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          return 1
+        }
+        const restoreRes = await restoreWorkflowSnapshot(core.dataDir, parsedRunId.data, snapshotId)
+        if (opts.json) {
+          console.log(JSON.stringify(restoreRes))
+          return restoreRes.valid ? 0 : 1
+        }
+        console.log(`\n${restoreRes.formattedSummary}\n`)
+        return restoreRes.valid ? 0 : 1
+      }
+
+      if (sub === 'create') {
+        const targetRunId = opts.extraParam
+        if (!targetRunId) {
+          const err = 'Usage: forge workflows snapshot create <runId> [--json]'
+          if (opts.json) console.log(JSON.stringify({ error: err }))
+          else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          return 1
+        }
+        const parsedRunId = runIdSchema.safeParse(targetRunId)
+        if (!parsedRunId.success) {
+          const err = `Invalid run ID "${targetRunId}". Expected a valid UUID.`
+          if (opts.json) console.log(JSON.stringify({ error: err }))
+          else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          return 1
+        }
+        const created = await createWorkflowSnapshot(core.dataDir, {
+          runId: parsedRunId.data,
+          nodeId: 'manual-checkpoint',
+          iteration: 1,
+          status: 'checkpointed',
+          nodeOutputs: {},
+          traversedEdges: [],
+        })
+        if (opts.json) {
+          console.log(JSON.stringify({ valid: true, snapshot: created }))
+          return 0
+        }
+        console.log(`\n${ANSI.green}✓ Snapshot created: ${created.snapshotId}${ANSI.reset}\n`)
+        return 0
+      }
+
+      // Default: list snapshots for runId
+      const targetRunId = sub === 'list' ? opts.extraParam : sub
+      if (!targetRunId) {
+        const err =
+          'Usage: forge workflows snapshot [list|create|restore] <runId> [snapshotId] [--json]'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      const parsedRunId = runIdSchema.safeParse(targetRunId)
+      if (!parsedRunId.success) {
+        const err = `Invalid run ID "${targetRunId}". Expected a valid UUID.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      const listRes = await listWorkflowSnapshots(core.dataDir, parsedRunId.data)
+      if (opts.json) {
+        console.log(JSON.stringify(listRes))
+        return 0
+      }
+      console.log(`\n${listRes.formattedSummary}\n`)
+      return 0
+    }
+
     console.error(`${ANSI.red}Unknown workflows action: "${action}"${ANSI.reset}`)
     console.error(
-      'Usage: forge workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates] [<id>] [--json]',
+      'Usage: forge workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot] [<id>] [--json]',
     )
     return 1
   } catch (error) {
@@ -2286,6 +2408,17 @@ async function handleRuntimes(opts: {
           runtimeId: opts.targetId,
         },
       })
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return 0
+      }
+      console.log(`\n${report.formattedSummary}\n`)
+      return 0
+    }
+
+    if (opts.action === 'quota' || opts.action === 'limits') {
+      const budget = createResourceBudget()
+      const report = auditRuntimeQuotas(budget)
       if (opts.json) {
         console.log(JSON.stringify(report))
         return 0
@@ -2514,12 +2647,32 @@ async function handleConfig(opts: {
   val?: string | undefined
   extraParam?: string | undefined
   passphrase?: string | undefined
+  force?: boolean | undefined
+  profile?: string | undefined
+  model?: string | undefined
+  provider?: string | undefined
   cwd: string
   dataDir: string
   json: boolean
 }): Promise<number> {
   const action = opts.action ?? 'list'
   const configPath = findForgeConfigFile(opts.cwd)
+
+  if (action === 'init') {
+    const result = await bootstrapForgeConfig({
+      cwd: opts.cwd,
+      force: opts.force,
+      activeProfile: opts.profile,
+      model: opts.model,
+      provider: opts.provider,
+    })
+    if (opts.json) {
+      console.log(JSON.stringify(result))
+      return result.valid ? 0 : 1
+    }
+    console.log(`\n${result.formattedSummary}\n`)
+    return result.valid ? 0 : 1
+  }
 
   if (action === 'vault') {
     const subaction = opts.key ?? 'list'
@@ -2769,7 +2922,9 @@ async function handleConfig(opts: {
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
     console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
-    console.error('Usage: forge config [list|get|set|profile] [<key>] [<value>] [--json]')
+    console.error(
+      'Usage: forge config [list|get|set|profile|doctor|vault|init] [<key>] [<value>] [--json]',
+    )
   }
   return 1
 }
@@ -3246,6 +3401,138 @@ async function handleDiffCommit(opts: {
     } else {
       console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
     }
+    return 1
+  } finally {
+    await core.close()
+  }
+}
+
+async function handleDiffMerge(opts: {
+  readonly runIdA?: string | undefined
+  readonly runIdB?: string | undefined
+  readonly dryRun?: boolean | undefined
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  if (!opts.runIdA || !opts.runIdB) {
+    const err = 'Usage: forge diff merge <runIdA> <runIdB> [--dry-run] [--json]'
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else console.error(`${ANSI.red}Error: Two run IDs required.${ANSI.reset}\n${err}`)
+    return 1
+  }
+
+  const parsedA = runIdSchema.safeParse(opts.runIdA)
+  const parsedB = runIdSchema.safeParse(opts.runIdB)
+  if (!parsedA.success || !parsedB.success) {
+    const err = 'Invalid run ID provided. Both must be valid UUIDs.'
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+    return 1
+  }
+
+  const core = createForgeCore({ dataDir: opts.dataDir })
+  try {
+    const report = await auditRunChangesetConflicts(
+      core.artifacts,
+      core.artifactStore,
+      parsedA.data,
+      parsedB.data,
+    )
+
+    if (opts.json) {
+      console.log(JSON.stringify(report))
+      return report.hasConflicts ? 1 : 0
+    }
+
+    console.log(`\n${report.formattedSummary}\n`)
+    return report.hasConflicts ? 1 : 0
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (opts.json) {
+      console.log(JSON.stringify({ error: msg }))
+    } else {
+      console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+    }
+    return 1
+  } finally {
+    await core.close()
+  }
+}
+
+async function handleMemory(opts: {
+  readonly action?: string | undefined
+  readonly target?: string | undefined
+  readonly limit?: string | undefined
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  const action = opts.action ?? 'stats'
+  const core = createForgeCore({ dataDir: opts.dataDir })
+  try {
+    if (action === 'stats') {
+      const stats = await getMemoryStats(core.runs)
+      if (opts.json) {
+        console.log(JSON.stringify(stats))
+        return 0
+      }
+      console.log(`\n${stats.formattedSummary}\n`)
+      return 0
+    }
+
+    if (action === 'index') {
+      const runId = opts.target
+      if (!runId) {
+        const err = 'Usage: forge memory index <runId> [--json]'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const parsedRunId = runIdSchema.safeParse(runId)
+      if (!parsedRunId.success) {
+        const err = `Invalid run ID "${runId}". Expected a valid UUID.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const entry = await indexRunMemory(core.runs, core.artifactStore, parsedRunId.data)
+      if (!entry) {
+        const err = `Run "${runId}" not eligible for memory index (must have status=completed and exitCode=0)`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      if (opts.json) {
+        console.log(JSON.stringify({ indexed: true, entry }))
+        return 0
+      }
+      console.log(`\n${ANSI.green}✓ Run "${runId}" indexed into solution memory.${ANSI.reset}\n`)
+      return 0
+    }
+
+    if (action === 'search') {
+      const query = opts.target
+      if (!query) {
+        const err = 'Usage: forge memory search <query> [--limit <n>] [--json]'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const limit = opts.limit ? parseInt(opts.limit, 10) : 5
+      const result = await queryAgentMemory(core.runs, core.artifactStore, {
+        query,
+        limit: isNaN(limit) ? 5 : limit,
+      })
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+        return 0
+      }
+      console.log(`\n${result.formattedSummary}\n`)
+      return 0
+    }
+
+    const err = `Unknown memory action: "${action}". Available: stats, search, index`
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
     return 1
   } finally {
     await core.close()

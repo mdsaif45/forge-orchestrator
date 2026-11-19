@@ -75,3 +75,10 @@ export {
   type RuntimeHealthStatus,
   type RuntimeExecutionTestResult,
 } from './probe'
+
+export {
+  sanitizeRuntimeEnvironment,
+  DEFAULT_ALLOWED_ENV_VARS,
+  type SanitizeEnvironmentOptions,
+  type SanitizedEnvironmentReport,
+} from './environmentSanitizer'

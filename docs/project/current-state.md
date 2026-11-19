@@ -3,7 +3,7 @@
 **Status:** IMPLEMENTED
 **Authority:** Implementation truth (see [documentation-policy.md](../meta/documentation-policy.md))
 **Last Updated:** 2026-11-18
-**Baseline:** `main` @ `b606e8a` (PR #259 merged)
+**Baseline:** `main` @ `7ee02ba` (PR #265 merged)
 **Verification Baseline:** [verification-baseline.md](verification-baseline.md)
 **Related Roadmap:** [roadmap.md](../roadmap/roadmap.md)
 
@@ -75,6 +75,11 @@ All test counts are per-file assertion counts measured with
 | Changeset reverse patch rollback | Safe atomic patch reversal | IMPLEMENTED | VERIFIED | `forge diff revert <runId>` generates reverse patch, validates via `git apply --check`, and restores files | `src/main/evidence/patchRollback.ts`, `src/main/cli.ts` | `src/main/evidence/patchRollback.test.ts` (4), `src/main/cli.test.ts` (29) | DIFF-002 |
 | Self-contained execution archive exporter | Audit-proof execution bundle export | IMPLEMENTED | VERIFIED | `forge artifacts export <runId>` creates JSON/directory archive with cryptographic SHA-256 manifest | `src/main/artifacts/artifactExporter.ts`, `src/main/cli.ts` | `src/main/artifacts/artifactExporter.test.ts` (3), `src/main/cli.test.ts` (29) | ARTIFACT-003 |
 | Environment health & diagnostic doctor | Environment, SQLite, and config auditor | IMPLEMENTED | VERIFIED | `forge config doctor` verifies .forgerc, SQLite integrity_check/foreign_key_check, git, and provider reachability | `src/main/config/configDoctor.ts`, `src/main/cli.ts` | `src/main/config/configDoctor.test.ts` (2), `src/main/cli.test.ts` (29) | CONFIG-003 |
+| User-defined workflow templates & custom loader | Dynamic DAG template discovery & schema validation | IMPLEMENTED | VERIFIED | `forge workflows templates [list|validate]` discovers and validates custom DAG templates | `src/main/templates/customTemplateLoader.ts`, `src/main/cli.ts` | `src/main/templates/customTemplateLoader.test.ts` (5), `src/main/cli.test.ts` (35) | WORK-012 |
+| Runtime environment sanitization & secret isolation | Deterministic process sandbox & secret scrubbing | IMPLEMENTED | VERIFIED | `forge runtimes env` scrubs environment secrets (A7) and injects execution context | `src/main/runtimes/environmentSanitizer.ts`, `src/main/cli.ts` | `src/main/runtimes/environmentSanitizer.test.ts` (4), `src/main/cli.test.ts` (35) | RUNTIME-004 |
+| Token budget tracker & cost accounting | Model inference cost accounting & spending ceilings | IMPLEMENTED | VERIFIED | `forge runs cost <runId>` computes token usage, USD estimates, and enforces budget caps (A5) | `src/main/core/tokenAccounting.ts`, `src/main/cli.ts` | `src/main/core/tokenAccounting.test.ts` (4), `src/main/cli.test.ts` (35) | AGENT-005 |
+| Changeset diff security auditor & credential leak gate | Security audit of git patches and forbidden files | IMPLEMENTED | VERIFIED | `forge diff security <runId>` scans unified diffs for private keys, AWS/GitHub tokens, and .env files | `src/main/evidence/securityAuditor.ts`, `src/main/cli.ts` | `src/main/evidence/securityAuditor.test.ts` (5), `src/main/cli.test.ts` (35) | EVIDENCE-002 |
+| Online database snapshot backup & atomic restore | Non-blocking snapshot backup and rollback-protected restore | IMPLEMENTED | VERIFIED | `forge db [backup|restore]` takes point-in-time SQLite snapshots with SHA-256 integrity and atomic restore | `src/main/db/backup.ts`, `src/main/cli.ts` | `src/main/db/backup.test.ts` (4), `src/main/cli.test.ts` (35) | STATE-003 |
 
 ### 2.2 State, storage & events
 

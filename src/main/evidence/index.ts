@@ -151,3 +151,8 @@ export {
   type TestSuiteAssertion,
   type AssertionReportSummary,
 } from './assertionReporter'
+export {
+  auditDependencyCycles,
+  extractImportSpecifiers,
+  type DependencyCycleReport,
+} from './dependencyCycleAuditor'

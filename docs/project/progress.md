@@ -379,15 +379,16 @@ An explicit discrepancy exists between GitHub milestone numbers, GitHub mileston
   - **PR #313:** `feat(core,workflows,evidence,state,config): tool output limiter, workflow checkpoint, verification manifest, event replay, and config migrator (#308, #309, #310, #311, #312)` (`3bda40d`).
   - **PR #319:** `feat(core,workflows,evidence,db,config,cli): prompt compactor, workflow simulator, export surface auditor, ledger verifier, and env sync (#314, #315, #316, #317, #318)` (`9727b6c`).
   - **PR #325:** `feat(core,workflows,evidence,db,config,cli): stream dispatcher, subgraph extractor, patch fuzz auditor, snapshot differ, and config drift (#320, #321, #322, #323, #324)` (`bf6c9e1`).
-- **In-Progress Cluster VIII (feat/m1-m6-reflect-retry-report-savepoint-tmpl):**
-  - **Issue #326 (AGENT-015):** `feat(core): agent dynamic tool schema reflection and runtime capability descriptor (AGENT-015)`.
-  - **Issue #327 (WORK-022):** `feat(workflows): workflow execution step retry policy and exponential backoff scheduler (WORK-022)`.
-  - **Issue #328 (EVIDENCE-010):** `feat(evidence): verification assertion result aggregator and junit tap reporter (EVIDENCE-010)`.
-  - **Issue #329 (STATE-012):** `feat(db): sqlite transactional savepoint manager and nested rollback coordinator (STATE-012)`.
-  - **Issue #330 (CONFIG-013):** `feat(config): configuration template generator and workspace bootstrapper (CONFIG-013)`.
+  - **PR #331:** `feat(core,workflows,evidence,db,config,cli): tool reflection, step retry policy, assertion reporter, db savepoints, and config template (#326, #327, #328, #329, #330)` (`7cdd99d`).
+- **In-Progress Cluster IX (feat/m1-m6-budget-semaphore-cycle-fts-boundary):**
+  - **Issue #332 (AGENT-016):** `feat(core): agent prompt context window budgeting and automatic truncation estimator (AGENT-016)`.
+  - **Issue #333 (WORK-023):** `feat(workflows): workflow execution step concurrency limiter and resource semaphore (WORK-023)`.
+  - **Issue #334 (EVIDENCE-011):** `feat(evidence): changeset ast import export dependency cycle detector (EVIDENCE-011)`.
+  - **Issue #335 (STATE-013):** `feat(db): sqlite full text search fts5 virtual table and event query engine (STATE-013)`.
+  - **Issue #336 (CONFIG-014):** `feat(config): workspace security sandboxing policy validator and boundary guard (CONFIG-014)`.
 - **Milestones Status:** All GitHub Milestones M0 through M11 are completed and closed with zero remaining open issues.
 - **Dependencies & Blockers:** None. Local verification gates and test suites are 100% green.
 - **Immediate Next Action:**
-  1. Open PR for Issues #326, #327, #328, #329, #330.
+  1. Open PR for Issues #332, #333, #334, #335, #336.
   2. Verify all CI checks pass on GitHub Actions.
   3. Merge PR to `main` via squash merge.

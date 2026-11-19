@@ -102,6 +102,13 @@ export {
   type DatabaseSnapshotDiffOptions,
 } from './snapshotDiffer'
 export { DatabaseSavepointManager, type SavepointReceipt } from './savepointManager'
+export {
+  searchDatabaseEvents,
+  generateSearchSnippet,
+  type EventSearchQuery,
+  type EventSearchHit,
+  type EventSearchReport,
+} from './eventSearchEngine'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

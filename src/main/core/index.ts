@@ -96,3 +96,12 @@ export {
   type ToolValidationResult,
   type ToolSchemaDescriptor,
 } from './toolReflection'
+export {
+  auditPromptContextBudget,
+  estimateTokens,
+  type BudgetSectionInput,
+  type BudgetSectionAudit,
+  type TruncatedSectionPlan,
+  type ContextBudgetReport,
+  type ContextBudgetOptions,
+} from './promptBudgetSupervisor'

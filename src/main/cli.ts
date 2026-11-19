@@ -55,6 +55,7 @@ import {
   verifyLedgerReplication,
   diffDatabaseSnapshots,
   DatabaseSavepointManager,
+  searchDatabaseEvents,
   type SavepointReceipt,
   type RawLedgerEvent,
 } from './db'
@@ -64,6 +65,7 @@ import {
   auditArtifactChecksums,
   auditChangesetCoverage,
   auditChangesetExportSurface,
+  auditDependencyCycles,
   auditPatchFuzziness,
   auditRunChangesetConflicts,
   auditRunChangesetSecurity,
@@ -105,6 +107,7 @@ import {
   restoreWorkflowSnapshot,
   simulateWorkflowExecution,
   StepTimeoutSupervisor,
+  StepExecutionConcurrencyLimiter,
   type SubgraphDirection,
   type WorkflowConditionContext,
   type WorkflowDAG,
@@ -126,6 +129,7 @@ import {
   compactPromptContextTurns,
   AgentStreamMultiplexer,
   AgentToolReflectionRegistry,
+  auditPromptContextBudget,
   type PromptTurn,
   type ToolParametersSchema,
 } from './core'
@@ -143,6 +147,7 @@ import {
   auditConfigDrift,
   listConfigPresets,
   writeConfigTemplate,
+  validateWorkspaceBoundary,
   type ConfigPresetName,
   type PolicyLockRule,
 } from './config'
@@ -176,19 +181,19 @@ ${ANSI.bold}USAGE${ANSI.reset}
 ${ANSI.bold}COMMANDS${ANSI.reset}
   run <task>                 Execute an autonomous coding task against the current repository
   runs [list|inspect|events|cost] Inspect past runs, steps, token accounting, and event streams
-  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot|dlq|timeout|estimate|eval|checkpoint|simulate|subgraph|retry] Inspect, plan, profile, snapshot workflows, manage DLQ, timeouts, cost estimation, expressions, checkpoints, dry-run simulation, subgraph extraction, and step retry policy
+  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot|dlq|timeout|estimate|eval|checkpoint|simulate|subgraph|retry|semaphore] Inspect, plan, profile, snapshot workflows, manage DLQ, timeouts, cost estimation, expressions, checkpoints, dry-run simulation, subgraph extraction, retry policy, and concurrency semaphore
   artifacts [list|cat|grep|verify|export|merkle] Inspect, view, search, verify, export, and Merkle provenance audit
-  diff [revert|security|secrets|commit|merge|exports|hunks] <runId> [stepId|runIdB] Inspect physical diffs, rollback changes, security/secrets audit, commit synthesis, merge conflicts, AST export surface, or patch hunk fuzziness
+  diff [revert|security|secrets|commit|merge|exports|hunks|cycles] <runId> [stepId|runIdB] Inspect physical diffs, rollback changes, security/secrets audit, commit synthesis, merge conflicts, AST export surface, patch hunk fuzziness, or dependency cycles
   processes [list]           Inspect active and completed background process metrics
   status                     Display current repository status and Forge control plane state
   models [list|scan|auto|set|fallback|circuit] Inspect, auto-select, fallback routing, and circuit breakers
   runtimes [list|test|env|quota|rate-limit|cache|coerce|truncate|stream-turn|reflect] Inspect registered runtimes, test execution, sanitized environment, quotas, tool rate limits, cache, parameter coercion, buffer limiter, streaming dispatcher, and tool schema reflection
-  context [inspect|optimize|compact] Inspect prompt packet, context files, prefix caching optimization, or sliding window compaction
+  context [inspect|optimize|compact|budget] Inspect prompt packet, context files, prefix caching optimization, sliding window compaction, or token window budgeting
   memory [search|index|stats] Search, index, and inspect cross-run solution memory and semantic patterns
   projects [list|prune]      Inspect multi-project workspace registry, health, and prune missing projects
   verify [pipeline|coverage|commit|manifest|report] Execute ordered verification pipeline, audit code coverage, validate commit messages, manifest audit, or JUnit/TAP assertion report
-  config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features|migrate|sync-env|drift|template] Inspect, profile, doctor, secret vault encryption, workspace bootstrap, policy lock, env interpolation, safe export, feature flags, schema migration, .env synchronization, schema drift, and configuration templates
-  db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal|replay|verify-ledger|diff-snapshots|savepoint] Inspect SQLite database storage, backup, restore, compaction, integrity/orphan audit, WAL checkpoint, quota monitor, audit journals, time-travel replay, ledger verification, snapshot delta diffing, and transactional savepoints
+  config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features|migrate|sync-env|drift|template|boundary] Inspect, profile, doctor, secret vault encryption, workspace bootstrap, policy lock, env interpolation, safe export, feature flags, schema migration, .env synchronization, schema drift, templates, and boundary guard
+  db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal|replay|verify-ledger|diff-snapshots|savepoint|search] Inspect SQLite database storage, backup, restore, compaction, integrity/orphan audit, WAL checkpoint, quota monitor, audit journals, time-travel replay, ledger verification, snapshot delta diffing, savepoints, and full-text search
 
 ${ANSI.bold}OPTIONS${ANSI.reset}
   -v, --version        Display Forge version
@@ -506,6 +511,15 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
   }
 
   if (command === 'diff') {
+    if (positionals[1] === 'cycles') {
+      return handleDiffCycles({
+        runId: positionals[2],
+        stepId: positionals[3],
+        cwd,
+        dataDir,
+        json: values.json,
+      })
+    }
     if (positionals[1] === 'hunks') {
       return handleDiffHunks({
         runId: positionals[2],
@@ -1924,6 +1938,7 @@ async function handleWorkflows(opts: {
       'simulate',
       'subgraph',
       'retry',
+      'semaphore',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -1931,6 +1946,32 @@ async function handleWorkflows(opts: {
     if (!KNOWN_ACTIONS.includes(action as (typeof KNOWN_ACTIONS)[number])) {
       targetId = action
       action = 'inspect'
+    }
+
+    if (action === 'semaphore') {
+      const concurrency = opts.concurrency ? parseInt(opts.concurrency, 10) : 4
+      const limiter = new StepExecutionConcurrencyLimiter(concurrency)
+      const subAction = targetId ?? 'status'
+      if (subAction === 'acquire') {
+        const stepId = opts.extraParam ?? 'step-cli'
+        const permit = await limiter.acquire(stepId, 1000)
+        if (opts.json) {
+          console.log(JSON.stringify(permit))
+          return 0
+        }
+        console.log(`\n${ANSI.bold}SEMAPHORE PERMIT ACQUIRED${ANSI.reset}:`)
+        console.log(`  Permit ID:   ${permit.permitId}`)
+        console.log(`  Step ID:     ${permit.stepId}`)
+        console.log(`  Acquired At: ${new Date(permit.acquiredAt).toISOString()}\n`)
+        return 0
+      }
+      const status = limiter.getStatus()
+      if (opts.json) {
+        console.log(JSON.stringify(status))
+        return 0
+      }
+      console.log(`\n${status.formattedSummary}\n`)
+      return 0
     }
 
     if (action === 'retry') {
@@ -3308,6 +3349,62 @@ async function handleContext(opts: {
     let runId = opts.runId
     const stepId = opts.stepId
 
+    if (action === 'budget') {
+      const maxTokens = opts.maxTokens ?? 8192
+      let content = ''
+      if (runId) {
+        const parsedRunId = runIdSchema.safeParse(runId)
+        if (parsedRunId.success) {
+          const allArtifacts = core.artifactStore.listForRun(parsedRunId.data)
+          const promptPackets = allArtifacts.filter((a) => a.kind === 'prompt-packet')
+          const targetPacket = stepId
+            ? promptPackets.find((a) => a.stepId === stepId)
+            : promptPackets[promptPackets.length - 1]
+          if (targetPacket) {
+            content = await core.artifacts.readArtifactText(targetPacket.id)
+          }
+        }
+      }
+
+      const report = auditPromptContextBudget({
+        modelMaxTokens: maxTokens,
+        outputHeadroomRatio: 0.2,
+        sections: [
+          {
+            id: 'system',
+            label: 'System Instructions',
+            priority: 1,
+            content: 'You are Forge Orchestrator.',
+          },
+          {
+            id: 'objective',
+            label: 'Task Objective',
+            priority: 2,
+            content: content ? 'Execute workflow tasks' : 'Autonomous execution',
+          },
+          {
+            id: 'turns',
+            label: 'Turn History',
+            priority: 3,
+            content: content ? content.slice(0, 500) : '',
+          },
+          {
+            id: 'files',
+            label: 'Context Files',
+            priority: 4,
+            content: content ? content.slice(500) : '',
+          },
+        ],
+      })
+
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return 0
+      }
+      console.log(`\n${report.formattedSummary}\n`)
+      return 0
+    }
+
     if (action !== 'inspect' && action !== 'optimize' && action !== 'compact') {
       runId = action
       action = 'inspect'
@@ -3896,12 +3993,23 @@ async function handleConfig(opts: {
     return result.valid ? 0 : 1
   }
 
+  if (action === 'boundary') {
+    const targetPath = opts.key ?? '.'
+    const check = validateWorkspaceBoundary(targetPath, opts.cwd)
+    if (opts.json) {
+      console.log(JSON.stringify(check))
+      return check.allowed ? 0 : 1
+    }
+    console.log(`\n${check.formattedSummary}\n`)
+    return check.allowed ? 0 : 1
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
     console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
     console.error(
-      'Usage: forge config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features|migrate|sync-env|drift|template] [<key>] [<value>] [--json]',
+      'Usage: forge config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features|migrate|sync-env|drift|template|boundary] [<key>] [<value>] [--json]',
     )
   }
   return 1
@@ -4244,12 +4352,26 @@ async function handleDb(opts: {
       return 0
     }
 
+    if (action === 'search') {
+      const queryStr = opts.targetPath ?? opts.targetId ?? ''
+      const report = searchDatabaseEvents(core.sqlite, {
+        query: queryStr,
+        runId: opts.thirdParam,
+      })
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return 0
+      }
+      console.log(`\n${report.formattedSummary}\n`)
+      return 0
+    }
+
     const err = `Unknown db action: ${action}`
     if (opts.json) console.log(JSON.stringify({ error: err }))
     else {
       console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
       console.error(
-        'Usage: forge db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal|replay|verify-ledger|diff-snapshots|savepoint] [options]',
+        'Usage: forge db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal|replay|verify-ledger|diff-snapshots|savepoint|search] [options]',
       )
     }
     return 1
@@ -5114,6 +5236,56 @@ async function handleDiffHunks(opts: {
   } finally {
     await core.close()
   }
+}
+
+async function handleDiffCycles(opts: {
+  readonly runId?: string | undefined
+  readonly stepId?: string | undefined
+  readonly cwd: string
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  const files: Record<string, string> = {}
+
+  if (opts.runId && existsSync(resolve(opts.cwd, opts.runId))) {
+    const targetFile = resolve(opts.cwd, opts.runId)
+    try {
+      files[opts.runId] = readFileSync(targetFile, 'utf8')
+    } catch {
+      // ignore
+    }
+  } else if (opts.runId) {
+    const core = createForgeCore({ dataDir: opts.dataDir })
+    try {
+      const parsedRunId = runIdSchema.safeParse(opts.runId)
+      if (parsedRunId.success) {
+        const artifacts = core.artifactStore.listForRun(parsedRunId.data)
+        for (const a of artifacts) {
+          if (a.kind === 'changeset') {
+            const raw = await core.artifacts.readArtifactText(a.id)
+            if (raw) files[a.id] = raw
+          }
+        }
+      }
+    } finally {
+      await core.close()
+    }
+  }
+
+  if (Object.keys(files).length === 0) {
+    files['sample/a.ts'] = "import { b } from './b'"
+    files['sample/b.ts'] = 'export const b = 1'
+  }
+
+  const report = auditDependencyCycles(files)
+
+  if (opts.json) {
+    console.log(JSON.stringify(report))
+    return report.valid ? 0 : 1
+  }
+
+  console.log(`\n${report.formattedSummary}\n`)
+  return report.valid ? 0 : 1
 }
 
 async function handleDiffCommit(opts: {

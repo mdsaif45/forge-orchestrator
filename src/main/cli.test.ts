@@ -3118,4 +3118,97 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('audits prompt context window budgeting with forge context budget (AGENT-016)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['context', 'budget', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.valid).toBe(true)
+    expect(parsed.modelMaxTokens).toBeGreaterThan(0)
+    expect(parsed.reservedHeadroomTokens).toBeGreaterThan(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('manages workflow step concurrency semaphore with forge workflows semaphore (WORK-023)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['workflows', 'semaphore', 'status', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.capacity).toBe(4)
+    expect(parsed.availablePermits).toBe(4)
+
+    logSpy.mockRestore()
+  })
+
+  it('audits changeset dependency cycles with forge diff cycles (EVIDENCE-011)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'diff',
+      'cycles',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.valid).toBe(true)
+    expect(parsed.hasCycles).toBe(false)
+
+    logSpy.mockRestore()
+  })
+
+  it('searches event store payloads with forge db search (STATE-013)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['db', 'search', 'start', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(typeof parsed.totalHits).toBe('number')
+    expect(Array.isArray(parsed.hits)).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('enforces workspace boundary containment with forge config boundary (CONFIG-014)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'config',
+      'boundary',
+      'src/main.ts',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.allowed).toBe(true)
+    expect(parsed.violationKind).toBe('none')
+
+    logSpy.mockRestore()
+  })
 })

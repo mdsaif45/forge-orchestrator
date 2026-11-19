@@ -102,3 +102,9 @@ export {
   type SecretSeverity,
   type SecretViolation,
 } from './secretLeakScanner'
+export {
+  ALLOWED_COMMIT_TYPES,
+  validateCommitMessage,
+  type CommitFooter,
+  type CommitValidationResult,
+} from './commitValidator'

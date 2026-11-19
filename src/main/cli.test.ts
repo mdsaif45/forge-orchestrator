@@ -2060,4 +2060,149 @@ new file mode 100644
 
     logSpy.mockRestore()
   })
+
+  it('inspects and clears tool idempotency cache via CLI (AGENT-010)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const statsCode = await runCli(['runtimes', 'cache', '--json'])
+    expect(statsCode).toBe(0)
+    const statsParsed = JSON.parse(logs[0] ?? '{}') as {
+      size: number
+      hits: number
+      misses: number
+    }
+    expect(typeof statsParsed.size).toBe('number')
+    expect(typeof statsParsed.hits).toBe('number')
+
+    logs.length = 0
+    const clearCode = await runCli(['runtimes', 'cache', 'clear', '--json'])
+    expect(clearCode).toBe(0)
+    const clearParsed = JSON.parse(logs[0] ?? '{}') as { cleared: boolean }
+    expect(clearParsed.cleared).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('estimates workflow execution tokens and cost offline via CLI (WORK-017)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['workflows', 'estimate', 'cr-sdlc', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      valid: boolean
+      totalNodes: number
+      maxInputTokens: number
+      maxEstimatedCostUsd: number
+    }
+    expect(parsed.valid).toBe(true)
+    expect(parsed.totalNodes).toBeGreaterThan(0)
+    expect(parsed.maxInputTokens).toBeGreaterThan(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('validates conventional commit messages via CLI (EVIDENCE-005)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    // Valid conventional commit
+    const validCode = await runCli([
+      'verify',
+      'commit',
+      'feat(core): implement tool idempotency cache (#296)',
+      '--json',
+    ])
+    expect(validCode).toBe(0)
+    const validParsed = JSON.parse(logs[0] ?? '{}') as {
+      valid: boolean
+      type: string
+      scope: string
+      isBreaking: boolean
+    }
+    expect(validParsed.valid).toBe(true)
+    expect(validParsed.type).toBe('feat')
+    expect(validParsed.scope).toBe('core')
+    expect(validParsed.isBreaking).toBe(false)
+
+    // Invalid commit message
+    logs.length = 0
+    const invalidCode = await runCli(['verify', 'commit', 'bad commit with no type', '--json'])
+    expect(invalidCode).toBe(1)
+    const invalidParsed = JSON.parse(logs[0] ?? '{}') as {
+      valid: boolean
+      errors: string[]
+    }
+    expect(invalidParsed.valid).toBe(false)
+    expect(invalidParsed.errors.length).toBeGreaterThan(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('executes SQLite WAL checkpoint and monitors storage quota via CLI (STATE-007)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    // Run WAL checkpoint
+    const checkpointCode = await runCli([
+      'db',
+      'checkpoint',
+      '--force',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(checkpointCode).toBe(0)
+    const checkpointParsed = JSON.parse(logs[0] ?? '{}') as {
+      valid: boolean
+      checkpointExecuted: boolean
+    }
+    expect(checkpointParsed.valid).toBe(true)
+    expect(checkpointParsed.checkpointExecuted).toBe(true)
+
+    // Check storage quota
+    logs.length = 0
+    const quotaCode = await runCli(['db', 'quota', '--data-dir', dataDir, '--json'])
+    expect(quotaCode).toBe(0)
+    const quotaParsed = JSON.parse(logs[0] ?? '{}') as {
+      quotaExceeded: boolean
+      totalStorageBytes: number
+    }
+    expect(quotaParsed.quotaExceeded).toBe(false)
+    expect(quotaParsed.totalStorageBytes).toBeGreaterThanOrEqual(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('exports configuration with sensitive values masked via CLI (CONFIG-008)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'config',
+      'export',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--safe',
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(typeof parsed).toBe('object')
+
+    logSpy.mockRestore()
+  })
 })

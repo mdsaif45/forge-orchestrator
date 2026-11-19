@@ -3,7 +3,7 @@
 **Status:** IMPLEMENTED
 **Authority:** Implementation truth (see [documentation-policy.md](../meta/documentation-policy.md))
 **Last Updated:** 2026-11-19
-**Baseline:** `main` @ `22ef6ac` (PR #289 merged)
+**Baseline:** `main` @ `c3fd9df` (PR #295 merged)
 **Verification Baseline:** [verification-baseline.md](verification-baseline.md)
 **Related Roadmap:** [roadmap.md](../roadmap/roadmap.md)
 
@@ -100,6 +100,11 @@ All test counts are per-file assertion counts measured with
 | Static security & secret leak scanner for git changesets | Shannon entropy detection and regex rule gate preventing credential leaks in diffs | IMPLEMENTED | VERIFIED | `forge diff secrets <runId>` scans unified diff additions for AWS/OpenAI/GitHub tokens and high-entropy keys (A3, A7) | `src/main/evidence/secretLeakScanner.ts`, `src/main/cli.ts` | `src/main/evidence/secretLeakScanner.test.ts` (5), `src/main/cli.test.ts` (55) | EVIDENCE-004 |
 | Database integrity checker & foreign key orphan auditor | PRAGMA integrity/foreign_key verification and relational orphan record pruning | IMPLEMENTED | VERIFIED | `forge db audit [--fix]` checks SQLite structural integrity, counts orphaned run steps/events/artifacts, and cleanly prunes orphans (A1, A4) | `src/main/db/dbIntegrityAuditor.ts`, `src/main/cli.ts` | `src/main/db/dbIntegrityAuditor.test.ts` (2), `src/main/cli.test.ts` (55) | STATE-006 |
 | Environment variable interpolation engine with fallback defaults | Safe recursive variable substitution (`${VAR:-default}`) with recursion depth ceiling | IMPLEMENTED | VERIFIED | `forge config interpolate <template>` interpolates environment variables with default fallbacks and recursion limits (A2, A6) | `src/main/config/envInterpolator.ts`, `src/main/cli.ts` | `src/main/config/envInterpolator.test.ts` (5), `src/main/cli.test.ts` (55) | CONFIG-007 |
+| Tool call idempotency & deduplication cache | In-memory cache for read-only agent tool executions with TTL, LRU eviction, and mutation-triggered invalidation | IMPLEMENTED | VERIFIED | `forge runtimes cache [stats|clear]` caches idempotent tool responses, intercepts mutations, and tracks hit ratios (A1, A3, A5) | `src/main/core/toolIdempotencyCache.ts`, `src/main/cli.ts` | `src/main/core/toolIdempotencyCache.test.ts` (5), `src/main/cli.test.ts` (60) | AGENT-010 |
+| Offline workflow DAG execution cost and token estimator | Static DAG simulation modeling iteration loops, turn ceilings, and model cost formulas | IMPLEMENTED | VERIFIED | `forge workflows estimate <templateId>` calculates upper-bound token usage, node counts, and USD cost ceilings (A2, A5) | `src/main/workflows/workflowCostEstimator.ts`, `src/main/cli.ts` | `src/main/workflows/workflowCostEstimator.test.ts` (3), `src/main/cli.test.ts` (60) | WORK-017 |
+| Commit message conventional specification & impact validator | Conventional Commits 1.0.0 enforcement, breaking change detection, and header length ceilings | IMPLEMENTED | VERIFIED | `forge verify commit "<msg>"` verifies semantic commit structures, footer token formatting, and failure diagnostics (A3, A5) | `src/main/evidence/commitValidator.ts`, `src/main/cli.ts` | `src/main/evidence/commitValidator.test.ts` (4), `src/main/cli.test.ts` (60) | EVIDENCE-005 |
+| SQLite WAL checkpoint supervisor & storage quota monitor | Pragma checkpointing with TRUNCATE mode and total directory quota threshold monitoring | IMPLEMENTED | VERIFIED | `forge db checkpoint` and `forge db quota` enforce bounded disk footprints and prevent WAL bloat (A2, A5) | `src/main/db/walCheckpointSupervisor.ts`, `src/main/cli.ts` | `src/main/db/walCheckpointSupervisor.test.ts` (3), `src/main/cli.test.ts` (60) | STATE-007 |
+| Sensitive configuration masking & safe diagnostic sanitizer | Recursive redaction of sensitive credentials, tokens, and passphrases in export trees | IMPLEMENTED | VERIFIED | `forge config export [--safe]` sanitizes sensitive configuration values for safe export and logging (A7) | `src/main/config/configMasker.ts`, `src/main/cli.ts` | `src/main/config/configMasker.test.ts` (4), `src/main/cli.test.ts` (60) | CONFIG-008 |
 
 ### 2.2 State, storage & events
 

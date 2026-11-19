@@ -50,3 +50,9 @@ export {
   type RateLimiterConfig,
   type RateLimiterMetrics,
 } from './toolRateLimiter'
+export {
+  ToolIdempotencyCache,
+  toolCacheConfigSchema,
+  type ToolCacheConfig,
+  type ToolCacheMetrics,
+} from './toolIdempotencyCache'

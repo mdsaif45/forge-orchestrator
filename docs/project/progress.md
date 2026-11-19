@@ -5,8 +5,8 @@ Project:            Forge — AI Engineering Control Plane
 Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
 Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
 Last updated:       2026-11-19
-Evidence baseline:  main @ 22ef6ac (PR #289 merged)
-Active branch:      feat/m1-m6-rate-limiter-timeout-secrets-integrity-env
+Evidence baseline:  main @ c3fd9df (PR #295 merged)
+Active branch:      feat/m1-m6-cache-estimator-commit-wal-masker
 ```
 
 ---
@@ -61,6 +61,36 @@ M11 Host the Real CLI             ██████████  DONE        PR
 ---
 
 ## 3. Major Slice History & Merged PRs (Reverse Chronological)
+
+### 2026-11-19: PR #295 merged (`c3fd9df`) — M1/M2/M4/M5/M6 Tool Rate Limiter, Timeout Supervisor, Secret Scanner, DB Integrity Auditor, and Env Interpolator
+- **Title:** `feat(core,workflows,evidence,db,config,cli): tool rate limiter, timeout supervisor, secret leak scanner, db integrity auditor, and env interpolator (#290, #291, #292, #293, #294)`
+- **Delivered:**
+  - `AGENT-009`: In-memory token bucket rate limiting and concurrency throttling (`ToolRateLimiter`) and `forge runtimes rate-limit`.
+  - `WORK-016`: Execution lease tracking and deterministic step timeout supervisor (`StepTimeoutSupervisor`) and `forge workflows timeout`.
+  - `EVIDENCE-004`: Shannon entropy detection and regex rule leak scanner for git changesets (`SecretLeakScanner`) and `forge diff secrets <runId>`.
+  - `STATE-006`: SQLite structural integrity checker and orphan record auditor/pruner (`auditDatabaseIntegrity`) and `forge db audit [--fix]`.
+  - `CONFIG-007`: Recursive environment variable interpolation with fallback defaults (`interpolateEnvString`) and `forge config interpolate <template>`.
+  - Closed GitHub issues #290, #291, #292, #293, #294.
+
+### 2026-11-19: PR #289 merged (`22ef6ac`) — M1/M2/M4/M5/M6 Fallback Router, DLQ Engine, Coverage Auditor, Project Registry, and Policy Lock
+- **Title:** `feat(core,workflows,evidence,db,config,cli): model fallback router, dlq engine, coverage auditor, project registry, and policy engine (#284, #285, #286, #287, #288)`
+- **Delivered:**
+  - `AGENT-008`: Dynamic multi-model fallback routing with circuit breaker cooldown and `forge models fallback` / `circuit`.
+  - `WORK-015`: Workflow dead-letter queue (DLQ) with bounded exponential backoff and `forge workflows dlq [list|purge]`.
+  - `EVIDENCE-003`: Test coverage regression delta auditor correlating diff lines with LCOV data and `forge verify coverage`.
+  - `STATE-005`: Multi-project workspace registry, health auditor, and missing repo pruner `forge projects [list|prune]`.
+  - `CONFIG-006`: Hierarchical configuration inheritance with administrative policy lock enforcement and `forge config policy`.
+  - Closed GitHub issues #284, #285, #286, #287, #288.
+
+### 2026-11-19: PR #283 merged (`ca56c9a`) — M2/M6 Cross-Run Memory, Snapshots, Conflict Detection, Quota Limiter, and Bootstrapper
+- **Title:** `feat(core,workflows,evidence,runtimes,config,cli): cross-run solution memory, snapshots, conflict detection, quota limiter, and config bootstrapper (#278, #279, #280, #281, #282)`
+- **Delivered:**
+  - `AGENT-007`: Cross-run solution pattern recall and semantic memory indexing with `forge memory [search|index|stats]`.
+  - `WORK-014`: Workflow state checkpoint snapshots with SHA-256 integrity and `forge workflows snapshot [create|list]`.
+  - `DIFF-004`: Line-level hunk collision detector and three-way changeset merger with `forge diff merge <runIdA> <runIdB>`.
+  - `RUNTIME-005`: Process RSS memory quota and duration enforcement with `forge runtimes quota`.
+  - `CONFIG-005`: Workspace configuration bootstrapper and setup wizard with `forge config init [--force]`.
+  - Closed GitHub issues #278, #279, #280, #281, #282.
 
 ### 2026-11-19: PR #277 merged (`954f4c2`) — M2/M4/M6 Prompt Cache Optimization, Sibling DAG Concurrency, Semantic Commit Synthesis, Secret Vault, and History Compaction
 - **Title:** `feat(core,workflows,evidence,config,db,cli): prompt cache optimization, parallel execution planning, commit synthesis, secret vault, and event compaction (#272, #273, #274, #275, #276)`

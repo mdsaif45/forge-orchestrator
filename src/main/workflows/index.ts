@@ -74,4 +74,9 @@ export {
   type StepTimeoutEvent,
   type StepTimeoutLease,
 } from './stepTimeoutSupervisor'
+export {
+  estimateWorkflowCost,
+  type WorkflowCostEstimateOptions,
+  type WorkflowCostEstimateReport,
+} from './workflowCostEstimator'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

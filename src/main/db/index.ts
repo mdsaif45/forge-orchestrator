@@ -68,6 +68,12 @@ export {
   type DatabaseIntegrityReport,
   type DatabasePruneResult,
 } from './dbIntegrityAuditor'
+export {
+  auditDatabaseStorageQuota,
+  executeWalCheckpoint,
+  type StorageQuotaReport,
+  type WalCheckpointResult,
+} from './walCheckpointSupervisor'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

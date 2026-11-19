@@ -39,8 +39,10 @@ import { auditForgeEnvironment } from './config/configDoctor'
 import { exportRunArtifactArchive } from './artifacts'
 import {
   auditDatabaseIntegrity,
+  auditDatabaseStorageQuota,
   backupDatabase,
   compactRunEvents,
+  executeWalCheckpoint,
   getDatabaseStats,
   inspectProjectRegistry,
   pruneMissingProjects,
@@ -60,6 +62,7 @@ import {
   rollbackRunChanges,
   scanDiffForSecretLeaks,
   synthesizeRunChangesetCommit,
+  validateCommitMessage,
   type FileCoverageData,
 } from './evidence'
 import { DEFAULT_TEMPLATES_V2 } from './templates/defaultTemplatesV2'
@@ -69,6 +72,7 @@ import {
 } from './templates/customTemplateLoader'
 import {
   createWorkflowSnapshot,
+  estimateWorkflowCost,
   listDeadLetterQueue,
   listWorkflowSnapshots,
   planParallelBatches,
@@ -88,6 +92,7 @@ import {
   queryAgentMemory,
   ModelCircuitBreaker,
   ToolRateLimiter,
+  ToolIdempotencyCache,
 } from './core'
 import {
   bootstrapForgeConfig,
@@ -96,6 +101,7 @@ import {
   setVaultSecret,
   auditConfigAgainstPolicies,
   interpolateEnvString,
+  maskSensitiveConfig,
   type PolicyLockRule,
 } from './config'
 
@@ -128,19 +134,19 @@ ${ANSI.bold}USAGE${ANSI.reset}
 ${ANSI.bold}COMMANDS${ANSI.reset}
   run <task>                 Execute an autonomous coding task against the current repository
   runs [list|inspect|events|cost] Inspect past runs, steps, token accounting, and event streams
-  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot|dlq|timeout] Inspect, plan, profile, snapshot workflows, manage DLQ, and inspect step timeouts
+  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot|dlq|timeout|estimate] Inspect, plan, profile, snapshot workflows, manage DLQ, timeouts, and cost estimation
   artifacts [list|cat|grep|verify|export] Inspect, view, search, verify, and export run artifacts
   diff [revert|security|secrets|commit|merge] <runId> [stepId|runIdB] Inspect physical diffs, rollback changes, security/secrets audit, commit synthesis, or merge conflicts
   processes [list]           Inspect active and completed background process metrics
   status                     Display current repository status and Forge control plane state
   models [list|scan|auto|set|fallback|circuit] Inspect, auto-select, fallback routing, and circuit breakers
-  runtimes [list|test|env|quota|rate-limit] Inspect registered runtimes, test execution, sanitized environment, quotas, and tool rate limits
+  runtimes [list|test|env|quota|rate-limit|cache] Inspect registered runtimes, test execution, sanitized environment, quotas, tool rate limits, and idempotency cache
   context [inspect|optimize] Inspect prompt packet, context files, or prefix caching optimization
   memory [search|index|stats] Search, index, and inspect cross-run solution memory and semantic patterns
   projects [list|prune]      Inspect multi-project workspace registry, health, and prune missing projects
-  verify [pipeline|coverage] Execute ordered verification pipeline or audit code coverage regression delta
-  config [list|get|set|profile|doctor|vault|init|policy|interpolate] Inspect, profile, doctor, secret vault encryption, workspace bootstrap, policy lock, and env interpolation
-  db [stats|vacuum|backup|restore|compact|audit] Inspect SQLite database storage, backup, restore, compaction, and integrity/orphan audit
+  verify [pipeline|coverage|commit] Execute ordered verification pipeline, audit code coverage, or validate commit messages
+  config [list|get|set|profile|doctor|vault|init|policy|interpolate|export] Inspect, profile, doctor, secret vault encryption, workspace bootstrap, policy lock, env interpolation, and safe export
+  db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota] Inspect SQLite database storage, backup, restore, compaction, integrity/orphan audit, WAL checkpoint, and quota monitor
 
 ${ANSI.bold}OPTIONS${ANSI.reset}
   -v, --version        Display Forge version
@@ -229,6 +235,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       before: { type: 'string' },
       'min-coverage': { type: 'string' },
       fix: { type: 'boolean', default: false },
+      safe: { type: 'boolean', default: true },
+      threshold: { type: 'string' },
     },
     allowPositionals: true,
   })
@@ -379,6 +387,12 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
         json: values.json,
       })
     }
+    if (positionals[1] === 'commit') {
+      return handleVerifyCommit({
+        message: positionals[2],
+        json: values.json,
+      })
+    }
     const configPathOrCommand = positionals[1] === 'pipeline' ? positionals[2] : positionals[1]
     return handleVerifyPipeline({
       configPathOrCommand,
@@ -399,6 +413,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       profile: values.profile,
       model: values.model,
       provider: values.provider,
+      safe: values.safe,
       cwd,
       dataDir,
       json: values.json,
@@ -487,6 +502,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       dryRun: values['dry-run'],
       beforeDate: values.before,
       fix: values.fix,
+      threshold: values.threshold ? parseInt(values.threshold, 10) : undefined,
       dataDir,
       json: values.json,
     })
@@ -1754,6 +1770,7 @@ async function handleWorkflows(opts: {
       'snapshot',
       'dlq',
       'timeout',
+      'estimate',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -1761,6 +1778,25 @@ async function handleWorkflows(opts: {
     if (!KNOWN_ACTIONS.includes(action as (typeof KNOWN_ACTIONS)[number])) {
       targetId = action
       action = 'inspect'
+    }
+
+    if (action === 'estimate') {
+      const templateId = targetId ?? 'cr-sdlc'
+      const template =
+        DEFAULT_TEMPLATES_V2.find((t) => t.id === templateId) ?? DEFAULT_TEMPLATES_V2[0]
+      if (!template) {
+        const err = `Template "${templateId}" not found`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const report = estimateWorkflowCost(template)
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return report.valid ? 0 : 1
+      }
+      console.log(`\n${report.formattedSummary}\n`)
+      return report.valid ? 0 : 1
     }
 
     if (action === 'timeout') {
@@ -2601,6 +2637,32 @@ async function handleRuntimes(opts: {
       return 0
     }
 
+    if (opts.action === 'cache') {
+      const cache = new ToolIdempotencyCache()
+      if (opts.targetId === 'clear') {
+        cache.clear()
+        if (opts.json) {
+          console.log(JSON.stringify({ cleared: true }))
+          return 0
+        }
+        console.log(`\n${ANSI.green}✓${ANSI.reset} Tool idempotency cache cleared.\n`)
+        return 0
+      }
+      const metrics = cache.getMetrics()
+      if (opts.json) {
+        console.log(JSON.stringify(metrics))
+        return 0
+      }
+      printBanner()
+      console.log(`\n${ANSI.bold}TOOL IDEMPOTENCY CACHE METRICS${ANSI.reset}`)
+      console.log(`  Cached Entries: ${String(metrics.size)} / ${String(metrics.maxEntries)}`)
+      console.log(`  Cache Hits:     ${String(metrics.hits)}`)
+      console.log(`  Cache Misses:   ${String(metrics.misses)}`)
+      console.log(`  Evictions:      ${String(metrics.evictions)}`)
+      console.log(`  Hit Ratio:      ${String(metrics.hitRatio)}`)
+      return 0
+    }
+
     if (opts.action === 'test') {
       const runtimeId = opts.targetId
       if (!runtimeId) {
@@ -2825,6 +2887,7 @@ async function handleConfig(opts: {
   profile?: string | undefined
   model?: string | undefined
   provider?: string | undefined
+  safe?: boolean | undefined
   cwd: string
   dataDir: string
   json: boolean
@@ -2873,6 +2936,17 @@ async function handleConfig(opts: {
       console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
       return 1
     }
+  }
+
+  if (action === 'export') {
+    const config = loadForgeConfig({ searchFrom: opts.cwd, profile: opts.profile })
+    const output = opts.safe !== false ? maskSensitiveConfig(config) : config
+    if (opts.json) {
+      console.log(JSON.stringify(output))
+      return 0
+    }
+    console.log(`\n${JSON.stringify(output, null, 2)}\n`)
+    return 0
   }
 
   if (action === 'policy') {
@@ -3150,7 +3224,7 @@ async function handleConfig(opts: {
   else {
     console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
     console.error(
-      'Usage: forge config [list|get|set|profile|doctor|vault|init|policy|interpolate] [<key>] [<value>] [--json]',
+      'Usage: forge config [list|get|set|profile|doctor|vault|init|policy|interpolate|export] [<key>] [<value>] [--json]',
     )
   }
   return 1
@@ -3163,6 +3237,7 @@ async function handleDb(opts: {
   dryRun?: boolean | undefined
   beforeDate?: string | undefined
   fix?: boolean | undefined
+  threshold?: number | undefined
   dataDir: string
   json: boolean
 }): Promise<number> {
@@ -3294,11 +3369,36 @@ async function handleDb(opts: {
       return report.valid ? 0 : 1
     }
 
+    if (action === 'checkpoint') {
+      const result = executeWalCheckpoint(core.sqlite, dbFile, {
+        force: opts.force,
+        thresholdBytes: opts.threshold,
+      })
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+        return result.valid ? 0 : 1
+      }
+      console.log(`\n${result.formattedSummary}\n`)
+      return result.valid ? 0 : 1
+    }
+
+    if (action === 'quota') {
+      const report = auditDatabaseStorageQuota(core.dataDir)
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return report.quotaExceeded ? 1 : 0
+      }
+      console.log(`\n${report.formattedSummary}\n`)
+      return report.quotaExceeded ? 1 : 0
+    }
+
     const err = `Unknown db action: ${action}`
     if (opts.json) console.log(JSON.stringify({ error: err }))
     else {
       console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
-      console.error('Usage: forge db [stats|vacuum|backup|restore|compact|audit] [options]')
+      console.error(
+        'Usage: forge db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota] [options]',
+      )
     }
     return 1
   } finally {
@@ -3489,6 +3589,27 @@ async function handleVerifyCoverage(opts: {
   } finally {
     await core.close()
   }
+}
+
+function handleVerifyCommit(opts: {
+  readonly message?: string | undefined
+  readonly json?: boolean | undefined
+}): number {
+  if (!opts.message) {
+    const err = 'Usage: forge verify commit "<message>" [--json]'
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else console.error(`${ANSI.red}Error: No commit message provided.${ANSI.reset}\n${err}`)
+    return 1
+  }
+
+  const result = validateCommitMessage(opts.message)
+  if (opts.json) {
+    console.log(JSON.stringify(result))
+    return result.valid ? 0 : 1
+  }
+
+  console.log(`\n${result.formattedSummary}\n`)
+  return result.valid ? 0 : 1
 }
 
 async function handleProjects(opts: {

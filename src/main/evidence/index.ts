@@ -145,3 +145,9 @@ export {
   type PatchFuzzReport,
   type PatchFuzzOptions,
 } from './patchFuzzAuditor'
+export {
+  AssertionReportAggregator,
+  type TestCaseAssertion,
+  type TestSuiteAssertion,
+  type AssertionReportSummary,
+} from './assertionReporter'

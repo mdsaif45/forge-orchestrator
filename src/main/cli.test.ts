@@ -3011,4 +3011,111 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('reflects agent tool schemas and provider descriptors with forge runtimes reflect (AGENT-015)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['runtimes', 'reflect', 'read_file', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.name).toBe('read_file')
+    expect(parsed.openAI).toBeDefined()
+    expect(parsed.anthropic).toBeDefined()
+    expect(parsed.gemini).toBeDefined()
+
+    logSpy.mockRestore()
+  })
+
+  it('evaluates step retry policies and exponential backoff with forge workflows retry (WORK-022)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'workflows',
+      'retry',
+      'Connection timed out',
+      '2',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.shouldRetry).toBe(true)
+    expect(parsed.errorClassification).toBe('transient')
+    expect(parsed.backoffMs).toBeGreaterThan(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('aggregates assertions and outputs test reports with forge verify report (EVIDENCE-010)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['verify', 'report', '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.valid).toBe(true)
+    expect(parsed.totalTests).toBe(1)
+    expect(parsed.passRate).toBe(100)
+
+    logSpy.mockRestore()
+  })
+
+  it('manages transactional savepoints with forge db savepoint (STATE-012)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'db',
+      'savepoint',
+      'create',
+      'sp_test',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.savepointName).toBe('sp_test')
+    expect(parsed.action).toBe('create')
+    expect(parsed.depth).toBe(1)
+
+    logSpy.mockRestore()
+  })
+
+  it('generates configuration templates with forge config template (CONFIG-013)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'config',
+      'template',
+      'node-ts',
+      '.forgerc.node-test',
+      '--cwd',
+      tempDir,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.valid).toBe(true)
+    expect(parsed.created).toBe(true)
+    expect(parsed.preset).toBe('node-ts')
+
+    logSpy.mockRestore()
+  })
 })

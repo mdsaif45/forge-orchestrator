@@ -111,4 +111,12 @@ export {
   type CycleIsolationReport,
   type WorkflowSubgraphReport,
 } from './subgraphExtractor'
+export {
+  calculateExponentialBackoff,
+  classifyStepError,
+  evaluateStepRetry,
+  type ErrorClassification,
+  type StepRetryPolicy,
+  type RetryEvaluation,
+} from './stepRetryPolicy'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

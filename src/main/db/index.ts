@@ -101,6 +101,7 @@ export {
   type DatabaseSnapshotDiffReport,
   type DatabaseSnapshotDiffOptions,
 } from './snapshotDiffer'
+export { DatabaseSavepointManager, type SavepointReceipt } from './savepointManager'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

@@ -63,3 +63,11 @@ export {
   type ToolCoercionResult,
   type ToolParametersSchema,
 } from './toolParameterCoercer'
+export {
+  truncateToolOutput,
+  DEFAULT_MAX_OUTPUT_BYTES,
+  DEFAULT_HEAD_OUTPUT_BYTES,
+  DEFAULT_TAIL_OUTPUT_BYTES,
+  type ToolOutputLimiterOptions,
+  type ToolOutputLimiterResult,
+} from './toolOutputLimiter'

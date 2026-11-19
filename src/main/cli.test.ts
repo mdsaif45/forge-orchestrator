@@ -2403,4 +2403,216 @@ new file mode 100644
 
     logSpy.mockRestore()
   })
+
+  it('truncates large tool output stream with forge runtimes truncate (AGENT-012)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const sample = 'Line A\n' + 'x'.repeat(1000) + '\nLine Z'
+    const code = await runCli([
+      'runtimes',
+      'truncate',
+      sample,
+      '--max-bytes',
+      '200',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.truncated).toBe(true)
+    expect(parsed.truncatedBytes).toBeGreaterThan(0)
+    expect(typeof parsed.output).toBe('string')
+
+    logSpy.mockRestore()
+  })
+
+  it('creates workflow checkpoint via forge workflows checkpoint (WORK-019)', async () => {
+    const core = createForgeCore({ dataDir })
+    const project = await core.projects.create({
+      name: 'Checkpoint Test Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'master',
+      buildCommand: null,
+      testCommand: null,
+      tech: ['ts'],
+      rules: [],
+    })
+    const runId = runIdSchema.parse(randomUUID())
+    const projectId = projectIdSchema.parse(project.id)
+    const taskId = taskIdSchema.parse(randomUUID())
+    core.runs.createRun({
+      id: runId,
+      projectId,
+      taskId,
+      type: 'workflow',
+      status: 'running',
+      startedAt: new Date(Date.now() - 5000).toISOString(),
+      finishedAt: null,
+      exitCode: null,
+      summary: 'Checkpoint workflow run',
+      error: null,
+      metadata: {},
+    })
+    await core.close()
+
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['workflows', 'checkpoint', runId, '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    const checkpoint = parsed.checkpoint as Record<string, unknown>
+    expect(checkpoint.runId).toBe(runId)
+    expect(checkpoint.checksum).toBeDefined()
+    expect(checkpoint.createdAt).toBeDefined()
+
+    logSpy.mockRestore()
+  })
+
+  it('generates and verifies reproducible verification manifest with forge verify manifest (EVIDENCE-007)', async () => {
+    const core = createForgeCore({ dataDir })
+    const project = await core.projects.create({
+      name: 'Manifest Test Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'master',
+      buildCommand: null,
+      testCommand: null,
+      tech: ['ts'],
+      rules: [],
+    })
+    const runId = runIdSchema.parse(randomUUID())
+    const projectId = projectIdSchema.parse(project.id)
+    const taskId = taskIdSchema.parse(randomUUID())
+    core.runs.createRun({
+      id: runId,
+      projectId,
+      taskId,
+      type: 'direct-task',
+      status: 'completed',
+      startedAt: new Date(Date.now() - 5000).toISOString(),
+      finishedAt: new Date().toISOString(),
+      exitCode: 0,
+      summary: 'Manifest test run',
+      error: null,
+      metadata: {},
+    })
+    await core.close()
+
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'verify',
+      'manifest',
+      runId,
+      '--verify',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.manifest).toBeDefined()
+    expect(parsed.verification).toBeDefined()
+    const verification = parsed.verification as Record<string, unknown>
+    expect(verification.valid).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('replays event ledger to reconstruct state projection with forge db replay (STATE-009)', async () => {
+    const core = createForgeCore({ dataDir })
+    const project = await core.projects.create({
+      name: 'Replay Test Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'master',
+      buildCommand: null,
+      testCommand: null,
+      tech: ['ts'],
+      rules: [],
+    })
+    const runId = runIdSchema.parse(randomUUID())
+    const projectId = projectIdSchema.parse(project.id)
+    const taskId = taskIdSchema.parse(randomUUID())
+    core.runs.createRun({
+      id: runId,
+      projectId,
+      taskId,
+      type: 'direct-task',
+      status: 'running',
+      startedAt: new Date(Date.now() - 5000).toISOString(),
+      finishedAt: null,
+      exitCode: null,
+      summary: 'Replay test run',
+      error: null,
+      metadata: {},
+    })
+    core.runs.appendEvent(runId, {
+      type: 'run:started',
+      payload: {},
+    })
+    core.runs.appendEvent(runId, {
+      type: 'step:started',
+      stepId: stepIdSchema.parse(randomUUID()),
+      payload: { step: 'step-1' },
+    })
+    await core.close()
+
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'db',
+      'replay',
+      runId,
+      '--to-seq',
+      '2',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.valid).toBe(true)
+    expect(parsed.runId).toBe(runId)
+    expect(parsed.appliedEventsCount).toBeLessThanOrEqual(2)
+
+    logSpy.mockRestore()
+  })
+
+  it('migrates configuration schema version with forge config migrate (CONFIG-010)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'config',
+      'migrate',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.valid).toBe(true)
+    expect(parsed.toVersion).toBe(2)
+    expect(parsed.migratedConfig).toBeDefined()
+
+    logSpy.mockRestore()
+  })
 })

@@ -84,4 +84,13 @@ export {
   type ConditionEvaluationResult,
   type WorkflowConditionContext,
 } from './conditionEvaluator'
+export {
+  createWorkflowCheckpoint,
+  planWorkflowResume,
+  computeCheckpointChecksum,
+  type WorkflowCheckpoint,
+  type WorkflowDAG,
+  type WorkflowDAGNode,
+  type WorkflowResumePlan,
+} from './workflowCheckpoint'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

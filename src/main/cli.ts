@@ -51,6 +51,7 @@ import {
   restoreDatabase,
   vacuumDatabase,
   verifyEventJournalHashChain,
+  replayEventLedger,
   type RawLedgerEvent,
 } from './db'
 import { ProjectStore } from './db/projectStore'
@@ -61,6 +62,8 @@ import {
   auditRunChangesetSecurity,
   executeVerificationPipeline,
   generateArtifactMerkleTree,
+  generateVerificationManifest,
+  verifyManifestIntegrity,
   inspectRunDiff,
   parseLcov,
   rollbackRunChanges,
@@ -75,6 +78,7 @@ import {
   validateCustomTemplateFile,
 } from './templates/customTemplateLoader'
 import {
+  createWorkflowCheckpoint,
   createWorkflowSnapshot,
   estimateWorkflowCost,
   evaluateConditionExpression,
@@ -82,11 +86,13 @@ import {
   listWorkflowSnapshots,
   planParallelBatches,
   planWorkflowExecution,
+  planWorkflowResume,
   profileWorkflowExecution,
   purgeDeadLetterQueue,
   restoreWorkflowSnapshot,
   StepTimeoutSupervisor,
   type WorkflowConditionContext,
+  type WorkflowDAG,
 } from './workflows'
 import { validateTemplateGraph } from './workflows/validation'
 import { auditRuntimeQuotas, createResourceBudget, sanitizeRuntimeEnvironment } from './runtimes'
@@ -100,6 +106,7 @@ import {
   ToolRateLimiter,
   ToolIdempotencyCache,
   coerceToolParameters,
+  truncateToolOutput,
   type ToolParametersSchema,
 } from './core'
 import {
@@ -111,6 +118,7 @@ import {
   interpolateEnvString,
   maskSensitiveConfig,
   resolveFeatureFlags,
+  migrateConfig,
   type PolicyLockRule,
 } from './config'
 
@@ -143,19 +151,19 @@ ${ANSI.bold}USAGE${ANSI.reset}
 ${ANSI.bold}COMMANDS${ANSI.reset}
   run <task>                 Execute an autonomous coding task against the current repository
   runs [list|inspect|events|cost] Inspect past runs, steps, token accounting, and event streams
-  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot|dlq|timeout|estimate|eval] Inspect, plan, profile, snapshot workflows, manage DLQ, timeouts, cost estimation, and evaluate expressions
+  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot|dlq|timeout|estimate|eval|checkpoint] Inspect, plan, profile, snapshot workflows, manage DLQ, timeouts, cost estimation, expressions, and checkpoints
   artifacts [list|cat|grep|verify|export|merkle] Inspect, view, search, verify, export, and Merkle provenance audit
   diff [revert|security|secrets|commit|merge] <runId> [stepId|runIdB] Inspect physical diffs, rollback changes, security/secrets audit, commit synthesis, or merge conflicts
   processes [list]           Inspect active and completed background process metrics
   status                     Display current repository status and Forge control plane state
   models [list|scan|auto|set|fallback|circuit] Inspect, auto-select, fallback routing, and circuit breakers
-  runtimes [list|test|env|quota|rate-limit|cache|coerce] Inspect registered runtimes, test execution, sanitized environment, quotas, tool rate limits, cache, and parameter coercion
+  runtimes [list|test|env|quota|rate-limit|cache|coerce|truncate] Inspect registered runtimes, test execution, sanitized environment, quotas, tool rate limits, cache, parameter coercion, and buffer limiter
   context [inspect|optimize] Inspect prompt packet, context files, or prefix caching optimization
   memory [search|index|stats] Search, index, and inspect cross-run solution memory and semantic patterns
   projects [list|prune]      Inspect multi-project workspace registry, health, and prune missing projects
-  verify [pipeline|coverage|commit] Execute ordered verification pipeline, audit code coverage, or validate commit messages
-  config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features] Inspect, profile, doctor, secret vault encryption, workspace bootstrap, policy lock, env interpolation, safe export, and feature flags
-  db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal] Inspect SQLite database storage, backup, restore, compaction, integrity/orphan audit, WAL checkpoint, quota monitor, and audit journals
+  verify [pipeline|coverage|commit|manifest] Execute ordered verification pipeline, audit code coverage, validate commit messages, or audit manifest
+  config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features|migrate] Inspect, profile, doctor, secret vault encryption, workspace bootstrap, policy lock, env interpolation, safe export, feature flags, and schema migration
+  db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal|replay] Inspect SQLite database storage, backup, restore, compaction, integrity/orphan audit, WAL checkpoint, quota monitor, audit journals, and time-travel replay
 
 ${ANSI.bold}OPTIONS${ANSI.reset}
   -v, --version        Display Forge version
@@ -249,6 +257,9 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       schema: { type: 'string' },
       context: { type: 'string' },
       verify: { type: 'boolean', default: false },
+      'max-bytes': { type: 'string' },
+      'to-seq': { type: 'string' },
+      'target-version': { type: 'string' },
     },
     allowPositionals: true,
   })
@@ -366,6 +377,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       targetId: positionals[2],
       extraParam: positionals[3],
       schema: values.schema,
+      maxBytes: values['max-bytes'] ? parseInt(values['max-bytes'], 10) : undefined,
       dataDir,
       json: values.json,
     })
@@ -408,6 +420,15 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
         json: values.json,
       })
     }
+    if (positionals[1] === 'manifest') {
+      return handleVerifyManifest({
+        runId: positionals[2],
+        verify: values.verify,
+        cwd,
+        dataDir,
+        json: values.json,
+      })
+    }
     const configPathOrCommand = positionals[1] === 'pipeline' ? positionals[2] : positionals[1]
     return handleVerifyPipeline({
       configPathOrCommand,
@@ -429,6 +450,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       model: values.model,
       provider: values.provider,
       safe: values.safe,
+      targetVersion: values['target-version'] ? parseInt(values['target-version'], 10) : undefined,
+      dryRun: values['dry-run'],
       cwd,
       dataDir,
       json: values.json,
@@ -520,6 +543,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       beforeDate: values.before,
       fix: values.fix,
       threshold: values.threshold ? parseInt(values.threshold, 10) : undefined,
+      toSeq: values['to-seq'] ? parseInt(values['to-seq'], 10) : undefined,
       dataDir,
       json: values.json,
     })
@@ -1828,6 +1852,7 @@ async function handleWorkflows(opts: {
       'timeout',
       'estimate',
       'eval',
+      'checkpoint',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -1835,6 +1860,40 @@ async function handleWorkflows(opts: {
     if (!KNOWN_ACTIONS.includes(action as (typeof KNOWN_ACTIONS)[number])) {
       targetId = action
       action = 'inspect'
+    }
+
+    if (action === 'checkpoint') {
+      const runId = targetId
+      if (!runId) {
+        const err = 'Usage: forge workflows checkpoint <runId> [plan] [--json]'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const parsedRunId = runIdSchema.safeParse(runId)
+      if (!parsedRunId.success) {
+        const err = `Invalid run ID "${runId}". Expected a valid UUID.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const sampleGraph: WorkflowDAG = {
+        id: 'cr-sdlc',
+        nodes: [
+          { id: 'plan' },
+          { id: 'codegen', dependencies: ['plan'] },
+          { id: 'verify', dependencies: ['codegen'] },
+        ],
+      }
+      const completedNodes = ['plan']
+      const checkpoint = createWorkflowCheckpoint(parsedRunId.data, sampleGraph, completedNodes)
+      const resumePlan = planWorkflowResume(checkpoint, sampleGraph)
+      if (opts.json) {
+        console.log(JSON.stringify({ checkpoint, resumePlan }))
+        return 0
+      }
+      console.log(`\n${resumePlan.formattedSummary}\n`)
+      return 0
     }
 
     if (action === 'eval') {
@@ -2675,11 +2734,24 @@ async function handleRuntimes(opts: {
   targetId?: string | undefined
   extraParam?: string | undefined
   schema?: string | undefined
+  maxBytes?: number | undefined
   dataDir: string
   json: boolean
 }): Promise<number> {
   const core = createForgeCore({ dataDir: opts.dataDir })
   try {
+    if (opts.action === 'truncate') {
+      const text = opts.targetId ?? ''
+      const maxBytes = opts.maxBytes
+      const result = truncateToolOutput(text, { maxBytes })
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+        return 0
+      }
+      console.log(`\n${result.formattedSummary}\n`)
+      console.log(result.output)
+      return 0
+    }
     if (opts.action === 'env' || opts.action === 'sandbox') {
       const report = sanitizeRuntimeEnvironment({
         context: {
@@ -3032,6 +3104,8 @@ async function handleConfig(opts: {
   model?: string | undefined
   provider?: string | undefined
   safe?: boolean | undefined
+  targetVersion?: number | undefined
+  dryRun?: boolean | undefined
   cwd: string
   dataDir: string
   json: boolean
@@ -3373,12 +3447,23 @@ async function handleConfig(opts: {
     return report.valid ? 0 : 1
   }
 
+  if (action === 'migrate') {
+    const config = loadForgeConfig({ searchFrom: opts.cwd, profile: opts.profile, env: {} })
+    const report = migrateConfig(config, opts.targetVersion)
+    if (opts.json) {
+      console.log(JSON.stringify(report))
+      return report.valid ? 0 : 1
+    }
+    console.log(`\n${report.formattedSummary}\n`)
+    return report.valid ? 0 : 1
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
     console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
     console.error(
-      'Usage: forge config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features] [<key>] [<value>] [--json]',
+      'Usage: forge config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features|migrate] [<key>] [<value>] [--json]',
     )
   }
   return 1
@@ -3394,6 +3479,7 @@ async function handleDb(opts: {
   beforeDate?: string | undefined
   fix?: boolean | undefined
   threshold?: number | undefined
+  toSeq?: number | undefined
   dataDir: string
   json: boolean
 }): Promise<number> {
@@ -3609,12 +3695,53 @@ async function handleDb(opts: {
       return report.valid ? 0 : 1
     }
 
+    if (action === 'replay') {
+      const runId = opts.targetId
+      if (!runId) {
+        const err = 'Usage: forge db replay <runId> [--to-seq <n>] [--json]'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const parsedRunId = runIdSchema.safeParse(runId)
+      if (!parsedRunId.success) {
+        const err = `Invalid run ID "${runId}". Expected a valid UUID.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const runRecord = core.runs.getRun(parsedRunId.data)
+      if (!runRecord) {
+        const err = `Run "${runId}" not found.`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const events = core.runs.listEventsForRun(parsedRunId.data)
+      const rawEvents: RawLedgerEvent[] = events.map((ev) => ({
+        id: ev.id,
+        seq: ev.seq,
+        runId: ev.runId,
+        type: ev.type,
+        timestamp: ev.occurredAt,
+        stepId: ev.stepId ?? undefined,
+        payload: ev.payload,
+      }))
+      const report = replayEventLedger(parsedRunId.data, rawEvents, opts.toSeq)
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return report.valid ? 0 : 1
+      }
+      console.log(`\n${report.formattedSummary}\n`)
+      return report.valid ? 0 : 1
+    }
+
     const err = `Unknown db action: ${action}`
     if (opts.json) console.log(JSON.stringify({ error: err }))
     else {
       console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
       console.error(
-        'Usage: forge db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal] [options]',
+        'Usage: forge db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal|replay] [options]',
       )
     }
     return 1
@@ -3659,6 +3786,113 @@ async function handleDiffRevert(opts: {
       console.log(`  Files restored: ${res.appliedFiles.join(', ') || 'none'}`)
     }
     return 0
+  } finally {
+    await core.close()
+  }
+}
+
+async function handleVerifyManifest(opts: {
+  readonly runId?: string | undefined
+  readonly verify?: boolean | undefined
+  readonly cwd: string
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  if (!opts.runId) {
+    const err = 'Usage: forge verify manifest <runId> [--verify] [--json]'
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else console.error(`${ANSI.red}Error: No run ID provided.${ANSI.reset}\n${err}`)
+    return 1
+  }
+
+  const parsedRunId = runIdSchema.safeParse(opts.runId)
+  if (!parsedRunId.success) {
+    const err = `Invalid run ID "${opts.runId}". Expected a valid UUID.`
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+    return 1
+  }
+
+  const core = createForgeCore({ dataDir: opts.dataDir })
+  try {
+    const runRecord = core.runs.getRun(parsedRunId.data)
+    if (!runRecord) {
+      const err = `Run "${opts.runId}" not found.`
+      if (opts.json) console.log(JSON.stringify({ error: err }))
+      else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+      return 1
+    }
+
+    let gitHead = '0000000000000000000000000000000000000000'
+    try {
+      const git = new GitService({ repositoryPath: opts.cwd })
+      const sha = await git.headSha()
+      if (typeof sha === 'string' && sha.length > 0) {
+        gitHead = sha
+      }
+    } catch {
+      // fallback
+    }
+
+    const artifacts = core.artifactStore.listForRun(parsedRunId.data)
+    const files = artifacts.map((a) => ({
+      path: a.relativePath,
+      sha256: a.sha256,
+    }))
+
+    const taskDescription =
+      (typeof runRecord.metadata.task === 'string' ? runRecord.metadata.task : undefined) ??
+      runRecord.summary ??
+      'direct-task'
+
+    const manifest = generateVerificationManifest({
+      runId: parsedRunId.data,
+      gitHeadSha: gitHead,
+      files,
+      commands: [
+        {
+          command: taskDescription,
+          exitCode: runRecord.exitCode ?? 0,
+          passed: runRecord.status === 'completed',
+        },
+      ],
+      criteria: [
+        {
+          id: 'run-completion',
+          kind: 'lifecycle',
+          passed: runRecord.status === 'completed',
+        },
+      ],
+    })
+
+    if (opts.verify) {
+      const verification = verifyManifestIntegrity(manifest)
+      if (opts.json) {
+        console.log(JSON.stringify({ manifest, verification }))
+        return verification.valid ? 0 : 1
+      }
+      console.log(`\n${verification.formattedSummary}\n`)
+      return verification.valid ? 0 : 1
+    }
+
+    if (opts.json) {
+      console.log(JSON.stringify(manifest))
+      return manifest.summary.allCriteriaPassed && manifest.summary.allCommandsPassed ? 0 : 1
+    }
+
+    console.log(`\n${ANSI.bold}VERIFICATION MANIFEST${ANSI.reset}:`)
+    console.log(`  Run ID:      ${manifest.runId}`)
+    console.log(`  Git Head:    ${manifest.gitHeadSha}`)
+    console.log(`  Fingerprint: ${manifest.fingerprint}`)
+    console.log(`  Files:       ${String(manifest.files.length)}`)
+    console.log(
+      `  Commands:    ${String(manifest.commands.length)} (All Passed: ${manifest.summary.allCommandsPassed ? 'yes' : 'no'})`,
+    )
+    console.log(
+      `  Criteria:    ${String(manifest.criteria.length)} (All Passed: ${manifest.summary.allCriteriaPassed ? 'yes' : 'no'})`,
+    )
+    console.log('')
+    return manifest.summary.allCriteriaPassed && manifest.summary.allCommandsPassed ? 0 : 1
   } finally {
     await core.close()
   }

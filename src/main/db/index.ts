@@ -89,6 +89,11 @@ export {
   type RunStateProjection,
   type StepProjection,
 } from './eventReplayEngine'
+export {
+  verifyLedgerReplication,
+  type CrossTableAuditCounts,
+  type LedgerReplicationReport,
+} from './ledgerVerifier'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

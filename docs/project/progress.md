@@ -5,8 +5,8 @@ Project:            Forge — AI Engineering Control Plane
 Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
 Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
 Last updated:       2026-11-19
-Evidence baseline:  main @ 8748f6e (PR #307 merged)
-Active branch:      feat/m1-m6-buffer-checkpoint-manifest-replay-migration
+Evidence baseline:  main @ 3bda40d (PR #313 merged)
+Active branch:      feat/m1-m6-compactor-simulator-exports-verifier-sync
 ```
 
 ---
@@ -372,20 +372,20 @@ An explicit discrepancy exists between GitHub milestone numbers, GitHub mileston
 
 ## 6. Active Work, Dependencies, and Next Action
 
-- **Current State Baseline:** `main` @ `22ef6ac` (PR #289 merged).
+- **Current State Baseline:** `main` @ `3bda40d` (PR #313 merged).
 - **Recent Completed PRs:**
-  - **PR #277:** `feat(prompt,workflows,diff,config,db): prefix caching optimizer, parallel workflow planner, commit synthesizer, secret vault, and event compactor (#272, #273, #274, #275, #276)` (`954f4c2`).
-  - **PR #283:** `feat(core,workflows,evidence,runtimes,config): solution memory indexer, workflow snapshot engine, changeset conflict detector, runtime quota manager, and config bootstrapper (#278, #279, #280, #281, #282)` (`b02c9dd`).
-  - **PR #289:** `feat(core,workflows,evidence,state,config): model fallback router, workflow DLQ, coverage delta auditor, project registry, and policy lock (#284, #285, #286, #287, #288)` (`22ef6ac`).
-- **In-Progress Cluster (feat/m1-m6-rate-limiter-timeout-secrets-integrity-env):**
-  - **Issue #290 (AGENT-009):** `feat(core): agent tool call rate limiter and token bucket throttler (AGENT-009)`.
-  - **Issue #291 (WORK-016):** `feat(workflows): workflow step timeout supervisor and zombie stage terminator (WORK-016)`.
-  - **Issue #292 (EVIDENCE-004):** `feat(evidence): static security and secret leak scanner for git commits and patch queues (EVIDENCE-004)`.
-  - **Issue #293 (STATE-006):** `feat(db): database integrity checker and foreign key orphan auditor (STATE-006)`.
-  - **Issue #294 (CONFIG-007):** `feat(config): environment variable interpolation engine with fallback defaults (CONFIG-007)`.
+  - **PR #301:** `feat(core,workflows,evidence,state,config): prompt coercer, condition evaluator, merkle lineage, event journal, and feature flags (#296, #297, #298, #299, #300)` (`6ba52f7`).
+  - **PR #307:** `feat(core,workflows,evidence,state,config): rate limiter, step timeout supervisor, secret leak scanner, db integrity auditor, and env interpolator (#290, #291, #292, #293, #294)` (`8748f6e`).
+  - **PR #313:** `feat(core,workflows,evidence,state,config): tool output limiter, workflow checkpoint, verification manifest, event replay, and config migrator (#308, #309, #310, #311, #312)` (`3bda40d`).
+- **In-Progress Cluster (feat/m1-m6-compactor-simulator-exports-verifier-sync):**
+  - **Issue #314 (AGENT-013):** `feat(core): agent prompt context token budget trimmer and sliding window compactor (AGENT-013)`.
+  - **Issue #315 (WORK-020):** `feat(workflows): workflow DAG execution dry-run simulator and critical path analyzer (WORK-020)`.
+  - **Issue #316 (EVIDENCE-008):** `feat(evidence): changeset AST-aware syntactic impact and export surface auditor (EVIDENCE-008)`.
+  - **Issue #317 (STATE-010):** `feat(db): event ledger replication verifier and cross-engine integrity auditor (STATE-010)`.
+  - **Issue #318 (CONFIG-011):** `feat(config): configuration environment variable vault export and dot-env sync generator (CONFIG-011)`.
 - **Milestones Status:** All GitHub Milestones M0 through M11 are completed and closed with zero remaining open issues.
 - **Dependencies & Blockers:** None. Local verification gates and test suites are 100% green.
 - **Immediate Next Action:**
-  1. Open PR for Issues #290, #291, #292, #293, #294.
+  1. Open PR for Issues #314, #315, #316, #317, #318.
   2. Verify all CI checks pass on GitHub Actions.
   3. Merge PR to `main` via squash merge.

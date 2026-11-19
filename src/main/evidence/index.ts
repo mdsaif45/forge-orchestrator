@@ -128,3 +128,11 @@ export {
   type VerificationManifest,
   type VerificationManifestInput,
 } from './verificationManifest'
+export {
+  auditChangesetExportSurface,
+  type ExportChangeKind,
+  type ExportRiskTier,
+  type ExportSymbolChange,
+  type ExportSymbolKind,
+  type ExportSurfaceReport,
+} from './exportSurfaceAuditor'

@@ -93,4 +93,11 @@ export {
   type WorkflowDAGNode,
   type WorkflowResumePlan,
 } from './workflowCheckpoint'
+export {
+  simulateWorkflowExecution,
+  type SimulationNodeSpec,
+  type WorkflowSimulationDAG,
+  type SimulatedStepNode,
+  type WorkflowSimulationReport,
+} from './workflowSimulator'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

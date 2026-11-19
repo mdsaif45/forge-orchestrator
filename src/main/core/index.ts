@@ -71,3 +71,9 @@ export {
   type ToolOutputLimiterOptions,
   type ToolOutputLimiterResult,
 } from './toolOutputLimiter'
+export {
+  compactPromptContextTurns,
+  type PromptTurn,
+  type PromptCompactionOptions,
+  type PromptCompactionReport,
+} from './promptCompactor'

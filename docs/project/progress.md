@@ -5,8 +5,8 @@ Project:            Forge — AI Engineering Control Plane
 Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
 Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
 Last updated:       2026-11-19
-Evidence baseline:  main @ 5fa1ad0 (PR #271 merged)
-Active branch:      feat/m2-m4-m6-caching-parallel-commits-vault-compact
+Evidence baseline:  main @ 954f4c2 (PR #277 merged)
+Active branch:      feat/m2-m6-memory-snapshots-conflicts-quota-bootstrapper
 ```
 
 ---
@@ -61,6 +61,26 @@ M11 Host the Real CLI             ██████████  DONE        PR
 ---
 
 ## 3. Major Slice History & Merged PRs (Reverse Chronological)
+
+### 2026-11-19: PR #277 merged (`954f4c2`) — M2/M4/M6 Prompt Cache Optimization, Sibling DAG Concurrency, Semantic Commit Synthesis, Secret Vault, and History Compaction
+- **Title:** `feat(core,workflows,evidence,config,db,cli): prompt cache optimization, parallel execution planning, commit synthesis, secret vault, and event compaction (#272, #273, #274, #275, #276)`
+- **Delivered:**
+  - `AGENT-006`: Added prompt packet static prefix vs. dynamic turns caching optimizer and `forge context optimize <runId>`.
+  - `WORK-013`: Added DAG sibling concurrency detection, execution wave batcher, and `forge workflows parallel <template>`.
+  - `DIFF-003`: Added deterministic changeset conventional commit synthesizer and `forge diff commit <runId>`.
+  - `CONFIG-004`: Added AES-256-GCM encrypted secret vault with PBKDF2 and `forge config vault [list|set|get]`.
+  - `STATE-004`: Added event ledger history compactor and `forge db compact --before <date>`.
+  - Closed GitHub issues #272, #273, #274, #275, #276.
+
+### 2026-11-18: PR #271 merged (`5fa1ad0`) — M3/M5/M6 Custom Workflow Templates, Runtime Environment Sanitization, Token Accounting, Changeset Security Audit, and DB Snapshot Backup
+- **Title:** `feat(templates,runtimes,core,evidence,db,cli): custom templates, environment sanitizer, token accounting, diff security, and db backup (#266, #267, #268, #269, #270)`
+- **Delivered:**
+  - `WORK-012`: Custom workflow template discovery, schema validation, and `forge workflows templates`.
+  - `RUNTIME-004`: Process environment secret sanitizer and `forge runtimes env`.
+  - `AGENT-005`: Token accounting engine and cost estimator `forge runs cost <runId>`.
+  - `EVIDENCE-002`: Changeset security audit and leak detection `forge diff security <runId>`.
+  - `STATE-003`: Online SQLite backup and atomic restore `forge db [backup|restore]`.
+  - Closed GitHub issues #266, #267, #268, #269, #270.
 
 ### 2026-11-18: PR #253 merged (`ad67cd8`) — M3/M4/M5 Extended Declarative Criteria, Prompt Inspection, Vacuum, DAG Validation, and Benchmark Probes
 - **Title:** `feat(criteria,cli,db,workflows,runtimes): extended declarative criteria, prompt inspection, vacuum, dag validation, and benchmark probes (#248, #249, #250, #251, #252)`

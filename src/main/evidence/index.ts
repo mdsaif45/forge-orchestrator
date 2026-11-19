@@ -73,3 +73,13 @@ export {
   type SynthesizeCommitOptions,
   type SynthesizedCommitReport,
 } from './changesetSynthesizer'
+export {
+  auditRunChangesetConflicts,
+  detectChangesetConflicts,
+  mergeChangesetDiffs,
+  type ChangesetConflictReport,
+  type ChangesetMergeResult,
+  type DiffHunk,
+  type FileConflict,
+  type FileDiff,
+} from './changesetConflictDetector'

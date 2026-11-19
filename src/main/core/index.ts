@@ -22,3 +22,11 @@ export {
   type PromptOptimizationOptions,
   type PromptOptimizationReport,
 } from './promptOptimizer'
+export {
+  getMemoryStats,
+  indexRunMemory,
+  queryAgentMemory,
+  type AgentMemoryEntry,
+  type AgentMemoryQueryResult,
+  type AgentMemoryStats,
+} from './agentMemory'

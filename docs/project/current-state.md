@@ -3,7 +3,7 @@
 **Status:** IMPLEMENTED
 **Authority:** Implementation truth (see [documentation-policy.md](../meta/documentation-policy.md))
 **Last Updated:** 2026-11-19
-**Baseline:** `main` @ `5fa1ad0` (PR #271 merged)
+**Baseline:** `main` @ `954f4c2` (PR #277 merged)
 **Verification Baseline:** [verification-baseline.md](verification-baseline.md)
 **Related Roadmap:** [roadmap.md](../roadmap/roadmap.md)
 
@@ -85,6 +85,11 @@ All test counts are per-file assertion counts measured with
 | Semantic changeset commit synthesizer | Automated conventional commit message generation | IMPLEMENTED | VERIFIED | `forge diff commit <runId>` parses unified diffs and synthesizes conventional commit messages | `src/main/evidence/changesetSynthesizer.ts`, `src/main/cli.ts` | `src/main/evidence/changesetSynthesizer.test.ts` (4), `src/main/cli.test.ts` (40) | DIFF-003 |
 | Encrypted secret vault for cloud API keys | Authenticated AES-256-GCM vault with PBKDF2 | IMPLEMENTED | VERIFIED | `forge config vault [set|get|list]` provides encrypted at-rest storage for cloud provider secrets | `src/main/config/secretVault.ts`, `src/main/cli.ts` | `src/main/config/secretVault.test.ts` (4), `src/main/cli.test.ts` (40) | CONFIG-004 |
 | Event ledger pruning & state compaction | History compaction preserving initial and terminal events | IMPLEMENTED | VERIFIED | `forge db compact` prunes intermediate run events while keeping audit lineages intact (A1, A5) | `src/main/db/eventCompactor.ts`, `src/main/cli.ts` | `src/main/db/eventCompactor.test.ts` (3), `src/main/cli.test.ts` (40) | STATE-004 |
+| Cross-run solution memory & semantic indexing | Cross-run solution pattern recall & context augmentation | IMPLEMENTED | VERIFIED | Indexes successful runs with exitCode 0 and physical artifacts; queries solution memories by keyword and touched files | `src/main/core/agentMemory.ts`, `src/main/cli.ts` | `src/main/core/agentMemory.test.ts` (4), `src/main/cli.test.ts` (45) | AGENT-007 |
+| Workflow state checkpoint snapshots & time-travel | Point-in-time DAG state checkpointing & recovery | IMPLEMENTED | VERIFIED | Computes and verifies SHA-256 integrity of state snapshots; supports point-in-time restore and replay | `src/main/workflows/graphSnapshotter.ts`, `src/main/cli.ts` | `src/main/workflows/graphSnapshotter.test.ts` (4), `src/main/cli.test.ts` (45) | WORK-014 |
+| Multi-branch changeset conflict detector & three-way merger | Deterministic line-level hunk collision detection & patch merging | IMPLEMENTED | VERIFIED | Parses unified diff headers and line hunks; detects line-range overlap collisions and cleanly merges non-overlapping diffs | `src/main/evidence/changesetConflictDetector.ts`, `src/main/cli.ts` | `src/main/evidence/changesetConflictDetector.test.ts` (5), `src/main/cli.test.ts` (45) | DIFF-004 |
+| Process memory quota & resource budget enforcement | Bounded memory and duration enforcement preventing OOM | IMPLEMENTED | VERIFIED | Monitors RSS against byte thresholds; issues warnings and escalation actions; generates V8 heap flags | `src/main/runtimes/resourceLimiter.ts`, `src/main/cli.ts` | `src/main/runtimes/resourceLimiter.test.ts` (6), `src/main/cli.test.ts` (45) | RUNTIME-005 |
+| Workspace configuration bootstrapper & setup wizard | Zero-friction workspace initialization with profile defaults | IMPLEMENTED | VERIFIED | Initializes default .forgerc with profile templates; protects existing configs unless --force is passed | `src/main/config/configBootstrapper.ts`, `src/main/cli.ts` | `src/main/config/configBootstrapper.test.ts` (3), `src/main/cli.test.ts` (45) | CONFIG-005 |
 
 ### 2.2 State, storage & events
 

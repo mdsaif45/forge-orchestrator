@@ -44,4 +44,14 @@ export {
   type ParallelExecutionPlan,
   type ParallelNodeInfo,
 } from './parallelExecutor'
+export {
+  createWorkflowSnapshot,
+  listWorkflowSnapshots,
+  restoreWorkflowSnapshot,
+  workflowSnapshotDataSchema,
+  type WorkflowSnapshot,
+  type WorkflowSnapshotData,
+  type WorkflowSnapshotRestoreResult,
+  type WorkflowSnapshotSummary,
+} from './graphSnapshotter'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

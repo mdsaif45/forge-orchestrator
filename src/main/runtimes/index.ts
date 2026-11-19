@@ -82,3 +82,15 @@ export {
   type SanitizeEnvironmentOptions,
   type SanitizedEnvironmentReport,
 } from './environmentSanitizer'
+export {
+  auditRuntimeQuotas,
+  createResourceBudget,
+  DEFAULT_RESOURCE_BUDGET,
+  evaluateProcessSample,
+  generateMemoryFlags,
+  type ProcessResourceSample,
+  type ResourceAction,
+  type ResourceBudgetConfig,
+  type ResourceEvaluationResult,
+  type RuntimeQuotaAuditReport,
+} from './resourceLimiter'

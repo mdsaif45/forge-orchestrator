@@ -53,6 +53,7 @@ import {
   verifyEventJournalHashChain,
   replayEventLedger,
   verifyLedgerReplication,
+  diffDatabaseSnapshots,
   type RawLedgerEvent,
 } from './db'
 import { ProjectStore } from './db/projectStore'
@@ -60,6 +61,7 @@ import {
   auditArtifactChecksums,
   auditChangesetCoverage,
   auditChangesetExportSurface,
+  auditPatchFuzziness,
   auditRunChangesetConflicts,
   auditRunChangesetSecurity,
   executeVerificationPipeline,
@@ -74,6 +76,7 @@ import {
   validateCommitMessage,
   type ExportSurfaceReport,
   type FileCoverageData,
+  type PatchFuzzReport,
 } from './evidence'
 import { DEFAULT_TEMPLATES_V2 } from './templates/defaultTemplatesV2'
 import {
@@ -85,6 +88,7 @@ import {
   createWorkflowSnapshot,
   estimateWorkflowCost,
   evaluateConditionExpression,
+  extractWorkflowSubgraph,
   listDeadLetterQueue,
   listWorkflowSnapshots,
   planParallelBatches,
@@ -95,6 +99,7 @@ import {
   restoreWorkflowSnapshot,
   simulateWorkflowExecution,
   StepTimeoutSupervisor,
+  type SubgraphDirection,
   type WorkflowConditionContext,
   type WorkflowDAG,
   type WorkflowSimulationDAG,
@@ -113,6 +118,7 @@ import {
   coerceToolParameters,
   truncateToolOutput,
   compactPromptContextTurns,
+  AgentStreamMultiplexer,
   type PromptTurn,
   type ToolParametersSchema,
 } from './core'
@@ -127,6 +133,7 @@ import {
   resolveFeatureFlags,
   migrateConfig,
   syncConfigEnvironment,
+  auditConfigDrift,
   type PolicyLockRule,
 } from './config'
 
@@ -159,19 +166,19 @@ ${ANSI.bold}USAGE${ANSI.reset}
 ${ANSI.bold}COMMANDS${ANSI.reset}
   run <task>                 Execute an autonomous coding task against the current repository
   runs [list|inspect|events|cost] Inspect past runs, steps, token accounting, and event streams
-  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot|dlq|timeout|estimate|eval|checkpoint|simulate] Inspect, plan, profile, snapshot workflows, manage DLQ, timeouts, cost estimation, expressions, checkpoints, and dry-run simulation
+  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot|dlq|timeout|estimate|eval|checkpoint|simulate|subgraph] Inspect, plan, profile, snapshot workflows, manage DLQ, timeouts, cost estimation, expressions, checkpoints, dry-run simulation, and dependency subgraph extraction
   artifacts [list|cat|grep|verify|export|merkle] Inspect, view, search, verify, export, and Merkle provenance audit
-  diff [revert|security|secrets|commit|merge|exports] <runId> [stepId|runIdB] Inspect physical diffs, rollback changes, security/secrets audit, commit synthesis, merge conflicts, or AST export surface
+  diff [revert|security|secrets|commit|merge|exports|hunks] <runId> [stepId|runIdB] Inspect physical diffs, rollback changes, security/secrets audit, commit synthesis, merge conflicts, AST export surface, or patch hunk fuzziness
   processes [list]           Inspect active and completed background process metrics
   status                     Display current repository status and Forge control plane state
   models [list|scan|auto|set|fallback|circuit] Inspect, auto-select, fallback routing, and circuit breakers
-  runtimes [list|test|env|quota|rate-limit|cache|coerce|truncate] Inspect registered runtimes, test execution, sanitized environment, quotas, tool rate limits, cache, parameter coercion, and buffer limiter
+  runtimes [list|test|env|quota|rate-limit|cache|coerce|truncate|stream-turn] Inspect registered runtimes, test execution, sanitized environment, quotas, tool rate limits, cache, parameter coercion, buffer limiter, and streaming turn dispatcher
   context [inspect|optimize|compact] Inspect prompt packet, context files, prefix caching optimization, or sliding window compaction
   memory [search|index|stats] Search, index, and inspect cross-run solution memory and semantic patterns
   projects [list|prune]      Inspect multi-project workspace registry, health, and prune missing projects
   verify [pipeline|coverage|commit|manifest] Execute ordered verification pipeline, audit code coverage, validate commit messages, or audit manifest
-  config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features|migrate|sync-env] Inspect, profile, doctor, secret vault encryption, workspace bootstrap, policy lock, env interpolation, safe export, feature flags, schema migration, and .env synchronization
-  db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal|replay|verify-ledger] Inspect SQLite database storage, backup, restore, compaction, integrity/orphan audit, WAL checkpoint, quota monitor, audit journals, time-travel replay, and ledger replication verification
+  config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features|migrate|sync-env|drift] Inspect, profile, doctor, secret vault encryption, workspace bootstrap, policy lock, env interpolation, safe export, feature flags, schema migration, .env synchronization, and schema drift
+  db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal|replay|verify-ledger|diff-snapshots] Inspect SQLite database storage, backup, restore, compaction, integrity/orphan audit, WAL checkpoint, quota monitor, audit journals, time-travel replay, ledger verification, and snapshot delta diffing
 
 ${ANSI.bold}OPTIONS${ANSI.reset}
   -v, --version        Display Forge version
@@ -272,6 +279,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       concurrency: { type: 'string' },
       out: { type: 'string' },
       'max-tokens': { type: 'string' },
+      direction: { type: 'string' },
+      'max-fuzz': { type: 'string' },
     },
     allowPositionals: true,
   })
@@ -367,6 +376,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       run: values.run,
       context: values.context,
       concurrency: values.concurrency,
+      direction: values.direction,
     })
   }
 
@@ -391,6 +401,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       extraParam: positionals[3],
       schema: values.schema,
       maxBytes: values['max-bytes'] ? parseInt(values['max-bytes'], 10) : undefined,
+      maxTokens: values['max-tokens'] ? parseInt(values['max-tokens'], 10) : undefined,
       dataDir,
       json: values.json,
     })
@@ -475,6 +486,16 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
   }
 
   if (command === 'diff') {
+    if (positionals[1] === 'hunks') {
+      return handleDiffHunks({
+        runId: positionals[2],
+        stepId: positionals[3],
+        maxFuzz: values['max-fuzz'] ? parseInt(values['max-fuzz'], 10) : undefined,
+        cwd,
+        dataDir,
+        json: values.json,
+      })
+    }
     if (positionals[1] === 'exports') {
       return handleDiffExports({
         runId: positionals[2],
@@ -561,6 +582,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       action: positionals[1],
       targetPath: positionals[2],
       targetId: positionals[2],
+      thirdParam: positionals[3],
       verify: values.verify,
       force: values.force,
       dryRun: values['dry-run'],
@@ -1854,6 +1876,7 @@ async function handleWorkflows(opts: {
   run?: boolean | undefined
   context?: string | undefined
   concurrency?: string | undefined
+  direction?: string | undefined
 }): Promise<number> {
   const core = createForgeCore({ dataDir: opts.dataDir })
 
@@ -1879,6 +1902,7 @@ async function handleWorkflows(opts: {
       'eval',
       'checkpoint',
       'simulate',
+      'subgraph',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2577,6 +2601,76 @@ async function handleWorkflows(opts: {
       return simulation.valid ? 0 : 1
     }
 
+    if (action === 'subgraph') {
+      const allKnownTemplates: WorkflowTemplateV2[] = [
+        ...DEFAULT_TEMPLATES_V2,
+        compileLinearTemplateToGraph(FEATURE_IMPLEMENTATION),
+        compileLinearTemplateToGraph(BUG_FIX),
+      ]
+
+      const templateRef = opts.extraParam ? targetId : (opts.template ?? targetId)
+      const targetNodeId = opts.extraParam ?? (opts.template ? targetId : undefined)
+
+      if (!templateRef || !targetNodeId) {
+        const err =
+          'Usage: forge workflows subgraph <templateOrFile> <nodeId> [--direction upstream|downstream|bidirectional] [--json]'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      let targetTemplate: WorkflowTemplateV2 | undefined
+
+      if (templateRef.endsWith('.json') || existsSync(resolve(opts.cwd, templateRef))) {
+        const filePath = resolve(opts.cwd, templateRef)
+        try {
+          const raw = readFileSync(filePath, 'utf-8')
+          targetTemplate = JSON.parse(raw) as WorkflowTemplateV2
+        } catch (err) {
+          const msg = `Failed to parse template JSON at "${templateRef}": ${err instanceof Error ? err.message : String(err)}`
+          if (opts.json) console.log(JSON.stringify({ error: msg }))
+          else console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+          return 1
+        }
+      } else {
+        const query = templateRef
+        const normTarget = query.toLowerCase().replace(/[-_]/g, '')
+        targetTemplate = allKnownTemplates.find((t) => {
+          const normId = t.id.toLowerCase().replace(/[-_]/g, '')
+          const normName = t.name.toLowerCase().replace(/[-_]/g, '')
+          return (
+            t.id.toLowerCase() === query.toLowerCase() ||
+            t.name.toLowerCase() === query.toLowerCase() ||
+            normId === normTarget ||
+            normName === normTarget ||
+            (normTarget.includes('feature') && normId.includes('feature')) ||
+            (normTarget.includes('bug') && normId.includes('bug'))
+          )
+        })
+      }
+
+      if (!targetTemplate) {
+        const msg = `Template "${templateRef}" not found in catalog or path`
+        if (opts.json) console.log(JSON.stringify({ error: msg }))
+        else console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+        return 1
+      }
+
+      const dirStr = opts.direction ?? 'both'
+      const direction: SubgraphDirection =
+        dirStr === 'upstream' ? 'upstream' : dirStr === 'downstream' ? 'downstream' : 'both'
+
+      const result = extractWorkflowSubgraph(targetTemplate, targetNodeId, { direction })
+
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+        return result.valid ? 0 : 1
+      }
+
+      console.log(`\n${result.formattedSummary}\n`)
+      return result.valid ? 0 : 1
+    }
+
     if (action === 'parallel') {
       const allKnownTemplates: WorkflowTemplateV2[] = [
         ...DEFAULT_TEMPLATES_V2,
@@ -2832,11 +2926,68 @@ async function handleRuntimes(opts: {
   extraParam?: string | undefined
   schema?: string | undefined
   maxBytes?: number | undefined
+  maxTokens?: number | undefined
   dataDir: string
   json: boolean
 }): Promise<number> {
   const core = createForgeCore({ dataDir: opts.dataDir })
   try {
+    if (opts.action === 'stream-turn' || opts.action === 'stream') {
+      const input = opts.targetId
+      if (!input) {
+        const err =
+          'Usage: forge runtimes stream-turn <eventJsonOrString> [--max-tokens <n>] [--json]'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      const multiplexer = new AgentStreamMultiplexer({
+        maxTokenBudget: opts.maxTokens,
+      })
+      try {
+        if (input.startsWith('[') || input.startsWith('{')) {
+          const parsed: unknown = JSON.parse(input)
+          const events: readonly unknown[] = Array.isArray(parsed) ? parsed : [parsed]
+          for (const ev of events) {
+            if (typeof ev === 'string') {
+              multiplexer.pushToken(ev)
+            } else if (ev && typeof ev === 'object') {
+              const obj = ev as Record<string, unknown>
+              if (obj.type === 'token' && typeof obj.text === 'string') {
+                multiplexer.pushToken(obj.text)
+              } else if (obj.type === 'tool' && typeof obj.index === 'number') {
+                multiplexer.pushToolDelta(
+                  obj.index,
+                  typeof obj.nameChunk === 'string' ? obj.nameChunk : undefined,
+                  typeof obj.argChunk === 'string' ? obj.argChunk : undefined,
+                )
+              } else if (typeof obj.token === 'string') {
+                multiplexer.pushToken(obj.token)
+              }
+            }
+          }
+        } else {
+          multiplexer.pushToken(input)
+        }
+      } catch (e) {
+        const err = `Failed to parse stream event input: ${e instanceof Error ? e.message : String(e)}`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+
+      const turn = multiplexer.finalize()
+      if (opts.json) {
+        console.log(JSON.stringify(turn))
+        return turn.valid ? 0 : 1
+      }
+      console.log(`\n${turn.formattedSummary}\n`)
+      if (turn.completedText) {
+        console.log(`  Completed Text:\n${turn.completedText}\n`)
+      }
+      return turn.valid ? 0 : 1
+    }
+
     if (opts.action === 'truncate') {
       const text = opts.targetId ?? ''
       const maxBytes = opts.maxBytes
@@ -3630,12 +3781,26 @@ async function handleConfig(opts: {
     return 0
   }
 
+  if (action === 'drift') {
+    const report = auditConfigDrift({
+      searchFrom: opts.cwd,
+      explicitPath: opts.key,
+      profile: opts.profile,
+    })
+    if (opts.json) {
+      console.log(JSON.stringify(report))
+      return report.valid ? 0 : 1
+    }
+    console.log(`\n${report.formattedSummary}\n`)
+    return report.valid ? 0 : 1
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
     console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
     console.error(
-      'Usage: forge config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features|migrate|sync-env] [<key>] [<value>] [--json]',
+      'Usage: forge config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features|migrate|sync-env|drift] [<key>] [<value>] [--json]',
     )
   }
   return 1
@@ -3645,6 +3810,7 @@ async function handleDb(opts: {
   action?: string | undefined
   targetPath?: string | undefined
   targetId?: string | undefined
+  thirdParam?: string | undefined
   verify?: boolean | undefined
   force?: boolean | undefined
   dryRun?: boolean | undefined
@@ -3926,12 +4092,33 @@ async function handleDb(opts: {
       return report.valid ? 0 : 1
     }
 
+    if (action === 'diff-snapshots' || action === 'diff-snapshot') {
+      const pathA = opts.targetPath
+      const pathB = opts.thirdParam
+      if (!pathA || !pathB) {
+        const err = 'Usage: forge db diff-snapshots <snapshotA.db> <snapshotB.db> [--json]'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else {
+          console.error(`${ANSI.red}Error: Missing snapshot path(s).${ANSI.reset}`)
+          console.error(err)
+        }
+        return 1
+      }
+      const report = diffDatabaseSnapshots(pathA, pathB)
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return report.valid ? 0 : 1
+      }
+      console.log(`\n${report.formattedSummary}\n`)
+      return report.valid ? 0 : 1
+    }
+
     const err = `Unknown db action: ${action}`
     if (opts.json) console.log(JSON.stringify({ error: err }))
     else {
       console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
       console.error(
-        'Usage: forge db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal|replay|verify-ledger] [options]',
+        'Usage: forge db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal|replay|verify-ledger|diff-snapshots] [options]',
       )
     }
     return 1
@@ -4612,6 +4799,107 @@ async function handleDiffExports(opts: {
 
     console.log(`\n${report.formattedSummary}\n`)
     return report.riskTier === 'high' ? 1 : 0
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (opts.json) {
+      console.log(JSON.stringify({ error: msg }))
+    } else {
+      console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+    }
+    return 1
+  } finally {
+    await core.close()
+  }
+}
+
+async function handleDiffHunks(opts: {
+  readonly runId?: string | undefined
+  readonly stepId?: string | undefined
+  readonly maxFuzz?: number | undefined
+  readonly cwd: string
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  if (!opts.runId) {
+    const err = 'Usage: forge diff hunks <runId|patchPath> [stepId] [--max-fuzz <n>] [--json]'
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else console.error(`${ANSI.red}Error: No run ID or patch path provided.${ANSI.reset}\n${err}`)
+    return 1
+  }
+
+  const directPath = resolve(opts.cwd, opts.runId)
+  if (existsSync(directPath)) {
+    try {
+      const rawDiff = readFileSync(directPath, 'utf-8')
+      const report = await auditPatchFuzziness(rawDiff, {
+        cwd: opts.cwd,
+        maxFuzz: opts.maxFuzz,
+      })
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return report.overallStatus === 'rejected' ? 1 : 0
+      }
+      console.log(`\n${report.formattedSummary}\n`)
+      return report.overallStatus === 'rejected' ? 1 : 0
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (opts.json) console.log(JSON.stringify({ error: msg }))
+      else console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+      return 1
+    }
+  }
+
+  const parsedRunId = runIdSchema.safeParse(opts.runId)
+  if (!parsedRunId.success) {
+    const err = `Invalid run ID or file path "${opts.runId}". Expected a valid UUID or existing file.`
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+    return 1
+  }
+
+  const core = createForgeCore({ dataDir: opts.dataDir })
+  try {
+    const artifacts = core.artifactStore.listForRun(parsedRunId.data)
+    let filtered = artifacts
+    if (opts.stepId) {
+      filtered = filtered.filter((a) => a.stepId === opts.stepId)
+    }
+    const diffArtifact =
+      filtered.find((a) => a.kind === 'changeset' || a.kind === 'diff') ??
+      artifacts.find((a) => a.kind === 'changeset' || a.kind === 'diff')
+
+    if (!diffArtifact) {
+      const emptyResult: PatchFuzzReport = {
+        valid: true,
+        runId: opts.runId,
+        overallStatus: 'clean',
+        filesCount: 0,
+        totalHunks: 0,
+        cleanHunks: 0,
+        fuzzyHunks: 0,
+        rejectedHunks: 0,
+        fileReports: [],
+        formattedSummary: `No changeset or diff artifacts found for run ${opts.runId}; nothing to audit.`,
+      }
+      if (opts.json) console.log(JSON.stringify(emptyResult))
+      else console.log(`\n${emptyResult.formattedSummary}\n`)
+      return 0
+    }
+
+    const rawDiff = await core.artifacts.readArtifactText(diffArtifact.id)
+    const report = await auditPatchFuzziness(rawDiff, {
+      runId: opts.runId,
+      cwd: opts.cwd,
+      maxFuzz: opts.maxFuzz,
+    })
+
+    if (opts.json) {
+      console.log(JSON.stringify(report))
+      return report.overallStatus === 'rejected' ? 1 : 0
+    }
+
+    console.log(`\n${report.formattedSummary}\n`)
+    return report.overallStatus === 'rejected' ? 1 : 0
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
     if (opts.json) {

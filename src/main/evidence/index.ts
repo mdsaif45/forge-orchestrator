@@ -117,3 +117,14 @@ export {
   type MerkleLeafRecord,
   type MerkleProofStep,
 } from './merkleLineage'
+export {
+  computeManifestFingerprint,
+  generateVerificationManifest,
+  verifyManifestIntegrity,
+  type ManifestCommandEntry,
+  type ManifestCriterionEntry,
+  type ManifestFileEntry,
+  type ManifestIntegrityReport,
+  type VerificationManifest,
+  type VerificationManifestInput,
+} from './verificationManifest'

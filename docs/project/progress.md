@@ -5,8 +5,8 @@ Project:            Forge — AI Engineering Control Plane
 Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
 Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
 Last updated:       2026-11-19
-Evidence baseline:  main @ aaa7522 (PR #301 merged)
-Active branch:      feat/m1-m6-coercer-condition-merkle-journal-features
+Evidence baseline:  main @ 8748f6e (PR #307 merged)
+Active branch:      feat/m1-m6-buffer-checkpoint-manifest-replay-migration
 ```
 
 ---
@@ -61,6 +61,16 @@ M11 Host the Real CLI             ██████████  DONE        PR
 ---
 
 ## 3. Major Slice History & Merged PRs (Reverse Chronological)
+
+### 2026-11-19: PR #307 merged (`8748f6e`) — M1/M2/M4/M5/M6 Tool Coercer, Condition Evaluator, Merkle Lineage, Journal Exporter, and Feature Flags
+- **Title:** `feat(core,workflows,evidence,db,config,cli): tool parameter coercer, condition evaluator, merkle lineage, event journal exporter, and feature flags (#302, #303, #304, #305, #306)`
+- **Delivered:**
+  - `AGENT-011`: Deterministic parameter validation and type coercion engine with toxic key prototype pollution stripping (`coerceToolParameters`) and `forge runtimes coerce <tool> <args> [--schema <schema>]`.
+  - `WORK-018`: Safe AST-based boolean expression evaluator with sandboxed syntax parsing and zero eval/Function calls (`evaluateConditionExpression`) and `forge workflows eval "<expr>" [--context <ctx>]`.
+  - `EVIDENCE-006`: Balanced binary Merkle tree generator with deterministic leaf hashing and cryptographic inclusion proof paths (`generateArtifactMerkleTree`, `verifyMerkleProof`) and `forge artifacts merkle <runId>`.
+  - `STATE-008`: Tamper-evident sequential audit journal exporter and monotonic hash-chain verifier (`exportEventJournal`, `verifyEventJournalHashChain`) and `forge db journal <runId> [--verify]`.
+  - `CONFIG-009`: Declarative workspace feature flags and runtime capability evaluator with administrative policy lock enforcement (`resolveFeatureFlags`) and `forge config features`.
+  - Closed GitHub issues #302, #303, #304, #305, #306.
 
 ### 2026-11-19: PR #301 merged (`aaa7522`) — M1/M2/M4/M5/M6 Tool Idempotency Cache, Workflow Cost Estimator, Commit Validator, WAL Checkpoint Supervisor, and Config Masker
 - **Title:** `feat(core,workflows,evidence,db,config,cli): tool idempotency cache, workflow cost estimator, commit validator, wal checkpoint supervisor, and config masker (#296, #297, #298, #299, #300)`

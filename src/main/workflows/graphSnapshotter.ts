@@ -13,6 +13,7 @@ export const workflowSnapshotDataSchema = z.strictObject({
   nodeOutputs: z.record(z.string(), z.unknown()),
   traversedEdges: z.array(z.string()),
   metadata: z.record(z.string(), z.unknown()).optional(),
+  timestamp: z.string().optional(),
 })
 
 export type WorkflowSnapshotData = z.infer<typeof workflowSnapshotDataSchema>
@@ -55,20 +56,20 @@ export async function createWorkflowSnapshot(
   input: WorkflowSnapshotData,
 ): Promise<WorkflowSnapshot> {
   const snapshotId = randomUUID()
-  const timestamp = new Date().toISOString()
+  const timestamp = input.timestamp ?? new Date().toISOString()
 
   // Canonical serialization payload without sha256
   const payloadToHash = JSON.stringify({
+    ...input,
     snapshotId,
     timestamp,
-    ...input,
   })
   const sha256 = computeSha256(payloadToHash)
 
   const snapshot: WorkflowSnapshot = {
+    ...input,
     snapshotId,
     timestamp,
-    ...input,
     sha256,
   }
 
@@ -136,7 +137,9 @@ export async function listWorkflowSnapshots(
     }
   }
 
-  summaries.sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+  summaries.sort(
+    (a, b) => a.timestamp.localeCompare(b.timestamp) || a.snapshotId.localeCompare(b.snapshotId),
+  )
 
   const lines: string[] = []
   lines.push('================================================================================')

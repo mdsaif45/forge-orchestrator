@@ -84,6 +84,11 @@ export {
   type JournalVerificationReport,
   type RawLedgerEvent,
 } from './eventJournalExporter'
+export {
+  replayEventLedger,
+  type RunStateProjection,
+  type StepProjection,
+} from './eventReplayEngine'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

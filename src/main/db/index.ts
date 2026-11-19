@@ -50,6 +50,11 @@ export {
   type DatabaseRestoreResult,
   type RestoreOptions,
 } from './backup'
+export {
+  compactRunEvents,
+  type EventCompactionOptions,
+  type EventCompactionResult,
+} from './eventCompactor'
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'
 

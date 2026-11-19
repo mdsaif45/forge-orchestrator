@@ -1505,4 +1505,183 @@ new file mode 100644
     expect(restoreParsed.success).toBe(true)
     logSpy2.mockRestore()
   })
+
+  it('plans parallel node execution with forge workflows parallel --json (WORK-013)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['workflows', 'parallel', 'feature', '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as { valid: boolean; totalBatches: number }
+    expect(parsed.valid).toBe(true)
+    expect(parsed.totalBatches).toBeGreaterThan(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('manages encrypted secret vault with forge config vault [set|get|list] --json (CONFIG-004)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const setCode = await runCli([
+      'config',
+      'vault',
+      'set',
+      'OPENAI_API_KEY',
+      'sk-test-secret-12345',
+      '--passphrase',
+      'test-passphrase',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(setCode).toBe(0)
+
+    logs.length = 0
+    const getCode = await runCli([
+      'config',
+      'vault',
+      'get',
+      'OPENAI_API_KEY',
+      '--passphrase',
+      'test-passphrase',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(getCode).toBe(0)
+    const getParsed = JSON.parse(logs[0] ?? '{}') as { key: string; value: string }
+    expect(getParsed.key).toBe('OPENAI_API_KEY')
+    expect(getParsed.value).toBe('sk-test-secret-12345')
+
+    logs.length = 0
+    const listCode = await runCli([
+      'config',
+      'vault',
+      'list',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(listCode).toBe(0)
+    const listParsed = JSON.parse(logs[0] ?? '{}') as {
+      secretCount: number
+      secrets: { key: string }[]
+    }
+    expect(listParsed.secretCount).toBe(1)
+    expect(listParsed.secrets.map((s) => s.key)).toContain('OPENAI_API_KEY')
+
+    logSpy.mockRestore()
+  })
+
+  it('compacts run event ledger with forge db compact --dry-run --json (STATE-004)', async () => {
+    const core = createForgeCore({ dataDir })
+    await core.close()
+
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['db', 'compact', '--dry-run', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as { valid: boolean; dryRun: boolean }
+    expect(parsed.valid).toBe(true)
+    expect(parsed.dryRun).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('handles diff commit synthesis error on missing run or diffs with forge diff commit --json (DIFF-003)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const fakeRunId = randomUUID()
+    const code = await runCli(['diff', 'commit', fakeRunId, '--data-dir', dataDir, '--json'])
+    expect(code).toBe(1)
+    const parsed = JSON.parse(logs[0] ?? '{}') as { error: string }
+    expect(parsed.error).toContain('No changeset or diff artifacts found')
+
+    logSpy.mockRestore()
+  })
+
+  it('optimizes prompt packet prefix caching with forge context optimize --json (AGENT-006)', async () => {
+    const core = createForgeCore({ dataDir })
+    const project = await core.projects.create({
+      name: 'Optimize Test Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'master',
+      buildCommand: null,
+      testCommand: null,
+      tech: ['ts'],
+      rules: [],
+    })
+    const runId = runIdSchema.parse(randomUUID())
+    const stepId = stepIdSchema.parse(randomUUID())
+    const projectId = projectIdSchema.parse(project.id)
+    const taskId = taskIdSchema.parse(randomUUID())
+    core.runs.createRun({
+      id: runId,
+      projectId,
+      taskId,
+      type: 'direct-task',
+      status: 'completed',
+      startedAt: new Date(Date.now() - 2000).toISOString(),
+      finishedAt: new Date().toISOString(),
+      exitCode: 0,
+      summary: 'Prompt packet optimization test',
+      error: null,
+      metadata: { task: 'test optimization' },
+    })
+
+    const packetContent = JSON.stringify({
+      objective: 'Build caching feature',
+      systemPrompt: 'You are Forge engine system instructions. Keep deterministic.',
+      contextFiles: ['src/main/cli.ts'],
+      turns: [
+        { role: 'user', content: 'First message' },
+        { role: 'assistant', content: 'First answer' },
+      ],
+    })
+
+    await core.artifacts.writeArtifact({
+      runId,
+      stepId,
+      kind: 'prompt-packet',
+      name: 'prompt-packet.json',
+      content: packetContent,
+      mimeType: 'application/json',
+    })
+    await core.close()
+
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['context', 'optimize', runId, '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      valid: boolean
+      staticPrefixTokens: number
+      cacheabilityRatio: number
+    }
+    expect(parsed.valid).toBe(true)
+    expect(parsed.staticPrefixTokens).toBeGreaterThan(0)
+    expect(parsed.cacheabilityRatio).toBeGreaterThan(0)
+
+    logSpy.mockRestore()
+  })
 })

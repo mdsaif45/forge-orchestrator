@@ -17,3 +17,8 @@ export {
   type TokenCostEstimate,
   type TokenUsage,
 } from './tokenAccounting'
+export {
+  optimizePromptPacket,
+  type PromptOptimizationOptions,
+  type PromptOptimizationReport,
+} from './promptOptimizer'

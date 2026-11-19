@@ -2,8 +2,8 @@
 
 **Status:** IMPLEMENTED
 **Authority:** Implementation truth (see [documentation-policy.md](../meta/documentation-policy.md))
-**Last Updated:** 2026-11-18
-**Baseline:** `main` @ `7ee02ba` (PR #265 merged)
+**Last Updated:** 2026-11-19
+**Baseline:** `main` @ `5fa1ad0` (PR #271 merged)
 **Verification Baseline:** [verification-baseline.md](verification-baseline.md)
 **Related Roadmap:** [roadmap.md](../roadmap/roadmap.md)
 
@@ -80,6 +80,11 @@ All test counts are per-file assertion counts measured with
 | Token budget tracker & cost accounting | Model inference cost accounting & spending ceilings | IMPLEMENTED | VERIFIED | `forge runs cost <runId>` computes token usage, USD estimates, and enforces budget caps (A5) | `src/main/core/tokenAccounting.ts`, `src/main/cli.ts` | `src/main/core/tokenAccounting.test.ts` (4), `src/main/cli.test.ts` (35) | AGENT-005 |
 | Changeset diff security auditor & credential leak gate | Security audit of git patches and forbidden files | IMPLEMENTED | VERIFIED | `forge diff security <runId>` scans unified diffs for private keys, AWS/GitHub tokens, and .env files | `src/main/evidence/securityAuditor.ts`, `src/main/cli.ts` | `src/main/evidence/securityAuditor.test.ts` (5), `src/main/cli.test.ts` (35) | EVIDENCE-002 |
 | Online database snapshot backup & atomic restore | Non-blocking snapshot backup and rollback-protected restore | IMPLEMENTED | VERIFIED | `forge db [backup|restore]` takes point-in-time SQLite snapshots with SHA-256 integrity and atomic restore | `src/main/db/backup.ts`, `src/main/cli.ts` | `src/main/db/backup.test.ts` (4), `src/main/cli.test.ts` (35) | STATE-003 |
+| Prompt packet prefix cache optimizer | Static prefix vs dynamic turns optimization | IMPLEMENTED | VERIFIED | `forge context optimize <runId>` analyzes context packets for prefix caching and token savings (A5) | `src/main/core/promptOptimizer.ts`, `src/main/cli.ts` | `src/main/core/promptOptimizer.test.ts` (4), `src/main/cli.test.ts` (40) | AGENT-006 |
+| Sibling DAG concurrency & parallel execution planning | Parallel node batching and merge node fan-in | IMPLEMENTED | VERIFIED | `forge workflows parallel <template>` plans parallel sibling stages and worktree isolation needs | `src/main/workflows/parallelExecutor.ts`, `src/main/cli.ts` | `src/main/workflows/parallelExecutor.test.ts` (3), `src/main/cli.test.ts` (40) | WORK-013 |
+| Semantic changeset commit synthesizer | Automated conventional commit message generation | IMPLEMENTED | VERIFIED | `forge diff commit <runId>` parses unified diffs and synthesizes conventional commit messages | `src/main/evidence/changesetSynthesizer.ts`, `src/main/cli.ts` | `src/main/evidence/changesetSynthesizer.test.ts` (4), `src/main/cli.test.ts` (40) | DIFF-003 |
+| Encrypted secret vault for cloud API keys | Authenticated AES-256-GCM vault with PBKDF2 | IMPLEMENTED | VERIFIED | `forge config vault [set|get|list]` provides encrypted at-rest storage for cloud provider secrets | `src/main/config/secretVault.ts`, `src/main/cli.ts` | `src/main/config/secretVault.test.ts` (4), `src/main/cli.test.ts` (40) | CONFIG-004 |
+| Event ledger pruning & state compaction | History compaction preserving initial and terminal events | IMPLEMENTED | VERIFIED | `forge db compact` prunes intermediate run events while keeping audit lineages intact (A1, A5) | `src/main/db/eventCompactor.ts`, `src/main/cli.ts` | `src/main/db/eventCompactor.test.ts` (3), `src/main/cli.test.ts` (40) | STATE-004 |
 
 ### 2.2 State, storage & events
 

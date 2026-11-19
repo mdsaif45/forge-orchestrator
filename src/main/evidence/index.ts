@@ -66,3 +66,10 @@ export {
   type SecurityViolation,
   type SecurityViolationSeverity,
 } from './securityAuditor'
+export {
+  synthesizeChangesetCommit,
+  synthesizeRunChangesetCommit,
+  type CommitType,
+  type SynthesizeCommitOptions,
+  type SynthesizedCommitReport,
+} from './changesetSynthesizer'

@@ -37,23 +37,32 @@ import {
 } from './config/forgeConfig'
 import { auditForgeEnvironment } from './config/configDoctor'
 import { exportRunArtifactArchive } from './artifacts'
-import { backupDatabase, getDatabaseStats, restoreDatabase, vacuumDatabase } from './db'
+import {
+  backupDatabase,
+  compactRunEvents,
+  getDatabaseStats,
+  restoreDatabase,
+  vacuumDatabase,
+} from './db'
 import {
   auditArtifactChecksums,
   auditRunChangesetSecurity,
   executeVerificationPipeline,
   inspectRunDiff,
   rollbackRunChanges,
+  synthesizeRunChangesetCommit,
 } from './evidence'
 import { DEFAULT_TEMPLATES_V2 } from './templates/defaultTemplatesV2'
 import {
   discoverCustomTemplates,
   validateCustomTemplateFile,
 } from './templates/customTemplateLoader'
-import { planWorkflowExecution, profileWorkflowExecution } from './workflows'
+import { planParallelBatches, planWorkflowExecution, profileWorkflowExecution } from './workflows'
 import { validateTemplateGraph } from './workflows/validation'
 import { sanitizeRuntimeEnvironment } from './runtimes/environmentSanitizer'
 import { calculateRunTokenAccounting } from './core/tokenAccounting'
+import { optimizePromptPacket } from './core/promptOptimizer'
+import { getVaultSecret, listVaultSecrets, setVaultSecret } from './config/secretVault'
 
 const VERSION = '0.3.0-alpha.1'
 
@@ -84,17 +93,17 @@ ${ANSI.bold}USAGE${ANSI.reset}
 ${ANSI.bold}COMMANDS${ANSI.reset}
   run <task>                 Execute an autonomous coding task against the current repository
   runs [list|inspect|events|cost] Inspect past runs, steps, token accounting, and event streams
-  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates] Inspect, plan, profile, and manage workflows & custom templates
+  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel] Inspect, plan, profile, and manage workflows & custom templates
   artifacts [list|cat|grep|verify|export] Inspect, view, search, verify, and export run artifacts
-  diff [revert|security] <runId> [stepId] Inspect physical diffs, rollback changes, or run security audit
+  diff [revert|security|commit] <runId> [stepId] Inspect physical diffs, rollback changes, security audit, or conventional commit synthesis
   processes [list]           Inspect active and completed background process metrics
   status                     Display current repository status and Forge control plane state
   models [list|scan|auto|set] Inspect, auto-select, or configure the active AI model
   runtimes [list|test|env]   Inspect registered runtimes, test execution, or inspect sanitized environment
-  context [inspect]          Inspect prompt packet and context files for a run
+  context [inspect|optimize] Inspect prompt packet, context files, or prefix caching optimization
   verify [pipeline]          Execute ordered multi-stage verification pipeline
-  config [list|get|set|profile|doctor] Inspect and update .forgerc configuration, profiles, and health
-  db [stats|vacuum|backup|restore] Inspect SQLite database storage, backup, restore, and maintenance
+  config [list|get|set|profile|doctor|vault] Inspect, profile, doctor, and secret vault encryption
+  db [stats|vacuum|backup|restore|compact] Inspect SQLite database storage, backup, restore, and event compaction
 
 ${ANSI.bold}OPTIONS${ANSI.reset}
   -v, --version        Display Forge version
@@ -105,6 +114,8 @@ ${ANSI.bold}OPTIONS${ANSI.reset}
   -p, --provider <id>  Provider override (ollama, openai, openrouter)
   --endpoint <url>     Custom OpenAI/Ollama API endpoint URL
   --api-key <key>      API key for cloud model providers
+  --passphrase <key>   Passphrase for secret vault encryption/decryption
+  --before <date>      Cutoff timestamp for event compaction (ISO-8601)
   --max-rounds <n>     Maximum tool execution rounds (default: 15)
   --limit <n>          Maximum number of runs to list
   --status <s>         Filter runs by status (running, completed, failed, halted)
@@ -176,6 +187,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       stat: { type: 'boolean', default: false },
       'dry-run': { type: 'boolean', default: false },
       force: { type: 'boolean', default: false },
+      passphrase: { type: 'string' },
+      before: { type: 'string' },
     },
     allowPositionals: true,
   })
@@ -319,6 +332,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       action: positionals[1],
       key: positionals[2],
       val: positionals[3],
+      extraParam: positionals[4],
+      passphrase: values.passphrase,
       cwd,
       dataDir,
       json: values.json,
@@ -326,6 +341,15 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
   }
 
   if (command === 'diff') {
+    if (positionals[1] === 'commit') {
+      return handleDiffCommit({
+        runId: positionals[2],
+        task: values.task,
+        dryRun: values['dry-run'],
+        dataDir,
+        json: values.json,
+      })
+    }
     if (positionals[1] === 'security') {
       return handleDiffSecurity({
         runId: positionals[2],
@@ -368,6 +392,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       action: positionals[1],
       targetPath: positionals[2],
       force: values.force,
+      dryRun: values['dry-run'],
+      beforeDate: values.before,
       dataDir,
       json: values.json,
     })
@@ -1580,6 +1606,7 @@ async function handleWorkflows(opts: {
       'profile',
       'templates',
       'template',
+      'parallel',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2081,6 +2108,61 @@ async function handleWorkflows(opts: {
       return 0
     }
 
+    if (action === 'parallel') {
+      const allKnownTemplates: WorkflowTemplateV2[] = [
+        ...DEFAULT_TEMPLATES_V2,
+        compileLinearTemplateToGraph(FEATURE_IMPLEMENTATION),
+        compileLinearTemplateToGraph(BUG_FIX),
+      ]
+
+      let targetTemplate: WorkflowTemplateV2 | undefined
+
+      if (targetId && (targetId.endsWith('.json') || existsSync(resolve(opts.cwd, targetId)))) {
+        const filePath = resolve(opts.cwd, targetId)
+        try {
+          const raw = readFileSync(filePath, 'utf-8')
+          targetTemplate = JSON.parse(raw) as WorkflowTemplateV2
+        } catch (err) {
+          const msg = `Failed to parse template JSON at "${targetId}": ${err instanceof Error ? err.message : String(err)}`
+          if (opts.json) console.log(JSON.stringify({ error: msg }))
+          else console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+          return 1
+        }
+      } else {
+        const query = targetId ?? opts.template ?? 'feature'
+        const normTarget = query.toLowerCase().replace(/[-_]/g, '')
+        targetTemplate = allKnownTemplates.find((t) => {
+          const normId = t.id.toLowerCase().replace(/[-_]/g, '')
+          const normName = t.name.toLowerCase().replace(/[-_]/g, '')
+          return (
+            t.id.toLowerCase() === query.toLowerCase() ||
+            t.name.toLowerCase() === query.toLowerCase() ||
+            normId === normTarget ||
+            normName === normTarget ||
+            (normTarget.includes('feature') && normId.includes('feature')) ||
+            (normTarget.includes('bug') && normId.includes('bug'))
+          )
+        })
+      }
+
+      if (!targetTemplate) {
+        const msg = `Template "${targetId ?? opts.template ?? 'feature'}" not found in catalog or path`
+        if (opts.json) console.log(JSON.stringify({ error: msg }))
+        else console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+        return 1
+      }
+
+      const parallelPlan = planParallelBatches(targetTemplate)
+
+      if (opts.json) {
+        console.log(JSON.stringify(parallelPlan))
+        return parallelPlan.valid ? 0 : 1
+      }
+
+      console.log(`\n${parallelPlan.formattedSummary}\n`)
+      return parallelPlan.valid ? 0 : 1
+    }
+
     if (action === 'profile') {
       if (!targetId) {
         const msg = 'Run ID required: forge workflows profile <runId>'
@@ -2320,13 +2402,13 @@ async function handleContext(opts: {
     let runId = opts.runId
     const stepId = opts.stepId
 
-    if (action !== 'inspect') {
+    if (action !== 'inspect' && action !== 'optimize') {
       runId = action
       action = 'inspect'
     }
 
     if (!runId) {
-      const err = 'Usage: forge context inspect <runId> [stepId]'
+      const err = 'Usage: forge context [inspect|optimize] <runId> [stepId]'
       if (opts.json) console.log(JSON.stringify({ error: err }))
       else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
       return 1
@@ -2362,6 +2444,17 @@ async function handleContext(opts: {
     }
 
     const content = await core.artifacts.readArtifactText(targetPacket.id)
+
+    if (action === 'optimize') {
+      const optimization = optimizePromptPacket(content)
+      if (opts.json) {
+        console.log(JSON.stringify(optimization))
+        return optimization.valid ? 0 : 1
+      }
+      console.log(`\n${optimization.formattedSummary}\n`)
+      return optimization.valid ? 0 : 1
+    }
+
     let parsed: unknown = content
     try {
       parsed = JSON.parse(content)
@@ -2419,12 +2512,85 @@ async function handleConfig(opts: {
   action?: string | undefined
   key?: string | undefined
   val?: string | undefined
+  extraParam?: string | undefined
+  passphrase?: string | undefined
   cwd: string
   dataDir: string
   json: boolean
 }): Promise<number> {
   const action = opts.action ?? 'list'
   const configPath = findForgeConfigFile(opts.cwd)
+
+  if (action === 'vault') {
+    const subaction = opts.key ?? 'list'
+    const vaultPath = join(opts.cwd, '.forgerc.vault')
+    const passphrase = opts.passphrase ?? process.env.FORGE_VAULT_PASSPHRASE ?? 'forge-default-key'
+
+    if (subaction === 'list') {
+      const summary = await listVaultSecrets(vaultPath)
+      if (opts.json) {
+        console.log(JSON.stringify(summary))
+        return 0
+      }
+      console.log(`\n${summary.formattedSummary}\n`)
+      return 0
+    }
+
+    if (subaction === 'set') {
+      const secretName = opts.val
+      const secretVal = opts.extraParam
+      if (!secretName || !secretVal) {
+        const err = 'Usage: forge config vault set <key> <value> [--passphrase <key>] [--json]'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      await setVaultSecret(vaultPath, secretName, secretVal, passphrase)
+      if (opts.json) {
+        console.log(JSON.stringify({ stored: true, key: secretName }))
+        return 0
+      }
+      console.log(
+        `\n${ANSI.green}✓ Encrypted secret "${secretName}" stored in ${vaultPath}${ANSI.reset}\n`,
+      )
+      return 0
+    }
+
+    if (subaction === 'get') {
+      const secretName = opts.val
+      if (!secretName) {
+        const err = 'Usage: forge config vault get <key> [--passphrase <key>] [--json]'
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+      try {
+        const val = await getVaultSecret(vaultPath, secretName, passphrase)
+        if (val === null) {
+          const err = `Secret "${secretName}" not found in vault.`
+          if (opts.json) console.log(JSON.stringify({ error: err }))
+          else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+          return 1
+        }
+        if (opts.json) {
+          console.log(JSON.stringify({ key: secretName, value: val }))
+          return 0
+        }
+        console.log(`\n${secretName}=${val}\n`)
+        return 0
+      } catch (e) {
+        const err = `Failed to decrypt secret: ${e instanceof Error ? e.message : String(e)}`
+        if (opts.json) console.log(JSON.stringify({ error: err }))
+        else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+        return 1
+      }
+    }
+
+    const err = `Unknown vault action: "${subaction}". Available: list, set, get`
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+    return 1
+  }
 
   if (action === 'doctor') {
     const core = createForgeCore({ dataDir: opts.dataDir })
@@ -2612,6 +2778,8 @@ async function handleDb(opts: {
   action?: string | undefined
   targetPath?: string | undefined
   force?: boolean | undefined
+  dryRun?: boolean | undefined
+  beforeDate?: string | undefined
   dataDir: string
   json: boolean
 }): Promise<number> {
@@ -2710,11 +2878,24 @@ async function handleDb(opts: {
       }
     }
 
+    if (action === 'compact') {
+      const result = await compactRunEvents(core.sqlite, {
+        dryRun: opts.dryRun,
+        beforeDate: opts.beforeDate,
+      })
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+        return result.valid ? 0 : 1
+      }
+      console.log(`\n${result.formattedSummary}\n`)
+      return result.valid ? 0 : 1
+    }
+
     const err = `Unknown db action: ${action}`
     if (opts.json) console.log(JSON.stringify({ error: err }))
     else {
       console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
-      console.error('Usage: forge db [stats|vacuum|backup|restore] [options]')
+      console.error('Usage: forge db [stats|vacuum|backup|restore|compact] [options]')
     }
     return 1
   } finally {
@@ -3007,6 +3188,57 @@ async function handleDiffSecurity(opts: {
 
     console.log(`\n${report.formattedSummary}\n`)
     return report.clean ? 0 : 1
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (opts.json) {
+      console.log(JSON.stringify({ error: msg }))
+    } else {
+      console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+    }
+    return 1
+  } finally {
+    await core.close()
+  }
+}
+
+async function handleDiffCommit(opts: {
+  readonly runId?: string | undefined
+  readonly task?: string | undefined
+  readonly dryRun?: boolean | undefined
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  if (!opts.runId) {
+    const err = 'Usage: forge diff commit <runId> [--task <description>] [--dry-run] [--json]'
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else console.error(`${ANSI.red}Error: No run ID provided.${ANSI.reset}\n${err}`)
+    return 1
+  }
+
+  const parsedRunId = runIdSchema.safeParse(opts.runId)
+  if (!parsedRunId.success) {
+    const err = `Invalid run ID "${opts.runId}". Expected a valid UUID.`
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+    return 1
+  }
+
+  const core = createForgeCore({ dataDir: opts.dataDir })
+  try {
+    const result = await synthesizeRunChangesetCommit(
+      core.artifacts,
+      core.artifactStore,
+      parsedRunId.data,
+      { task: opts.task },
+    )
+
+    if (opts.json) {
+      console.log(JSON.stringify(result))
+      return result.valid ? 0 : 1
+    }
+
+    console.log(`\n${result.formattedSummary}\n`)
+    return result.valid ? 0 : 1
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
     if (opts.json) {

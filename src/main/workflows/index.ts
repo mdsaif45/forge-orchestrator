@@ -38,4 +38,10 @@ export {
   type WorkflowExecutionPlan,
 } from './planner'
 export { profileWorkflowExecution, type NodeProfile, type WorkflowProfileReport } from './profiler'
+export {
+  planParallelBatches,
+  type ParallelBatch,
+  type ParallelExecutionPlan,
+  type ParallelNodeInfo,
+} from './parallelExecutor'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

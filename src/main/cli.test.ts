@@ -1792,4 +1792,135 @@ new file mode 100644
 
     logSpy.mockRestore()
   })
+
+  it('inspects model fallback routes and circuit breakers via CLI (AGENT-008)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code1 = await runCli(['models', 'fallback', '--data-dir', dataDir, '--json'])
+    expect(code1).toBe(0)
+    const parsed1 = JSON.parse(logs[0] ?? '{}') as { fallbackConfig: unknown }
+    expect(parsed1.fallbackConfig).toBeDefined()
+
+    logs.length = 0
+    const code2 = await runCli(['models', 'circuit', '--data-dir', dataDir, '--json'])
+    expect(code2).toBe(0)
+    const parsed2 = JSON.parse(logs[0] ?? '{}') as { circuits: unknown[] }
+    expect(Array.isArray(parsed2.circuits)).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('inspects and purges workflow dead-letter queue via CLI (WORK-015)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const listCode = await runCli(['workflows', 'dlq', 'list', '--data-dir', dataDir, '--json'])
+    expect(listCode).toBe(0)
+    const listParsed = JSON.parse(logs[0] ?? '{}') as { valid: boolean; records: unknown[] }
+    expect(listParsed.valid).toBe(true)
+    expect(Array.isArray(listParsed.records)).toBe(true)
+
+    logs.length = 0
+    const purgeCode = await runCli(['workflows', 'dlq', 'purge', '--data-dir', dataDir, '--json'])
+    expect(purgeCode).toBe(0)
+    const purgeParsed = JSON.parse(logs[0] ?? '{}') as { purgedCount: number }
+    expect(typeof purgeParsed.purgedCount).toBe('number')
+
+    logSpy.mockRestore()
+  })
+
+  it('audits code coverage delta regression via CLI (EVIDENCE-003)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const coverageDir = join(repoPath, 'coverage')
+    execFileSync('git', ['init'], { cwd: repoPath })
+    const { mkdirSync } = await import('node:fs')
+    mkdirSync(coverageDir, { recursive: true })
+    writeFileSync(
+      join(coverageDir, 'lcov.info'),
+      'TN:\nSF:src/index.ts\nDA:1,1\nDA:2,1\nLF:2\nLH:2\nend_of_record\n',
+    )
+
+    const code = await runCli([
+      'verify',
+      'coverage',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      valid: boolean
+      meetsThreshold: boolean
+      overallModifiedCoveragePct: number
+    }
+    expect(parsed.valid).toBe(true)
+    expect(parsed.meetsThreshold).toBe(true)
+    expect(parsed.overallModifiedCoveragePct).toBe(100)
+
+    logSpy.mockRestore()
+  })
+
+  it('inspects multi-project workspace registry and prunes missing projects via CLI (STATE-005)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const listCode = await runCli(['projects', 'list', '--data-dir', dataDir, '--json'])
+    expect(listCode).toBe(0)
+    const listParsed = JSON.parse(logs[0] ?? '{}') as {
+      valid: boolean
+      totalProjects: number
+      projects: unknown[]
+    }
+    expect(listParsed.valid).toBe(true)
+    expect(typeof listParsed.totalProjects).toBe('number')
+    expect(Array.isArray(listParsed.projects)).toBe(true)
+
+    logs.length = 0
+    const pruneCode = await runCli(['projects', 'prune', '--data-dir', dataDir, '--json'])
+    expect(pruneCode).toBe(0)
+    const pruneParsed = JSON.parse(logs[0] ?? '{}') as {
+      valid: boolean
+      purgedCount?: number
+      prunedCount?: number
+    }
+    expect(pruneParsed.valid).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('audits hierarchical configuration against administrative policies via CLI (CONFIG-006)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'config',
+      'policy',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as { valid: boolean; violations: unknown[] }
+    expect(parsed.valid).toBe(true)
+    expect(Array.isArray(parsed.violations)).toBe(true)
+
+    logSpy.mockRestore()
+  })
 })

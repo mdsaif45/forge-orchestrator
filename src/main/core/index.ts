@@ -30,3 +30,17 @@ export {
   type AgentMemoryQueryResult,
   type AgentMemoryStats,
 } from './agentMemory'
+export {
+  isFallbackEligibleError,
+  ModelCircuitBreaker,
+  modelFallbackConfigSchema,
+  modelSpecSchema,
+  routeWithFallback,
+  type CircuitBreakerOptions,
+  type CircuitBreakerState,
+  type FallbackAttemptRecord,
+  type FallbackRouteResult,
+  type ModelBreakerStatus,
+  type ModelFallbackConfig,
+  type ModelSpec,
+} from './modelFallbackRouter'

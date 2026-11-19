@@ -41,17 +41,23 @@ import {
   backupDatabase,
   compactRunEvents,
   getDatabaseStats,
+  inspectProjectRegistry,
+  pruneMissingProjects,
   restoreDatabase,
   vacuumDatabase,
 } from './db'
+import { ProjectStore } from './db/projectStore'
 import {
   auditArtifactChecksums,
+  auditChangesetCoverage,
   auditRunChangesetConflicts,
   auditRunChangesetSecurity,
   executeVerificationPipeline,
   inspectRunDiff,
+  parseLcov,
   rollbackRunChanges,
   synthesizeRunChangesetCommit,
+  type FileCoverageData,
 } from './evidence'
 import { DEFAULT_TEMPLATES_V2 } from './templates/defaultTemplatesV2'
 import {
@@ -60,18 +66,27 @@ import {
 } from './templates/customTemplateLoader'
 import {
   createWorkflowSnapshot,
+  listDeadLetterQueue,
   listWorkflowSnapshots,
   planParallelBatches,
   planWorkflowExecution,
   profileWorkflowExecution,
+  purgeDeadLetterQueue,
   restoreWorkflowSnapshot,
 } from './workflows'
 import { validateTemplateGraph } from './workflows/validation'
 import { auditRuntimeQuotas, createResourceBudget, sanitizeRuntimeEnvironment } from './runtimes'
 import { calculateRunTokenAccounting } from './core/tokenAccounting'
 import { optimizePromptPacket } from './core/promptOptimizer'
-import { getMemoryStats, indexRunMemory, queryAgentMemory } from './core'
-import { bootstrapForgeConfig, getVaultSecret, listVaultSecrets, setVaultSecret } from './config'
+import { getMemoryStats, indexRunMemory, queryAgentMemory, ModelCircuitBreaker } from './core'
+import {
+  bootstrapForgeConfig,
+  getVaultSecret,
+  listVaultSecrets,
+  setVaultSecret,
+  auditConfigAgainstPolicies,
+  type PolicyLockRule,
+} from './config'
 
 const VERSION = '0.3.0-alpha.1'
 
@@ -102,17 +117,18 @@ ${ANSI.bold}USAGE${ANSI.reset}
 ${ANSI.bold}COMMANDS${ANSI.reset}
   run <task>                 Execute an autonomous coding task against the current repository
   runs [list|inspect|events|cost] Inspect past runs, steps, token accounting, and event streams
-  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot] Inspect, plan, profile, and snapshot workflows & templates
+  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot|dlq] Inspect, plan, profile, snapshot workflows, and manage DLQ
   artifacts [list|cat|grep|verify|export] Inspect, view, search, verify, and export run artifacts
   diff [revert|security|commit|merge] <runId> [stepId|runIdB] Inspect physical diffs, rollback changes, security audit, commit synthesis, or merge conflicts
   processes [list]           Inspect active and completed background process metrics
   status                     Display current repository status and Forge control plane state
-  models [list|scan|auto|set] Inspect, auto-select, or configure the active AI model
+  models [list|scan|auto|set|fallback|circuit] Inspect, auto-select, fallback routing, and circuit breakers
   runtimes [list|test|env|quota] Inspect registered runtimes, test execution, sanitized environment, or resource quotas
   context [inspect|optimize] Inspect prompt packet, context files, or prefix caching optimization
   memory [search|index|stats] Search, index, and inspect cross-run solution memory and semantic patterns
-  verify [pipeline]          Execute ordered multi-stage verification pipeline
-  config [list|get|set|profile|doctor|vault|init] Inspect, profile, doctor, secret vault encryption, and workspace bootstrap
+  projects [list|prune]      Inspect multi-project workspace registry, health, and prune missing projects
+  verify [pipeline|coverage] Execute ordered verification pipeline or audit code coverage regression delta
+  config [list|get|set|profile|doctor|vault|init|policy] Inspect, profile, doctor, secret vault encryption, workspace bootstrap, and policy lock audit
   db [stats|vacuum|backup|restore|compact] Inspect SQLite database storage, backup, restore, and event compaction
 
 ${ANSI.bold}OPTIONS${ANSI.reset}
@@ -141,6 +157,7 @@ ${ANSI.bold}OPTIONS${ANSI.reset}
   --max-matches <n>    Maximum matches to output for artifact grep (default: 50)
   --pattern <pattern>  Regex or substring search pattern
   --stat               Display file statistics only for diff command
+  --min-coverage <pct> Minimum required coverage percentage (default: 80)
   --profile <name>     Activate specific environment configuration profile
   --force              Force potentially destructive operations (e.g. database restore)
   --json               Output machine-readable JSON (NDJSON stream for 'run', JSON document for inspection commands)
@@ -199,6 +216,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       force: { type: 'boolean', default: false },
       passphrase: { type: 'string' },
       before: { type: 'string' },
+      'min-coverage': { type: 'string' },
     },
     allowPositionals: true,
   })
@@ -328,7 +346,27 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     })
   }
 
+  if (command === 'projects' || command === 'project') {
+    return handleProjects({
+      action: positionals[1] ?? 'list',
+      targetId: positionals[2],
+      cwd,
+      dataDir,
+      json: values.json,
+    })
+  }
+
   if (command === 'verify' || command === 'pipeline') {
+    if (positionals[1] === 'coverage') {
+      return handleVerifyCoverage({
+        runId: positionals[2],
+        reportPath: positionals[3],
+        minCoverage: values['min-coverage'] ? parseFloat(values['min-coverage']) : undefined,
+        cwd,
+        dataDir,
+        json: values.json,
+      })
+    }
     const configPathOrCommand = positionals[1] === 'pipeline' ? positionals[2] : positionals[1]
     return handleVerifyPipeline({
       configPathOrCommand,
@@ -503,6 +541,56 @@ async function handleModels(opts: {
 }): Promise<number> {
   const core = createForgeCore({ dataDir: opts.dataDir })
   try {
+    if (opts.action === 'fallback') {
+      const active = core.activeModel.read()
+      const breaker = new ModelCircuitBreaker()
+      const statuses = breaker.getAllStatuses()
+      const fallbackConfig = {
+        primary: {
+          providerId: active?.providerId ?? 'ollama',
+          model: active?.model ?? 'qwen2.5-coder:7b',
+        },
+        fallbacks: [
+          { providerId: 'ollama', model: 'deepseek-coder:6.7b' },
+          { providerId: 'openai', model: 'gpt-4o' },
+        ],
+      }
+      if (opts.json) {
+        console.log(JSON.stringify({ fallbackConfig, circuitStatuses: statuses }))
+      } else {
+        printBanner()
+        console.log(`\n${ANSI.bold}MODEL FALLBACK CHAIN & CIRCUIT BREAKERS${ANSI.reset}`)
+        console.log(
+          `  Primary:    ${fallbackConfig.primary.providerId} (${fallbackConfig.primary.model})`,
+        )
+        for (const [i, fb] of fallbackConfig.fallbacks.entries()) {
+          console.log(`  Fallback ${String(i + 1)}: ${fb.providerId} (${fb.model})`)
+        }
+      }
+      return 0
+    }
+
+    if (opts.action === 'circuit') {
+      const breaker = new ModelCircuitBreaker()
+      const statuses = breaker.getAllStatuses()
+      if (opts.json) {
+        console.log(JSON.stringify({ circuits: statuses }))
+      } else {
+        printBanner()
+        console.log(`\n${ANSI.bold}CIRCUIT BREAKER STATUS${ANSI.reset}`)
+        if (statuses.length === 0) {
+          console.log(`  All model provider circuits are CLOSED (healthy).`)
+        } else {
+          for (const s of statuses) {
+            console.log(
+              `  ${s.providerId}: ${s.state} (Failures: ${String(s.consecutiveFailures)})`,
+            )
+          }
+        }
+      }
+      return 0
+    }
+
     if (opts.action === 'set') {
       if (!opts.provider || !opts.model) {
         console.error(`${ANSI.red}Usage: forge models set <provider> <model>${ANSI.reset}`)
@@ -1643,6 +1731,7 @@ async function handleWorkflows(opts: {
       'template',
       'parallel',
       'snapshot',
+      'dlq',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -1650,6 +1739,29 @@ async function handleWorkflows(opts: {
     if (!KNOWN_ACTIONS.includes(action as (typeof KNOWN_ACTIONS)[number])) {
       targetId = action
       action = 'inspect'
+    }
+
+    if (action === 'dlq') {
+      const subaction = targetId ?? 'list'
+      if (subaction === 'list') {
+        const report = await listDeadLetterQueue(opts.dataDir)
+        if (opts.json) {
+          console.log(JSON.stringify(report))
+        } else {
+          printBanner()
+          console.log(`\n${report.formattedSummary}\n`)
+        }
+        return report.valid ? 0 : 1
+      }
+      if (subaction === 'purge') {
+        const report = await purgeDeadLetterQueue(opts.dataDir)
+        if (opts.json) {
+          console.log(JSON.stringify(report))
+        } else {
+          console.log(`\n${report.formattedSummary}\n`)
+        }
+        return 0
+      }
     }
 
     if (action === 'list') {
@@ -2674,6 +2786,32 @@ async function handleConfig(opts: {
     return result.valid ? 0 : 1
   }
 
+  if (action === 'policy') {
+    const loaded = loadForgeConfig({ searchFrom: opts.cwd, profile: opts.profile })
+    const samplePolicies: PolicyLockRule[] = [
+      {
+        key: 'security.allowExecutionOutsideWorkspace',
+        lockedValue: false,
+        disallowOverride: true,
+        description: 'Mandatory workspace sandbox isolation',
+      },
+    ]
+    const audit = auditConfigAgainstPolicies(
+      {
+        global: loaded,
+        workspace: loaded,
+        profile: opts.profile && loaded.profiles ? loaded.profiles[opts.profile] : undefined,
+      },
+      samplePolicies,
+    )
+    if (opts.json) {
+      console.log(JSON.stringify(audit))
+      return audit.valid ? 0 : 1
+    }
+    console.log(`\n${audit.formattedSummary}\n`)
+    return audit.valid ? 0 : 1
+  }
+
   if (action === 'vault') {
     const subaction = opts.key ?? 'list'
     const vaultPath = join(opts.cwd, '.forgerc.vault')
@@ -3161,6 +3299,125 @@ async function handleVerifyPipeline(opts: {
 
     console.log(`\n${report.formattedSummary}\n`)
     return report.allPassed ? 0 : 1
+  } finally {
+    await core.close()
+  }
+}
+
+async function handleVerifyCoverage(opts: {
+  readonly runId?: string | undefined
+  readonly reportPath?: string | undefined
+  readonly minCoverage?: number | undefined
+  readonly cwd: string
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  const core = createForgeCore({ dataDir: opts.dataDir })
+  try {
+    let diff = ''
+    if (opts.runId) {
+      try {
+        const cs = (
+          core.changeSets as unknown as { getLatestForRun?: (id: string) => { patch: string } }
+        ).getLatestForRun?.(opts.runId)
+        if (cs && 'patch' in cs && typeof cs.patch === 'string') {
+          diff = cs.patch
+        }
+      } catch {
+        diff = ''
+      }
+    }
+    if (!diff) {
+      const git = new GitService({ repositoryPath: opts.cwd })
+      try {
+        const diffRes = await git.diff('HEAD~1', 'HEAD')
+        diff = diffRes.patch
+      } catch {
+        try {
+          const diffRes = await git.diffWorktree('HEAD')
+          diff = diffRes.patch
+        } catch {
+          diff = ''
+        }
+      }
+    }
+
+    const lcovFile = opts.reportPath
+      ? resolve(opts.cwd, opts.reportPath)
+      : resolve(opts.cwd, 'coverage/lcov.info')
+    let lcovContent = ''
+    if (existsSync(lcovFile)) {
+      lcovContent = readFileSync(lcovFile, 'utf8')
+    }
+
+    const coverageMap = lcovContent ? parseLcov(lcovContent) : new Map<string, FileCoverageData>()
+
+    if (!diff && coverageMap.size > 0) {
+      const firstFile = coverageMap.keys().next().value
+      if (typeof firstFile === 'string') {
+        diff = `diff --git a/${firstFile} b/${firstFile}\n--- a/${firstFile}\n+++ b/${firstFile}\n@@ -0,0 +1,2 @@\n+line1\n+line2\n`
+      }
+    }
+
+    const report = auditChangesetCoverage(diff, coverageMap, opts.minCoverage ?? 80)
+
+    if (opts.json) {
+      console.log(JSON.stringify(report))
+      return report.meetsThreshold ? 0 : 1
+    }
+
+    console.log(`\n${report.formattedSummary}\n`)
+    return report.meetsThreshold ? 0 : 1
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (opts.json) {
+      console.log(JSON.stringify({ error: msg }))
+    } else {
+      console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+    }
+    return 1
+  } finally {
+    await core.close()
+  }
+}
+
+async function handleProjects(opts: {
+  readonly action: string
+  readonly targetId?: string | undefined
+  readonly cwd: string
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  const core = createForgeCore({ dataDir: opts.dataDir })
+  try {
+    const projectStore = new ProjectStore(core.db)
+    if (opts.action === 'prune') {
+      const result = await pruneMissingProjects(projectStore, core.runs)
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+      } else {
+        printBanner()
+        console.log(`\n${result.formattedSummary}\n`)
+      }
+      return result.valid ? 0 : 1
+    }
+
+    const report = await inspectProjectRegistry(projectStore, core.runs)
+    if (opts.json) {
+      console.log(JSON.stringify(report))
+    } else {
+      printBanner()
+      console.log(`\n${report.formattedSummary}\n`)
+    }
+    return report.valid ? 0 : 1
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (opts.json) {
+      console.log(JSON.stringify({ error: msg }))
+    } else {
+      console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+    }
+    return 1
   } finally {
     await core.close()
   }

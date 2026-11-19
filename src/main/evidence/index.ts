@@ -83,3 +83,12 @@ export {
   type FileConflict,
   type FileDiff,
 } from './changesetConflictDetector'
+export {
+  auditChangesetCoverage,
+  auditRunCoverage,
+  extractModifiedLineNumbers,
+  parseLcov,
+  type CoverageAuditReport,
+  type FileCoverageData,
+  type ModifiedFileLineCoverage,
+} from './coverageAuditor'

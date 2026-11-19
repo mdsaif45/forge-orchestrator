@@ -5,8 +5,8 @@ Project:            Forge — AI Engineering Control Plane
 Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
 Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
 Last updated:       2026-11-19
-Evidence baseline:  main @ 954f4c2 (PR #277 merged)
-Active branch:      feat/m2-m6-memory-snapshots-conflicts-quota-bootstrapper
+Evidence baseline:  main @ b02c9dd (PR #283 merged)
+Active branch:      feat/m1-m6-fallback-dlq-coverage-registry-policy
 ```
 
 ---
@@ -322,19 +322,20 @@ An explicit discrepancy exists between GitHub milestone numbers, GitHub mileston
 
 ## 6. Active Work, Dependencies, and Next Action
 
-- **Current State Baseline:** `main` @ `b606e8a` (PR #259 merged).
+- **Current State Baseline:** `main` @ `b02c9dd` (PR #283 merged).
 - **Recent Completed PRs:**
-  - **PR #253:** `feat(workflows,prompt,process,runtimes,criteria): static dag validation, context inspection, log rotation, runtime benchmarks, and criteria evaluators (#248, #249, #250, #251, #252)` (`ad67cd8`).
-  - **PR #259:** `feat(workflows,evidence,process,config): workflow planner, diff inspector, checksum audit, process watchdog, and config profiles (#254, #255, #256, #257, #258)` (`b606e8a`).
-- **In-Progress Cluster (feat/m3-m5-m6-profiler-pipeline-revert-export-doctor):**
-  - **Issue #260 (WORK-011):** `forge workflows profile` workflow execution metrics, bottleneck profiling, and critical path analysis.
-  - **Issue #261 (VERIFY-005):** `forge verify pipeline` multi-command verification pipeline runner with fail-closed short-circuiting.
-  - **Issue #262 (DIFF-002):** `forge diff revert` changeset reverse patch generation and safe rollback execution.
-  - **Issue #263 (ARTIFACT-003):** `forge artifacts export` self-contained execution run bundle export and manifest generation.
-  - **Issue #264 (CONFIG-003):** `forge config doctor` environment health auditor, database integrity, and config doctor.
+  - **PR #271:** `feat(templates,sandbox,tokens,security,backup): custom template loader, execution sandbox, token accounting, security auditor, and database backup (#266, #267, #268, #269, #270)` (`9eb1b70`).
+  - **PR #277:** `feat(prompt,workflows,diff,config,db): prefix caching optimizer, parallel workflow planner, commit synthesizer, secret vault, and event compactor (#272, #273, #274, #275, #276)` (`954f4c2`).
+  - **PR #283:** `feat(core,workflows,evidence,runtimes,config): solution memory indexer, workflow snapshot engine, changeset conflict detector, runtime quota manager, and config bootstrapper (#278, #279, #280, #281, #282)` (`b02c9dd`).
+- **In-Progress Cluster (feat/m1-m6-fallback-dlq-coverage-registry-policy):**
+  - **Issue #284 (AGENT-008):** `feat(core): dynamic multi-model fallback router and circuit breaker (AGENT-008)`.
+  - **Issue #285 (WORK-015):** `feat(workflows): workflow dead-letter queue (DLQ) and retry policy engine (WORK-015)`.
+  - **Issue #286 (EVIDENCE-003):** `feat(evidence): test coverage regression auditor and quality delta gate (EVIDENCE-003)`.
+  - **Issue #287 (STATE-005):** `feat(state): multi-project workspace registry and cross-repository run indexer (STATE-005)`.
+  - **Issue #288 (CONFIG-006):** `feat(config): hierarchical configuration inheritance and administrative policy lock (CONFIG-006)`.
 - **Milestones Status:** All GitHub Milestones M0 through M11 are completed and closed with zero remaining open issues.
 - **Dependencies & Blockers:** None. Local verification gates and test suites are 100% green.
 - **Immediate Next Action:**
-  1. Open PR for Issues #260, #261, #262, #263, #264.
+  1. Open PR for Issues #284, #285, #286, #287, #288.
   2. Verify all CI checks pass on GitHub Actions.
   3. Merge PR to `main` via squash merge.

@@ -3,7 +3,7 @@
 **Status:** IMPLEMENTED
 **Authority:** Implementation truth (see [documentation-policy.md](../meta/documentation-policy.md))
 **Last Updated:** 2026-11-19
-**Baseline:** `main` @ `8748f6e` (PR #307 merged)
+**Baseline:** `main` @ `3bda40d` (PR #313 merged)
 **Verification Baseline:** [verification-baseline.md](verification-baseline.md)
 **Related Roadmap:** [roadmap.md](../roadmap/roadmap.md)
 
@@ -115,6 +115,11 @@ All test counts are per-file assertion counts measured with
 | Automated reproducible verification manifest generator | Cryptographic, standalone audit proofs of execution correctness | IMPLEMENTED | VERIFIED | `forge verify manifest <runId> [--verify]` generates and verifies reproducible cryptographic execution manifests (A1, A3) | `src/main/evidence/verificationManifest.ts`, `src/main/cli.ts` | `src/main/evidence/verificationManifest.test.ts` (4), `src/main/cli.test.ts` (70) | EVIDENCE-007 |
 | Event store time-travel snapshot replay and state projection engine | Deterministic in-memory run and step state projection at historical sequence cutoff | IMPLEMENTED | VERIFIED | `forge db replay <runId> [--to-seq <n>]` replays sequential event ledger to project historical lifecycle states (A1, A4) | `src/main/db/eventReplayEngine.ts`, `src/main/cli.ts` | `src/main/db/eventReplayEngine.test.ts` (4), `src/main/cli.test.ts` (70) | STATE-009 |
 | Configuration schema version migration and backward-compatibility manager | Upgrades legacy .forgerc structures to canonical schema while preserving profiles | IMPLEMENTED | VERIFIED | `forge config migrate [--target-version <v>]` migrates configuration schema versions with backward compatibility (A2, A4) | `src/main/config/configMigrator.ts`, `src/main/cli.ts` | `src/main/config/configMigrator.test.ts` (4), `src/main/cli.test.ts` (70) | CONFIG-010 |
+| Prompt context token budget compactor | Sliding window context compactor | IMPLEMENTED | VERIFIED | `forge context compact <runId>` condenses historical turns into structured summaries while preserving anchor and latest evidence (A1, A5) | `src/main/core/promptCompactor.ts`, `src/main/cli.ts` | `src/main/core/promptCompactor.test.ts` (4), `src/main/cli.test.ts` (75) | AGENT-013 |
+| Workflow DAG execution simulator | Offline critical path & concurrency simulator | IMPLEMENTED | VERIFIED | `forge workflows simulate <template>` calculates topological stages, parallel workers, and critical path bottlenecks (A1, A5) | `src/main/workflows/workflowSimulator.ts`, `src/main/cli.ts` | `src/main/workflows/workflowSimulator.test.ts` (4), `src/main/cli.test.ts` (75) | WORK-020 |
+| AST export surface auditor | Public API breaking contract change auditor | IMPLEMENTED | VERIFIED | `forge diff exports <runId>` extracts export symbol additions, modifications, and removals from git diffs with risk categorization (A1, A3) | `src/main/evidence/exportSurfaceAuditor.ts`, `src/main/cli.ts` | `src/main/evidence/exportSurfaceAuditor.test.ts` (4), `src/main/cli.test.ts` (75) | EVIDENCE-008 |
+| Event ledger replication verifier | Ledger monotonicity & cross-table integrity auditor | IMPLEMENTED | VERIFIED | `forge db verify-ledger [runId]` verifies contiguous sequence numbers, rolling SHA-256 dual-hash chains, and orphan consistency (A1, A3, A4) | `src/main/db/ledgerVerifier.ts`, `src/main/cli.ts` | `src/main/db/ledgerVerifier.test.ts` (4), `src/main/cli.test.ts` (75) | STATE-010 |
+| Config environment sync & vault exporter | Sanitized POSIX .env generator | IMPLEMENTED | VERIFIED | `forge config sync-env` exports profile variables and decrypted secret vault credentials into safe POSIX .env manifests (A2, A7) | `src/main/config/envSync.ts`, `src/main/cli.ts` | `src/main/config/envSync.test.ts` (7), `src/main/cli.test.ts` (75) | CONFIG-011 |
 
 ### 2.2 State, storage & events
 

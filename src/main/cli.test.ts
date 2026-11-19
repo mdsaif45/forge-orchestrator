@@ -2615,4 +2615,238 @@ new file mode 100644
 
     logSpy.mockRestore()
   })
+
+  it('compacts prompt context turns with sliding window with forge context compact (AGENT-013)', async () => {
+    const core = createForgeCore({ dataDir })
+    const project = await core.projects.create({
+      name: 'Compactor Test Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'master',
+      buildCommand: null,
+      testCommand: null,
+      tech: ['ts'],
+      rules: [],
+    })
+    const runId = runIdSchema.parse(randomUUID())
+    const projectId = projectIdSchema.parse(project.id)
+    const taskId = taskIdSchema.parse(randomUUID())
+    core.runs.createRun({
+      id: runId,
+      projectId,
+      taskId,
+      type: 'direct-task',
+      status: 'running',
+      startedAt: new Date(Date.now() - 5000).toISOString(),
+      finishedAt: null,
+      exitCode: null,
+      summary: 'Prompt compact test run',
+      error: null,
+      metadata: {},
+    })
+
+    const turnsData = {
+      turns: [
+        { role: 'system', content: 'You are an autonomous engineering agent.', turnIndex: 0 },
+        { role: 'user', content: 'Turn 1 task requirements', turnIndex: 1 },
+        { role: 'assistant', content: 'Turn 2 thinking and action', turnIndex: 2 },
+        { role: 'tool', content: 'Turn 3 tool execution results', turnIndex: 3 },
+        { role: 'user', content: 'Turn 4 follow up instructions', turnIndex: 4 },
+        { role: 'assistant', content: 'Turn 5 final completion response', turnIndex: 5 },
+      ],
+    }
+
+    await core.artifacts.writeArtifact({
+      runId,
+      kind: 'prompt-packet',
+      name: 'prompt-packet.json',
+      content: JSON.stringify(turnsData),
+      mimeType: 'application/json',
+    })
+    await core.close()
+
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'context',
+      'compact',
+      runId,
+      '--max-tokens',
+      '40',
+      '--keep-turns',
+      '2',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.valid).toBe(true)
+    expect(parsed.originalTurnCount).toBe(6)
+    expect(parsed.compactedTurnCount).toBeLessThan(6)
+    expect(parsed.compressedTurnCount).toBeGreaterThan(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('simulates workflow DAG execution and critical path with forge workflows simulate (WORK-020)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['workflows', 'simulate', 'feature', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.valid).toBe(true)
+    expect(parsed.criticalPathDurationMs).toBeGreaterThan(0)
+    expect(Array.isArray(parsed.criticalPathNodeIds)).toBe(true)
+    expect(Array.isArray(parsed.parallelStages)).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('audits changeset public export surface with forge diff exports (EVIDENCE-008)', async () => {
+    const core = createForgeCore({ dataDir })
+    const project = await core.projects.create({
+      name: 'Diff Exports Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'master',
+      buildCommand: null,
+      testCommand: null,
+      tech: ['ts'],
+      rules: [],
+    })
+    const runId = runIdSchema.parse(randomUUID())
+    const projectId = projectIdSchema.parse(project.id)
+    const taskId = taskIdSchema.parse(randomUUID())
+    core.runs.createRun({
+      id: runId,
+      projectId,
+      taskId,
+      type: 'direct-task',
+      status: 'running',
+      startedAt: new Date(Date.now() - 5000).toISOString(),
+      finishedAt: null,
+      exitCode: null,
+      summary: 'Export surface test run',
+      error: null,
+      metadata: {},
+    })
+
+    const sampleDiff = `diff --git a/src/service.ts b/src/service.ts
+index 1111111..2222222 100644
+--- a/src/service.ts
++++ b/src/service.ts
+@@ -1,2 +1,3 @@
+ export function existingFunction(): void {}
++export function newFunction(): string { return 'ok' }
+`
+
+    await core.artifacts.writeArtifact({
+      runId,
+      kind: 'diff',
+      name: 'changeset.diff',
+      content: sampleDiff,
+      mimeType: 'text/x-diff',
+    })
+    await core.close()
+
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['diff', 'exports', runId, '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.valid).toBe(true)
+    expect(parsed.totalChanges).toBe(1)
+    expect(parsed.riskTier).toBe('low')
+    expect(parsed.addedCount).toBe(1)
+
+    logSpy.mockRestore()
+  })
+
+  it('verifies event ledger replication and sequence integrity with forge db verify-ledger (STATE-010)', async () => {
+    const core = createForgeCore({ dataDir })
+    const project = await core.projects.create({
+      name: 'Ledger Verifier Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'master',
+      buildCommand: null,
+      testCommand: null,
+      tech: ['ts'],
+      rules: [],
+    })
+    const runId = runIdSchema.parse(randomUUID())
+    const projectId = projectIdSchema.parse(project.id)
+    const taskId = taskIdSchema.parse(randomUUID())
+    core.runs.createRun({
+      id: runId,
+      projectId,
+      taskId,
+      type: 'direct-task',
+      status: 'running',
+      startedAt: new Date(Date.now() - 5000).toISOString(),
+      finishedAt: null,
+      exitCode: null,
+      summary: 'Ledger verifier test run',
+      error: null,
+      metadata: {},
+    })
+    core.runs.appendEvent(runId, {
+      type: 'run:started',
+      payload: {},
+    })
+    core.runs.appendEvent(runId, {
+      type: 'step:started',
+      payload: { step: 'step-1' },
+    })
+    await core.close()
+
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['db', 'verify-ledger', runId, '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.valid).toBe(true)
+    expect(parsed.totalEventsAudited).toBeGreaterThanOrEqual(2)
+    const counts = parsed.counts as Record<string, unknown>
+    expect(counts.totalRuns).toBe(1)
+
+    logSpy.mockRestore()
+  })
+
+  it('synchronizes configuration environment variables with forge config sync-env (CONFIG-011)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'config',
+      'sync-env',
+      '--dry-run',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.written).toBe(false)
+    expect(typeof parsed.activeProfile).toBe('string')
+    expect(typeof parsed.formattedDotEnv).toBe('string')
+    expect(typeof parsed.maskedDotEnv).toBe('string')
+    expect(parsed.summary).toBeDefined()
+
+    logSpy.mockRestore()
+  })
 })

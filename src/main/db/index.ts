@@ -62,6 +62,13 @@ export {
   type ProjectRegistryReport,
   type ProjectSummary,
 } from './projectRegistry'
+export {
+  auditDatabaseIntegrity,
+  pruneOrphanedDatabaseRecords,
+  type DatabaseIntegrityReport,
+  type DatabasePruneResult,
+} from './dbIntegrityAuditor'
+
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'
 

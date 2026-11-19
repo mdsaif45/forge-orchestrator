@@ -44,3 +44,9 @@ export {
   type ModelFallbackConfig,
   type ModelSpec,
 } from './modelFallbackRouter'
+export {
+  ToolRateLimiter,
+  rateLimiterConfigSchema,
+  type RateLimiterConfig,
+  type RateLimiterMetrics,
+} from './toolRateLimiter'

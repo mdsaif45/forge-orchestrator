@@ -38,11 +38,13 @@ import {
 import { auditForgeEnvironment } from './config/configDoctor'
 import { exportRunArtifactArchive } from './artifacts'
 import {
+  auditDatabaseIntegrity,
   backupDatabase,
   compactRunEvents,
   getDatabaseStats,
   inspectProjectRegistry,
   pruneMissingProjects,
+  pruneOrphanedDatabaseRecords,
   restoreDatabase,
   vacuumDatabase,
 } from './db'
@@ -56,6 +58,7 @@ import {
   inspectRunDiff,
   parseLcov,
   rollbackRunChanges,
+  scanDiffForSecretLeaks,
   synthesizeRunChangesetCommit,
   type FileCoverageData,
 } from './evidence'
@@ -73,18 +76,26 @@ import {
   profileWorkflowExecution,
   purgeDeadLetterQueue,
   restoreWorkflowSnapshot,
+  StepTimeoutSupervisor,
 } from './workflows'
 import { validateTemplateGraph } from './workflows/validation'
 import { auditRuntimeQuotas, createResourceBudget, sanitizeRuntimeEnvironment } from './runtimes'
 import { calculateRunTokenAccounting } from './core/tokenAccounting'
 import { optimizePromptPacket } from './core/promptOptimizer'
-import { getMemoryStats, indexRunMemory, queryAgentMemory, ModelCircuitBreaker } from './core'
+import {
+  getMemoryStats,
+  indexRunMemory,
+  queryAgentMemory,
+  ModelCircuitBreaker,
+  ToolRateLimiter,
+} from './core'
 import {
   bootstrapForgeConfig,
   getVaultSecret,
   listVaultSecrets,
   setVaultSecret,
   auditConfigAgainstPolicies,
+  interpolateEnvString,
   type PolicyLockRule,
 } from './config'
 
@@ -117,19 +128,19 @@ ${ANSI.bold}USAGE${ANSI.reset}
 ${ANSI.bold}COMMANDS${ANSI.reset}
   run <task>                 Execute an autonomous coding task against the current repository
   runs [list|inspect|events|cost] Inspect past runs, steps, token accounting, and event streams
-  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot|dlq] Inspect, plan, profile, snapshot workflows, and manage DLQ
+  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot|dlq|timeout] Inspect, plan, profile, snapshot workflows, manage DLQ, and inspect step timeouts
   artifacts [list|cat|grep|verify|export] Inspect, view, search, verify, and export run artifacts
-  diff [revert|security|commit|merge] <runId> [stepId|runIdB] Inspect physical diffs, rollback changes, security audit, commit synthesis, or merge conflicts
+  diff [revert|security|secrets|commit|merge] <runId> [stepId|runIdB] Inspect physical diffs, rollback changes, security/secrets audit, commit synthesis, or merge conflicts
   processes [list]           Inspect active and completed background process metrics
   status                     Display current repository status and Forge control plane state
   models [list|scan|auto|set|fallback|circuit] Inspect, auto-select, fallback routing, and circuit breakers
-  runtimes [list|test|env|quota] Inspect registered runtimes, test execution, sanitized environment, or resource quotas
+  runtimes [list|test|env|quota|rate-limit] Inspect registered runtimes, test execution, sanitized environment, quotas, and tool rate limits
   context [inspect|optimize] Inspect prompt packet, context files, or prefix caching optimization
   memory [search|index|stats] Search, index, and inspect cross-run solution memory and semantic patterns
   projects [list|prune]      Inspect multi-project workspace registry, health, and prune missing projects
   verify [pipeline|coverage] Execute ordered verification pipeline or audit code coverage regression delta
-  config [list|get|set|profile|doctor|vault|init|policy] Inspect, profile, doctor, secret vault encryption, workspace bootstrap, and policy lock audit
-  db [stats|vacuum|backup|restore|compact] Inspect SQLite database storage, backup, restore, and event compaction
+  config [list|get|set|profile|doctor|vault|init|policy|interpolate] Inspect, profile, doctor, secret vault encryption, workspace bootstrap, policy lock, and env interpolation
+  db [stats|vacuum|backup|restore|compact|audit] Inspect SQLite database storage, backup, restore, compaction, and integrity/orphan audit
 
 ${ANSI.bold}OPTIONS${ANSI.reset}
   -v, --version        Display Forge version
@@ -217,6 +228,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       passphrase: { type: 'string' },
       before: { type: 'string' },
       'min-coverage': { type: 'string' },
+      fix: { type: 'boolean', default: false },
     },
     allowPositionals: true,
   })
@@ -420,6 +432,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
         json: values.json,
       })
     }
+    if (positionals[1] === 'secrets') {
+      return handleDiffSecrets({
+        runId: positionals[2],
+        stepId: positionals[3],
+        dataDir,
+        json: values.json,
+      })
+    }
     if (positionals[1] === 'revert') {
       return handleDiffRevert({
         runId: positionals[2],
@@ -466,6 +486,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       force: values.force,
       dryRun: values['dry-run'],
       beforeDate: values.before,
+      fix: values.fix,
       dataDir,
       json: values.json,
     })
@@ -1732,6 +1753,7 @@ async function handleWorkflows(opts: {
       'parallel',
       'snapshot',
       'dlq',
+      'timeout',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -1739,6 +1761,27 @@ async function handleWorkflows(opts: {
     if (!KNOWN_ACTIONS.includes(action as (typeof KNOWN_ACTIONS)[number])) {
       targetId = action
       action = 'inspect'
+    }
+
+    if (action === 'timeout') {
+      const supervisor = new StepTimeoutSupervisor()
+      const activeLeases = supervisor.getActiveLeases()
+      const history = supervisor.getAuditHistory()
+      if (opts.json) {
+        console.log(
+          JSON.stringify({
+            supervisorStatus: 'active',
+            activeLeases,
+            history,
+          }),
+        )
+        return 0
+      }
+      printBanner()
+      console.log(`\n${ANSI.bold}WORKFLOW STEP TIMEOUT SUPERVISOR${ANSI.reset}`)
+      console.log(`  Active leases: ${String(activeLeases.length)}`)
+      console.log(`  Audit history: ${String(history.length)}`)
+      return 0
     }
 
     if (action === 'dlq') {
@@ -2539,6 +2582,25 @@ async function handleRuntimes(opts: {
       return 0
     }
 
+    if (opts.action === 'rate-limit' || opts.action === 'limit') {
+      const limiter = new ToolRateLimiter()
+      const metrics = limiter.getMetrics()
+      if (opts.json) {
+        console.log(JSON.stringify(metrics))
+        return 0
+      }
+      printBanner()
+      console.log(`\n${ANSI.bold}TOOL RATE LIMITER & THROTTLER METRICS${ANSI.reset}`)
+      console.log(`  Capacity:           ${String(metrics.capacity)} tokens`)
+      console.log(`  Refill Rate:        ${String(metrics.refillRatePerSec)} tokens/sec`)
+      console.log(`  Max Concurrency:    ${String(metrics.maxConcurrency)} active slots`)
+      console.log(`  Current Tokens:     ${String(metrics.currentTokens)}`)
+      console.log(`  Active In-Flight:   ${String(metrics.activeConcurrency)}`)
+      console.log(`  Total Acquired:     ${String(metrics.totalAcquired)}`)
+      console.log(`  Total Throttled:    ${String(metrics.totalThrottled)}`)
+      return 0
+    }
+
     if (opts.action === 'test') {
       const runtimeId = opts.targetId
       if (!runtimeId) {
@@ -2784,6 +2846,33 @@ async function handleConfig(opts: {
     }
     console.log(`\n${result.formattedSummary}\n`)
     return result.valid ? 0 : 1
+  }
+
+  if (action === 'interpolate') {
+    const template = opts.key ?? ''
+    if (!template) {
+      const err = 'Usage: forge config interpolate <string> [--json]'
+      if (opts.json) console.log(JSON.stringify({ error: err }))
+      else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+      return 1
+    }
+    try {
+      const interpolated = interpolateEnvString(template)
+      if (opts.json) {
+        console.log(JSON.stringify({ template, interpolated, success: true }))
+        return 0
+      }
+      console.log(interpolated)
+      return 0
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (opts.json) {
+        console.log(JSON.stringify({ template, error: msg, success: false }))
+        return 1
+      }
+      console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+      return 1
+    }
   }
 
   if (action === 'policy') {
@@ -3061,7 +3150,7 @@ async function handleConfig(opts: {
   else {
     console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
     console.error(
-      'Usage: forge config [list|get|set|profile|doctor|vault|init] [<key>] [<value>] [--json]',
+      'Usage: forge config [list|get|set|profile|doctor|vault|init|policy|interpolate] [<key>] [<value>] [--json]',
     )
   }
   return 1
@@ -3073,6 +3162,7 @@ async function handleDb(opts: {
   force?: boolean | undefined
   dryRun?: boolean | undefined
   beforeDate?: string | undefined
+  fix?: boolean | undefined
   dataDir: string
   json: boolean
 }): Promise<number> {
@@ -3184,11 +3274,31 @@ async function handleDb(opts: {
       return result.valid ? 0 : 1
     }
 
+    if (action === 'audit') {
+      if (opts.fix) {
+        const result = pruneOrphanedDatabaseRecords(core.sqlite)
+        if (opts.json) {
+          console.log(JSON.stringify(result))
+          return result.valid ? 0 : 1
+        }
+        console.log(`\n${result.formattedSummary}\n`)
+        return result.valid ? 0 : 1
+      }
+
+      const report = auditDatabaseIntegrity(core.sqlite)
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return report.valid ? 0 : 1
+      }
+      console.log(`\n${report.formattedSummary}\n`)
+      return report.valid ? 0 : 1
+    }
+
     const err = `Unknown db action: ${action}`
     if (opts.json) console.log(JSON.stringify({ error: err }))
     else {
       console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
-      console.error('Usage: forge db [stats|vacuum|backup|restore|compact] [options]')
+      console.error('Usage: forge db [stats|vacuum|backup|restore|compact|audit] [options]')
     }
     return 1
   } finally {
@@ -3600,6 +3710,73 @@ async function handleDiffSecurity(opts: {
 
     console.log(`\n${report.formattedSummary}\n`)
     return report.clean ? 0 : 1
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (opts.json) {
+      console.log(JSON.stringify({ error: msg }))
+    } else {
+      console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+    }
+    return 1
+  } finally {
+    await core.close()
+  }
+}
+
+async function handleDiffSecrets(opts: {
+  readonly runId?: string | undefined
+  readonly stepId?: string | undefined
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  if (!opts.runId) {
+    const err = 'Usage: forge diff secrets <runId> [stepId] [--json]'
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else console.error(`${ANSI.red}Error: No run ID provided.${ANSI.reset}\n${err}`)
+    return 1
+  }
+
+  const parsedRunId = runIdSchema.safeParse(opts.runId)
+  if (!parsedRunId.success) {
+    const err = `Invalid run ID "${opts.runId}". Expected a valid UUID.`
+    if (opts.json) console.log(JSON.stringify({ error: err }))
+    else console.error(`${ANSI.red}Error: ${err}${ANSI.reset}`)
+    return 1
+  }
+
+  const core = createForgeCore({ dataDir: opts.dataDir })
+  try {
+    const artifacts = core.artifactStore.listForRun(parsedRunId.data)
+    let filtered = artifacts
+    if (opts.stepId) {
+      filtered = filtered.filter((a) => a.stepId === opts.stepId)
+    }
+    const diffArtifact =
+      filtered.find((a) => a.kind === 'changeset' || a.kind === 'diff') ??
+      artifacts.find((a) => a.kind === 'changeset' || a.kind === 'diff')
+
+    if (!diffArtifact) {
+      const emptyResult = {
+        valid: true,
+        hasLeaks: false,
+        violations: [],
+        formattedSummary: `No changeset or diff artifacts found for run ${opts.runId}; nothing to audit.`,
+      }
+      if (opts.json) console.log(JSON.stringify(emptyResult))
+      else console.log(`\n${emptyResult.formattedSummary}\n`)
+      return 0
+    }
+
+    const rawDiff = await core.artifacts.readArtifactText(diffArtifact.id)
+    const report = scanDiffForSecretLeaks(rawDiff)
+
+    if (opts.json) {
+      console.log(JSON.stringify(report))
+      return report.hasLeaks ? 1 : 0
+    }
+
+    console.log(`\n${report.formattedSummary}\n`)
+    return report.hasLeaks ? 1 : 0
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
     if (opts.json) {

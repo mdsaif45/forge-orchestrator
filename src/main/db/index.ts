@@ -94,6 +94,13 @@ export {
   type CrossTableAuditCounts,
   type LedgerReplicationReport,
 } from './ledgerVerifier'
+export {
+  diffDatabaseSnapshots,
+  type TableRowDiff,
+  type TableDelta,
+  type DatabaseSnapshotDiffReport,
+  type DatabaseSnapshotDiffOptions,
+} from './snapshotDiffer'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

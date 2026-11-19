@@ -77,3 +77,11 @@ export {
   type PromptCompactionOptions,
   type PromptCompactionReport,
 } from './promptCompactor'
+export {
+  AgentStreamMultiplexer,
+  type StreamTokenDelta,
+  type StreamToolDelta,
+  type FinalizedToolCall,
+  type StreamTurnSummary,
+  type MultiplexerOptions,
+} from './streamMultiplexer'

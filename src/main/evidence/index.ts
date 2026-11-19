@@ -136,3 +136,12 @@ export {
   type ExportSymbolKind,
   type ExportSurfaceReport,
 } from './exportSurfaceAuditor'
+export {
+  auditPatchFuzziness,
+  parseDiffHunks,
+  type HunkStatus,
+  type HunkAuditResult,
+  type FileHunkAuditReport,
+  type PatchFuzzReport,
+  type PatchFuzzOptions,
+} from './patchFuzzAuditor'

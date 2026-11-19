@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { projectIdSchema, runIdSchema, stepIdSchema, taskIdSchema } from '@shared/domain'
 import { createForgeCore } from './core/forgeCore'
@@ -2846,6 +2847,167 @@ index 1111111..2222222 100644
     expect(typeof parsed.formattedDotEnv).toBe('string')
     expect(typeof parsed.maskedDotEnv).toBe('string')
     expect(parsed.summary).toBeDefined()
+
+    logSpy.mockRestore()
+  })
+
+  it('multiplexes streaming turn events with forge runtimes stream-turn (AGENT-014)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const streamEvents = [
+      { type: 'token', text: 'Hello ' },
+      { type: 'token', text: 'world from stream multiplexer!' },
+    ]
+    const code = await runCli([
+      'runtimes',
+      'stream-turn',
+      JSON.stringify(streamEvents),
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.valid).toBe(true)
+    expect(parsed.completedText).toBe('Hello world from stream multiplexer!')
+    expect(parsed.totalTokens).toBe(2)
+
+    logSpy.mockRestore()
+  })
+
+  it('extracts workflow subgraph neighborhood with forge workflows subgraph (WORK-021)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'workflows',
+      'subgraph',
+      'cr-sdlc',
+      'agent-1',
+      '--direction',
+      'downstream',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.valid).toBe(true)
+    expect(parsed.targetNodeId).toBe('agent-1')
+    expect(parsed.direction).toBe('downstream')
+    expect(parsed.nodeCount).toBeGreaterThan(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('audits patch fuzziness and hunk offsets with forge diff hunks (EVIDENCE-009)', async () => {
+    const targetFile = join(repoPath, 'math.ts')
+    writeFileSync(
+      targetFile,
+      'export function add(a: number, b: number): number {\n  return a + b\n}\n',
+    )
+
+    const patchPath = join(tempDir, 'test.patch')
+    const samplePatch = [
+      'diff --git a/math.ts b/math.ts',
+      '--- a/math.ts',
+      '+++ b/math.ts',
+      '@@ -1,3 +1,4 @@',
+      ' export function add(a: number, b: number): number {',
+      '+  // Added comment',
+      '   return a + b',
+      ' }',
+      '',
+    ].join('\n')
+    writeFileSync(patchPath, samplePatch)
+
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'diff',
+      'hunks',
+      patchPath,
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.valid).toBe(true)
+    expect(parsed.overallStatus).toBe('clean')
+    expect(parsed.cleanHunks).toBe(1)
+
+    logSpy.mockRestore()
+  })
+
+  it('diffs sqlite database snapshots with forge db diff-snapshots (STATE-011)', async () => {
+    const snapA = join(tempDir, 'snapA.db')
+    const snapB = join(tempDir, 'snapB.db')
+
+    const dbA = new Database(snapA)
+    dbA.exec('CREATE TABLE test (id TEXT PRIMARY KEY, val TEXT);')
+    dbA.exec("INSERT INTO test VALUES ('1', 'apple');")
+    dbA.close()
+
+    const dbB = new Database(snapB)
+    dbB.exec('CREATE TABLE test (id TEXT PRIMARY KEY, val TEXT);')
+    dbB.exec("INSERT INTO test VALUES ('1', 'apple');")
+    dbB.exec("INSERT INTO test VALUES ('2', 'banana');")
+    dbB.close()
+
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'db',
+      'diff-snapshots',
+      snapA,
+      snapB,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.valid).toBe(true)
+    expect(parsed.hasDivergence).toBe(true)
+    expect(parsed.tableDeltas).toBeDefined()
+
+    logSpy.mockRestore()
+  })
+
+  it('audits configuration drift and schema conformance with forge config drift (CONFIG-012)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'config',
+      'drift',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.valid).toBe(true)
+    expect(typeof parsed.hasDrift).toBe('boolean')
+    expect(typeof parsed.formattedSummary).toBe('string')
 
     logSpy.mockRestore()
   })

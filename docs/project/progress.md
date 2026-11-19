@@ -5,8 +5,8 @@ Project:            Forge — AI Engineering Control Plane
 Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
 Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
 Last updated:       2026-11-19
-Evidence baseline:  main @ 3bda40d (PR #313 merged)
-Active branch:      feat/m1-m6-compactor-simulator-exports-verifier-sync
+Evidence baseline:  main @ 9727b6c (PR #319 merged)
+Active branch:      feat/m1-m6-stream-subgraph-fuzz-snapdiff-drift
 ```
 
 ---
@@ -372,20 +372,21 @@ An explicit discrepancy exists between GitHub milestone numbers, GitHub mileston
 
 ## 6. Active Work, Dependencies, and Next Action
 
-- **Current State Baseline:** `main` @ `3bda40d` (PR #313 merged).
+- **Current State Baseline:** `main` @ `9727b6c` (PR #319 merged).
 - **Recent Completed PRs:**
   - **PR #301:** `feat(core,workflows,evidence,state,config): prompt coercer, condition evaluator, merkle lineage, event journal, and feature flags (#296, #297, #298, #299, #300)` (`6ba52f7`).
   - **PR #307:** `feat(core,workflows,evidence,state,config): rate limiter, step timeout supervisor, secret leak scanner, db integrity auditor, and env interpolator (#290, #291, #292, #293, #294)` (`8748f6e`).
   - **PR #313:** `feat(core,workflows,evidence,state,config): tool output limiter, workflow checkpoint, verification manifest, event replay, and config migrator (#308, #309, #310, #311, #312)` (`3bda40d`).
-- **In-Progress Cluster (feat/m1-m6-compactor-simulator-exports-verifier-sync):**
-  - **Issue #314 (AGENT-013):** `feat(core): agent prompt context token budget trimmer and sliding window compactor (AGENT-013)`.
-  - **Issue #315 (WORK-020):** `feat(workflows): workflow DAG execution dry-run simulator and critical path analyzer (WORK-020)`.
-  - **Issue #316 (EVIDENCE-008):** `feat(evidence): changeset AST-aware syntactic impact and export surface auditor (EVIDENCE-008)`.
-  - **Issue #317 (STATE-010):** `feat(db): event ledger replication verifier and cross-engine integrity auditor (STATE-010)`.
-  - **Issue #318 (CONFIG-011):** `feat(config): configuration environment variable vault export and dot-env sync generator (CONFIG-011)`.
+  - **PR #319:** `feat(core,workflows,evidence,db,config,cli): prompt compactor, workflow simulator, export surface auditor, ledger verifier, and env sync (#314, #315, #316, #317, #318)` (`9727b6c`).
+- **In-Progress Cluster (feat/m1-m6-stream-subgraph-fuzz-snapdiff-drift):**
+  - **Issue #320 (AGENT-014):** `feat(core): agent streaming turn event dispatcher and structured tool output consumer (AGENT-014)`.
+  - **Issue #321 (WORK-021):** `feat(workflows): workflow step dependency topological sub-graph extractor and cycle isolator (WORK-021)`.
+  - **Issue #322 (EVIDENCE-009):** `feat(evidence): changeset hunk boundary validator and patch fuzziness auditor (EVIDENCE-009)`.
+  - **Issue #323 (STATE-011):** `feat(db): sqlite database snapshot time-travel diffing and table delta analyzer (STATE-011)`.
+  - **Issue #324 (CONFIG-012):** `feat(config): configuration schema drift auditor and undocumented key detector (CONFIG-012)`.
 - **Milestones Status:** All GitHub Milestones M0 through M11 are completed and closed with zero remaining open issues.
 - **Dependencies & Blockers:** None. Local verification gates and test suites are 100% green.
 - **Immediate Next Action:**
-  1. Open PR for Issues #314, #315, #316, #317, #318.
+  1. Open PR for Issues #320, #321, #322, #323, #324.
   2. Verify all CI checks pass on GitHub Actions.
   3. Merge PR to `main` via squash merge.

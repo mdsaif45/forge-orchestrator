@@ -100,4 +100,15 @@ export {
   type SimulatedStepNode,
   type WorkflowSimulationReport,
 } from './workflowSimulator'
+export {
+  extractWorkflowSubgraph,
+  isolateCyclePath,
+  type SubgraphDirection,
+  type SubgraphNodeSpec,
+  type SubgraphEdgeSpec,
+  type GenericWorkflowGraphInput,
+  type WorkflowSubgraphOptions,
+  type CycleIsolationReport,
+  type WorkflowSubgraphReport,
+} from './subgraphExtractor'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

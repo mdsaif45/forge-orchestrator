@@ -51,6 +51,7 @@ describe('Workflow Graph Snapshotter & Time-Travel (WORK-014)', () => {
       status: 'completed',
       nodeOutputs: {},
       traversedEdges: ['start->plan'],
+      timestamp: new Date(Date.now() - 1000).toISOString(),
     })
     await createWorkflowSnapshot(tempDir, {
       runId,
@@ -59,6 +60,7 @@ describe('Workflow Graph Snapshotter & Time-Travel (WORK-014)', () => {
       status: 'completed',
       nodeOutputs: {},
       traversedEdges: ['plan->implement'],
+      timestamp: new Date().toISOString(),
     })
 
     const result = await listWorkflowSnapshots(tempDir, runId)

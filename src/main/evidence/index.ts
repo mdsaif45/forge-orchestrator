@@ -188,3 +188,9 @@ export {
   type ProvenanceVerificationResult,
   type SlsaPredicateV1,
 } from './provenanceAttestation'
+export {
+  selectAffectedTestSuites,
+  DEFAULT_GLOBAL_IMPACT_PATTERNS,
+  type ChangeImpactOptions,
+  type ImpactAnalysisReport,
+} from './changeImpactSelector'

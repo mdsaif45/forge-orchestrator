@@ -144,4 +144,15 @@ export {
   type StepSlaConfig,
   type StepSlaReport,
 } from './stepSlaMonitor'
+export {
+  planForkJoinBatches,
+  aggregateForkJoinOutcomes,
+  type ForkJoinTolerancePolicy,
+  type ForkJoinTaskSpec,
+  type ForkJoinBatchPlan,
+  type ForkJoinExecutionPlan,
+  type ForkJoinPlanningOptions,
+  type ForkJoinTaskOutcome,
+  type ForkJoinAggregateReport,
+} from './forkJoinSubflowOrchestrator'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

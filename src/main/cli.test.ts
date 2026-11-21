@@ -3510,4 +3510,99 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('schedules speculative tool prefetch with forge context prefetch (AGENT-020)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['context', 'prefetch', 'read_file', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.candidateCount).toBeGreaterThanOrEqual(1)
+    expect(parsed.concurrency).toBe(2)
+    expect(parsed.formattedSummary).toContain('[Speculative Prefetch]')
+
+    logSpy.mockRestore()
+  })
+
+  it('plans dynamic fork-join subflow execution with forge workflows fork-join (WORK-027)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'workflows',
+      'fork-join',
+      '6',
+      '--concurrency',
+      '3',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.totalTasks).toBe(6)
+    expect(parsed.batchCount).toBe(2)
+    expect(parsed.maxConcurrency).toBe(3)
+
+    logSpy.mockRestore()
+  })
+
+  it('analyzes source code change impact with forge verify impact (EVIDENCE-015)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'verify',
+      'impact',
+      'src/main/core/taskRunner.ts',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.isGlobalImpact).toBe(false)
+    expect(Array.isArray(parsed.selectedTestSuites)).toBe(true)
+    expect(parsed.totalSuitesSelected).toBeGreaterThan(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('audits sqlite journal transaction deltas with forge db journal-diff (STATE-017)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['db', 'journal-diff', '1', '10', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(typeof parsed.totalEventsAnalyzed).toBe('number')
+    expect(parsed.isContiguous).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('transforms deprecated configuration keys with forge config deprecations (CONFIG-018)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['config', 'deprecations', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.isUpToDate).toBe(false)
+    expect(parsed.deprecationCount).toBeGreaterThan(0)
+    expect((parsed.transformedConfig as Record<string, unknown>).timeoutMs).toBe(5000)
+
+    logSpy.mockRestore()
+  })
 })

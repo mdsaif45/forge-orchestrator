@@ -139,6 +139,16 @@ export {
   type TableIndexHealth,
   type TableIndexInfo,
 } from './queryAnalyzer'
+export {
+  computeJournalDiff,
+  auditDatabaseJournalRange,
+  type LedgerEventInput,
+  type MutationKind,
+  type EntityMutationDelta,
+  type CompensatingEvent,
+  type JournalDiffOptions,
+  type JournalDiffReport,
+} from './journalDiffAuditor'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

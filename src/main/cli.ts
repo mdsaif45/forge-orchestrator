@@ -61,6 +61,7 @@ import {
   verifyMigrationIntegrity,
   executeSandboxedQuery,
   analyzeQueryPlan,
+  auditDatabaseJournalRange,
   type MigrationDefinition,
   type SavepointReceipt,
   type RawLedgerEvent,
@@ -83,6 +84,7 @@ import {
   parseUniversalTestReport,
   generateProvenanceStatement,
   verifyProvenanceStatement,
+  selectAffectedTestSuites,
   inspectRunDiff,
   parseLcov,
   rollbackRunChanges,
@@ -121,6 +123,7 @@ import {
   evaluateStepPreconditions,
   planTopologicalWaves,
   evaluateStepSla,
+  planForkJoinBatches,
   type StepPrecondition,
   type SubgraphDirection,
   type WorkflowConditionContext,
@@ -148,10 +151,12 @@ import {
   compressConversationHistory,
   coalesceToolObservations,
   evaluateToolRetry,
+  scheduleSpeculativePrefetch,
   type ConversationTurn,
   type PromptTurn,
   type ToolParametersSchema,
   type ToolObservation,
+  type PlannedToolStep,
 } from './core'
 import {
   bootstrapForgeConfig,
@@ -171,6 +176,7 @@ import {
   redactSensitiveString,
   validateToolExecutionPolicy,
   resolveConfigInheritance,
+  transformDeprecatedConfig,
   type ConfigPresetName,
   type PolicyLockRule,
   type ToolSandboxPolicy,
@@ -521,6 +527,13 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     if (positionals[1] === 'provenance') {
       return handleVerifyProvenance({
         runId: positionals[2],
+        json: values.json,
+      })
+    }
+    if (positionals[1] === 'impact') {
+      return handleVerifyImpact({
+        changedFile: positionals[2],
+        cwd,
         json: values.json,
       })
     }
@@ -1988,6 +2001,7 @@ async function handleWorkflows(opts: {
       'preflight',
       'waves',
       'sla',
+      'fork-join',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2085,6 +2099,27 @@ async function handleWorkflows(opts: {
       }
       console.log(`\n${report.formattedSummary}\n`)
       return report.status === 'breached' ? 1 : 0
+    }
+
+    if (action === 'fork-join') {
+      const itemsCount = targetId ? parseInt(targetId, 10) : 5
+      const concurrency = opts.concurrency ? parseInt(opts.concurrency, 10) : 2
+      const items = Array.from(
+        { length: Math.min(20, Math.max(1, itemsCount)) },
+        (_, i) => `item-${String(i + 1)}`,
+      )
+      const plan = planForkJoinBatches(items, { maxConcurrency: concurrency, taskPrefix: 'task' })
+      if (opts.json) {
+        console.log(JSON.stringify(plan))
+        return 0
+      }
+      console.log(`\n${plan.formattedSummary}\n`)
+      for (const b of plan.batches) {
+        console.log(
+          `  Batch ${String(b.batchIndex + 1)}: [${b.tasks.map((t) => t.taskId).join(', ')}]`,
+        )
+      }
+      return 0
     }
 
     if (action === 'retry') {
@@ -3612,6 +3647,34 @@ async function handleContext(opts: {
       return evaluation.shouldRetry ? 0 : 1
     }
 
+    if (action === 'prefetch') {
+      const targetTool = opts.runId ?? 'read_file'
+      const plannedSteps: PlannedToolStep[] = [
+        {
+          stepId: 'p-1',
+          toolName: targetTool,
+          args: { path: 'package.json' },
+          estimatedDurationMs: 150,
+        },
+        {
+          stepId: 'p-2',
+          toolName: 'git_status',
+          args: {},
+          estimatedDurationMs: 100,
+        },
+      ]
+      const schedule = scheduleSpeculativePrefetch(plannedSteps, { maxConcurrency: 2 })
+      if (opts.json) {
+        console.log(JSON.stringify(schedule))
+        return 0
+      }
+      console.log(`\n${schedule.formattedSummary}\n`)
+      for (const cand of schedule.candidates) {
+        console.log(`  • [${cand.stepId}] ${cand.toolName} -> ${cand.cacheKey}`)
+      }
+      return 0
+    }
+
     if (action !== 'inspect' && action !== 'optimize' && action !== 'compact') {
       runId = action
       action = 'inspect'
@@ -4272,6 +4335,24 @@ async function handleConfig(opts: {
     return res.valid ? 0 : 1
   }
 
+  if (action === 'deprecations') {
+    const sampleConfig: Record<string, unknown> = {
+      timeout_ms: 5000,
+      max_retries: 3,
+      telemetry_enabled: false,
+    }
+    const report = transformDeprecatedConfig(sampleConfig)
+    if (opts.json) {
+      console.log(JSON.stringify(report))
+      return 0
+    }
+    console.log(`\n${report.formattedSummary}\n`)
+    for (const adv of report.advisories) {
+      console.log(`  • [${adv.deprecatedKey} -> ${adv.modernKey}]: ${adv.advisory}`)
+    }
+    return 0
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
@@ -4703,6 +4784,23 @@ async function handleDb(opts: {
       console.log(`\n${analysis.formattedSummary}\n`)
       for (const rec of analysis.recommendations) {
         console.log(`  • ${rec}`)
+      }
+      return 0
+    }
+
+    if (action === 'journal-diff') {
+      const fromSeq = opts.targetPath ? parseInt(opts.targetPath, 10) : 1
+      const toSeq = opts.targetId ? parseInt(opts.targetId, 10) : 100
+      const diff = auditDatabaseJournalRange(core.sqlite, fromSeq, toSeq)
+      if (opts.json) {
+        console.log(JSON.stringify(diff))
+        return 0
+      }
+      console.log(`\n${diff.formattedSummary}\n`)
+      for (const delta of diff.deltas) {
+        console.log(
+          `  • [${delta.mutationKind.toUpperCase()}] ${delta.entityType} ${delta.entityId} (events: ${String(delta.eventCount)})`,
+        )
       }
       return 0
     }
@@ -5192,6 +5290,37 @@ function handleVerifyProvenance(opts: {
   }
   console.log(`\n${verification.formattedSummary}\n`)
   return verification.valid ? 0 : 1
+}
+
+function handleVerifyImpact(opts: {
+  readonly changedFile?: string | undefined
+  readonly cwd: string
+  readonly json?: boolean | undefined
+}): number {
+  const target = opts.changedFile ?? 'src/main/core/taskRunner.ts'
+  const sampleDependencyMap: Record<string, readonly string[]> = {
+    'src/main/core/taskRunner.ts': [
+      'src/main/core/forgeCore.ts',
+      'src/main/workflows/leafRunner.ts',
+    ],
+  }
+  const sampleAvailableTests: readonly string[] = [
+    'src/main/core/taskRunner.test.ts',
+    'src/main/core/forgeCore.test.ts',
+    'src/main/workflows/leafRunner.test.ts',
+    'src/main/db/db.test.ts',
+  ]
+
+  const report = selectAffectedTestSuites([target], sampleDependencyMap, sampleAvailableTests)
+  if (opts.json) {
+    console.log(JSON.stringify(report))
+    return 0
+  }
+  console.log(`\n${report.formattedSummary}\n`)
+  for (const suite of report.selectedTestSuites) {
+    console.log(`  • ${suite}`)
+  }
+  return 0
 }
 
 async function handleProjects(opts: {

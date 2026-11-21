@@ -1543,9 +1543,7 @@ ${toolTrail}`
   return (
     <div className="relative flex h-full overflow-hidden">
       {/* Fullscreen transparent drag overlay to prevent text selection / lost mouse during slider drag */}
-      {isDraggingSplitter && (
-        <div className="fixed inset-0 z-50 cursor-col-resize select-none" />
-      )}
+      {isDraggingSplitter && <div className="fixed inset-0 z-50 cursor-col-resize select-none" />}
 
       {/* ── Left Workspace Container (Sidebar + Chat Area) ── */}
       <div
@@ -1554,452 +1552,450 @@ ${toolTrail}`
           isOverviewOpen && isOverviewExpanded
             ? 'w-0 flex-none opacity-0 pointer-events-none'
             : 'flex-1 opacity-100',
-          isDraggingSplitter
-            ? 'transition-none'
-            : 'transition-all duration-300 ease-in-out',
+          isDraggingSplitter ? 'transition-none' : 'transition-all duration-300 ease-in-out',
         )}
       >
         {/* ── Left Sidebar ── */}
         <aside className="flex w-60 shrink-0 flex-col border-r border-(--color-border) bg-(--color-surface)">
-        {/* New Chat Button */}
-        <div className="p-3">
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={handleCreateThread}
-            className="w-full justify-center rounded-lg text-[12px] font-semibold h-9"
-          >
-            + New chat
-          </Button>
-        </div>
-
-        {/* Search */}
-        <div className="px-3 pb-2">
-          <Input
-            placeholder="Search chats..."
-            value={searchQuery}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-              setSearchQuery(e.target.value)
-            }}
-            className="h-8 text-[12px] bg-(--color-surface-raised)"
-          />
-        </div>
-
-        {/* Sort & Persona selector */}
-        <div className="flex items-center justify-between px-3 pb-2">
-          <span className="text-[10px] font-semibold text-(--color-text-subtle) uppercase tracking-wider">
-            Sort: {sortOrder === 'newest' ? 'Newest first' : 'Oldest first'}
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))
-            }}
-            className="text-[10px] text-(--color-accent) hover:underline cursor-pointer"
-          >
-            Toggle
-          </button>
-        </div>
-
-        {/* Thread List */}
-        <ScrollArea className="flex-1 px-2 pb-2">
-          <div className="space-y-0.5">
-            {filteredThreads.map((thread) => {
-              const isCurrent = thread.id === activeThreadId
-              const isRenaming = renamingId === thread.id
-
-              return (
-                // A div, not a button: the row carries its own action buttons,
-                // and a button nested inside a button is invalid markup that
-                // browsers resolve unpredictably.
-                <div
-                  key={thread.id}
-                  className={cn(
-                    'group relative flex w-full items-start justify-between rounded-lg px-2.5 py-2 transition-colors',
-                    isCurrent
-                      ? 'bg-(--color-accent)/10 text-(--color-accent)'
-                      : 'text-(--color-text-muted) hover:bg-(--color-surface-raised) hover:text-(--color-text)',
-                  )}
-                >
-                  {isRenaming ? (
-                    <Input
-                      autoFocus
-                      value={renameDraft}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                        setRenameDraft(e.target.value)
-                      }}
-                      onBlur={() => {
-                        handleRenameThread(thread)
-                      }}
-                      onKeyDown={(e: React.KeyboardEvent) => {
-                        if (e.key === 'Enter') handleRenameThread(thread)
-                        // Escape abandons the edit, leaving the old title.
-                        if (e.key === 'Escape') setRenamingId(null)
-                      }}
-                      className="h-7 text-[12px]"
-                    />
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveThreadId(thread.id)
-                        }}
-                        className="min-w-0 flex-1 cursor-pointer truncate pr-1.5 text-left py-0.5"
-                      >
-                        <div
-                          className={cn(
-                            'truncate text-[12px] leading-snug',
-                            isCurrent ? 'font-semibold' : 'font-medium',
-                          )}
-                        >
-                          {thread.pinned === true && <span className="mr-1">📌</span>}
-                          {thread.archived === true && <span className="mr-1">🗄️</span>}
-                          {thread.title.trim() !== '' ? thread.title : 'New chat'}
-                        </div>
-                      </button>
-
-                      <button
-                        type="button"
-                        aria-label="Thread actions"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          setMenuThreadId((current) => (current === thread.id ? null : thread.id))
-                        }}
-                        className="shrink-0 cursor-pointer px-1 text-[13px] opacity-0 group-hover:opacity-100 hover:text-(--color-text)"
-                      >
-                        ⋯
-                      </button>
-                    </>
-                  )}
-
-                  {menuThreadId === thread.id && (
-                    <div
-                      ref={threadMenuRef}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                      }}
-                      className="absolute top-8 right-1 z-30 w-36 overflow-hidden rounded-lg border border-(--color-border) bg-(--color-surface-raised) shadow-lg"
-                    >
-                      <ThreadMenuItem
-                        label={thread.pinned === true ? 'Unpin' : 'Pin'}
-                        onSelect={() => {
-                          handleTogglePin(thread)
-                          setMenuThreadId(null)
-                        }}
-                      />
-                      <ThreadMenuItem
-                        label="Rename"
-                        onSelect={() => {
-                          setRenameDraft(thread.title)
-                          setRenamingId(thread.id)
-                          setMenuThreadId(null)
-                        }}
-                      />
-                      <ThreadMenuItem
-                        label={thread.archived === true ? 'Unarchive' : 'Archive'}
-                        onSelect={() => {
-                          handleToggleArchive(thread)
-                          setMenuThreadId(null)
-                        }}
-                      />
-                      <ThreadMenuItem
-                        label="Delete"
-                        danger
-                        onSelect={(e) => {
-                          handleDeleteThread(thread.id, e)
-                          setMenuThreadId(null)
-                        }}
-                      />
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+          {/* New Chat Button */}
+          <div className="p-3">
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleCreateThread}
+              className="w-full justify-center rounded-lg text-[12px] font-semibold h-9"
+            >
+              + New chat
+            </Button>
           </div>
 
-          {archivedCount > 0 && (
+          {/* Search */}
+          <div className="px-3 pb-2">
+            <Input
+              placeholder="Search chats..."
+              value={searchQuery}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                setSearchQuery(e.target.value)
+              }}
+              className="h-8 text-[12px] bg-(--color-surface-raised)"
+            />
+          </div>
+
+          {/* Sort & Persona selector */}
+          <div className="flex items-center justify-between px-3 pb-2">
+            <span className="text-[10px] font-semibold text-(--color-text-subtle) uppercase tracking-wider">
+              Sort: {sortOrder === 'newest' ? 'Newest first' : 'Oldest first'}
+            </span>
             <button
               type="button"
               onClick={() => {
-                setShowArchived((current) => !current)
+                setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))
               }}
-              className="mt-2 w-full cursor-pointer px-2.5 py-1 text-left text-[10px] text-(--color-text-subtle) hover:text-(--color-text)"
+              className="text-[10px] text-(--color-accent) hover:underline cursor-pointer"
             >
-              {showArchived ? 'Hide' : 'Show'} archived ({archivedCount})
+              Toggle
             </button>
-          )}
-        </ScrollArea>
-      </aside>
-
-      {/* ── Main Chat Area ── */}
-      <div className="relative flex flex-1 flex-col min-w-0 bg-(--color-canvas) overflow-hidden">
-        {/* Top Header Bar */}
-        <header className="relative z-20 flex h-9 shrink-0 items-center justify-between border-b border-transparent pl-6 pr-2 bg-(--color-canvas)/85 backdrop-blur-md">
-          {/* Subtle downward blur feather under header */}
-          <div className="pointer-events-none absolute -bottom-5 left-0 right-0 h-5 bg-gradient-to-b from-(--color-canvas)/85 to-transparent" />
-          <div className="min-w-0 flex items-center gap-3">
-            <h1 className="text-[13px] font-bold text-(--color-text) truncate">
-              {activeThread?.title && activeThread.title.trim() !== ''
-                ? activeThread.title
-                : 'New chat'}
-            </h1>
           </div>
 
-          {/* Right Header: Right Window Expand Button (exact same position as collapse button when open) */}
-          {!isOverviewOpen && (
-            <button
-              type="button"
-              title="Expand right panel"
-              aria-label="Expand right panel"
-              onClick={toggleOverviewOpen}
-              className="flex size-6 items-center justify-center rounded hover:bg-(--color-surface-raised) text-(--color-text-subtle) hover:text-(--color-text) cursor-pointer"
-            >
-              <PanelRightIcon className="size-3.5" />
-            </button>
-          )}
-        </header>
+          {/* Thread List */}
+          <ScrollArea className="flex-1 px-2 pb-2">
+            <div className="space-y-0.5">
+              {filteredThreads.map((thread) => {
+                const isCurrent = thread.id === activeThreadId
+                const isRenaming = renamingId === thread.id
 
-        {/* Messages Area */}
-        <ScrollArea className="flex-1 min-h-0">
-          <div className="max-w-4xl mx-auto px-6 pt-2 pb-6">
-            {/* Empty state matching Image 3 when conversation has no messages */}
-            {messages.length === 0 && (
-              <div className="flex flex-col items-center justify-center min-h-[48vh] text-center px-4">
-                <div className="flex items-center gap-2.5 mb-2">
-                  <span className="text-2xl text-(--color-accent)">✦</span>
-                  <h2 className="text-xl font-medium tracking-tight text-(--color-text)">
-                    What&apos;s up next{project.name ? `, ${project.name}` : ''}?
-                  </h2>
-                </div>
-                <p className="text-[13px] text-(--color-text-muted) max-w-md">
-                  Ask a question about the codebase, explore architecture, plan changes, or run
-                  tasks.
-                </p>
-              </div>
-            )}
-
-            {messages.map((msg, index) => {
-              const prevMsg = index > 0 ? messages[index - 1] : undefined
-              const isFollowUp = msg.role === 'assistant' && prevMsg?.role === 'user'
-              const isNewTurn = msg.role === 'user' && prevMsg?.role === 'assistant'
-              const spacingClass =
-                index === 0 ? '' : isFollowUp ? 'mt-2.5' : isNewTurn ? 'mt-6' : 'mt-3'
-
-              return (
-                <div key={msg.id} className={spacingClass}>
-                  {msg.role === 'assistant' ? (
-                    /* Assistant message — clean direct response stream (Claude Code style) */
-                    <div className="group relative space-y-2">
-                      {msg.reasoning !== undefined && msg.reasoning !== '' && (
-                        <ThinkingBlock text={msg.reasoning} />
-                      )}
-                      <div
-                        className="prose-container text-[13.5px] leading-relaxed text-(--color-text) select-text"
-                        data-selectable
-                      >
-                        <MarkdownRenderer content={msg.text} />
-                      </div>
-                      {/* Subtle footer controls on hover: copy & elapsed */}
-                      <div className="flex items-center gap-3 pt-0.5 text-[11px] text-(--color-text-subtle) opacity-0 group-hover:opacity-100 transition-opacity select-none">
-                        <CopyTextButton text={msg.text} />
-                        {msg.elapsed && <span>· {msg.elapsed}</span>}
-                      </div>
-                    </div>
-                  ) : (
-                    /* User message — right-aligned bubble with hover features on the left */
-                    <div className="group flex items-center justify-end gap-2">
-                      {/* On hover show some features; no hover don't show any */}
-                      <div className="flex items-center gap-1.5 opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto select-none shrink-0">
-                        <span className="text-[11.5px] text-(--color-text-subtle)">
-                          {formatRelativeTime(msg.timestamp, msg.id)}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handleCopyPrompt(msg.text, msg.id)
-                          }}
-                          title="Copy prompt"
-                          aria-label="Copy prompt"
-                          className="flex size-5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
-                        >
-                          {copiedPromptId === msg.id ? (
-                            <PromptCheckIcon className="size-3.5 text-(--color-success)" />
-                          ) : (
-                            <PromptCopyIcon className="size-3.5" />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handleRetryPrompt(msg.text)
-                          }}
-                          title="Edit & retry prompt"
-                          aria-label="Edit & retry prompt"
-                          className="flex size-5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
-                        >
-                          <PromptRetryIcon className="size-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handleForkFromPrompt(msg.id)
-                          }}
-                          title="Fork conversation from this prompt"
-                          aria-label="Fork conversation from this prompt"
-                          className="flex size-5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
-                        >
-                          <PromptForkIcon className="size-3.5" />
-                        </button>
-                      </div>
-
-                      <div className="max-w-xl rounded-2xl bg-(--color-surface) border border-(--color-border)/40 px-3.5 py-1.5 text-[13px] leading-normal text-(--color-text) shadow-xs transition-colors">
-                        {/* Selectable for the same reason the reply is: the body sets
-                            `user-select: none`, so without this a user could not copy
-                            back what they themselves had typed. */}
-                        <div className="whitespace-pre-wrap select-text" data-selectable>
-                          {msg.text}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-
-            {/* The reply as it arrives */}
-            {liveReply !== null && (
-              <div className="mt-2.5 space-y-2">
-                {liveReply.timeline.length > 0 && (
+                return (
+                  // A div, not a button: the row carries its own action buttons,
+                  // and a button nested inside a button is invalid markup that
+                  // browsers resolve unpredictably.
                   <div
-                    className="space-y-1.5 rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-3 py-2"
-                    data-selectable
-                  >
-                    {liveReply.timeline.map((entry, index) =>
-                      entry.kind === 'reasoning' ? (
-                        <div
-                          key={`r-${String(index)}`}
-                          className="text-[11px] leading-relaxed whitespace-pre-wrap text-(--color-text-muted)"
-                        >
-                          <span className="mr-1">💭</span>
-                          {entry.text}
-                        </div>
-                      ) : (
-                        <div
-                          key={`t-${String(index)}`}
-                          className="font-mono text-[10px] leading-relaxed text-(--color-text-subtle)"
-                        >
-                          {entry.text}
-                        </div>
-                      ),
+                    key={thread.id}
+                    className={cn(
+                      'group relative flex w-full items-start justify-between rounded-lg px-2.5 py-2 transition-colors',
+                      isCurrent
+                        ? 'bg-(--color-accent)/10 text-(--color-accent)'
+                        : 'text-(--color-text-muted) hover:bg-(--color-surface-raised) hover:text-(--color-text)',
                     )}
-                    {thinking && (
-                      <div className="font-mono text-[10px] text-(--color-text-subtle)">
-                        <span className="animate-pulse">working…</span>
-                        {elapsed > 0 ? ` ${String(elapsed)}s` : ''}
+                  >
+                    {isRenaming ? (
+                      <Input
+                        autoFocus
+                        value={renameDraft}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                          setRenameDraft(e.target.value)
+                        }}
+                        onBlur={() => {
+                          handleRenameThread(thread)
+                        }}
+                        onKeyDown={(e: React.KeyboardEvent) => {
+                          if (e.key === 'Enter') handleRenameThread(thread)
+                          // Escape abandons the edit, leaving the old title.
+                          if (e.key === 'Escape') setRenamingId(null)
+                        }}
+                        className="h-7 text-[12px]"
+                      />
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveThreadId(thread.id)
+                          }}
+                          className="min-w-0 flex-1 cursor-pointer truncate pr-1.5 text-left py-0.5"
+                        >
+                          <div
+                            className={cn(
+                              'truncate text-[12px] leading-snug',
+                              isCurrent ? 'font-semibold' : 'font-medium',
+                            )}
+                          >
+                            {thread.pinned === true && <span className="mr-1">📌</span>}
+                            {thread.archived === true && <span className="mr-1">🗄️</span>}
+                            {thread.title.trim() !== '' ? thread.title : 'New chat'}
+                          </div>
+                        </button>
+
+                        <button
+                          type="button"
+                          aria-label="Thread actions"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setMenuThreadId((current) => (current === thread.id ? null : thread.id))
+                          }}
+                          className="shrink-0 cursor-pointer px-1 text-[13px] opacity-0 group-hover:opacity-100 hover:text-(--color-text)"
+                        >
+                          ⋯
+                        </button>
+                      </>
+                    )}
+
+                    {menuThreadId === thread.id && (
+                      <div
+                        ref={threadMenuRef}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                        }}
+                        className="absolute top-8 right-1 z-30 w-36 overflow-hidden rounded-lg border border-(--color-border) bg-(--color-surface-raised) shadow-lg"
+                      >
+                        <ThreadMenuItem
+                          label={thread.pinned === true ? 'Unpin' : 'Pin'}
+                          onSelect={() => {
+                            handleTogglePin(thread)
+                            setMenuThreadId(null)
+                          }}
+                        />
+                        <ThreadMenuItem
+                          label="Rename"
+                          onSelect={() => {
+                            setRenameDraft(thread.title)
+                            setRenamingId(thread.id)
+                            setMenuThreadId(null)
+                          }}
+                        />
+                        <ThreadMenuItem
+                          label={thread.archived === true ? 'Unarchive' : 'Archive'}
+                          onSelect={() => {
+                            handleToggleArchive(thread)
+                            setMenuThreadId(null)
+                          }}
+                        />
+                        <ThreadMenuItem
+                          label="Delete"
+                          danger
+                          onSelect={(e) => {
+                            handleDeleteThread(thread.id, e)
+                            setMenuThreadId(null)
+                          }}
+                        />
                       </div>
                     )}
                   </div>
-                )}
-                {liveReply.content !== '' && (
-                  <div className="prose-container text-[13.5px] leading-relaxed text-(--color-text)">
-                    <MarkdownRenderer content={liveReply.content} />
-                  </div>
-                )}
-              </div>
-            )}
+                )
+              })}
+            </div>
 
-            {thinking &&
-              liveReply?.content === '' &&
-              liveReply.reasoning === '' &&
-              liveReply.timeline.length === 0 && (
-                <div className="mt-2.5 flex items-center gap-2 py-1 text-[12px] italic text-(--color-text-muted)">
-                  <span className="inline-flex gap-1">
-                    <span className="animate-bounce [animation-delay:0ms]">·</span>
-                    <span className="animate-bounce [animation-delay:150ms]">·</span>
-                    <span className="animate-bounce [animation-delay:300ms]">·</span>
-                  </span>
-                  <span>
-                    Thinking...
-                    {elapsed > 0 ? ` · ${String(elapsed)}s` : ''}
-                  </span>
+            {archivedCount > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setShowArchived((current) => !current)
+                }}
+                className="mt-2 w-full cursor-pointer px-2.5 py-1 text-left text-[10px] text-(--color-text-subtle) hover:text-(--color-text)"
+              >
+                {showArchived ? 'Hide' : 'Show'} archived ({archivedCount})
+              </button>
+            )}
+          </ScrollArea>
+        </aside>
+
+        {/* ── Main Chat Area ── */}
+        <div className="relative flex flex-1 flex-col min-w-0 bg-(--color-canvas) overflow-hidden">
+          {/* Top Header Bar */}
+          <header className="relative z-20 flex h-9 shrink-0 items-center justify-between border-b border-transparent pl-6 pr-2 bg-(--color-canvas)/85 backdrop-blur-md">
+            {/* Subtle downward blur feather under header */}
+            <div className="pointer-events-none absolute -bottom-5 left-0 right-0 h-5 bg-gradient-to-b from-(--color-canvas)/85 to-transparent" />
+            <div className="min-w-0 flex items-center gap-3">
+              <h1 className="text-[13px] font-bold text-(--color-text) truncate">
+                {activeThread?.title && activeThread.title.trim() !== ''
+                  ? activeThread.title
+                  : 'New chat'}
+              </h1>
+            </div>
+
+            {/* Right Header: Right Window Expand Button (exact same position as collapse button when open) */}
+            {!isOverviewOpen && (
+              <button
+                type="button"
+                title="Expand right panel"
+                aria-label="Expand right panel"
+                onClick={toggleOverviewOpen}
+                className="flex size-6 items-center justify-center rounded hover:bg-(--color-surface-raised) text-(--color-text-subtle) hover:text-(--color-text) cursor-pointer"
+              >
+                <PanelRightIcon className="size-3.5" />
+              </button>
+            )}
+          </header>
+
+          {/* Messages Area */}
+          <ScrollArea className="flex-1 min-h-0">
+            <div className="max-w-4xl mx-auto px-6 pt-2 pb-6">
+              {/* Empty state matching Image 3 when conversation has no messages */}
+              {messages.length === 0 && (
+                <div className="flex flex-col items-center justify-center min-h-[48vh] text-center px-4">
+                  <div className="flex items-center gap-2.5 mb-2">
+                    <span className="text-2xl text-(--color-accent)">✦</span>
+                    <h2 className="text-xl font-medium tracking-tight text-(--color-text)">
+                      What&apos;s up next{project.name ? `, ${project.name}` : ''}?
+                    </h2>
+                  </div>
+                  <p className="text-[13px] text-(--color-text-muted) max-w-md">
+                    Ask a question about the codebase, explore architecture, plan changes, or run
+                    tasks.
+                  </p>
                 </div>
               )}
 
-            <div ref={messagesEndRef} />
-          </div>
-        </ScrollArea>
+              {messages.map((msg, index) => {
+                const prevMsg = index > 0 ? messages[index - 1] : undefined
+                const isFollowUp = msg.role === 'assistant' && prevMsg?.role === 'user'
+                const isNewTurn = msg.role === 'user' && prevMsg?.role === 'assistant'
+                const spacingClass =
+                  index === 0 ? '' : isFollowUp ? 'mt-2.5' : isNewTurn ? 'mt-6' : 'mt-3'
 
-        {/* Bottom Input Bar with Image 1-style blur feel */}
-        <div className="relative z-20 bg-gradient-to-t from-(--color-canvas) via-(--color-canvas)/90 to-transparent px-6 pb-4 pt-4 backdrop-blur-md">
-          {/* Top blur feather overlay fading into the message scroll area */}
-          <div className="pointer-events-none absolute -top-8 left-0 right-0 h-8 bg-gradient-to-t from-(--color-canvas)/90 to-transparent backdrop-blur-[2px]" />
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              void handleSend()
-            }}
-            className="mx-auto max-w-4xl"
-          >
-            <div className="relative flex flex-col rounded-2xl border border-(--color-border) bg-(--color-surface-raised) shadow-xs transition-colors focus-within:border-(--color-border-focus)/80 focus-within:ring-2 focus-within:ring-(--color-border-focus)/15">
-              <textarea
-                ref={textareaRef}
-                rows={1}
-                value={input}
-                onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
-                  setInput(e.target.value)
-                }}
-                onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    void handleSend()
-                  }
-                }}
-                disabled={thinking}
-                placeholder="Describe a task or ask a question... (Shift+Enter for newline)"
-                className="w-full resize-none border-0 bg-transparent px-4 pt-3 pb-1.5 text-[13.5px] leading-relaxed text-(--color-text) placeholder:text-(--color-text-subtle) focus:outline-none"
-                autoFocus
-              />
+                return (
+                  <div key={msg.id} className={spacingClass}>
+                    {msg.role === 'assistant' ? (
+                      /* Assistant message — clean direct response stream (Claude Code style) */
+                      <div className="group relative space-y-2">
+                        {msg.reasoning !== undefined && msg.reasoning !== '' && (
+                          <ThinkingBlock text={msg.reasoning} />
+                        )}
+                        <div
+                          className="prose-container text-[13.5px] leading-relaxed text-(--color-text) select-text"
+                          data-selectable
+                        >
+                          <MarkdownRenderer content={msg.text} />
+                        </div>
+                        {/* Subtle footer controls on hover: copy & elapsed */}
+                        <div className="flex items-center gap-3 pt-0.5 text-[11px] text-(--color-text-subtle) opacity-0 group-hover:opacity-100 transition-opacity select-none">
+                          <CopyTextButton text={msg.text} />
+                          {msg.elapsed && <span>· {msg.elapsed}</span>}
+                        </div>
+                      </div>
+                    ) : (
+                      /* User message — right-aligned bubble with hover features on the left */
+                      <div className="group flex items-center justify-end gap-2">
+                        {/* On hover show some features; no hover don't show any */}
+                        <div className="flex items-center gap-1.5 opacity-0 pointer-events-none transition-opacity duration-150 group-hover:opacity-100 group-hover:pointer-events-auto select-none shrink-0">
+                          <span className="text-[11.5px] text-(--color-text-subtle)">
+                            {formatRelativeTime(msg.timestamp, msg.id)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleCopyPrompt(msg.text, msg.id)
+                            }}
+                            title="Copy prompt"
+                            aria-label="Copy prompt"
+                            className="flex size-5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
+                          >
+                            {copiedPromptId === msg.id ? (
+                              <PromptCheckIcon className="size-3.5 text-(--color-success)" />
+                            ) : (
+                              <PromptCopyIcon className="size-3.5" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleRetryPrompt(msg.text)
+                            }}
+                            title="Edit & retry prompt"
+                            aria-label="Edit & retry prompt"
+                            className="flex size-5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
+                          >
+                            <PromptRetryIcon className="size-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleForkFromPrompt(msg.id)
+                            }}
+                            title="Fork conversation from this prompt"
+                            aria-label="Fork conversation from this prompt"
+                            className="flex size-5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
+                          >
+                            <PromptForkIcon className="size-3.5" />
+                          </button>
+                        </div>
 
-              {/* Bottom Card Controls Strip */}
-              <div className="flex items-center justify-between px-3 pb-2.5 pt-1">
-                <div className="flex items-center gap-2">
-                  {/* Custom UI-matched Engine Selector Dropdown */}
-                  <EngineSelectDropdown
-                    value={selectedEngineId}
-                    onChange={(newEngineId) => {
-                      setSelectedEngineId(newEngineId)
-                    }}
-                    options={engineOptions}
-                  />
+                        <div className="max-w-xl rounded-2xl bg-(--color-surface) border border-(--color-border)/40 px-3.5 py-1.5 text-[13px] leading-normal text-(--color-text) shadow-xs transition-colors">
+                          {/* Selectable for the same reason the reply is: the body sets
+                            `user-select: none`, so without this a user could not copy
+                            back what they themselves had typed. */}
+                          <div className="whitespace-pre-wrap select-text" data-selectable>
+                            {msg.text}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
 
-                  {/* Custom UI-matched Model Selector Dropdown (Image 2 style) */}
-                  {currentEngineModels.length > 0 && (
-                    <ModelSelectDropdown
-                      value={activeEngineModelId}
-                      onChange={(newModel) => {
-                        handleSelectEngineModel(newModel)
-                      }}
-                      options={currentEngineModels}
-                    />
+              {/* The reply as it arrives */}
+              {liveReply !== null && (
+                <div className="mt-2.5 space-y-2">
+                  {liveReply.timeline.length > 0 && (
+                    <div
+                      className="space-y-1.5 rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-3 py-2"
+                      data-selectable
+                    >
+                      {liveReply.timeline.map((entry, index) =>
+                        entry.kind === 'reasoning' ? (
+                          <div
+                            key={`r-${String(index)}`}
+                            className="text-[11px] leading-relaxed whitespace-pre-wrap text-(--color-text-muted)"
+                          >
+                            <span className="mr-1">💭</span>
+                            {entry.text}
+                          </div>
+                        ) : (
+                          <div
+                            key={`t-${String(index)}`}
+                            className="font-mono text-[10px] leading-relaxed text-(--color-text-subtle)"
+                          >
+                            {entry.text}
+                          </div>
+                        ),
+                      )}
+                      {thinking && (
+                        <div className="font-mono text-[10px] text-(--color-text-subtle)">
+                          <span className="animate-pulse">working…</span>
+                          {elapsed > 0 ? ` ${String(elapsed)}s` : ''}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {liveReply.content !== '' && (
+                    <div className="prose-container text-[13.5px] leading-relaxed text-(--color-text)">
+                      <MarkdownRenderer content={liveReply.content} />
+                    </div>
                   )}
                 </div>
+              )}
 
-                {/* Circular Send Button inside input card (Image 4) */}
-                <button
-                  type="submit"
-                  disabled={input.trim() === '' || thinking}
-                  title="Send message"
-                  aria-label="Send message"
-                  className="flex size-8 items-center justify-center rounded-full bg-(--color-accent) text-white shadow-xs transition-all hover:bg-(--color-accent-hover) disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer shrink-0"
-                >
-                  <SendArrowIcon className="size-4" />
-                </button>
-              </div>
+              {thinking &&
+                liveReply?.content === '' &&
+                liveReply.reasoning === '' &&
+                liveReply.timeline.length === 0 && (
+                  <div className="mt-2.5 flex items-center gap-2 py-1 text-[12px] italic text-(--color-text-muted)">
+                    <span className="inline-flex gap-1">
+                      <span className="animate-bounce [animation-delay:0ms]">·</span>
+                      <span className="animate-bounce [animation-delay:150ms]">·</span>
+                      <span className="animate-bounce [animation-delay:300ms]">·</span>
+                    </span>
+                    <span>
+                      Thinking...
+                      {elapsed > 0 ? ` · ${String(elapsed)}s` : ''}
+                    </span>
+                  </div>
+                )}
+
+              <div ref={messagesEndRef} />
             </div>
-          </form>
+          </ScrollArea>
+
+          {/* Bottom Input Bar with Image 1-style blur feel */}
+          <div className="relative z-20 bg-gradient-to-t from-(--color-canvas) via-(--color-canvas)/90 to-transparent px-6 pb-4 pt-4 backdrop-blur-md">
+            {/* Top blur feather overlay fading into the message scroll area */}
+            <div className="pointer-events-none absolute -top-8 left-0 right-0 h-8 bg-gradient-to-t from-(--color-canvas)/90 to-transparent backdrop-blur-[2px]" />
+            <form
+              onSubmit={(e) => {
+                e.preventDefault()
+                void handleSend()
+              }}
+              className="mx-auto max-w-4xl"
+            >
+              <div className="relative flex flex-col rounded-2xl border border-(--color-border) bg-(--color-surface-raised) shadow-xs transition-colors focus-within:border-(--color-border-focus)/80 focus-within:ring-2 focus-within:ring-(--color-border-focus)/15">
+                <textarea
+                  ref={textareaRef}
+                  rows={1}
+                  value={input}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                    setInput(e.target.value)
+                  }}
+                  onKeyDown={(e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      void handleSend()
+                    }
+                  }}
+                  disabled={thinking}
+                  placeholder="Describe a task or ask a question... (Shift+Enter for newline)"
+                  className="w-full resize-none border-0 bg-transparent px-4 pt-3 pb-1.5 text-[13.5px] leading-relaxed text-(--color-text) placeholder:text-(--color-text-subtle) focus:outline-none"
+                  autoFocus
+                />
+
+                {/* Bottom Card Controls Strip */}
+                <div className="flex items-center justify-between px-3 pb-2.5 pt-1">
+                  <div className="flex items-center gap-2">
+                    {/* Custom UI-matched Engine Selector Dropdown */}
+                    <EngineSelectDropdown
+                      value={selectedEngineId}
+                      onChange={(newEngineId) => {
+                        setSelectedEngineId(newEngineId)
+                      }}
+                      options={engineOptions}
+                    />
+
+                    {/* Custom UI-matched Model Selector Dropdown (Image 2 style) */}
+                    {currentEngineModels.length > 0 && (
+                      <ModelSelectDropdown
+                        value={activeEngineModelId}
+                        onChange={(newModel) => {
+                          handleSelectEngineModel(newModel)
+                        }}
+                        options={currentEngineModels}
+                      />
+                    )}
+                  </div>
+
+                  {/* Circular Send Button inside input card (Image 4) */}
+                  <button
+                    type="submit"
+                    disabled={input.trim() === '' || thinking}
+                    title="Send message"
+                    aria-label="Send message"
+                    className="flex size-8 items-center justify-center rounded-full bg-(--color-accent) text-white shadow-xs transition-all hover:bg-(--color-accent-hover) disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer shrink-0"
+                  >
+                    <SendArrowIcon className="size-4" />
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
         </div>
-      </div>
       </div>
 
       {/* ── Resizable Splitter Slider between Chat and Right Panel (Image 1: thin separator, only hover shows highlight & pill) ── */}

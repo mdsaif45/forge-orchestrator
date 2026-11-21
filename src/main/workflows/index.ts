@@ -200,4 +200,14 @@ export {
   type IngestionDecision,
   type BackpressureMetrics,
 } from './workflowBackpressureSupervisor'
+export {
+  WorkflowStepJournalResumeEngine,
+  type StepExecutionStatus,
+  type ResumeActionType,
+  type JournaledStepRecord,
+  type RecordStepInput,
+  type NodeDefinitionForResume,
+  type ResumeStepAction,
+  type JournalResumePlan,
+} from './workflowStepJournalResumeEngine'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

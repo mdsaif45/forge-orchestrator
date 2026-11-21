@@ -182,3 +182,10 @@ export {
   type ToolDryRunConfig,
   type ToolDryRunReport,
 } from './agentToolDryRunSimulator'
+export {
+  AgentContextBudgetForecaster,
+  type ContextHealthStatus,
+  type TurnTokenRecord,
+  type ForecasterConfig,
+  type ContextHealthReport,
+} from './agentContextBudgetForecaster'

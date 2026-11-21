@@ -109,6 +109,19 @@ export {
   type EventSearchHit,
   type EventSearchReport,
 } from './eventSearchEngine'
+export {
+  computeSqlChecksum,
+  ensureMigrationLedgerTable,
+  getAppliedMigrations,
+  getMigrationStatus,
+  verifyMigrationIntegrity,
+  applyPendingMigrations,
+  type MigrationDefinition,
+  type MigrationRecord,
+  type MigrationStatus,
+  type MigrationIntegrityReport,
+  type MigrationExecutionResult,
+} from './schemaMigrationRunner'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

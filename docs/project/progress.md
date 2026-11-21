@@ -4,9 +4,9 @@
 Project:            Forge — AI Engineering Control Plane
 Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
 Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
-Last updated:       2026-11-19
-Evidence baseline:  main @ 9727b6c (PR #319 merged)
-Active branch:      feat/m1-m6-stream-subgraph-fuzz-snapdiff-drift
+Last updated:       2026-11-21
+Evidence baseline:  main @ 087c102 (PR #337 merged)
+Active branch:      feat/m1-m6-compressor-preflight-diagnostics-migration-redactor
 ```
 
 ---
@@ -61,6 +61,16 @@ M11 Host the Real CLI             ██████████  DONE        PR
 ---
 
 ## 3. Major Slice History & Merged PRs (Reverse Chronological)
+
+### 2026-11-21: PR #337 merged (`087c102`) — M1/M2/M4/M5/M6 Context Budget, Step Semaphore, Cycle Auditor, DB Search, and Boundary Guard
+- **Title:** `feat(core,workflows,evidence,db,config,cli): context budget, step semaphore, cycle auditor, db search, and boundary guard (#332, #333, #334, #335, #336)`
+- **Delivered:**
+  - `AGENT-016`: Prompt context window budgeting, output headroom reservation, and priority section pruning with `forge context budget`.
+  - `WORK-023`: Workflow step execution token-bucket semaphore and concurrency regulator with `forge workflows semaphore`.
+  - `EVIDENCE-011`: Changeset AST import/export static parser and circular dependency cycle detector with `forge diff cycles`.
+  - `STATE-013`: SQLite schema-adaptive event query engine with snippet excerpt generation with `forge db search`.
+  - `CONFIG-014`: Workspace security sandboxing policy validator and path boundary guard with `forge config boundary`.
+  - Closed GitHub issues #332, #333, #334, #335, #336.
 
 ### 2026-11-19: PR #307 merged (`8748f6e`) — M1/M2/M4/M5/M6 Tool Coercer, Condition Evaluator, Merkle Lineage, Journal Exporter, and Feature Flags
 - **Title:** `feat(core,workflows,evidence,db,config,cli): tool parameter coercer, condition evaluator, merkle lineage, event journal exporter, and feature flags (#302, #303, #304, #305, #306)`

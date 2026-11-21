@@ -56,6 +56,10 @@ import {
   diffDatabaseSnapshots,
   DatabaseSavepointManager,
   searchDatabaseEvents,
+  applyPendingMigrations,
+  getMigrationStatus,
+  verifyMigrationIntegrity,
+  type MigrationDefinition,
   type SavepointReceipt,
   type RawLedgerEvent,
 } from './db'
@@ -73,6 +77,7 @@ import {
   generateArtifactMerkleTree,
   generateVerificationManifest,
   verifyManifestIntegrity,
+  sanitizeExecutionLog,
   inspectRunDiff,
   parseLcov,
   rollbackRunChanges,
@@ -108,6 +113,8 @@ import {
   simulateWorkflowExecution,
   StepTimeoutSupervisor,
   StepExecutionConcurrencyLimiter,
+  evaluateStepPreconditions,
+  type StepPrecondition,
   type SubgraphDirection,
   type WorkflowConditionContext,
   type WorkflowDAG,
@@ -130,6 +137,8 @@ import {
   AgentStreamMultiplexer,
   AgentToolReflectionRegistry,
   auditPromptContextBudget,
+  compressConversationHistory,
+  type ConversationTurn,
   type PromptTurn,
   type ToolParametersSchema,
 } from './core'
@@ -148,6 +157,7 @@ import {
   listConfigPresets,
   writeConfigTemplate,
   validateWorkspaceBoundary,
+  redactSensitiveString,
   type ConfigPresetName,
   type PolicyLockRule,
 } from './config'
@@ -476,6 +486,12 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
         verify: values.verify,
         cwd,
         dataDir,
+        json: values.json,
+      })
+    }
+    if (positionals[1] === 'diagnostics') {
+      return handleVerifyDiagnostics({
+        input: positionals[2],
         json: values.json,
       })
     }
@@ -1939,6 +1955,7 @@ async function handleWorkflows(opts: {
       'subgraph',
       'retry',
       'semaphore',
+      'preflight',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -1971,6 +1988,24 @@ async function handleWorkflows(opts: {
         return 0
       }
       console.log(`\n${status.formattedSummary}\n`)
+      return 0
+    }
+
+    if (action === 'preflight') {
+      const stepId = opts.extraParam ?? targetId ?? 'build'
+      const preconditions: StepPrecondition = {
+        requiredArtifacts: opts.task ? [opts.task] : undefined,
+        requiredEnv: opts.targetId?.startsWith('ENV_') ? [opts.targetId] : undefined,
+      }
+      const result = evaluateStepPreconditions(preconditions, {
+        existingArtifacts: opts.task ? [opts.task] : [],
+        environment: process.env as Record<string, string>,
+      })
+      if (opts.json) {
+        console.log(JSON.stringify({ stepId, ...result }))
+        return 0
+      }
+      console.log(`\n${result.formattedSummary}\n`)
       return 0
     }
 
@@ -3405,6 +3440,53 @@ async function handleContext(opts: {
       return 0
     }
 
+    if (action === 'compress') {
+      const maxTokens = opts.maxTokens ?? 4096
+      const rollingWindow = opts.keepTurns ?? 4
+      let content = ''
+      if (runId) {
+        const parsedRunId = runIdSchema.safeParse(runId)
+        if (parsedRunId.success) {
+          const allArtifacts = core.artifactStore.listForRun(parsedRunId.data)
+          const promptPackets = allArtifacts.filter((a) => a.kind === 'prompt-packet')
+          const targetPacket = stepId
+            ? promptPackets.find((a) => a.stepId === stepId)
+            : promptPackets[promptPackets.length - 1]
+          if (targetPacket) {
+            content = await core.artifacts.readArtifactText(targetPacket.id)
+          }
+        }
+      }
+
+      const turns: ConversationTurn[] = content
+        ? [
+            { role: 'system', content: 'You are Forge Agent.' },
+            { role: 'user', content: 'Task objective: Refactor code' },
+            { role: 'assistant', content: content.slice(0, 1000) },
+            { role: 'user', content: 'Turn recent' },
+          ]
+        : [
+            { role: 'system', content: 'You are Forge Agent.' },
+            { role: 'user', content: 'Goal: Run workflows\nDecision: Lock SQLite WAL' },
+            { role: 'assistant', content: 'I modified src/db/schema.ts' },
+            { role: 'user', content: 'Hypothesis: Check concurrency' },
+            { role: 'assistant', content: 'Concurrency checked.' },
+            { role: 'user', content: 'Latest turn' },
+          ]
+
+      const report = compressConversationHistory(turns, {
+        maxTokens,
+        rollingWindowTurns: rollingWindow,
+      })
+
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return 0
+      }
+      console.log(`\n${report.summary}\n`)
+      return 0
+    }
+
     if (action !== 'inspect' && action !== 'optimize' && action !== 'compact') {
       runId = action
       action = 'inspect'
@@ -4004,6 +4086,17 @@ async function handleConfig(opts: {
     return check.allowed ? 0 : 1
   }
 
+  if (action === 'sanitize') {
+    const rawInput = opts.key ?? opts.val ?? ''
+    const audit = redactSensitiveString(rawInput)
+    if (opts.json) {
+      console.log(JSON.stringify(audit))
+      return 0
+    }
+    console.log(`\n${audit.formattedSummary}\n${audit.sanitizedText}\n`)
+    return 0
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
@@ -4363,6 +4456,45 @@ async function handleDb(opts: {
         return 0
       }
       console.log(`\n${report.formattedSummary}\n`)
+      return 0
+    }
+
+    if (action === 'migrate') {
+      const subAction = opts.targetPath ?? opts.targetId ?? 'status'
+      const sampleMigrations: MigrationDefinition[] = [
+        {
+          version: 101,
+          name: 'add_metadata_index',
+          upSql: 'CREATE INDEX IF NOT EXISTS idx_cli_schema_check ON schema_migrations(name);',
+        },
+      ]
+
+      if (subAction === 'apply') {
+        const result = applyPendingMigrations(core.sqlite, sampleMigrations)
+        if (opts.json) {
+          console.log(JSON.stringify(result))
+          return 0
+        }
+        console.log(`\n${result.formattedSummary}\n`)
+        return 0
+      }
+
+      if (subAction === 'validate') {
+        const report = verifyMigrationIntegrity(core.sqlite, sampleMigrations)
+        if (opts.json) {
+          console.log(JSON.stringify(report))
+          return report.valid ? 0 : 1
+        }
+        console.log(`\n${report.formattedSummary}\n`)
+        return report.valid ? 0 : 1
+      }
+
+      const status = getMigrationStatus(core.sqlite, sampleMigrations)
+      if (opts.json) {
+        console.log(JSON.stringify(status))
+        return 0
+      }
+      console.log(`\n${status.formattedSummary}\n`)
       return 0
     }
 
@@ -4763,6 +4895,36 @@ function handleVerifyReport(opts: {
 
   console.log(`\n${summary.formattedSummary}\n`)
   return summary.valid ? 0 : 1
+}
+
+function handleVerifyDiagnostics(opts: {
+  readonly input?: string | undefined
+  readonly json?: boolean | undefined
+}): number {
+  let rawText = opts.input ?? ''
+  if (opts.input && existsSync(opts.input)) {
+    try {
+      rawText = readFileSync(opts.input, 'utf8')
+    } catch {
+      rawText = opts.input
+    }
+  }
+
+  const result = sanitizeExecutionLog(rawText)
+  if (opts.json) {
+    console.log(JSON.stringify(result))
+    return result.failureCount === 0 ? 0 : 1
+  }
+
+  console.log(`\n${result.formattedSummary}\n`)
+  if (result.failures.length > 0) {
+    for (const f of result.failures) {
+      const loc = f.file ? ` (${f.file}${f.line ? `:${String(f.line)}` : ''})` : ''
+      console.log(`  • [${f.category}] ${f.message}${loc}`)
+    }
+    console.log('')
+  }
+  return result.failureCount === 0 ? 0 : 1
 }
 
 async function handleProjects(opts: {

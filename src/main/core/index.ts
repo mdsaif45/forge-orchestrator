@@ -105,3 +105,12 @@ export {
   type ContextBudgetReport,
   type ContextBudgetOptions,
 } from './promptBudgetSupervisor'
+export {
+  compressConversationHistory,
+  synthesizeMilestoneSummary,
+  estimateTurnTokens,
+  type ConversationTurn,
+  type MilestoneRecap,
+  type CompressorOptions,
+  type CompressionResult,
+} from './conversationCompressor'

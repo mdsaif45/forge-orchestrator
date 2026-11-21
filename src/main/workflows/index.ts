@@ -124,4 +124,11 @@ export {
   type SemaphorePermit,
   type SemaphoreStatus,
 } from './stepConcurrencyLimiter'
+export {
+  evaluateStepPreconditions,
+  type StepPrecondition,
+  type StageExecutionRecord,
+  type PreconditionEvaluationContext,
+  type PreconditionResult,
+} from './stepPreconditionEvaluator'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

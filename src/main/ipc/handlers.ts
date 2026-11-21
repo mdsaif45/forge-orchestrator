@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises'
 import { app, clipboard, dialog, BrowserWindow } from 'electron'
 import { APP_NAME } from '@shared/app'
-import type { ModelDetail, ProviderChunkPayload } from '@shared/ipc'
+import type { IpcResponse, ModelDetail, ProviderChunkPayload } from '@shared/ipc'
 import {
   artifactIdSchema,
   runIdSchema,

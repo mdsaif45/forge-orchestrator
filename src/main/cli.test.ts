@@ -3211,4 +3211,96 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('compresses conversation turns with forge context compress (AGENT-017)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['context', 'compress', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(typeof parsed.originalTurns).toBe('number')
+    expect(typeof parsed.compressedTurns).toBe('number')
+    expect(Array.isArray(parsed.turns)).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('evaluates step preflight conditions with forge workflows preflight (WORK-024)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['workflows', 'preflight', 'build', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.pass).toBe(true)
+    expect(parsed.shouldSkip).toBe(false)
+
+    logSpy.mockRestore()
+  })
+
+  it('sanitizes log ansi codes and extracts diagnostics with forge verify diagnostics (EVIDENCE-012)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'verify',
+      'diagnostics',
+      'src/file.ts(1,1): error TS2304: Cannot find name foo.',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(1) // failureCount > 0 returns exit code 1
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.failureCount).toBe(1)
+    expect(Array.isArray(parsed.failures)).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('manages database schema migrations with forge db migrate (STATE-014)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['db', 'migrate', 'status', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(typeof parsed.currentVersion).toBe('number')
+    expect(typeof parsed.pendingCount).toBe('number')
+
+    logSpy.mockRestore()
+  })
+
+  it('redacts sensitive secrets and keys with forge config sanitize (CONFIG-015)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'config',
+      'sanitize',
+      'api_key: sk-proj-1234567890abcdef1234567890',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.totalRedactions).toBe(1)
+    expect(parsed.sanitizedText).toContain('[REDACTED_API_KEY]')
+
+    logSpy.mockRestore()
+  })
 })

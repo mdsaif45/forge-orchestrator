@@ -156,3 +156,10 @@ export {
   extractImportSpecifiers,
   type DependencyCycleReport,
 } from './dependencyCycleAuditor'
+export {
+  stripAnsiCodes,
+  extractDiagnosticFailures,
+  sanitizeExecutionLog,
+  type DiagnosticFailure,
+  type LogSanitizationResult,
+} from './logSanitizer'

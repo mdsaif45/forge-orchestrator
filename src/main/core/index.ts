@@ -114,3 +114,12 @@ export {
   type CompressorOptions,
   type CompressionResult,
 } from './conversationCompressor'
+export {
+  computeObservationHash,
+  coalesceToolObservations,
+  type ToolObservation,
+  type CoalescePolicy,
+  type ObservationFingerprint,
+  type CoalescedTurn,
+  type CoalesceResult,
+} from './toolResultCoalescer'

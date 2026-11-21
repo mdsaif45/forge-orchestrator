@@ -5,8 +5,8 @@ Project:            Forge — AI Engineering Control Plane
 Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
 Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
 Last updated:       2026-11-21
-Evidence baseline:  main @ 087c102 (PR #337 merged)
-Active branch:      feat/m1-m6-compressor-preflight-diagnostics-migration-redactor
+Evidence baseline:  main @ b86c86c (PR #343 merged)
+Active branch:      feat/m1-m6-coalescer-wave-tap-sandbox-policy
 ```
 
 ---
@@ -61,6 +61,26 @@ M11 Host the Real CLI             ██████████  DONE        PR
 ---
 
 ## 3. Major Slice History & Merged PRs (Reverse Chronological)
+
+### 2026-11-21: In Progress — Cluster XI (#344, #345, #346, #347, #348) — M1/M2/M4/M5/M6 Tool Coalescer, Wave Planner, Unified Test Parser, DB Query Sandbox, and Tool Policy Guard
+- **Branch:** `feat/m1-m6-coalescer-wave-tap-sandbox-policy`
+- **Delivered:**
+  - `AGENT-018`: Multi-turn tool call result coalescer and duplicate observation deduplication supervisor with `forge context coalesce`.
+  - `WORK-025`: Workflow step dependency topological levelizer and execution wave planner with `forge workflows waves`.
+  - `EVIDENCE-013`: JUnit XML and TAP test results structured parser and assertion matrix generator with `forge verify test-report`.
+  - `STATE-015`: SQLite read-only query sandbox and safe analytical statement validator with `forge db query`.
+  - `CONFIG-016`: Workspace tool execution sandbox policy auditor and permission validator with `forge config policy-tool`.
+  - Addressed GitHub issues #344, #345, #346, #347, #348.
+
+### 2026-11-21: PR #343 merged (`b86c86c`) — M1/M2/M4/M5/M6 Conversation Compressor, Step Preconditions, Log Sanitizer, Schema Migrations, and Sensitive Data Redactor
+- **Title:** `feat(core,workflows,evidence,db,config,cli): conversation compressor, preflight preconditions, log sanitizer, schema migrations, and sensitive redactor (#338, #339, #340, #341, #342)`
+- **Delivered:**
+  - `AGENT-017`: Long-horizon conversation turn compressor and semantic anchor preservation with `forge context compress`.
+  - `WORK-024`: Workflow step preflight condition evaluator and environment gate with `forge workflows preflight`.
+  - `EVIDENCE-012`: Execution log ANSI stripper and structured compiler/linter diagnostic failure extractor with `forge verify diagnostics`.
+  - `STATE-014`: Declarative SQLite schema migration runner and hash ledger with `forge db migrate [status|validate|apply]`.
+  - `CONFIG-015`: Recursive sensitive token scanner and credential redactor with `forge config sanitize`.
+  - Closed GitHub issues #338, #339, #340, #341, #342.
 
 ### 2026-11-21: PR #337 merged (`087c102`) — M1/M2/M4/M5/M6 Context Budget, Step Semaphore, Cycle Auditor, DB Search, and Boundary Guard
 - **Title:** `feat(core,workflows,evidence,db,config,cli): context budget, step semaphore, cycle auditor, db search, and boundary guard (#332, #333, #334, #335, #336)`

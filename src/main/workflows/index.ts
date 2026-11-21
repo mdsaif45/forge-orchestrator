@@ -131,4 +131,10 @@ export {
   type PreconditionEvaluationContext,
   type PreconditionResult,
 } from './stepPreconditionEvaluator'
+export {
+  planTopologicalWaves,
+  type WorkflowNodeDefinition,
+  type ExecutionWave,
+  type WavePlanResult,
+} from './topologicalWavePlanner'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

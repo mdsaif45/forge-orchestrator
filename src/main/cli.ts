@@ -59,6 +59,7 @@ import {
   applyPendingMigrations,
   getMigrationStatus,
   verifyMigrationIntegrity,
+  executeSandboxedQuery,
   type MigrationDefinition,
   type SavepointReceipt,
   type RawLedgerEvent,
@@ -78,6 +79,7 @@ import {
   generateVerificationManifest,
   verifyManifestIntegrity,
   sanitizeExecutionLog,
+  parseUniversalTestReport,
   inspectRunDiff,
   parseLcov,
   rollbackRunChanges,
@@ -114,11 +116,13 @@ import {
   StepTimeoutSupervisor,
   StepExecutionConcurrencyLimiter,
   evaluateStepPreconditions,
+  planTopologicalWaves,
   type StepPrecondition,
   type SubgraphDirection,
   type WorkflowConditionContext,
   type WorkflowDAG,
   type WorkflowSimulationDAG,
+  type WorkflowNodeDefinition,
 } from './workflows'
 import { validateTemplateGraph } from './workflows/validation'
 import { auditRuntimeQuotas, createResourceBudget, sanitizeRuntimeEnvironment } from './runtimes'
@@ -138,9 +142,11 @@ import {
   AgentToolReflectionRegistry,
   auditPromptContextBudget,
   compressConversationHistory,
+  coalesceToolObservations,
   type ConversationTurn,
   type PromptTurn,
   type ToolParametersSchema,
+  type ToolObservation,
 } from './core'
 import {
   bootstrapForgeConfig,
@@ -158,8 +164,10 @@ import {
   writeConfigTemplate,
   validateWorkspaceBoundary,
   redactSensitiveString,
+  validateToolExecutionPolicy,
   type ConfigPresetName,
   type PolicyLockRule,
+  type ToolSandboxPolicy,
 } from './config'
 
 const VERSION = '0.3.0-alpha.1'
@@ -495,6 +503,12 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
         json: values.json,
       })
     }
+    if (positionals[1] === 'test-report') {
+      return handleVerifyTestReport({
+        input: positionals[2],
+        json: values.json,
+      })
+    }
     const configPathOrCommand = positionals[1] === 'pipeline' ? positionals[2] : positionals[1]
     return handleVerifyPipeline({
       configPathOrCommand,
@@ -510,6 +524,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       key: positionals[2],
       val: positionals[3],
       extraParam: positionals[4],
+      args: positionals.slice(3),
       passphrase: values.passphrase,
       force: values.force,
       profile: values.profile,
@@ -1956,6 +1971,7 @@ async function handleWorkflows(opts: {
       'retry',
       'semaphore',
       'preflight',
+      'waves',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2006,6 +2022,39 @@ async function handleWorkflows(opts: {
         return 0
       }
       console.log(`\n${result.formattedSummary}\n`)
+      return 0
+    }
+
+    if (action === 'waves') {
+      const concurrency = opts.concurrency ? parseInt(opts.concurrency, 10) : undefined
+      let nodes: WorkflowNodeDefinition[] = [
+        { id: 'fetch', dependencies: [], estimatedDurationMs: 100 },
+        { id: 'lint', dependencies: ['fetch'], estimatedDurationMs: 150 },
+        { id: 'typecheck', dependencies: ['fetch'], estimatedDurationMs: 200 },
+        { id: 'test', dependencies: ['lint', 'typecheck'], estimatedDurationMs: 300 },
+        { id: 'package', dependencies: ['test'], estimatedDurationMs: 120 },
+      ]
+      if (targetId && existsSync(targetId)) {
+        try {
+          const parsed = JSON.parse(readFileSync(targetId, 'utf8')) as unknown
+          if (Array.isArray(parsed)) {
+            nodes = parsed as WorkflowNodeDefinition[]
+          }
+        } catch {
+          // Keep defaults
+        }
+      }
+      const plan = planTopologicalWaves(nodes, concurrency)
+      if (opts.json) {
+        console.log(JSON.stringify(plan))
+        return 0
+      }
+      console.log(`\n${plan.formattedSummary}\n`)
+      for (const w of plan.waves) {
+        console.log(
+          `  Wave ${String(w.waveIndex)}: [${w.nodeIds.join(', ')}] (Est: ${String(w.estimatedDurationMs)}ms)`,
+        )
+      }
       return 0
     }
 
@@ -3487,6 +3536,38 @@ async function handleContext(opts: {
       return 0
     }
 
+    if (action === 'coalesce') {
+      const observations: ToolObservation[] = [
+        {
+          id: 'obs-1',
+          toolName: 'read_file',
+          args: { path: 'package.json' },
+          output:
+            '{"name": "forge", "version": "0.3.0", "description": "Enterprise autonomous agent orchestration platform"}',
+        },
+        {
+          id: 'obs-2',
+          toolName: 'git_status',
+          args: {},
+          output: 'On branch main, working tree clean. Nothing to commit.',
+        },
+        {
+          id: 'obs-3',
+          toolName: 'read_file',
+          args: { path: 'package.json' },
+          output:
+            '{"name": "forge", "version": "0.3.0", "description": "Enterprise autonomous agent orchestration platform"}',
+        },
+      ]
+      const report = coalesceToolObservations(observations)
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return 0
+      }
+      console.log(`\n${report.formattedSummary}\n`)
+      return 0
+    }
+
     if (action !== 'inspect' && action !== 'optimize' && action !== 'compact') {
       runId = action
       action = 'inspect'
@@ -3645,6 +3726,7 @@ async function handleConfig(opts: {
   key?: string | undefined
   val?: string | undefined
   extraParam?: string | undefined
+  args?: readonly string[] | undefined
   passphrase?: string | undefined
   force?: boolean | undefined
   profile?: string | undefined
@@ -4097,6 +4179,29 @@ async function handleConfig(opts: {
     return 0
   }
 
+  if (action === 'policy-tool') {
+    const binary = opts.key ?? 'git'
+    const commandArgs = opts.args ?? (opts.val ? [opts.val] : [])
+    const defaultPolicy: ToolSandboxPolicy = {
+      defaultAction: 'block',
+      allowedBinaries: ['git', 'npm', 'vitest', 'node', 'tsc'],
+      rules: [
+        {
+          binary: 'git',
+          allowedSubcommands: ['status', 'diff', 'log', 'show', 'commit', 'branch'],
+          prohibitedFlags: ['--no-verify', '--force', '-f', '--hard'],
+        },
+      ],
+    }
+    const check = validateToolExecutionPolicy(binary, commandArgs, defaultPolicy)
+    if (opts.json) {
+      console.log(JSON.stringify(check))
+      return check.allowed ? 0 : 1
+    }
+    console.log(`\n${check.formattedSummary}\n`)
+    return check.allowed ? 0 : 1
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
@@ -4495,6 +4600,26 @@ async function handleDb(opts: {
         return 0
       }
       console.log(`\n${status.formattedSummary}\n`)
+      return 0
+    }
+
+    if (action === 'query') {
+      const sql = opts.targetPath ?? opts.targetId ?? 'SELECT 1 AS ping;'
+      const result = executeSandboxedQuery(core.sqlite, sql, {
+        ...(opts.verify !== undefined ? { includePlan: opts.verify } : {}),
+      })
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+        return result.valid ? 0 : 1
+      }
+      if (!result.valid) {
+        console.error(`\n${ANSI.red}${result.formattedSummary}${ANSI.reset}\n`)
+        return 1
+      }
+      console.log(`\n${result.formattedSummary}\n`)
+      for (const row of result.rows) {
+        console.log(`  ${JSON.stringify(row)}`)
+      }
       return 0
     }
 
@@ -4925,6 +5050,39 @@ function handleVerifyDiagnostics(opts: {
     console.log('')
   }
   return result.failureCount === 0 ? 0 : 1
+}
+
+function handleVerifyTestReport(opts: {
+  readonly input?: string | undefined
+  readonly json?: boolean | undefined
+}): number {
+  let rawText = opts.input ?? ''
+  if (opts.input && existsSync(opts.input)) {
+    try {
+      rawText = readFileSync(opts.input, 'utf8')
+    } catch {
+      rawText = opts.input
+    }
+  }
+
+  const report = parseUniversalTestReport(rawText)
+  if (opts.json) {
+    console.log(JSON.stringify(report))
+    return report.verdict === 'pass' ? 0 : 1
+  }
+
+  console.log(`\n${report.formattedSummary}\n`)
+  if (report.failed > 0) {
+    for (const suite of report.suites) {
+      for (const t of suite.tests) {
+        if (t.status === 'failed') {
+          console.log(`  • [${t.suite}] ${t.name}: ${t.failureMessage ?? 'Failed'}`)
+        }
+      }
+    }
+    console.log('')
+  }
+  return report.verdict === 'pass' ? 0 : 1
 }
 
 async function handleProjects(opts: {

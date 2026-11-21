@@ -3303,4 +3303,94 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('coalesces multi-turn tool observations with forge context coalesce (AGENT-018)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['context', 'coalesce', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.duplicateCount).toBe(1)
+    expect(parsed.originalCount).toBe(3)
+    expect(Array.isArray(parsed.turns)).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('plans topological execution waves with forge workflows waves (WORK-025)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['workflows', 'waves', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.totalWaves).toBeGreaterThanOrEqual(2)
+    expect(parsed.hasCycles).toBe(false)
+    expect(Array.isArray(parsed.waves)).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('parses universal test reports with forge verify test-report (EVIDENCE-013)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const xml = '<testsuite name="cliSuite"><testcase name="pass_1"/></testsuite>'
+    const code = await runCli(['verify', 'test-report', xml, '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.format).toBe('junit')
+    expect(parsed.verdict).toBe('pass')
+    expect(parsed.totalTests).toBe(1)
+
+    logSpy.mockRestore()
+  })
+
+  it('executes sandboxed read-only SQL queries with forge db query (STATE-015)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['db', 'query', 'SELECT 42 as num;', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.valid).toBe(true)
+    expect(parsed.rowCount).toBe(1)
+    expect(parsed.rows).toEqual([{ num: 42 }])
+
+    logSpy.mockRestore()
+  })
+
+  it('audits tool execution against sandbox policy with forge config policy-tool (CONFIG-016)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'config',
+      'policy-tool',
+      'git',
+      'status',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.allowed).toBe(true)
+    expect(parsed.binary).toBe('git')
+
+    logSpy.mockRestore()
+  })
 })

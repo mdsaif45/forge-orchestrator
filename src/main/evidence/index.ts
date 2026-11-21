@@ -226,3 +226,10 @@ export {
   type MaskingAuditReport,
   type ChangesetMaskResult,
 } from './changesetTokenMasker'
+export {
+  auditChangesetEntropy,
+  type EntropyViolationType,
+  type EntropyAuditViolation,
+  type EntropyAuditConfig,
+  type EntropyAuditReport,
+} from './changesetEntropyAuditor'

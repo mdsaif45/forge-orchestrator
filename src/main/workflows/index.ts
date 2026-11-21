@@ -185,4 +185,12 @@ export {
   type FanOutWave,
   type FanOutExecutionPlan,
 } from './workflowFanOutBatchSlicer'
+export {
+  WorkflowCircuitBreaker,
+  type CircuitBreakerState,
+  type ErrorCategory,
+  type StepFailureRecord,
+  type CircuitBreakerConfig,
+  type CircuitBreakerMetrics,
+} from './workflowCircuitBreaker'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

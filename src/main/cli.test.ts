@@ -4070,4 +4070,131 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('validates agent tool capability prerequisites with forge context validate-capability (AGENT-025)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'context',
+      'validate-capability',
+      'git-operation',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      capabilityId: string
+      isReady: boolean
+      missingBinaries: string[]
+      platformSupported: boolean
+    }
+    expect(parsed.capabilityId).toBe('git-operation')
+    expect(parsed.isReady).toBe(true)
+    expect(parsed.missingBinaries).toEqual([])
+    expect(parsed.platformSupported).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('intercepts and evaluates workflow circuit breaker with forge workflows breaker (WORK-032)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'workflows',
+      'breaker',
+      'check',
+      'step-compiler',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      check: { allowed: boolean; state: string }
+      metrics: { state: string; totalFailures: number }
+    }
+    expect(parsed.check.allowed).toBe(true)
+    expect(parsed.check.state).toBe('CLOSED')
+    expect(parsed.metrics.totalFailures).toBe(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('audits changeset entropy and detects oversized hunks with forge diff audit-entropy (EVIDENCE-020)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['diff', 'audit-entropy', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      isSafe: boolean
+      overallEntropy: number
+      violations: unknown[]
+      hunksAudited: number
+    }
+    expect(parsed.isSafe).toBe(true)
+    expect(parsed.overallEntropy).toBeGreaterThan(0)
+    expect(parsed.violations).toHaveLength(0)
+    expect(parsed.hunksAudited).toBe(1)
+
+    logSpy.mockRestore()
+  })
+
+  it('compacts and verifies sqlite audit log event stream with forge db compact-audit (STATE-022)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'db',
+      'compact-audit',
+      'run-test-compact',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      record: { runId: string; eventCount: number; merkleRoot: string }
+      isValid: boolean
+    }
+    expect(parsed.record.runId).toBe('run-test-compact')
+    expect(parsed.record.eventCount).toBe(2)
+    expect(parsed.record.merkleRoot).toHaveLength(64)
+    expect(parsed.isValid).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('sanitizes workspace environment variables and preserves system baseline with forge config sanitize-env (CONFIG-023)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['config', 'sanitize-env', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      originalCount: number
+      retainedCount: number
+      strippedKeys: string[]
+      missingRequiredKeys: string[]
+    }
+    expect(parsed.strippedKeys).toContain('AWS_SECRET_KEY')
+    expect(parsed.strippedKeys).toContain('GITHUB_TOKEN')
+    expect(parsed.missingRequiredKeys).toHaveLength(0)
+    expect(parsed.retainedCount).toBeGreaterThan(0)
+
+    logSpy.mockRestore()
+  })
 })

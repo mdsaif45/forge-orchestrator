@@ -169,3 +169,9 @@ export {
   type SubgoalCheckpointPayload,
   type WarmContextHydrationResult,
 } from './agentSubgoalCheckpointEngine'
+export {
+  AgentCapabilityValidator,
+  type ToolCapabilityDescriptor,
+  type CapabilityValidationContext,
+  type CapabilityValidationReport,
+} from './agentCapabilityValidator'

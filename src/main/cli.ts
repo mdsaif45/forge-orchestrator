@@ -66,6 +66,8 @@ import {
   SqliteSavepointStackManager,
   SqliteConnectionPoolSupervisor,
   SqliteSnapshotBarrierManager,
+  SqliteAuditLogCompactor,
+  type RawAuditEvent,
   type MigrationDefinition,
   type SavepointReceipt,
   type RawLedgerEvent,
@@ -99,6 +101,7 @@ import {
   traceSymbolDependencies,
   auditChangesetPaths,
   maskChangesetTokens,
+  auditChangesetEntropy,
   type ExportSurfaceReport,
   type FileCoverageData,
   type PatchFuzzReport,
@@ -136,6 +139,7 @@ import {
   evaluateStepBarrier,
   detectWorkflowDeadlocks,
   partitionFanOutBatches,
+  WorkflowCircuitBreaker,
   type BarrierPolicy,
   type StepDependencyOutcome,
   type StepPrecondition,
@@ -170,6 +174,7 @@ import {
   AgentScratchpadBuffer,
   AgentTokenBudgetThrottler,
   AgentSubgoalCheckpointEngine,
+  AgentCapabilityValidator,
   type SubgoalCheckpointInput,
   type ConversationTurn,
   type PromptTurn,
@@ -200,6 +205,7 @@ import {
   auditSecretRotation,
   coerceAndValidateConfig,
   planConfigRemediation,
+  WorkspaceEnvSanitizer,
   type ConfigPolicyBaseline,
   type ConfigSchema,
   type ConfigPresetName,
@@ -649,6 +655,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     }
     if (positionals[1] === 'mask' || positionals[1] === 'mask-tokens') {
       return handleDiffMask({
+        runId: positionals[2],
+        stepId: positionals[3],
+        dataDir,
+        json: values.json,
+      })
+    }
+    if (positionals[1] === 'audit-entropy' || positionals[1] === 'entropy') {
+      return handleDiffEntropy({
         runId: positionals[2],
         stepId: positionals[3],
         dataDir,
@@ -2065,6 +2079,7 @@ async function handleWorkflows(opts: {
       'barrier-check',
       'deadlock-check',
       'fan-out',
+      'breaker',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2267,6 +2282,31 @@ async function handleWorkflows(opts: {
         )
       }
       return 0
+    }
+
+    if (action === 'breaker') {
+      const breaker = new WorkflowCircuitBreaker({
+        failureThreshold: 3,
+        recoveryCooldownMs: 1000,
+      })
+      const subAction = targetId ?? 'check'
+      const stepId = opts.extraParam ?? 'step-compiler'
+      if (subAction === 'fail') {
+        breaker.recordFailure({ stepId, error: 'Simulated step failure' })
+      } else if (subAction === 'success') {
+        breaker.recordSuccess(stepId)
+      }
+      const check = breaker.canExecute(stepId)
+      const metrics = breaker.getMetrics()
+      const result = { check, metrics }
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+        return check.allowed ? 0 : 1
+      }
+      console.log(
+        `\nWorkflow Circuit Breaker: State=${metrics.state} (Allowed: ${String(check.allowed)})\n`,
+      )
+      return check.allowed ? 0 : 1
     }
 
     if (action === 'retry') {
@@ -3749,6 +3789,33 @@ async function handleContext(opts: {
       return 0
     }
 
+    if (action === 'validate-capability' || action === 'capability') {
+      const validator = new AgentCapabilityValidator({
+        currentPlatform: process.platform,
+        activePermissionMode: 'acceptEdits',
+        availableBinaries: ['git', 'node', 'npm', 'forge'],
+      })
+      const capId = opts.runId ?? 'git-operation'
+      const report = validator.validate({
+        id: capId,
+        name: `${capId} Capability`,
+        requiredBinaries: ['git'],
+        supportedPlatforms: ['win32', 'linux', 'darwin'],
+        minimumPermissionMode: 'acceptEdits',
+      })
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return report.isReady ? 0 : 1
+      }
+      console.log(
+        `\nCapability validation: ${report.capabilityId} (Ready: ${String(report.isReady)})\n`,
+      )
+      for (const diag of report.diagnostics) {
+        console.log(`  • Diagnostic: ${diag}`)
+      }
+      return report.isReady ? 0 : 1
+    }
+
     if (action === 'budget') {
       const maxTokens = opts.maxTokens ?? 8192
       let content = ''
@@ -4726,6 +4793,29 @@ async function handleConfig(opts: {
     return plan.isCompliant ? 0 : 1
   }
 
+  if (action === 'sanitize-env' || action === 'env-sanitize') {
+    const sanitizer = new WorkspaceEnvSanitizer()
+    const inboundEnv: Record<string, string | undefined> = {
+      PATH: process.env.PATH ?? process.env.Path ?? '/usr/bin:/bin',
+      HOME: process.env.HOME ?? process.env.USERPROFILE ?? '/home/user',
+      TEMP: process.env.TEMP ?? process.env.TMP ?? '/tmp',
+      SYSTEMROOT: process.env.SYSTEMROOT ?? process.env.SystemRoot ?? 'C:\\Windows',
+      AWS_SECRET_KEY: 'sensitive-aws-key',
+      GITHUB_TOKEN: 'sensitive-gh-token',
+      FORGE_PROFILE: opts.profile ?? 'default',
+    }
+    const report = sanitizer.sanitize(inboundEnv)
+    if (opts.json) {
+      console.log(JSON.stringify(report))
+      return report.missingRequiredKeys.length === 0 ? 0 : 1
+    }
+    console.log(
+      `\nWorkspace Environment Sanitization: Retained ${String(report.retainedCount)}/${String(report.originalCount)}\n`,
+    )
+    console.log(`  Stripped keys: ${report.strippedKeys.join(', ')}`)
+    return report.missingRequiredKeys.length === 0 ? 0 : 1
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
@@ -5302,6 +5392,39 @@ async function handleDb(opts: {
       }
       console.log(`\n${summary}\n`)
       return 0
+    }
+
+    if (action === 'compact-audit' || action === 'audit-compact') {
+      const compactor = new SqliteAuditLogCompactor()
+      const sampleEvents: RawAuditEvent[] = [
+        {
+          eventId: 'ev-1',
+          runId: opts.targetId ?? 'run-audit-compact',
+          seq: 1,
+          eventType: 'run_started',
+          payload: { mode: 'acceptEdits' },
+          timestamp: new Date().toISOString(),
+        },
+        {
+          eventId: 'ev-2',
+          runId: opts.targetId ?? 'run-audit-compact',
+          seq: 2,
+          eventType: 'tool_execution',
+          payload: { tool: 'file_edit', path: 'src/main.ts' },
+          timestamp: new Date().toISOString(),
+        },
+      ]
+      const record = compactor.compactRunEvents(sampleEvents)
+      const isValid = compactor.verifyCompactionIntegrity(sampleEvents, record)
+      const result = { record, isValid }
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+        return isValid ? 0 : 1
+      }
+      console.log(
+        `\nCompacted Audit Record for ${record.runId}: MerkleRoot=${record.merkleRoot} (Verified: ${String(isValid)})\n`,
+      )
+      return isValid ? 0 : 1
     }
 
     const err = `Unknown db action: ${action}`
@@ -6420,6 +6543,30 @@ async function handleDiffMask(opts: {
   console.log(`\n${result.report.summary}\n`)
   console.log(`MASKED DIFF PREVIEW:\n${result.maskedDiff}\n`)
   return 0
+}
+
+async function handleDiffEntropy(opts: {
+  readonly runId?: string | undefined
+  readonly stepId?: string | undefined
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  await Promise.resolve()
+  const sampleDiff = `diff --git a/src/sample.ts b/src/sample.ts
+--- a/src/sample.ts
++++ b/src/sample.ts
+@@ -1,3 +1,4 @@
+ import { foo } from './foo';
++const bar = "normal string";
+ export const baz = 42;
+`
+  const report = auditChangesetEntropy(sampleDiff)
+  if (opts.json) {
+    console.log(JSON.stringify(report))
+    return report.isSafe ? 0 : 1
+  }
+  console.log(`\n${report.summary}\n`)
+  return report.isSafe ? 0 : 1
 }
 
 async function handleDiffCycles(opts: {

@@ -211,3 +211,10 @@ export {
   type ContractRisk,
   type SymbolTraceReport,
 } from './diffSymbolDependencyTracer'
+export {
+  auditChangesetPaths,
+  type PathViolationSeverity,
+  type PathViolation,
+  type PathTraversalAuditorOptions,
+  type PathSecurityAuditReport,
+} from './changesetPathTraversalAuditor'

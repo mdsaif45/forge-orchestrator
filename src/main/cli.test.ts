@@ -3826,4 +3826,119 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('throttles agent token budget with forge context throttler (AGENT-023)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'context',
+      'throttler',
+      '1000',
+      '500',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      check: { status: string; isThrottled: boolean }
+      stats: { recordCount: number; totalTokensInWindow: number }
+    }
+    expect(parsed.check.isThrottled).toBe(false)
+    expect(parsed.stats.recordCount).toBe(1)
+    expect(parsed.stats.totalTokensInWindow).toBe(1500)
+
+    logSpy.mockRestore()
+  })
+
+  it('detects workflow execution deadlocks with forge workflows deadlock-check (WORK-030)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['workflows', 'deadlock-check', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(1)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      isDeadlocked: boolean
+      cyclePaths: string[][]
+      summary: string
+    }
+    expect(parsed.isDeadlocked).toBe(true)
+    expect(parsed.cyclePaths.length).toBeGreaterThan(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('audits changeset paths for traversal escapes with forge diff path-audit (EVIDENCE-018)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['diff', 'path-audit', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      isSafe: boolean
+      totalFilesScanned: number
+      violations: unknown[]
+    }
+    expect(parsed.isSafe).toBe(true)
+    expect(parsed.totalFilesScanned).toBe(2)
+    expect(parsed.violations).toHaveLength(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('inspects sqlite connection pool health with forge db pool-status (STATE-020)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['db', 'pool-status', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      telemetry: { maxConnections: number; activeLeases: number; availableConnections: number }
+      summary: string
+    }
+    expect(parsed.telemetry.maxConnections).toBe(16)
+    expect(parsed.telemetry.activeLeases).toBe(0)
+    expect(parsed.telemetry.availableConnections).toBe(16)
+    expect(parsed.summary).toContain('SQLite Connection Pool Summary')
+
+    logSpy.mockRestore()
+  })
+
+  it('coerces and validates config with forge config coerce-validate (CONFIG-021)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'config',
+      'coerce-validate',
+      '9090',
+      'false',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      valid: boolean
+      coerced: { port: number; debug: boolean; tags: string[] }
+      errors: unknown[]
+    }
+    expect(parsed.valid).toBe(true)
+    expect(parsed.coerced.port).toBe(9090)
+    expect(parsed.coerced.debug).toBe(false)
+    expect(parsed.coerced.tags).toEqual(['agent', 'workflows', 'orchestrator'])
+
+    logSpy.mockRestore()
+  })
 })

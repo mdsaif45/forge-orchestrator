@@ -153,3 +153,11 @@ export {
   type ScratchpadBufferOptions,
   type ScratchpadBufferStats,
 } from './agentScratchpadBuffer'
+export {
+  AgentTokenBudgetThrottler,
+  type TokenWindowRecord,
+  type TokenBudgetThrottlerOptions,
+  type BudgetStatus,
+  type BudgetCheckResult,
+  type TokenBudgetStats,
+} from './agentTokenBudgetThrottler'

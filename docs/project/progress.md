@@ -5,8 +5,8 @@ Project:            Forge — AI Engineering Control Plane
 Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
 Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
 Last updated:       2026-11-21
-Evidence baseline:  main @ ba73735 (PR #349 merged)
-Active branch:      feat/m1-m6-retry-sla-provenance-analyzer-inheritance
+Evidence baseline:  main @ 173ad83 (PR #355 merged)
+Active branch:      feat/m1-m6-prefetch-forkjoin-impact-diff-transformer
 ```
 
 ---
@@ -62,15 +62,35 @@ M11 Host the Real CLI             ██████████  DONE        PR
 
 ## 3. Major Slice History & Merged PRs (Reverse Chronological)
 
-### 2026-11-21: In Progress — Cluster XI (#344, #345, #346, #347, #348) — M1/M2/M4/M5/M6 Tool Coalescer, Wave Planner, Unified Test Parser, DB Query Sandbox, and Tool Policy Guard
-- **Branch:** `feat/m1-m6-coalescer-wave-tap-sandbox-policy`
+### 2026-11-21: In Progress — Cluster XIII (#356, #357, #358, #359, #360) — M1/M2/M4/M5/M6 Tool Prefetch, Fork-Join, Impact Selector, Journal Diff Auditor, and Deprecation Transformer
+- **Branch:** `feat/m1-m6-prefetch-forkjoin-impact-diff-transformer`
+- **Delivered:**
+  - `AGENT-020`: Tool invocation speculative prefetch and execution pipeline scheduler with `forge context prefetch`.
+  - `WORK-027`: Workflow dynamic fork-join fan-out subflow orchestrator with `forge workflows fork-join`.
+  - `EVIDENCE-015`: Source code change impact and affected test suite selector with `forge verify impact`.
+  - `STATE-017`: SQLite point-in-time transaction journal differential auditor with `forge db journal-diff`.
+  - `CONFIG-018`: Configuration schema deprecation transformer and dynamic rule migrator with `forge config deprecations`.
+  - Addresses GitHub issues #356, #357, #358, #359, #360.
+
+### 2026-11-21: PR #355 merged (`173ad83`) — M1/M2/M4/M5/M6 Tool Retry, Step SLA, Provenance Attestation, Query Analyzer, and Config Inheritance
+- **Title:** `feat(core,workflows,evidence,db,config,cli): tool retry supervisor, step sla monitor, provenance attestation, query analyzer, and config inheritance (#350, #351, #352, #353, #354)`
+- **Delivered:**
+  - `AGENT-019`: Exponential backoff tool execution retry supervisor with `forge context retry-tool`.
+  - `WORK-026`: Workflow step SLA latency monitor and degradation detector with `forge workflows sla`.
+  - `EVIDENCE-014`: Cryptographic provenance attestation generator and integrity verifier with `forge verify attestation`.
+  - `STATE-016`: SQLite AST query analyzer and missing index advisor with `forge db explain`.
+  - `CONFIG-017`: Hierarchical configuration inheritance resolver with `forge config resolve`.
+  - Closed GitHub issues #350, #351, #352, #353, #354.
+
+### 2026-11-21: PR #349 merged (`ba73735`) — M1/M2/M4/M5/M6 Tool Coalescer, Wave Planner, Unified Test Parser, DB Query Sandbox, and Tool Policy Guard
+- **Title:** `feat(core,workflows,evidence,db,config,cli): tool coalescer, wave planner, test report parser, db query sandbox, and tool policy guard (#344, #345, #346, #347, #348)`
 - **Delivered:**
   - `AGENT-018`: Multi-turn tool call result coalescer and duplicate observation deduplication supervisor with `forge context coalesce`.
   - `WORK-025`: Workflow step dependency topological levelizer and execution wave planner with `forge workflows waves`.
   - `EVIDENCE-013`: JUnit XML and TAP test results structured parser and assertion matrix generator with `forge verify test-report`.
   - `STATE-015`: SQLite read-only query sandbox and safe analytical statement validator with `forge db query`.
   - `CONFIG-016`: Workspace tool execution sandbox policy auditor and permission validator with `forge config policy-tool`.
-  - Addressed GitHub issues #344, #345, #346, #347, #348.
+  - Closed GitHub issues #344, #345, #346, #347, #348.
 
 ### 2026-11-21: PR #343 merged (`b86c86c`) — M1/M2/M4/M5/M6 Conversation Compressor, Step Preconditions, Log Sanitizer, Schema Migrations, and Sensitive Data Redactor
 - **Title:** `feat(core,workflows,evidence,db,config,cli): conversation compressor, preflight preconditions, log sanitizer, schema migrations, and sensitive redactor (#338, #339, #340, #341, #342)`

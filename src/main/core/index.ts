@@ -131,3 +131,12 @@ export {
   type ToolRetryPolicy,
   type ToolRetryDecision,
 } from './toolRetrySupervisor'
+export {
+  scheduleSpeculativePrefetch,
+  computePrefetchKey,
+  DEFAULT_SAFE_PREFETCH_TOOLS,
+  type PlannedToolStep,
+  type PrefetchCandidate,
+  type PrefetchSchedulerOptions,
+  type PrefetchScheduleReport,
+} from './speculativePrefetchScheduler'

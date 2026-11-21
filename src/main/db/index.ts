@@ -179,6 +179,11 @@ export {
   type SnapshotBarrierOptions,
   type SnapshotBarrierStats,
 } from './sqliteSnapshotBarrierManager'
+export {
+  SqliteAuditLogCompactor,
+  type RawAuditEvent,
+  type CompactedAuditRecord,
+} from './sqliteAuditLogCompactor'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

@@ -191,6 +191,12 @@ export {
   type WriteLeaseMetrics,
   type SqliteWriteLeaseCoordinatorConfig,
 } from './sqliteWriteLeaseCoordinator'
+export {
+  SqliteIndexAdvisoryEngine,
+  type IndexAdvisorPlanNode,
+  type IndexRecommendation,
+  type QueryPlanAuditReport,
+} from './sqliteIndexAdvisoryEngine'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

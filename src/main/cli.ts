@@ -68,6 +68,7 @@ import {
   SqliteSnapshotBarrierManager,
   SqliteAuditLogCompactor,
   SqliteWriteLeaseCoordinator,
+  SqliteIndexAdvisoryEngine,
   type RawAuditEvent,
   type MigrationDefinition,
   type SavepointReceipt,
@@ -104,6 +105,7 @@ import {
   maskChangesetTokens,
   auditChangesetEntropy,
   sliceChangesetForContextBudget,
+  ChangesetConflictMatrixAnalyzer,
   type ExportSurfaceReport,
   type FileCoverageData,
   type PatchFuzzReport,
@@ -143,6 +145,7 @@ import {
   partitionFanOutBatches,
   WorkflowCircuitBreaker,
   WorkflowBackpressureSupervisor,
+  WorkflowStepJournalResumeEngine,
   type BarrierPolicy,
   type StepDependencyOutcome,
   type StepPrecondition,
@@ -179,6 +182,7 @@ import {
   AgentSubgoalCheckpointEngine,
   AgentCapabilityValidator,
   AgentToolDryRunSimulator,
+  AgentContextBudgetForecaster,
   type SubgoalCheckpointInput,
   type ConversationTurn,
   type PromptTurn,
@@ -211,6 +215,7 @@ import {
   planConfigRemediation,
   WorkspaceEnvSanitizer,
   ConfigProvenanceLedger,
+  WorkspaceSecurityAttestationVerifier,
   type ConfigPolicyBaseline,
   type ConfigSchema,
   type ConfigPresetName,
@@ -676,6 +681,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     }
     if (positionals[1] === 'slice-budget' || positionals[1] === 'budget-slice') {
       return handleDiffSliceBudget({
+        runId: positionals[2],
+        stepId: positionals[3],
+        dataDir,
+        json: values.json,
+      })
+    }
+    if (positionals[1] === 'conflict-matrix' || positionals[1] === 'conflicts-matrix') {
+      return handleDiffConflictMatrix({
         runId: positionals[2],
         stepId: positionals[3],
         dataDir,
@@ -2094,6 +2107,7 @@ async function handleWorkflows(opts: {
       'fan-out',
       'breaker',
       'backpressure',
+      'journal-resume',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2345,6 +2359,33 @@ async function handleWorkflows(opts: {
         `\nWorkflow Backpressure: State=${metrics.state} (Allowed: ${String(evalResult.allowSubmission)}, Queue: ${String(metrics.pendingQueueDepth)})\n`,
       )
       return evalResult.allowSubmission ? 0 : 1
+    }
+
+    if (action === 'journal-resume') {
+      const engine = new WorkflowStepJournalResumeEngine()
+      const runId = opts.targetId ?? 'run-journal-sample'
+      engine.recordStepExecution({
+        runId,
+        stepId: 'step-compile',
+        idempotencyKey: 'compile-v1',
+        status: 'COMPLETED',
+        inputData: { target: 'node22' },
+        outputData: { bundleSize: 1024 },
+        durationMs: 80,
+      })
+      const nodes = [
+        { id: 'step-compile', idempotencyKey: 'compile-v1', inputData: { target: 'node22' } },
+        { id: 'step-deploy', idempotencyKey: 'deploy-v1', inputData: { env: 'production' } },
+      ]
+      const plan = engine.evaluateResumePlan(runId, nodes)
+      if (opts.json) {
+        console.log(JSON.stringify(plan))
+        return plan.isFullyResumable ? 0 : 1
+      }
+      console.log(
+        `\nWorkflow Resume Plan: Replayed ${String(plan.replayedNodesCount)}/${String(plan.totalNodes)} nodes (Resumable: ${String(plan.isFullyResumable)})\n`,
+      )
+      return plan.isFullyResumable ? 0 : 1
     }
 
     if (action === 'retry') {
@@ -3875,6 +3916,26 @@ async function handleContext(opts: {
       return simulation.isAllowed ? 0 : 1
     }
 
+    if (action === 'forecast' || action === 'budget-forecast') {
+      const maxWindowTokens = opts.maxTokens ?? 16384
+      const forecaster = new AgentContextBudgetForecaster({
+        maxWindowTokens,
+        safetyMarginTokens: Math.round(maxWindowTokens * 0.1),
+      })
+      forecaster.recordTurn(2000)
+      forecaster.recordTurn(4000)
+      forecaster.recordTurn(6500)
+      const report = forecaster.evaluateContextHealth()
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return report.healthStatus === 'CRITICAL_EVICTION_REQUIRED' ? 1 : 0
+      }
+      console.log(
+        `\nContext Budget Forecast: Status=${report.healthStatus} (${String(report.currentTokens)}/${String(report.maxWindowTokens)} tokens, ~${String(report.projectedRemainingTurns)} turns remaining)\n`,
+      )
+      return report.healthStatus === 'CRITICAL_EVICTION_REQUIRED' ? 1 : 0
+    }
+
     if (action === 'budget') {
       const maxTokens = opts.maxTokens ?? 8192
       let content = ''
@@ -4904,6 +4965,29 @@ async function handleConfig(opts: {
     return integrity.valid ? 0 : 1
   }
 
+  if (action === 'attest-secrets' || action === 'attest') {
+    const verifier = new WorkspaceSecurityAttestationVerifier()
+    const inboundEnv: Record<string, string | undefined> = {
+      APP_TOKEN: 'sk-proj-validsecuretokenhighrandomness12345',
+      GITHUB_KEY: 'ghp_highrandomtokenverifiedstring987654',
+      OPTIONAL_KEY: undefined,
+    }
+    const rules = [
+      { key: 'APP_TOKEN', expectedPrefix: 'sk-', minEntropy: 2.5, minLength: 15 },
+      { key: 'GITHUB_KEY', expectedPrefix: 'ghp_', minEntropy: 2.5, minLength: 15 },
+      { key: 'OPTIONAL_KEY', optional: true },
+    ]
+    const report = verifier.verifyAndAttest(inboundEnv, rules, opts.profile ?? 'default-policy')
+    if (opts.json) {
+      console.log(JSON.stringify(report))
+      return report.isAttested ? 0 : 1
+    }
+    console.log(
+      `\nWorkspace Security Attestation: Policy=${report.policyId} (Attested: ${String(report.isAttested)}, Verified: ${String(report.verifiedKeys.length)})\n`,
+    )
+    return report.isAttested ? 0 : 1
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
@@ -5534,6 +5618,28 @@ async function handleDb(opts: {
         `\nSQLite Write Lease: ${lease.leaseId} (FencingToken: ${String(lease.fencingToken)}, Released: ${String(released)})\n`,
       )
       return isValid && released ? 0 : 1
+    }
+
+    if (action === 'index-advisor' || action === 'advisor') {
+      const advisor = new SqliteIndexAdvisoryEngine()
+      const sampleNodes = [
+        { id: 1, parent: 0, detail: 'SCAN TABLE events' },
+        { id: 2, parent: 0, detail: 'USE TEMP B-TREE FOR ORDER BY' },
+      ]
+      const sql =
+        'SELECT * FROM events WHERE run_id = ? AND event_type = ? ORDER BY timestamp DESC;'
+      const report = advisor.evaluateQueryPlan(sampleNodes, sql)
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return 0
+      }
+      console.log(
+        `\nSQLite Index Advisory: CostScore=${String(report.overallCostScore)}, Recommendations=${String(report.recommendations.length)}\n`,
+      )
+      for (const rec of report.recommendations) {
+        console.log(`  • DDL: ${rec.ddlStatement}`)
+      }
+      return 0
     }
 
     const err = `Unknown db action: ${action}`
@@ -6709,6 +6815,43 @@ async function handleDiffSliceBudget(opts: {
   )
   console.log(sliced.slicedDiff)
   return 0
+}
+
+async function handleDiffConflictMatrix(opts: {
+  readonly runId?: string | undefined
+  readonly stepId?: string | undefined
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  await Promise.resolve()
+  const analyzer = new ChangesetConflictMatrixAnalyzer()
+  const sampleChangesets = [
+    {
+      id: opts.runId ?? 'branch-alpha',
+      patch: `diff --git a/src/auth.ts b/src/auth.ts
+--- a/src/auth.ts
++++ b/src/auth.ts
+@@ -10,5 +10,5 @@
+ export function authenticate() {}
+`,
+    },
+    {
+      id: opts.stepId ?? 'branch-beta',
+      patch: `diff --git a/src/auth.ts b/src/auth.ts
+--- a/src/auth.ts
++++ b/src/auth.ts
+@@ -25,5 +25,5 @@
+ export function logout() {}
+`,
+    },
+  ]
+  const report = analyzer.analyzeConflictMatrix(sampleChangesets)
+  if (opts.json) {
+    console.log(JSON.stringify(report))
+    return report.isMergeFeasible ? 0 : 1
+  }
+  console.log(`\n${report.summary}\n`)
+  return report.isMergeFeasible ? 0 : 1
 }
 
 async function handleDiffCycles(opts: {

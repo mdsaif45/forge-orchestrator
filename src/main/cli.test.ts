@@ -4318,4 +4318,132 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('forecasts multi-turn token consumption and compaction advisories with forge context forecast (AGENT-027)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['context', 'forecast', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      healthStatus: string
+      currentTokens: number
+      maxWindowTokens: number
+      projectedRemainingTurns: number
+      advisoryRecommendations: string[]
+    }
+    expect(parsed.healthStatus).toBe('WARN_COMPACT_SOON')
+    expect(parsed.currentTokens).toBe(6500)
+    expect(parsed.maxWindowTokens).toBe(16384)
+    expect(parsed.advisoryRecommendations.length).toBeGreaterThan(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('evaluates step journal and idempotent resume plan with forge workflows journal-resume (WORK-034)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'workflows',
+      'journal-resume',
+      'run-journal-sample',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      totalNodes: number
+      replayedNodesCount: number
+      nodesToExecuteCount: number
+      isFullyResumable: boolean
+    }
+    expect(parsed.totalNodes).toBe(2)
+    expect(parsed.replayedNodesCount).toBe(1)
+    expect(parsed.nodesToExecuteCount).toBe(1)
+    expect(parsed.isFullyResumable).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('analyzes multi-changeset conflict matrix with forge diff conflict-matrix (EVIDENCE-022)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'diff',
+      'conflict-matrix',
+      'branch-alpha',
+      'branch-beta',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      totalChangesets: number
+      mergeFeasibilityScore: number
+      isMergeFeasible: boolean
+      directCollisionsCount: number
+    }
+    expect(parsed.totalChangesets).toBe(2)
+    expect(parsed.mergeFeasibilityScore).toBe(100)
+    expect(parsed.isMergeFeasible).toBe(true)
+    expect(parsed.directCollisionsCount).toBe(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('evaluates query plan and generates index DDL with forge db index-advisor (STATE-024)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['db', 'index-advisor', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      hasTableScan: boolean
+      scannedTables: string[]
+      overallCostScore: number
+      recommendations: { tableName: string; ddlStatement: string }[]
+    }
+    expect(parsed.hasTableScan).toBe(true)
+    expect(parsed.scannedTables).toContain('events')
+    expect(parsed.overallCostScore).toBeGreaterThanOrEqual(500)
+    expect(parsed.recommendations.length).toBeGreaterThan(0)
+    expect(parsed.recommendations[0]?.ddlStatement).toContain('CREATE INDEX IF NOT EXISTS')
+
+    logSpy.mockRestore()
+  })
+
+  it('attests workspace security credentials zero-knowledge with forge config attest-secrets (CONFIG-025)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['config', 'attest-secrets', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      isAttested: boolean
+      attestationToken: string
+      verifiedKeys: string[]
+      missingKeys: string[]
+    }
+    expect(parsed.isAttested).toBe(true)
+    expect(parsed.attestationToken).toHaveLength(64)
+    expect(parsed.verifiedKeys).toContain('APP_TOKEN')
+    expect(parsed.verifiedKeys).toContain('GITHUB_KEY')
+    expect(parsed.missingKeys).toHaveLength(0)
+
+    logSpy.mockRestore()
+  })
 })

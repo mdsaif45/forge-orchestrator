@@ -240,3 +240,11 @@ export {
   type ContextBudgetSlicerConfig,
   type ContextBudgetSliceReport,
 } from './changesetContextBudgetSlicer'
+export {
+  ChangesetConflictMatrixAnalyzer,
+  type ConflictSeverity,
+  type ChangesetFileInterval,
+  type InputChangeset,
+  type ChangesetConflict,
+  type ChangesetConflictMatrixReport,
+} from './changesetConflictMatrixAnalyzer'

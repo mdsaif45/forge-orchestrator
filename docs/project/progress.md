@@ -5,8 +5,8 @@ Project:            Forge — AI Engineering Control Plane
 Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
 Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
 Last updated:       2026-11-21
-Evidence baseline:  main @ 429c1c9 (PR #373 merged)
-Active branch:      feat/m1-m6-throttler-deadlock-path-pool-coercer
+Evidence baseline:  main @ 7fdec9b (PR #379 merged)
+Active branch:      feat/m1-m6-subgoal-slicer-masker-snapshot-remediation
 ```
 
 ---
@@ -441,7 +441,7 @@ An explicit discrepancy exists between GitHub milestone numbers, GitHub mileston
 
 ## 6. Active Work, Dependencies, and Next Action
 
-- **Current State Baseline:** `main` @ `429c1c9` (PR #373 merged).
+- **Current State Baseline:** `main` @ `7fdec9b` (PR #379 merged).
 - **Recent Completed PRs:**
   - **PR #301:** `feat(core,workflows,evidence,state,config): prompt coercer, condition evaluator, merkle lineage, event journal, and feature flags (#296, #297, #298, #299, #300)` (`6ba52f7`).
   - **PR #307:** `feat(core,workflows,evidence,state,config): rate limiter, step timeout supervisor, secret leak scanner, db integrity auditor, and env interpolator (#290, #291, #292, #293, #294)` (`8748f6e`).
@@ -454,15 +454,16 @@ An explicit discrepancy exists between GitHub milestone numbers, GitHub mileston
   - **PR #361:** `feat(core,workflows,evidence,db,config,cli): speculative prefetch, fork-join batches, change impact selector, journal diff auditor, and deprecated config transformer (#356, #357, #358, #359, #360)` (`631e84a`).
   - **PR #367:** `feat(core,workflows,evidence,db,config,cli): goal subtask decomposer, retry escalation, diff semantic chunker, shard router, and config hot-reload (#362, #363, #364, #365, #366)` (`74bccbd`).
   - **PR #373:** `feat(core,workflows,evidence,db,config,cli): working scratchpad buffer, fan-in barrier quorum, symbol dependency tracer, savepoint stack manager, and secret rotation supervisor (#368, #369, #370, #371, #372)` (`429c1c9`).
-- **In-Progress Cluster XVI (feat/m1-m6-throttler-deadlock-path-pool-coercer):**
-  - **Issue #374 (AGENT-023):** `feat(core): agent token budget throttler and rolling window rate supervisor (AGENT-023)`.
-  - **Issue #375 (WORK-030):** `feat(workflows): workflow execution deadlock detector and cycle hazard sentinel (WORK-030)`.
-  - **Issue #376 (EVIDENCE-018):** `feat(evidence): changeset security sandbox escape and path traversal static auditor (EVIDENCE-018)`.
-  - **Issue #377 (STATE-020):** `feat(db): sqlite connection pool health supervisor and leak watchdog (STATE-020)`.
-  - **Issue #378 (CONFIG-021):** `feat(config): hierarchical configuration schema validator and strict type coercer (CONFIG-021)`.
+  - **PR #379:** `feat(core,workflows,evidence,db,config,cli): token budget throttler, deadlock detector, path traversal auditor, connection pool supervisor, and config type coercer (#374, #375, #376, #377, #378)` (`7fdec9b`).
+- **In-Progress Cluster XVII (feat/m1-m6-subgoal-slicer-masker-snapshot-remediation):**
+  - **Issue #380 (AGENT-024):** `feat(core): agent subgoal checkpoint serialization and warm session recovery engine (AGENT-024)`.
+  - **Issue #381 (WORK-031):** `feat(workflows): dynamic fan-out batch slicer and concurrency partition gate (WORK-031)`.
+  - **Issue #382 (EVIDENCE-019):** `feat(evidence): changeset sensitive identifier and semantic token obfuscation masker (EVIDENCE-019)`.
+  - **Issue #383 (STATE-021):** `feat(db): sqlite multi-version read snapshot and point-in-time barrier manager (STATE-021)`.
+  - **Issue #384 (CONFIG-022):** `feat(config): workspace configuration policy diff and drift remediation planner (CONFIG-022)`.
 - **Milestones Status:** All GitHub Milestones M0 through M11 are completed and closed with zero remaining open issues.
 - **Dependencies & Blockers:** None. Local verification gates and test suites are 100% green.
 - **Immediate Next Action:**
-  1. Open PR for Issues #374, #375, #376, #377, #378.
+  1. Open PR for Issues #380, #381, #382, #383, #384.
   2. Verify all CI checks pass on GitHub Actions.
   3. Merge PR to `main` via squash merge.

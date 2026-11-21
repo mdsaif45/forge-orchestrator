@@ -173,6 +173,12 @@ export {
   type PoolTelemetry,
   type LeakedConnectionReport,
 } from './sqliteConnectionPoolSupervisor'
+export {
+  SqliteSnapshotBarrierManager,
+  type SnapshotBarrier,
+  type SnapshotBarrierOptions,
+  type SnapshotBarrierStats,
+} from './sqliteSnapshotBarrierManager'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

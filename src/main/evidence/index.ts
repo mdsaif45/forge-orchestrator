@@ -218,3 +218,11 @@ export {
   type PathTraversalAuditorOptions,
   type PathSecurityAuditReport,
 } from './changesetPathTraversalAuditor'
+export {
+  maskChangesetTokens,
+  type TokenMaskerOptions,
+  type MaskCategory,
+  type MaskedTokenDetail,
+  type MaskingAuditReport,
+  type ChangesetMaskResult,
+} from './changesetTokenMasker'

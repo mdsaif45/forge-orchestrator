@@ -161,3 +161,11 @@ export {
   type BudgetCheckResult,
   type TokenBudgetStats,
 } from './agentTokenBudgetThrottler'
+export {
+  AgentSubgoalCheckpointEngine,
+  type SubgoalTaskItem,
+  type SubgoalCheckpointInput,
+  type SubgoalCheckpoint,
+  type SubgoalCheckpointPayload,
+  type WarmContextHydrationResult,
+} from './agentSubgoalCheckpointEngine'

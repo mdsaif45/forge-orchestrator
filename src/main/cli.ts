@@ -65,6 +65,7 @@ import {
   resolveShardPath,
   SqliteSavepointStackManager,
   SqliteConnectionPoolSupervisor,
+  SqliteSnapshotBarrierManager,
   type MigrationDefinition,
   type SavepointReceipt,
   type RawLedgerEvent,
@@ -97,6 +98,7 @@ import {
   validateCommitMessage,
   traceSymbolDependencies,
   auditChangesetPaths,
+  maskChangesetTokens,
   type ExportSurfaceReport,
   type FileCoverageData,
   type PatchFuzzReport,
@@ -133,6 +135,7 @@ import {
   evaluateStepRetryAndEscalation,
   evaluateStepBarrier,
   detectWorkflowDeadlocks,
+  partitionFanOutBatches,
   type BarrierPolicy,
   type StepDependencyOutcome,
   type StepPrecondition,
@@ -166,6 +169,8 @@ import {
   decomposeGoalIntoSubtasks,
   AgentScratchpadBuffer,
   AgentTokenBudgetThrottler,
+  AgentSubgoalCheckpointEngine,
+  type SubgoalCheckpointInput,
   type ConversationTurn,
   type PromptTurn,
   type ToolParametersSchema,
@@ -194,6 +199,8 @@ import {
   evaluateConfigReload,
   auditSecretRotation,
   coerceAndValidateConfig,
+  planConfigRemediation,
+  type ConfigPolicyBaseline,
   type ConfigSchema,
   type ConfigPresetName,
   type PolicyLockRule,
@@ -634,6 +641,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     }
     if (positionals[1] === 'path-audit' || positionals[1] === 'paths') {
       return handleDiffPaths({
+        runId: positionals[2],
+        stepId: positionals[3],
+        dataDir,
+        json: values.json,
+      })
+    }
+    if (positionals[1] === 'mask' || positionals[1] === 'mask-tokens') {
+      return handleDiffMask({
         runId: positionals[2],
         stepId: positionals[3],
         dataDir,
@@ -2049,6 +2064,7 @@ async function handleWorkflows(opts: {
       'barrier',
       'barrier-check',
       'deadlock-check',
+      'fan-out',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2230,6 +2246,27 @@ async function handleWorkflows(opts: {
       }
       console.log(`\n${report.summary}\n`)
       return report.isDeadlocked ? 1 : 0
+    }
+
+    if (action === 'fan-out') {
+      const itemsCount = targetId ? parseInt(targetId, 10) : 12
+      const items = Array.from(
+        { length: Math.max(1, itemsCount) },
+        (_, i) => `item_${String(i + 1)}`,
+      )
+      const batchSize = opts.extraParam ? parseInt(opts.extraParam, 10) : 4
+      const plan = partitionFanOutBatches(items, { batchSize, maxConcurrency: 3 })
+      if (opts.json) {
+        console.log(JSON.stringify(plan))
+        return 0
+      }
+      console.log(`\n${plan.summary}\n`)
+      for (const wave of plan.waves) {
+        console.log(
+          `  Wave ${String(wave.waveIndex)}: Batches [${wave.batchIndices.join(', ')}] (${String(wave.totalItemsInWave)} items)`,
+        )
+      }
+      return 0
     }
 
     if (action === 'retry') {
@@ -3677,6 +3714,41 @@ async function handleContext(opts: {
       return check.isThrottled ? 1 : 0
     }
 
+    if (action === 'checkpoint') {
+      const engine = new AgentSubgoalCheckpointEngine()
+      const runId = opts.runId ?? 'run-warm-resume'
+      const subgoalId = opts.stepId ?? 'subgoal-main'
+      const input: SubgoalCheckpointInput = {
+        runId,
+        subgoalId,
+        phase: 'EXECUTION',
+        stepIndex: 2,
+        tasks: [
+          { id: 'task-1', title: 'Parse source files', status: 'COMPLETED' },
+          { id: 'task-2', title: 'Generate mutations', status: 'COMPLETED' },
+          { id: 'task-3', title: 'Execute verification', status: 'PENDING' },
+        ],
+        workingMemorySnapshot: { targetFile: 'src/main/cli.ts' },
+        completedTurnsCount: 6,
+      }
+      const payload = engine.serialize(input)
+      const checkpoint = engine.deserializeAndValidate(payload)
+      const warmContext = engine.hydrateWarmContext(checkpoint)
+      const summary = engine.formatSummary(checkpoint)
+      const result = {
+        checkpoint,
+        warmContext,
+        summary,
+      }
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+        return 0
+      }
+      console.log(`\n${summary}\n`)
+      console.log(warmContext.promptContextNote)
+      return 0
+    }
+
     if (action === 'budget') {
       const maxTokens = opts.maxTokens ?? 8192
       let content = ''
@@ -4620,6 +4692,40 @@ async function handleConfig(opts: {
     return result.valid ? 0 : 1
   }
 
+  if (action === 'remediate' || action === 'remediation') {
+    const activeConfig: Record<string, unknown> = {
+      logLevel: opts.key ?? 'info',
+      sandboxEnabled: opts.val === 'true' || opts.val === undefined,
+    }
+    const policyBaseline: ConfigPolicyBaseline = {
+      policyName: 'enterprise-security-baseline',
+      rules: {
+        logLevel: {
+          key: 'logLevel',
+          required: true,
+          defaultValue: 'info',
+          allowedValues: ['debug', 'info', 'warn', 'error'],
+        },
+        sandboxEnabled: {
+          key: 'sandboxEnabled',
+          required: true,
+          defaultValue: true,
+        },
+        insecureDebugPort: {
+          key: 'insecureDebugPort',
+          forbidden: true,
+        },
+      },
+    }
+    const plan = planConfigRemediation(activeConfig, policyBaseline)
+    if (opts.json) {
+      console.log(JSON.stringify(plan))
+      return plan.isCompliant ? 0 : 1
+    }
+    console.log(`\n${plan.summary}\n`)
+    return plan.isCompliant ? 0 : 1
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
@@ -5171,6 +5277,27 @@ async function handleDb(opts: {
       const summary = pool.formatSummary()
       if (opts.json) {
         console.log(JSON.stringify({ telemetry, summary }))
+        return 0
+      }
+      console.log(`\n${summary}\n`)
+      return 0
+    }
+
+    if (action === 'snapshot-barrier' || action === 'barrier') {
+      const mgr = new SqliteSnapshotBarrierManager()
+      const purpose = opts.targetPath ?? opts.targetId ?? 'read-consistency-check'
+      const barrier = mgr.createBarrier(purpose, { runId: 'run-snapshot' })
+      mgr.acquireReader(barrier.barrierId)
+      mgr.releaseReader(barrier.barrierId)
+      const stats = mgr.getBarrierStats()
+      const summary = mgr.formatSummary()
+      const result = {
+        barrier,
+        stats,
+        summary,
+      }
+      if (opts.json) {
+        console.log(JSON.stringify(result))
         return 0
       }
       console.log(`\n${summary}\n`)
@@ -6271,6 +6398,28 @@ async function handleDiffPaths(opts: {
   }
   console.log(`\n${report.summary}\n`)
   return report.isSafe ? 0 : 1
+}
+
+async function handleDiffMask(opts: {
+  readonly runId?: string | undefined
+  readonly stepId?: string | undefined
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  await Promise.resolve()
+  const sampleDiff = `diff --git a/src/config.ts b/src/config.ts
++const API_KEY = "sk-1234567890abcdef1234567890abcdef";
++const INTERNAL_ENDPOINT = "db-shard.corp.internal";
++const TENANT = "cust_8877665544aabbcc";
+`
+  const result = maskChangesetTokens(sampleDiff)
+  if (opts.json) {
+    console.log(JSON.stringify(result))
+    return 0
+  }
+  console.log(`\n${result.report.summary}\n`)
+  console.log(`MASKED DIFF PREVIEW:\n${result.maskedDiff}\n`)
+  return 0
 }
 
 async function handleDiffCycles(opts: {

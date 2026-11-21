@@ -233,3 +233,10 @@ export {
   type EntropyAuditConfig,
   type EntropyAuditReport,
 } from './changesetEntropyAuditor'
+export {
+  sliceChangesetForContextBudget,
+  type HunkContextPriority,
+  type ParsedDiffHunk,
+  type ContextBudgetSlicerConfig,
+  type ContextBudgetSliceReport,
+} from './changesetContextBudgetSlicer'

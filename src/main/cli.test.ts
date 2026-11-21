@@ -4197,4 +4197,125 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('simulates agent tool execution and evaluates blast radius with forge context dry-run (AGENT-026)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'context',
+      'dry-run',
+      'workspace_edit',
+      'src/main/cli.ts',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      toolName: string
+      severity: string
+      isAllowed: boolean
+      blastRadiusScore: number
+    }
+    expect(parsed.toolName).toBe('workspace_edit')
+    expect(parsed.severity).toBe('WORKSPACE_MUTATION')
+    expect(parsed.isAllowed).toBe(true)
+    expect(parsed.blastRadiusScore).toBeGreaterThanOrEqual(1)
+
+    logSpy.mockRestore()
+  })
+
+  it('supervises workflow queue load and backpressure with forge workflows backpressure (WORK-033)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'workflows',
+      'backpressure',
+      'enqueue',
+      'step-compiler',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      evalResult: { allowSubmission: boolean; delayMs: number }
+      metrics: { state: string; pendingQueueDepth: number }
+    }
+    expect(parsed.evalResult.allowSubmission).toBe(true)
+    expect(parsed.metrics.state).toBe('NORMAL')
+    expect(parsed.metrics.pendingQueueDepth).toBe(1)
+
+    logSpy.mockRestore()
+  })
+
+  it('slices unified changeset hunks to fit LLM token budget with forge diff slice-budget (EVIDENCE-021)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['diff', 'slice-budget', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      totalHunks: number
+      retainedHunks: number
+      omittedHunks: number
+      slicedDiff: string
+    }
+    expect(parsed.totalHunks).toBe(2)
+    expect(parsed.retainedHunks).toBe(1)
+    expect(parsed.omittedHunks).toBe(1)
+    expect(parsed.slicedDiff).toContain('# [Hunk omitted:')
+
+    logSpy.mockRestore()
+  })
+
+  it('coordinates SQLite transaction write lock leases with forge db write-lease (STATE-023)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['db', 'write-lease', 'writer-cli', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      lease: { holderId: string; fencingToken: number }
+      isValid: boolean
+      released: boolean
+    }
+    expect(parsed.lease.holderId).toBe('writer-cli')
+    expect(parsed.lease.fencingToken).toBe(1)
+    expect(parsed.isValid).toBe(true)
+    expect(parsed.released).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('manages configuration snapshot provenance and rollbacks with forge config rollback (CONFIG-024)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['config', 'rollback', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      revertedTo: string
+      currentSnapshot: { tags?: string[]; configState: Record<string, unknown> }
+      integrity: { valid: boolean; totalSnapshots: number }
+    }
+    expect(parsed.integrity.valid).toBe(true)
+    expect(parsed.integrity.totalSnapshots).toBe(3)
+    expect(parsed.currentSnapshot.tags).toContain('rollback')
+    expect(parsed.currentSnapshot.configState).toEqual({ theme: 'dark', maxRetries: 3 })
+
+    logSpy.mockRestore()
+  })
 })

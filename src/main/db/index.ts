@@ -184,6 +184,13 @@ export {
   type RawAuditEvent,
   type CompactedAuditRecord,
 } from './sqliteAuditLogCompactor'
+export {
+  SqliteWriteLeaseCoordinator,
+  type WriteLeaseOptions,
+  type WriteLease,
+  type WriteLeaseMetrics,
+  type SqliteWriteLeaseCoordinatorConfig,
+} from './sqliteWriteLeaseCoordinator'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

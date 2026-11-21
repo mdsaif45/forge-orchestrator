@@ -3,7 +3,7 @@
  * Enforces least privilege, containment, and protected path shielding (Axioms A2, A7).
  */
 
-import { resolve, relative, isAbsolute, normalize } from 'node:path'
+import path from 'node:path'
 
 export type BoundaryViolationKind =
   'traversal_escape' | 'protected_directory' | 'system_path' | 'none'
@@ -26,10 +26,22 @@ const PROTECTED_DIR_PATTERNS = [
 ]
 
 const DANGEROUS_SYSTEM_PATTERNS = [
-  /^[a-zA-Z]:\\windows(\/|\\|$)/i,
-  /^[a-zA-Z]:\\program files(\/|\\|$)/i,
+  /^[a-zA-Z]:[/\\]windows([/\\]|$)/i,
+  /^[a-zA-Z]:[/\\]program files([/\\]|$)/i,
   /^\/(etc|var|proc|sys|usr|bin|sbin)(\/|$)/i,
 ]
+
+function isWindowsStylePath(p: string): boolean {
+  return /^[a-zA-Z]:[/\\]/.test(p) || p.includes('\\')
+}
+
+function isPosixAbsolutePath(p: string): boolean {
+  return p.startsWith('/')
+}
+
+function isWindowsAbsolutePath(p: string): boolean {
+  return /^[a-zA-Z]:[/\\]/.test(p) || /^\\\\[^\\]/.test(p)
+}
 
 /**
  * Validates whether a file path or directory access stays within workspace sandbox boundaries.
@@ -49,14 +61,36 @@ export function validateWorkspaceBoundary(
     }
   }
 
-  const rootNormalized = resolve(workspaceRoot)
-  const resolved = isAbsolute(targetPath)
-    ? resolve(targetPath)
-    : resolve(rootNormalized, targetPath)
+  // Cross-system root mismatch: Windows absolute target on POSIX root or vice-versa
+  if (
+    (isWindowsAbsolutePath(targetPath) && isPosixAbsolutePath(workspaceRoot)) ||
+    (isPosixAbsolutePath(targetPath) && isWindowsAbsolutePath(workspaceRoot))
+  ) {
+    const reason = `Path "${targetPath}" escapes workspace boundary "${workspaceRoot}".`
+    return {
+      allowed: false,
+      targetPath,
+      resolvedPath: targetPath,
+      violationKind: 'traversal_escape',
+      reason,
+      formattedSummary: `✗ [BOUNDARY BLOCKED] Traversal violation: ${reason}`,
+    }
+  }
+
+  const useWin32 =
+    isWindowsStylePath(targetPath) ||
+    isWindowsStylePath(workspaceRoot) ||
+    process.platform === 'win32'
+  const p = useWin32 ? path.win32 : path.posix
+
+  const rootNormalized = p.resolve(workspaceRoot)
+  const resolved = p.isAbsolute(targetPath)
+    ? p.resolve(targetPath)
+    : p.resolve(rootNormalized, targetPath)
 
   // Check 1: Traversal escape outside workspace root
-  const rel = relative(rootNormalized, resolved)
-  const escapesRoot = rel.startsWith('..') || isAbsolute(rel)
+  const rel = p.relative(rootNormalized, resolved)
+  const escapesRoot = rel.startsWith('..') || p.isAbsolute(rel)
 
   if (escapesRoot) {
     const reason = `Path "${targetPath}" escapes workspace boundary "${rootNormalized}".`
@@ -72,7 +106,7 @@ export function validateWorkspaceBoundary(
 
   // Check 2: Dangerous system directories
   for (const sysPattern of DANGEROUS_SYSTEM_PATTERNS) {
-    if (sysPattern.test(resolved) || sysPattern.test(normalize(targetPath))) {
+    if (sysPattern.test(resolved) || sysPattern.test(p.normalize(targetPath))) {
       const reason = `Access to critical operating system directory is prohibited.`
       return {
         allowed: false,

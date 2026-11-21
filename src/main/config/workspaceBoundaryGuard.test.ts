@@ -34,6 +34,10 @@ describe('WorkspaceBoundaryGuard (CONFIG-014)', () => {
     const res = validateWorkspaceBoundary('C:\\Users\\admin\\secret.txt', root)
     expect(res.allowed).toBe(false)
     expect(res.violationKind).toBe('traversal_escape')
+
+    const posixRes = validateWorkspaceBoundary('/etc/shadow', '/home/user/my-app')
+    expect(posixRes.allowed).toBe(false)
+    expect(posixRes.violationKind).toBe('traversal_escape')
   })
 
   it('blocks access to protected metadata and credential files (.git, .env, .ssh)', () => {

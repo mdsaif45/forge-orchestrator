@@ -1,4 +1,4 @@
-import type { ToolContext, ToolResult } from '../tools'
+import type { ToolContext, ToolResult } from '../toolTypes'
 
 export const SUBAGENT_TOOL_DEFINITIONS = [
   {

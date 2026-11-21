@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { ToolContext, ToolResult } from '../tools'
+import type { ToolContext, ToolResult } from '../toolTypes'
 
 interface TodoItem {
   readonly id: string

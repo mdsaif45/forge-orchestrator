@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { ToolContext, ToolResult } from '../tools'
+import type { ToolContext, ToolResult } from '../toolTypes'
 
 export const CODE_INTEL_TOOL_DEFINITIONS = [
   {

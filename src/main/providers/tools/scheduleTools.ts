@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { ToolContext, ToolResult } from '../tools'
+import type { ToolContext, ToolResult } from '../toolTypes'
 
 export const SCHEDULE_TOOL_DEFINITIONS = [
   {

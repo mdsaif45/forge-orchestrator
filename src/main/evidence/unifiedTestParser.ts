@@ -234,10 +234,10 @@ export function parseTapStreamReport(tapContent: string): UnifiedTestReport {
       if (currentTest?.status === 'failed') {
         const stackText = yamlLines.join('\n').trim()
         const messageMatch = /message:\s*['"]?([^'"]+)['"]?/i.exec(stackText)
-        const failureMessage = messageMatch?.[1] ? messageMatch[1] : stackText.split('\n')[0]
+        const failureMessage = messageMatch?.[1] ?? stackText.split('\n')[0]
         // Update current test with diagnostic details
         const idx = tests.findIndex((t) => t === currentTest)
-        if (idx !== -1 && currentTest) {
+        if (idx !== -1) {
           tests[idx] = {
             ...currentTest,
             failureMessage,

@@ -76,7 +76,7 @@ export function planTopologicalWaves(
   const remainingInDegree = new Map(inDegree)
   let processedCount = 0
 
-  while (true) {
+  while (remainingInDegree.size > 0) {
     const currentWaveNodes: string[] = []
     for (const [id, deg] of remainingInDegree.entries()) {
       if (deg === 0) {
@@ -159,7 +159,8 @@ function computeCriticalPath(
   const visiting = new Set<string>()
 
   function getLongestPath(id: string): { duration: number; path: string[] } {
-    if (memo.has(id)) return memo.get(id)!
+    const cached = memo.get(id)
+    if (cached) return cached
     if (visiting.has(id)) return { duration: 0, path: [] }
 
     visiting.add(id)

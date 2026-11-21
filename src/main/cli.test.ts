@@ -3941,4 +3941,133 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('serializes and hydrates subgoal checkpoint with forge context checkpoint (AGENT-024)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'context',
+      'checkpoint',
+      'run-test-warm',
+      'subgoal-01',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      checkpoint: { checkpointId: string; runId: string; checksum: string }
+      warmContext: { resumedStepIndex: number; canResume: boolean; completedCount: number }
+      summary: string
+    }
+    expect(parsed.checkpoint.checkpointId).toBeDefined()
+    expect(parsed.checkpoint.runId).toBe('run-test-warm')
+    expect(parsed.warmContext.resumedStepIndex).toBe(3)
+    expect(parsed.warmContext.completedCount).toBe(2)
+    expect(parsed.warmContext.canResume).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('partitions workflow fan-out execution into batches and waves with forge workflows fan-out (WORK-031)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['workflows', 'fan-out', '12', '4', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      totalItems: number
+      batchCount: number
+      waveCount: number
+      waves: { waveIndex: number; batchIndices: number[] }[]
+    }
+    expect(parsed.totalItems).toBe(12)
+    expect(parsed.batchCount).toBe(3)
+    expect(parsed.waveCount).toBe(1)
+    expect(parsed.waves[0]?.batchIndices).toEqual([0, 1, 2])
+
+    logSpy.mockRestore()
+  })
+
+  it('masks sensitive tokens and credentials in diffs with forge diff mask (EVIDENCE-019)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['diff', 'mask', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      maskedDiff: string
+      report: { totalReplacements: number; uniqueTokensCount: number }
+    }
+    expect(parsed.maskedDiff).not.toContain('sk-1234567890abcdef1234567890abcdef')
+    expect(parsed.maskedDiff).toContain('[REDACTED_CREDENTIAL_1]')
+    expect(parsed.report.totalReplacements).toBe(3)
+    expect(parsed.report.uniqueTokensCount).toBe(3)
+
+    logSpy.mockRestore()
+  })
+
+  it('manages sqlite read consistency snapshot barrier with forge db snapshot-barrier (STATE-021)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'db',
+      'snapshot-barrier',
+      'test-read-audit',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      barrier: { barrierId: string; purpose: string; released: boolean }
+      stats: { totalCreated: number; activeCount: number }
+      summary: string
+    }
+    expect(parsed.barrier.barrierId).toBeDefined()
+    expect(parsed.barrier.purpose).toBe('test-read-audit')
+    expect(parsed.stats.totalCreated).toBe(1)
+    expect(parsed.stats.activeCount).toBe(1)
+
+    logSpy.mockRestore()
+  })
+
+  it('synthesizes configuration policy drift remediation plan with forge config remediate (CONFIG-022)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'config',
+      'remediate',
+      'info',
+      'true',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      isCompliant: boolean
+      complianceScore: number
+      driftCount: number
+      actions: unknown[]
+    }
+    expect(parsed.isCompliant).toBe(true)
+    expect(parsed.complianceScore).toBe(1)
+    expect(parsed.driftCount).toBe(0)
+
+    logSpy.mockRestore()
+  })
 })

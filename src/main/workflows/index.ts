@@ -178,4 +178,11 @@ export {
   type DeadlockAnalysisOptions,
   type DeadlockAnalysisReport,
 } from './workflowDeadlockDetector'
+export {
+  partitionFanOutBatches,
+  type FanOutOptions,
+  type FanOutBatch,
+  type FanOutWave,
+  type FanOutExecutionPlan,
+} from './workflowFanOutBatchSlicer'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

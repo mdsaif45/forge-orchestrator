@@ -63,6 +63,7 @@ import {
   analyzeQueryPlan,
   auditDatabaseJournalRange,
   resolveShardPath,
+  SqliteSavepointStackManager,
   type MigrationDefinition,
   type SavepointReceipt,
   type RawLedgerEvent,
@@ -93,6 +94,7 @@ import {
   scanDiffForSecretLeaks,
   synthesizeRunChangesetCommit,
   validateCommitMessage,
+  traceSymbolDependencies,
   type ExportSurfaceReport,
   type FileCoverageData,
   type PatchFuzzReport,
@@ -127,6 +129,9 @@ import {
   evaluateStepSla,
   planForkJoinBatches,
   evaluateStepRetryAndEscalation,
+  evaluateStepBarrier,
+  type BarrierPolicy,
+  type StepDependencyOutcome,
   type StepPrecondition,
   type SubgraphDirection,
   type WorkflowConditionContext,
@@ -156,6 +161,7 @@ import {
   evaluateToolRetry,
   scheduleSpeculativePrefetch,
   decomposeGoalIntoSubtasks,
+  AgentScratchpadBuffer,
   type ConversationTurn,
   type PromptTurn,
   type ToolParametersSchema,
@@ -182,6 +188,7 @@ import {
   resolveConfigInheritance,
   transformDeprecatedConfig,
   evaluateConfigReload,
+  auditSecretRotation,
   type ConfigPresetName,
   type PolicyLockRule,
   type ToolSandboxPolicy,
@@ -466,7 +473,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       runId: positionals[2],
       stepId: positionals[3],
       task: values.task,
-      extraParam: positionals[3],
+      extraParam: positionals[4] ?? positionals[3],
       maxTokens: values['max-tokens'] ? parseInt(values['max-tokens'], 10) : undefined,
       keepTurns: values['keep-turns'] ? parseInt(values['keep-turns'], 10) : undefined,
       dataDir,
@@ -607,6 +614,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
         runId: positionals[2],
         stepId: positionals[3],
         cwd,
+        dataDir,
+        json: values.json,
+      })
+    }
+    if (positionals[1] === 'symbols' || positionals[1] === 'symbol-trace') {
+      return handleDiffSymbols({
+        runId: positionals[2],
+        stepId: positionals[3],
         dataDir,
         json: values.json,
       })
@@ -2017,6 +2032,8 @@ async function handleWorkflows(opts: {
       'sla',
       'fork-join',
       'retry-schedule',
+      'barrier',
+      'barrier-check',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2153,6 +2170,31 @@ async function handleWorkflows(opts: {
       console.log(`  Delay: ${String(decision.delayMs)}ms`)
       console.log(`  Reason: ${decision.reason}\n`)
       return decision.shouldRetry ? 0 : 1
+    }
+
+    if (action === 'barrier' || action === 'barrier-check') {
+      const stepId = targetId ?? 'step-aggregate'
+      const policyStr = opts.extraParam ?? 'ALL_SUCCEEDED'
+      const policy = (
+        ['ALL_SUCCEEDED', 'AT_LEAST_ONE_SUCCEEDED', 'MAJORITY_SUCCEEDED', 'FAIL_FAST_ANY'].includes(
+          policyStr,
+        )
+          ? policyStr
+          : 'ALL_SUCCEEDED'
+      ) as BarrierPolicy
+
+      const outcomes: StepDependencyOutcome[] = [
+        { stepId: 'step-1', status: 'SUCCEEDED', required: true },
+        { stepId: 'step-2', status: 'SUCCEEDED', required: true },
+        { stepId: 'step-3', status: 'PENDING', required: false },
+      ]
+      const barrier = evaluateStepBarrier(stepId, outcomes, policy)
+      if (opts.json) {
+        console.log(JSON.stringify(barrier))
+        return barrier.isSatisfied ? 0 : 1
+      }
+      console.log(`\n${barrier.summary}\n`)
+      return barrier.isSatisfied ? 0 : 1
     }
 
     if (action === 'retry') {
@@ -3532,6 +3574,43 @@ async function handleContext(opts: {
     let runId = opts.runId
     const stepId = opts.stepId
 
+    if (action === 'scratchpad') {
+      const buffer = new AgentScratchpadBuffer({ maxEntries: 20, maxTotalBytes: 32768 })
+      const subAction = opts.runId ?? 'stats'
+      const key = opts.stepId ?? opts.task ?? 'default-note'
+      const value = opts.extraParam ?? ''
+
+      if (subAction === 'set' && key) {
+        buffer.set(key, value || 'sample value', { isPinned: false })
+      } else if (subAction === 'get' && key) {
+        const item = buffer.get(key)
+        if (opts.json) {
+          console.log(JSON.stringify({ key, item }))
+          return 0
+        }
+        console.log(item ? `\n[${key}]: ${item.value}\n` : `\nKey not found: ${key}\n`)
+        return 0
+      }
+
+      const stats = buffer.getStats()
+      const formatted = buffer.formatForPromptContext()
+      const result = {
+        stats,
+        formatted,
+        entries: buffer.toJSON(),
+      }
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+        return 0
+      }
+      console.log(`\n${ANSI.bold}SCRATCHPAD BUFFER${ANSI.reset}:`)
+      console.log(`  Entries: ${String(stats.totalEntries)} / ${String(stats.maxEntries)}`)
+      console.log(`  Bytes: ${String(stats.totalBytes)} / ${String(stats.maxTotalBytes)}`)
+      console.log(`  Oldest: ${stats.oldestEntryKey ?? 'none'}\n`)
+      console.log(formatted || 'Scratchpad is empty.')
+      return 0
+    }
+
     if (action === 'budget') {
       const maxTokens = opts.maxTokens ?? 8192
       let content = ''
@@ -4425,6 +4504,35 @@ async function handleConfig(opts: {
     return assessment.isValid ? 0 : 1
   }
 
+  if (action === 'secret-audit' || action === 'secret-rotation') {
+    const now = Date.now()
+    const DAY_MS = 24 * 60 * 60 * 1000
+    const sampleSecrets = [
+      {
+        key: 'OPENAI_API_KEY',
+        createdAt: new Date(now - 30 * DAY_MS).toISOString(),
+        lastRotatedAt: new Date(now - 30 * DAY_MS).toISOString(),
+      },
+      {
+        key: 'DB_ADMIN_PASSWORD',
+        createdAt: new Date(now - 100 * DAY_MS).toISOString(),
+        lastRotatedAt: new Date(now - 100 * DAY_MS).toISOString(),
+      },
+      {
+        key: 'JWT_SIGNING_KEY',
+        createdAt: new Date(now - 85 * DAY_MS).toISOString(),
+        lastRotatedAt: new Date(now - 85 * DAY_MS).toISOString(),
+      },
+    ]
+    const report = auditSecretRotation(sampleSecrets)
+    if (opts.json) {
+      console.log(JSON.stringify(report))
+      return report.requiresImmediateAction ? 1 : 0
+    }
+    console.log(`\n${report.summary}\n`)
+    return report.requiresImmediateAction ? 1 : 0
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
@@ -4889,6 +4997,82 @@ async function handleDb(opts: {
       console.log(`  File: ${shardInfo.shardFileName}`)
       console.log(`  Resolved Path: ${shardInfo.resolvedPath}`)
       console.log(`  Sandboxed: ${shardInfo.isSandboxed ? 'YES' : 'NO'}\n`)
+      return 0
+    }
+
+    if (action === 'savepoint-stack' || action === 'savepoints') {
+      const mgr = new SqliteSavepointStackManager()
+      const sub = opts.targetPath ?? opts.targetId ?? 'status'
+      if (sub === 'push') {
+        const name = opts.thirdParam ?? 'sp_1'
+        const res = mgr.push(name)
+        const status = mgr.getStatus()
+        if (opts.json) {
+          console.log(
+            JSON.stringify({
+              action: 'push',
+              name: res.frame.name,
+              sql: res.sql,
+              depth: status.currentDepth,
+            }),
+          )
+          return 0
+        }
+        console.log(
+          `\nSavepoint pushed: ${res.frame.name} (depth: ${String(status.currentDepth)})\nSQL: ${res.sql}\n`,
+        )
+        return 0
+      }
+      if (sub === 'pop' || sub === 'release') {
+        const res = mgr.pop()
+        const status = mgr.getStatus()
+        if (opts.json) {
+          console.log(
+            JSON.stringify({
+              action: 'release',
+              name: res.frame.name,
+              sql: res.releaseSql,
+              depth: status.currentDepth,
+            }),
+          )
+          return 0
+        }
+        console.log(
+          `\nSavepoint released: ${res.frame.name} (depth: ${String(status.currentDepth)})\n`,
+        )
+        return 0
+      }
+      if (sub === 'rollback') {
+        const name = opts.thirdParam
+        const res = name ? mgr.rollbackTo(name) : mgr.rollbackTop()
+        const status = mgr.getStatus()
+        if (opts.json) {
+          console.log(
+            JSON.stringify({
+              action: 'rollback',
+              target: name,
+              sql: res.rollbackSql,
+              depth: status.currentDepth,
+            }),
+          )
+          return 0
+        }
+        console.log(
+          `\nSavepoint rolled back${name ? ` to ${name}` : ''} (depth: ${String(status.currentDepth)})\n`,
+        )
+        return 0
+      }
+      const status = mgr.getStatus()
+      if (opts.json) {
+        console.log(JSON.stringify(status))
+        return 0
+      }
+      console.log(
+        `\nSAVEPOINT STACK (depth: ${String(status.currentDepth)} / ${String(status.maxDepth)}):\n`,
+      )
+      for (const f of status.frames) {
+        console.log(`  • [depth ${String(f.depth)}] ${f.name} (created: ${f.createdAt})`)
+      }
       return 0
     }
 
@@ -5935,6 +6119,40 @@ async function handleDiffSemantic(opts: {
     console.log(`  • ${chunk.summary}`)
   }
   return 0
+}
+
+async function handleDiffSymbols(opts: {
+  readonly runId?: string | undefined
+  readonly stepId?: string | undefined
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  await Promise.resolve()
+  const symbols = [
+    {
+      name: 'evaluateStepBarrier',
+      filePath: 'src/main/workflows/stepSynchronizationBarrier.ts',
+      changeType: 'MODIFIED' as const,
+      isExported: true,
+    },
+    {
+      name: 'deprecatedHelper',
+      filePath: 'src/main/legacy/oldHelper.ts',
+      changeType: 'REMOVED' as const,
+      isExported: true,
+    },
+  ]
+  const consumerMap = {
+    evaluateStepBarrier: ['src/main/workflows/index.ts', 'src/main/cli.ts'],
+    deprecatedHelper: ['src/main/legacy/caller.ts'],
+  }
+  const report = traceSymbolDependencies(symbols, consumerMap)
+  if (opts.json) {
+    console.log(JSON.stringify(report))
+    return report.highestRiskLevel === 'CRITICAL' ? 1 : 0
+  }
+  console.log(`\n${report.summary}\n`)
+  return report.highestRiskLevel === 'CRITICAL' ? 1 : 0
 }
 
 async function handleDiffCycles(opts: {

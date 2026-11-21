@@ -164,4 +164,11 @@ export {
   type WorkflowRetryEscalationPolicy,
   type RetryDecision,
 } from './retryEscalationRouter'
+export {
+  evaluateStepBarrier,
+  type BarrierPolicy,
+  type DependencyOutcomeStatus,
+  type StepDependencyOutcome,
+  type BarrierDecision,
+} from './stepSynchronizationBarrier'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

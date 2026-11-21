@@ -147,3 +147,9 @@ export {
   type DecompositionPlan,
   type DecompositionOptions,
 } from './subtaskDecompositionPlanner'
+export {
+  AgentScratchpadBuffer,
+  type ScratchpadEntry,
+  type ScratchpadBufferOptions,
+  type ScratchpadBufferStats,
+} from './agentScratchpadBuffer'

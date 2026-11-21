@@ -158,6 +158,13 @@ export {
   type ShardRegistryReport,
   type ShardRouterOptions,
 } from './partitionShardRouter'
+export {
+  SqliteSavepointStackManager,
+  sanitizeSavepointName,
+  type SavepointFrame,
+  type SavepointStackStatus,
+  type SavepointStackOptions,
+} from './sqliteSavepointStack'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

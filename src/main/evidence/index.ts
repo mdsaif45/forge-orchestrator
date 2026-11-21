@@ -202,3 +202,12 @@ export {
   type SemanticDiffReport,
   type SemanticChunkingOptions,
 } from './diffSemanticChunker'
+export {
+  traceSymbolDependencies,
+  type SymbolChangeType,
+  type ContractRiskLevel,
+  type ModifiedSymbol,
+  type SymbolConsumerMap,
+  type ContractRisk,
+  type SymbolTraceReport,
+} from './diffSymbolDependencyTracer'

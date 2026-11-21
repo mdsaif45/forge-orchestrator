@@ -3704,4 +3704,126 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('manages agent working scratchpad buffer with forge context scratchpad (AGENT-022)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const setCode = await runCli([
+      'context',
+      'scratchpad',
+      'set',
+      'decision_key',
+      'use_savepoints',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(setCode).toBe(0)
+
+    logs.length = 0
+    const statsCode = await runCli(['context', 'scratchpad', '--data-dir', dataDir, '--json'])
+    expect(statsCode).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.stats).toBeDefined()
+    expect((parsed.stats as Record<string, unknown>).maxEntries).toBe(20)
+
+    logSpy.mockRestore()
+  })
+
+  it('evaluates fan-in step synchronization barrier quorum with forge workflows barrier-check (WORK-029)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'workflows',
+      'barrier-check',
+      'step-join',
+      'MAJORITY_SUCCEEDED',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.barrierStepId).toBe('step-join')
+    expect(parsed.policy).toBe('MAJORITY_SUCCEEDED')
+    expect(parsed.isSatisfied).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('traces symbol changes and downstream dependencies with forge diff symbols (EVIDENCE-017)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['diff', 'symbols', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(1)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.totalSymbols).toBe(2)
+    expect(parsed.highestRiskLevel).toBe('CRITICAL')
+    expect(parsed.isContractSafe).toBe(false)
+    expect(Array.isArray(parsed.contractRisks)).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('manages sqlite transaction savepoint stack with forge db savepoint-stack (STATE-019)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const pushCode = await runCli([
+      'db',
+      'savepoint-stack',
+      'push',
+      'sp_checkpoint_1',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(pushCode).toBe(0)
+    const parsedPush = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsedPush.action).toBe('push')
+    expect(parsedPush.name).toBe('sp_checkpoint_1')
+    expect(parsedPush.depth).toBe(1)
+
+    logs.length = 0
+    const statusCode = await runCli([
+      'db',
+      'savepoint-stack',
+      'status',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(statusCode).toBe(0)
+    const parsedStatus = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsedStatus.currentDepth).toBe(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('supervises secret lifetime and rotation schedule with forge config secret-audit (CONFIG-020)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['config', 'secret-audit', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(1)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.totalSecrets).toBe(3)
+    expect(parsed.expiredCount).toBe(1)
+    expect(parsed.requiresImmediateAction).toBe(true)
+
+    logSpy.mockRestore()
+  })
 })

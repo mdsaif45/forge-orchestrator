@@ -5,8 +5,8 @@ Project:            Forge — AI Engineering Control Plane
 Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
 Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
 Last updated:       2026-11-21
-Evidence baseline:  main @ 8290a72 (PR #361 merged)
-Active branch:      feat/m1-m6-decomposition-retry-semantic-shard-reload
+Evidence baseline:  main @ 74bccbd (PR #367 merged)
+Active branch:      feat/m1-m6-scratchpad-barrier-symbol-savepoint-rotation
 ```
 
 ---
@@ -62,15 +62,25 @@ M11 Host the Real CLI             ██████████  DONE        PR
 
 ## 3. Major Slice History & Merged PRs (Reverse Chronological)
 
-### 2026-11-21: In Progress — Cluster XIV (#362, #363, #364, #365, #366) — M1/M2/M4/M5/M6 Goal Decomposition, Retry Escalation Router, Semantic Diff Chunker, Shard Partition Router, and Config Hot-Reload Watcher
-- **Branch:** `feat/m1-m6-decomposition-retry-semantic-shard-reload`
+### 2026-11-21: In Progress — Cluster XV (#368, #369, #370, #371, #372) — M1/M2/M4/M5/M6 Agent Scratchpad Buffer, Fan-In Barrier Synchronization, Diff Symbol Dependency Tracer, SQLite Savepoint Stack, and Secret Rotation Supervisor
+- **Branch:** `feat/m1-m6-scratchpad-barrier-symbol-savepoint-rotation`
+- **Delivered:**
+  - `AGENT-022`: Agent scratchpad working memory buffer and LRU eviction pruner with `forge context scratchpad`.
+  - `WORK-029`: Workflow step dependency barrier and fan-in synchronization gate with `forge workflows barrier-check`.
+  - `EVIDENCE-017`: Changeset AST-aware critical symbol dependency trace auditor with `forge diff symbols`.
+  - `STATE-019`: SQLite transaction savepoint stack and nested rollback manager with `forge db savepoint-stack`.
+  - `CONFIG-020`: Dynamic secret rotation and vault key lifetime supervisor with `forge config secret-audit`.
+  - Addresses GitHub issues #368, #369, #370, #371, #372.
+
+### 2026-11-21: PR #367 merged (`74bccbd`) — M1/M2/M4/M5/M6 Goal Decomposition, Retry Escalation Router, Semantic Diff Chunker, Shard Partition Router, and Config Hot-Reload Watcher
+- **Title:** `feat(core,workflows,evidence,db,config,cli): goal decomposition planner, retry escalation router, semantic diff chunker, shard router, and config reload watcher (#362, #363, #364, #365, #366)`
 - **Delivered:**
   - `AGENT-021`: Agent goal decomposition planner and subtask prerequisite DAG synthesizer with `forge context decompose`.
   - `WORK-028`: Workflow step retry backoff scheduler and dead-letter escalation router with `forge workflows retry-schedule`.
   - `EVIDENCE-016`: Changeset semantic chunking and ast-aware diff summary extractor with `forge diff semantic`.
   - `STATE-018`: SQLite multi-tenant database partitioning and shard router with `forge db shard`.
   - `CONFIG-019`: Dynamic configuration hot-reload watcher and drift notifier with `forge config reload-check`.
-  - Addresses GitHub issues #362, #363, #364, #365, #366.
+  - Closed GitHub issues #362, #363, #364, #365, #366.
 
 ### 2026-11-21: PR #361 merged (`8290a72`) — M1/M2/M4/M5/M6 Tool Prefetch, Fork-Join, Impact Selector, Journal Diff Auditor, and Deprecation Transformer
 - **Title:** `feat(core,workflows,evidence,db,config,cli): tool prefetch scheduler, fork-join orchestrator, change impact selector, journal diff auditor, and deprecation transformer (#356, #357, #358, #359, #360)`

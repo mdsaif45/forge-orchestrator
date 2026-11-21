@@ -165,6 +165,14 @@ export {
   type SavepointStackStatus,
   type SavepointStackOptions,
 } from './sqliteSavepointStack'
+export {
+  SqliteConnectionPoolSupervisor,
+  type ConnectionLeaseAttribution,
+  type ConnectionLease,
+  type ConnectionPoolSupervisorOptions,
+  type PoolTelemetry,
+  type LeakedConnectionReport,
+} from './sqliteConnectionPoolSupervisor'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

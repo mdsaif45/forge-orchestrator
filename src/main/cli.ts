@@ -64,6 +64,7 @@ import {
   auditDatabaseJournalRange,
   resolveShardPath,
   SqliteSavepointStackManager,
+  SqliteConnectionPoolSupervisor,
   type MigrationDefinition,
   type SavepointReceipt,
   type RawLedgerEvent,
@@ -95,6 +96,7 @@ import {
   synthesizeRunChangesetCommit,
   validateCommitMessage,
   traceSymbolDependencies,
+  auditChangesetPaths,
   type ExportSurfaceReport,
   type FileCoverageData,
   type PatchFuzzReport,
@@ -130,6 +132,7 @@ import {
   planForkJoinBatches,
   evaluateStepRetryAndEscalation,
   evaluateStepBarrier,
+  detectWorkflowDeadlocks,
   type BarrierPolicy,
   type StepDependencyOutcome,
   type StepPrecondition,
@@ -162,6 +165,7 @@ import {
   scheduleSpeculativePrefetch,
   decomposeGoalIntoSubtasks,
   AgentScratchpadBuffer,
+  AgentTokenBudgetThrottler,
   type ConversationTurn,
   type PromptTurn,
   type ToolParametersSchema,
@@ -189,6 +193,8 @@ import {
   transformDeprecatedConfig,
   evaluateConfigReload,
   auditSecretRotation,
+  coerceAndValidateConfig,
+  type ConfigSchema,
   type ConfigPresetName,
   type PolicyLockRule,
   type ToolSandboxPolicy,
@@ -620,6 +626,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     }
     if (positionals[1] === 'symbols' || positionals[1] === 'symbol-trace') {
       return handleDiffSymbols({
+        runId: positionals[2],
+        stepId: positionals[3],
+        dataDir,
+        json: values.json,
+      })
+    }
+    if (positionals[1] === 'path-audit' || positionals[1] === 'paths') {
+      return handleDiffPaths({
         runId: positionals[2],
         stepId: positionals[3],
         dataDir,
@@ -2034,6 +2048,7 @@ async function handleWorkflows(opts: {
       'retry-schedule',
       'barrier',
       'barrier-check',
+      'deadlock-check',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2195,6 +2210,26 @@ async function handleWorkflows(opts: {
       }
       console.log(`\n${barrier.summary}\n`)
       return barrier.isSatisfied ? 0 : 1
+    }
+
+    if (action === 'deadlock-check') {
+      const steps = [
+        { stepId: 'step-a', dependencies: ['step-c'] },
+        { stepId: 'step-b', dependencies: ['step-a'] },
+        { stepId: 'step-c', dependencies: ['step-b'] },
+      ]
+      const stepStates = {
+        'step-a': 'pending' as const,
+        'step-b': 'pending' as const,
+        'step-c': 'pending' as const,
+      }
+      const report = detectWorkflowDeadlocks(steps, stepStates)
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return report.isDeadlocked ? 1 : 0
+      }
+      console.log(`\n${report.summary}\n`)
+      return report.isDeadlocked ? 1 : 0
     }
 
     if (action === 'retry') {
@@ -3611,6 +3646,37 @@ async function handleContext(opts: {
       return 0
     }
 
+    if (action === 'throttler' || action === 'throttle') {
+      const throttler = new AgentTokenBudgetThrottler({
+        maxTotalTokensPerWindow: 100000,
+        maxCostDollarsPerWindow: 20.0,
+      })
+      const promptTokens = opts.runId ? parseInt(opts.runId, 10) : 500
+      const completionTokens = opts.stepId ? parseInt(opts.stepId, 10) : 200
+      const costDollars = opts.extraParam ? parseFloat(opts.extraParam) : 0.005
+      const check = throttler.checkBudget(promptTokens)
+      if (!check.isThrottled) {
+        throttler.recordUsage({
+          promptTokens,
+          completionTokens,
+          costDollars,
+        })
+      }
+      const stats = throttler.getStats()
+      const summary = throttler.formatSummary()
+      const result = {
+        check,
+        stats,
+        summary,
+      }
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+        return check.isThrottled ? 1 : 0
+      }
+      console.log(`\n${summary}\n`)
+      return check.isThrottled ? 1 : 0
+    }
+
     if (action === 'budget') {
       const maxTokens = opts.maxTokens ?? 8192
       let content = ''
@@ -4533,6 +4599,27 @@ async function handleConfig(opts: {
     return report.requiresImmediateAction ? 1 : 0
   }
 
+  if (action === 'coerce-validate' || action === 'coerce') {
+    const raw: Record<string, unknown> = {
+      port: opts.key ?? '8080',
+      debug: opts.val ?? 'true',
+      tags: 'agent, workflows, orchestrator',
+    }
+    const schema: ConfigSchema = {
+      port: { type: 'number', required: true },
+      debug: { type: 'boolean', defaultValue: false },
+      tags: { type: 'string[]', defaultValue: [] },
+    }
+    const result = coerceAndValidateConfig(raw, schema)
+    if (opts.json) {
+      console.log(JSON.stringify(result))
+      return result.valid ? 0 : 1
+    }
+    console.log(`\nConfiguration Coercion Result: ${result.valid ? 'VALID' : 'INVALID'}`)
+    console.log(`Coerced Values: ${JSON.stringify(result.coerced, null, 2)}\n`)
+    return result.valid ? 0 : 1
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
@@ -5073,6 +5160,20 @@ async function handleDb(opts: {
       for (const f of status.frames) {
         console.log(`  • [depth ${String(f.depth)}] ${f.name} (created: ${f.createdAt})`)
       }
+      return 0
+    }
+
+    if (action === 'pool-status' || action === 'pool') {
+      const pool = new SqliteConnectionPoolSupervisor({ maxConnections: 16 })
+      const lease = pool.checkout({ runId: 'run-inspect', purpose: 'pool-health-check' })
+      pool.release(lease.leaseId)
+      const telemetry = pool.getPoolTelemetry()
+      const summary = pool.formatSummary()
+      if (opts.json) {
+        console.log(JSON.stringify({ telemetry, summary }))
+        return 0
+      }
+      console.log(`\n${summary}\n`)
       return 0
     }
 
@@ -6153,6 +6254,23 @@ async function handleDiffSymbols(opts: {
   }
   console.log(`\n${report.summary}\n`)
   return report.highestRiskLevel === 'CRITICAL' ? 1 : 0
+}
+
+async function handleDiffPaths(opts: {
+  readonly runId?: string | undefined
+  readonly stepId?: string | undefined
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  await Promise.resolve()
+  const paths = opts.runId ? [opts.runId] : ['src/main/core/index.ts', 'src/main/db/schema.ts']
+  const report = auditChangesetPaths(paths)
+  if (opts.json) {
+    console.log(JSON.stringify(report))
+    return report.isSafe ? 0 : 1
+  }
+  console.log(`\n${report.summary}\n`)
+  return report.isSafe ? 0 : 1
 }
 
 async function handleDiffCycles(opts: {

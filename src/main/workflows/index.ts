@@ -171,4 +171,11 @@ export {
   type StepDependencyOutcome,
   type BarrierDecision,
 } from './stepSynchronizationBarrier'
+export {
+  detectWorkflowDeadlocks,
+  type StepState,
+  type WorkflowStepDefinition,
+  type DeadlockAnalysisOptions,
+  type DeadlockAnalysisReport,
+} from './workflowDeadlockDetector'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

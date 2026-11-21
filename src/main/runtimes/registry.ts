@@ -71,6 +71,10 @@ export class RuntimeRegistry {
     this.runtimes.set(runtime.id, runtime)
   }
 
+  unregister(runtimeId: string): boolean {
+    return this.runtimes.delete(runtimeId)
+  }
+
   has(runtimeId: string): boolean {
     return this.runtimes.has(runtimeId)
   }

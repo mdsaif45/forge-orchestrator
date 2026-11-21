@@ -9,9 +9,17 @@
  * Enforced by an ESLint boundary rule, not by convention — see `eslint.config.js`.
  */
 
-export { IncapableRuntimeError, RuntimeRegistry, UnknownRuntimeError } from './registry'
+export {
+  IncapableRuntimeError,
+  RuntimeRegistry,
+  UnknownRuntimeError,
+  runtimeDescription,
+  runtimeExecutable,
+  type RuntimeDescription,
+} from './registry'
 
 export {
+  AmbiguousRoleBindingError,
   bindRole,
   BindingSet,
   permits,
@@ -49,4 +57,40 @@ export {
   type ProcessRunnerResult,
 } from './claudeCliRuntime'
 
+export { CustomCliRuntime, type CustomCliRuntimeOptions } from './customCliRuntime'
+
 export { AntigravityCliRuntime, type AntigravityCliRuntimeOptions } from './antigravityCliRuntime'
+
+export { HostedClaudeRuntime, type HostedClaudeRuntimeOptions } from './hostedClaudeRuntime'
+
+export {
+  HostedAntigravityRuntime,
+  type HostedAntigravityRuntimeOptions,
+} from './hostedAntigravityRuntime'
+
+export {
+  probeRuntimeExecutable,
+  testRuntimeExecution,
+  type RuntimeProbeResult,
+  type RuntimeHealthStatus,
+  type RuntimeExecutionTestResult,
+} from './probe'
+
+export {
+  sanitizeRuntimeEnvironment,
+  DEFAULT_ALLOWED_ENV_VARS,
+  type SanitizeEnvironmentOptions,
+  type SanitizedEnvironmentReport,
+} from './environmentSanitizer'
+export {
+  auditRuntimeQuotas,
+  createResourceBudget,
+  DEFAULT_RESOURCE_BUDGET,
+  evaluateProcessSample,
+  generateMemoryFlags,
+  type ProcessResourceSample,
+  type ResourceAction,
+  type ResourceBudgetConfig,
+  type ResourceEvaluationResult,
+  type RuntimeQuotaAuditReport,
+} from './resourceLimiter'

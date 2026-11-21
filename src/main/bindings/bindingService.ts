@@ -1,5 +1,5 @@
 import { projectIdSchema, roleSchema, type Role } from '@shared/domain'
-import type { AgentBindingView, RoleBindingsView } from '@shared/ipc'
+import type { AgentBindingView, RoleBindingsView } from '@shared/views'
 import type { BindingStore } from '../db/bindingStore'
 import { bindRole } from '../runtimes/bindings'
 import type { RuntimeRegistry } from '../runtimes/registry'

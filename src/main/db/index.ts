@@ -13,10 +13,200 @@ export {
   planResume,
   resumeDecisionSchema,
   WorkflowStore,
+  computeTransitionId,
+  WorkflowDomainError,
+  ConflictingTargetNodeError,
+  ConflictingIterationError,
+  TargetIterationAlreadyActivatedError,
+  CompetingTransitionError,
+  TerminalGraphRunError,
+  InvalidIterationAdvanceError,
+  SourceAttemptNotFoundError,
+  SourceAttemptNotCompletedError,
+  DatabaseLockTimeoutError,
+  FatalStateCorruptionError,
+  InconsistentPersistenceStateError,
   type ResumeDecision,
   type ResumePlan,
   type StartWorkflowInput,
+  type AdvanceLoopIterationInput,
+  type AdvanceLoopIterationResult,
 } from './workflowStore'
+export { RunStore } from './runStore'
+export { ArtifactStore } from './artifactStore'
+export { AgentInstanceStore } from './agentInstanceStore'
+export { CustomRuntimeStore, type CustomRuntimeRecord } from './customRuntimeStore'
+export {
+  getDatabaseStats,
+  vacuumDatabase,
+  type DatabaseStats,
+  type TableRowStat,
+  type VacuumResult,
+} from './maintenance'
+export {
+  backupDatabase,
+  restoreDatabase,
+  type DatabaseBackupResult,
+  type DatabaseRestoreResult,
+  type RestoreOptions,
+} from './backup'
+export {
+  compactRunEvents,
+  type EventCompactionOptions,
+  type EventCompactionResult,
+} from './eventCompactor'
+export {
+  inspectProjectRegistry,
+  pruneMissingProjects,
+  type ProjectPruneResult,
+  type ProjectRegistryReport,
+  type ProjectSummary,
+} from './projectRegistry'
+export {
+  auditDatabaseIntegrity,
+  pruneOrphanedDatabaseRecords,
+  type DatabaseIntegrityReport,
+  type DatabasePruneResult,
+} from './dbIntegrityAuditor'
+export {
+  auditDatabaseStorageQuota,
+  executeWalCheckpoint,
+  type StorageQuotaReport,
+  type WalCheckpointResult,
+} from './walCheckpointSupervisor'
+export {
+  computeChainedEventHash,
+  exportEventJournal,
+  GENESIS_HASH,
+  verifyEventJournalHashChain,
+  type EventJournalExportReport,
+  type JournalEntry,
+  type JournalVerificationReport,
+  type RawLedgerEvent,
+} from './eventJournalExporter'
+export {
+  replayEventLedger,
+  type RunStateProjection,
+  type StepProjection,
+} from './eventReplayEngine'
+export {
+  verifyLedgerReplication,
+  type CrossTableAuditCounts,
+  type LedgerReplicationReport,
+} from './ledgerVerifier'
+export {
+  diffDatabaseSnapshots,
+  type TableRowDiff,
+  type TableDelta,
+  type DatabaseSnapshotDiffReport,
+  type DatabaseSnapshotDiffOptions,
+} from './snapshotDiffer'
+export { DatabaseSavepointManager, type SavepointReceipt } from './savepointManager'
+export {
+  searchDatabaseEvents,
+  generateSearchSnippet,
+  type EventSearchQuery,
+  type EventSearchHit,
+  type EventSearchReport,
+} from './eventSearchEngine'
+export {
+  computeSqlChecksum,
+  ensureMigrationLedgerTable,
+  getAppliedMigrations,
+  getMigrationStatus,
+  verifyMigrationIntegrity,
+  applyPendingMigrations,
+  type MigrationDefinition,
+  type MigrationRecord,
+  type MigrationStatus,
+  type MigrationIntegrityReport,
+  type MigrationExecutionResult,
+} from './schemaMigrationRunner'
+export {
+  validateReadOnlySql,
+  executeSandboxedQuery,
+  type QueryValidationResult,
+  type SandboxedQueryResult,
+  type SandboxOptions,
+} from './querySandbox'
+export {
+  analyzeQueryPlan,
+  auditTableIndexes,
+  parseQueryPlanRows,
+  type IndexAuditReport,
+  type QueryPlanAnalysis,
+  type QueryPlanNode,
+  type TableIndexHealth,
+  type TableIndexInfo,
+} from './queryAnalyzer'
+export {
+  computeJournalDiff,
+  auditDatabaseJournalRange,
+  type LedgerEventInput,
+  type MutationKind,
+  type EntityMutationDelta,
+  type CompensatingEvent,
+  type JournalDiffOptions,
+  type JournalDiffReport,
+} from './journalDiffAuditor'
+export {
+  sanitizeProjectId,
+  computeShardFileName,
+  resolveShardPath,
+  auditShardRegistry,
+  type ShardRoutingInfo,
+  type ShardRegistryReport,
+  type ShardRouterOptions,
+} from './partitionShardRouter'
+export {
+  SqliteSavepointStackManager,
+  sanitizeSavepointName,
+  type SavepointFrame,
+  type SavepointStackStatus,
+  type SavepointStackOptions,
+} from './sqliteSavepointStack'
+export {
+  SqliteConnectionPoolSupervisor,
+  type ConnectionLeaseAttribution,
+  type ConnectionLease,
+  type ConnectionPoolSupervisorOptions,
+  type PoolTelemetry,
+  type LeakedConnectionReport,
+} from './sqliteConnectionPoolSupervisor'
+export {
+  SqliteSnapshotBarrierManager,
+  type SnapshotBarrier,
+  type SnapshotBarrierOptions,
+  type SnapshotBarrierStats,
+} from './sqliteSnapshotBarrierManager'
+export {
+  SqliteAuditLogCompactor,
+  type RawAuditEvent,
+  type CompactedAuditRecord,
+} from './sqliteAuditLogCompactor'
+export {
+  SqliteWriteLeaseCoordinator,
+  type WriteLeaseOptions,
+  type WriteLease,
+  type WriteLeaseMetrics,
+  type SqliteWriteLeaseCoordinatorConfig,
+} from './sqliteWriteLeaseCoordinator'
+export {
+  SqliteIndexAdvisoryEngine,
+  type IndexAdvisorPlanNode,
+  type IndexRecommendation,
+  type QueryPlanAuditReport,
+} from './sqliteIndexAdvisoryEngine'
+export {
+  SqlitePartitionShardCoordinator,
+  type ShardStatus,
+  type ShardDescriptor,
+  type TenantMigrationMove,
+  type ShardRebalancePlan,
+  type ShardCompactionReport,
+  type ShardCoordinatorConfig,
+} from './sqlitePartitionShardCoordinator'
+
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'
 

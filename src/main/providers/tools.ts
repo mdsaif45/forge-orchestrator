@@ -89,6 +89,12 @@ export interface ToolContext {
   readonly fetchImpl?: typeof fetch | undefined
 }
 
+export const READ_ONLY_TOOLS = new Set(['read_file', 'list_dir', 'search_files'])
+
+export function isReadOnlyTool(name: string): boolean {
+  return READ_ONLY_TOOLS.has(name)
+}
+
 /** The core JSON-schema tool declarations sent to the model (15 tools). */
 export const CORE_TOOL_DEFINITIONS = [
   {

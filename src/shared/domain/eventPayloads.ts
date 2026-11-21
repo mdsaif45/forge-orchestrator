@@ -1,12 +1,14 @@
 import { z } from 'zod'
 import type { EventType } from './event'
 import { accountSchema } from './account'
+import { agentInstanceSchema } from './agentInstance'
 import { changeSetSchema } from './changeset'
 import { decisionSchema } from './decision'
-import { accountStatusSchema, verdictSchema, workflowStateSchema } from './enums'
+import { accountStatusSchema, roleSchema, verdictSchema, workflowStateSchema } from './enums'
 import { evidenceArtifactSchema } from './evidence'
 import {
   accountIdSchema,
+  agentInstanceIdSchema,
   actorSchema,
   changeSetIdSchema,
   decisionIdSchema,
@@ -22,6 +24,7 @@ import { openQuestionSchema } from './question'
 import { findingSchema } from './review'
 import { taskSchema } from './task'
 import { workflowCheckpointSchema, workflowLimitsSchema, workflowStepSchema } from './workflow'
+import { graphStateSnapshotSchema } from './workflowGraph'
 
 /**
  * One payload schema per event type.
@@ -150,6 +153,13 @@ const stepFinished = z.strictObject({
   finishedAt: timestampSchema,
 })
 
+const stepInterjected = z.strictObject({
+  workflowId: workflowIdSchema,
+  stepIndex: z.number().int().nonnegative(),
+  text: z.string().min(1),
+  turn: z.number().int().positive().optional(),
+})
+
 const changeSetCaptured = z.strictObject({
   changeSet: changeSetSchema,
 })
@@ -203,6 +213,100 @@ const accountRemoved = z.strictObject({
   accountId: accountIdSchema,
 })
 
+const agentInstanceCreated = z.strictObject({
+  agentInstance: agentInstanceSchema,
+})
+
+const agentInstanceUpdated = z.strictObject({
+  id: agentInstanceIdSchema,
+  label: z.string().min(1),
+  updatedAt: timestampSchema,
+})
+
+const agentInstanceRemoved = z.strictObject({
+  id: agentInstanceIdSchema,
+})
+
+const customRuntimeCreated = z.strictObject({
+  id: z.string().min(1),
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  command: z.string().min(1),
+  argsTemplate: z.string().nullable().optional(),
+  capabilities: z.array(z.string()).readonly(),
+  permissionMode: z.string().min(1),
+  instructionFilenames: z.array(z.string()).readonly(),
+  env: z.record(z.string(), z.string()).nullable().optional(),
+  createdAt: timestampSchema,
+})
+
+const customRuntimeRemoved = z.strictObject({
+  id: z.string().min(1),
+})
+
+const graphStarted = z.strictObject({
+  graphRunId: z.string().min(1),
+  workflowId: workflowIdSchema,
+  templateId: z.string().min(1),
+  startedAt: timestampSchema,
+})
+
+const graphStatusUpdated = z.strictObject({
+  graphRunId: z.string().min(1),
+  status: z.enum(['running', 'completed', 'failed', 'halted', 'cancelled']),
+  iteration: z.number().int().positive().optional(),
+  haltReason: z.string().nullable().optional(),
+  error: z.string().nullable().optional(),
+  finishedAt: timestampSchema.nullable().optional(),
+})
+
+const graphCheckpointed = z.strictObject({
+  id: z.string().min(1),
+  graphRunId: z.string().min(1),
+  nodeId: z.string().min(1),
+  operation: z.string().min(1),
+  stateSnapshot: graphStateSnapshotSchema,
+  occurredAt: timestampSchema,
+})
+
+const graphNodeAttemptStarted = z.strictObject({
+  id: z.string().min(1),
+  graphRunId: z.string().min(1),
+  nodeId: z.string().min(1),
+  attempt: z.number().int().positive(),
+  iteration: z.number().int().positive().optional().default(1),
+  status: z.enum(['pending', 'ready', 'running']),
+  role: roleSchema.nullable().optional(),
+  runtimeId: z.string().nullable().optional(),
+  contextRef: z.string().nullable().optional(),
+  startedAt: timestampSchema,
+})
+
+const graphNodeAttemptUpdated = z.strictObject({
+  graphRunId: z.string().min(1),
+  nodeId: z.string().min(1),
+  attempt: z.number().int().positive(),
+  status: z.enum(['completed', 'failed', 'skipped', 'blocked', 'cancelled']),
+  changeSetId: changeSetIdSchema.nullable().optional(),
+  evidenceId: z.string().nullable().optional(),
+  finishedAt: timestampSchema.nullable().optional(),
+  error: z.string().nullable().optional(),
+  runtimeId: z.string().nullable().optional(),
+})
+
+const graphIterationAdvanced = z.strictObject({
+  transitionId: z.string().min(1),
+  graphRunId: z.string().min(1),
+  sourceNodeId: z.string().min(1),
+  sourceAttempt: z.number().int().positive(),
+  targetNodeId: z.string().min(1),
+  targetAttempt: z.number().int().positive(),
+  fromIteration: z.number().int().positive(),
+  toIteration: z.number().int().positive(),
+  checkpointId: z.string().nullable().optional(),
+  occurredAt: timestampSchema,
+})
+
 /**
  * The payload map.
  *
@@ -230,12 +334,24 @@ export const EVENT_PAYLOADS = {
   'workflow.finished': workflowFinished,
   'step.started': stepStarted,
   'step.finished': stepFinished,
+  'step.interjected': stepInterjected,
   'changeset.captured': changeSetCaptured,
   'changeset.reviewed': changeSetReviewed,
   'evidence.recorded': evidenceRecorded,
   'account.registered': accountRegistered,
   'account.status_updated': accountStatusUpdated,
   'account.removed': accountRemoved,
+  'agent_instance.created': agentInstanceCreated,
+  'agent_instance.updated': agentInstanceUpdated,
+  'agent_instance.removed': agentInstanceRemoved,
+  'custom_runtime.created': customRuntimeCreated,
+  'custom_runtime.removed': customRuntimeRemoved,
+  'graph.started': graphStarted,
+  'graph.status_updated': graphStatusUpdated,
+  'graph.checkpointed': graphCheckpointed,
+  'graph_node.attempt_started': graphNodeAttemptStarted,
+  'graph_node.attempt_updated': graphNodeAttemptUpdated,
+  'graph.iteration_advanced': graphIterationAdvanced,
 } as const
 
 // Every event type must have a payload schema. A missing entry is a compile error

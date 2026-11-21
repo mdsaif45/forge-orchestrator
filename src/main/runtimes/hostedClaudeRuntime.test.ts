@@ -2,6 +2,7 @@ import { appendFileSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { RuntimeEvent } from '@shared/domain'
 import { removeTempDir } from '../../test/tempDir'
 import type { ProcessManager } from '../process/processManager'
 import { HostedClaudeRuntime } from './hostedClaudeRuntime'
@@ -319,7 +320,7 @@ describe('HostedClaudeRuntime hook-driven turns', () => {
 
     expect(chunks).toEqual(['REPORT: the work is done'])
     expect(states.at(-1)).toBe('completed')
-  }, 20_000)
+  }, 40_000)
 
   it('delivers the prompt as a bracketed paste, submitted separately', async () => {
     // Measured: a ~1300-char prompt written plainly is captured by the CLI's own
@@ -343,7 +344,7 @@ describe('HostedClaudeRuntime hook-driven turns', () => {
     expect(pasted.slice(pasted.indexOf(`${ESC}[200~`))).toContain('the prompt')
     // Enter is its own write: inside the paste it would be literal text.
     expect(state.written.at(-1)).toBe('\r')
-  }, 20_000)
+  }, 40_000)
 
   it('fails retryably when a dialog appears mid-turn, since no Stop will ever fire', async () => {
     // A blocked turn produces no `Stop` at all, so the screen watch is the only
@@ -363,7 +364,7 @@ describe('HostedClaudeRuntime hook-driven turns', () => {
     const status = await hosted.status(session)
     expect(status.state).toBe('failed')
     expect(status.failure).toMatch(/permission dialog/i)
-  }, 20_000)
+  }, 40_000)
 
   it('fails the turn when neither the hook nor a dialog arrives in budget', async () => {
     // The budget has to outlast the boot-settle wait but still expire, or the
@@ -390,7 +391,7 @@ describe('HostedClaudeRuntime hook-driven turns', () => {
     const status = await hosted.status(session)
     expect(status.state).toBe('failed')
     expect(status.failure).toMatch(/budget/i)
-  }, 20_000)
+  }, 40_000)
 
   it('installs the hooks before the CLI spawns, so the first turn already reports', async () => {
     // Installing after spawn would leave turn one on the fallback path, which is
@@ -406,6 +407,66 @@ describe('HostedClaudeRuntime hook-driven turns', () => {
       readFileSync(join(worktree, '.claude', 'settings.local.json'), 'utf8'),
     ) as { hooks?: Record<string, unknown> }
     expect(Object.keys(settings.hooks ?? {})).toContain('Stop')
+  })
+
+  it('does not treat overage allowed as a spent limit (Issue #180)', async () => {
+    const { worktree, receiverDir } = makeDirs()
+    const { processes, state } = makeProcesses()
+    const hosted = hookRuntime(processes, receiverDir)
+    const session = await startHooked(hosted, worktree)
+
+    hosted.recordRateLimitSignal(session, {
+      status: 'rejected',
+      rateLimitType: 'five_hour',
+      overageStatus: 'allowed_warning',
+      isUsingOverage: true,
+      overageInUse: true,
+    })
+
+    state.emit(READY)
+    const sending = hosted.send(session, packet())
+    await until(() => state.written.includes('\r'))
+    fireStopHook(worktree, 'REPORT: success using overage')
+    await sending
+
+    const status = await hosted.status(session)
+    expect(status.state).toBe('completed')
+  })
+
+  it('fails with providerLimit: true when both primary quota and overage are spent (Issue #180)', async () => {
+    const { worktree, receiverDir } = makeDirs()
+    const { processes, state } = makeProcesses()
+    const hosted = hookRuntime(processes, receiverDir)
+    const session = await startHooked(hosted, worktree)
+
+    hosted.recordRateLimitSignal(session, {
+      status: 'rejected',
+      rateLimitType: 'five_hour',
+      overageStatus: 'rejected',
+      isUsingOverage: false,
+    })
+
+    const events: RuntimeEvent[] = []
+    void (async () => {
+      for await (const event of hosted.events(session)) {
+        events.push(event)
+      }
+    })()
+
+    state.emit(READY)
+    const sending = hosted.send(session, packet())
+    await until(() => state.written.includes('\r'))
+    fireStopHook(worktree, 'Rate limit error: quota exhausted')
+    await sending
+
+    const status = await hosted.status(session)
+    expect(status.state).toBe('failed')
+    const errorEvent = events.find(
+      (e): e is Extract<RuntimeEvent, { type: 'error' }> => e.type === 'error',
+    )
+    expect(errorEvent).toBeDefined()
+    expect(errorEvent?.providerLimit).toBe(true)
+    expect(errorEvent?.retryable).toBe(false)
   })
 })
 

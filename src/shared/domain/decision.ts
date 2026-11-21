@@ -1,6 +1,15 @@
 import { z } from 'zod'
 import { decisionStatusSchema } from './enums'
-import { actorSchema, decisionIdSchema, questionIdSchema, timestampSchema } from './ids'
+import {
+  actorSchema,
+  decisionIdSchema,
+  questionIdSchema,
+  timestampSchema,
+  workflowIdSchema,
+} from './ids'
+
+export const gateVerdictSchema = z.enum(['approved', 'rejected'])
+export type GateVerdict = z.infer<typeof gateVerdictSchema>
 
 /**
  * A choice, recorded once and then binding (axiom A4).
@@ -28,9 +37,36 @@ export const decisionSchema = z
     supersededBy: decisionIdSchema.nullable(),
     /** Present when the decision was promoted from an answered question. */
     originQuestionId: questionIdSchema.nullable(),
+    /** Optional gate-scoping fields for workflow gate decisions */
+    workflowId: workflowIdSchema.nullable().optional(),
+    graphRunId: z.string().min(1).nullable().optional(),
+    nodeId: z.string().min(1).nullable().optional(),
+    gateVerdict: gateVerdictSchema.nullable().optional(),
   })
   .check((ctx) => {
     const decision = ctx.value
+
+    if (
+      decision.gateVerdict != null ||
+      decision.workflowId != null ||
+      decision.graphRunId != null ||
+      decision.nodeId != null
+    ) {
+      if (
+        decision.gateVerdict == null ||
+        decision.workflowId == null ||
+        decision.graphRunId == null ||
+        decision.nodeId == null
+      ) {
+        ctx.issues.push({
+          code: 'custom',
+          input: decision,
+          path: ['gateVerdict'],
+          message:
+            'A gate decision must specify all gate coordinates: workflowId, graphRunId, nodeId, and gateVerdict',
+        })
+      }
+    }
 
     // A locked decision must record who locked it and when, otherwise the audit
     // trail claims a guarantee it cannot evidence.

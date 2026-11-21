@@ -203,4 +203,204 @@ CREATE INDEX \`evidence_artifacts_step\` ON \`evidence_artifacts\` (\`step_id\`,
 );
 `,
   },
+  {
+    tag: '0003_durable_state',
+    sql: `CREATE TABLE \`runs\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`project_id\` text NOT NULL,
+	\`task_id\` text NOT NULL,
+	\`type\` text NOT NULL,
+	\`status\` text NOT NULL,
+	\`started_at\` text NOT NULL,
+	\`finished_at\` text,
+	\`exit_code\` integer,
+	\`summary\` text,
+	\`error\` text,
+	\`metadata\` text NOT NULL,
+	FOREIGN KEY (\`project_id\`) REFERENCES \`projects\`(\`id\`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX \`runs_project\` ON \`runs\` (\`project_id\`,\`started_at\`);--> statement-breakpoint
+CREATE INDEX \`runs_task\` ON \`runs\` (\`task_id\`);--> statement-breakpoint
+CREATE TABLE \`run_steps\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`run_id\` text NOT NULL,
+	\`step_index\` integer NOT NULL,
+	\`role\` text NOT NULL,
+	\`runtime_id\` text,
+	\`status\` text NOT NULL,
+	\`started_at\` text NOT NULL,
+	\`finished_at\` text,
+	\`summary\` text,
+	\`change_set_id\` text,
+	\`evidence_id\` text,
+	FOREIGN KEY (\`run_id\`) REFERENCES \`runs\`(\`id\`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX \`run_steps_run\` ON \`run_steps\` (\`run_id\`);--> statement-breakpoint
+CREATE UNIQUE INDEX \`run_steps_order\` ON \`run_steps\` (\`run_id\`,\`step_index\`);--> statement-breakpoint
+CREATE TABLE \`artifacts\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`run_id\` text NOT NULL,
+	\`step_id\` text,
+	\`kind\` text NOT NULL,
+	\`name\` text NOT NULL,
+	\`mime_type\` text NOT NULL,
+	\`size_bytes\` integer NOT NULL,
+	\`sha256\` text NOT NULL,
+	\`relative_path\` text NOT NULL,
+	\`created_at\` text NOT NULL,
+	FOREIGN KEY (\`run_id\`) REFERENCES \`runs\`(\`id\`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX \`artifacts_run\` ON \`artifacts\` (\`run_id\`,\`created_at\`);--> statement-breakpoint
+CREATE INDEX \`artifacts_step\` ON \`artifacts\` (\`step_id\`);--> statement-breakpoint
+CREATE TABLE \`run_events\` (
+	\`id\` text NOT NULL,
+	\`run_id\` text NOT NULL,
+	\`seq\` integer NOT NULL,
+	\`step_id\` text,
+	\`type\` text NOT NULL,
+	\`payload\` text NOT NULL,
+	\`occurred_at\` text NOT NULL,
+	PRIMARY KEY(\`run_id\`, \`seq\`),
+	FOREIGN KEY (\`run_id\`) REFERENCES \`runs\`(\`id\`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX \`run_events_id_unique\` ON \`run_events\` (\`id\`);--> statement-breakpoint
+CREATE INDEX \`run_events_run_type\` ON \`run_events\` (\`run_id\`,\`type\`);
+`,
+  },
+  {
+    tag: '0004_graph_runs',
+    sql: `CREATE TABLE \`graph_checkpoints\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`graph_run_id\` text NOT NULL,
+	\`node_id\` text NOT NULL,
+	\`operation\` text NOT NULL,
+	\`state_snapshot\` text NOT NULL,
+	\`occurred_at\` text NOT NULL,
+	FOREIGN KEY (\`graph_run_id\`) REFERENCES \`graph_runs\`(\`id\`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX \`graph_checkpoints_run\` ON \`graph_checkpoints\` (\`graph_run_id\`,\`occurred_at\`);--> statement-breakpoint
+CREATE TABLE \`graph_node_runs\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`graph_run_id\` text NOT NULL,
+	\`node_id\` text NOT NULL,
+	\`attempt\` integer DEFAULT 1 NOT NULL,
+	\`status\` text NOT NULL,
+	\`role\` text,
+	\`runtime_id\` text,
+	\`context_ref\` text,
+	\`change_set_id\` text,
+	\`evidence_id\` text,
+	\`started_at\` text,
+	\`finished_at\` text,
+	\`error\` text,
+	FOREIGN KEY (\`graph_run_id\`) REFERENCES \`graph_runs\`(\`id\`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX \`graph_node_runs_graph_node\` ON \`graph_node_runs\` (\`graph_run_id\`,\`node_id\`);--> statement-breakpoint
+CREATE INDEX \`graph_node_runs_status\` ON \`graph_node_runs\` (\`status\`);--> statement-breakpoint
+CREATE UNIQUE INDEX \`graph_node_runs_attempt_unique\` ON \`graph_node_runs\` (\`graph_run_id\`,\`node_id\`,\`attempt\`);--> statement-breakpoint
+CREATE TABLE \`graph_runs\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`workflow_id\` text NOT NULL,
+	\`template_id\` text NOT NULL,
+	\`status\` text NOT NULL,
+	\`iteration\` integer DEFAULT 1 NOT NULL,
+	\`started_at\` text NOT NULL,
+	\`finished_at\` text,
+	\`halt_reason\` text,
+	\`error\` text,
+	FOREIGN KEY (\`workflow_id\`) REFERENCES \`workflows\`(\`id\`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX \`graph_runs_workflow\` ON \`graph_runs\` (\`workflow_id\`);--> statement-breakpoint
+CREATE INDEX \`graph_runs_status\` ON \`graph_runs\` (\`status\`);`,
+  },
+  {
+    tag: '0005_loop_persistence',
+    sql: `ALTER TABLE \`graph_node_runs\` ADD COLUMN \`iteration\` integer DEFAULT 1 NOT NULL;
+--> statement-breakpoint
+CREATE UNIQUE INDEX \`graph_node_runs_node_iter_attempt_unique\` ON \`graph_node_runs\` (\`graph_run_id\`,\`node_id\`,\`attempt\`,\`iteration\`);
+--> statement-breakpoint
+CREATE TABLE \`graph_transitions\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`graph_run_id\` text NOT NULL,
+	\`source_node_id\` text NOT NULL,
+	\`source_attempt\` integer NOT NULL,
+	\`target_node_id\` text NOT NULL,
+	\`target_attempt\` integer NOT NULL,
+	\`from_iteration\` integer NOT NULL,
+	\`to_iteration\` integer NOT NULL,
+	\`checkpoint_id\` text,
+	\`occurred_at\` text NOT NULL,
+	CHECK (\`to_iteration\` = \`from_iteration\` + 1),
+	FOREIGN KEY (\`graph_run_id\`) REFERENCES \`graph_runs\`(\`id\`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (\`checkpoint_id\`) REFERENCES \`graph_checkpoints\`(\`id\`) ON UPDATE no action ON DELETE set null,
+	FOREIGN KEY (\`graph_run_id\`,\`target_node_id\`,\`target_attempt\`,\`to_iteration\`) REFERENCES \`graph_node_runs\`(\`graph_run_id\`,\`node_id\`,\`attempt\`,\`iteration\`) ON UPDATE no action ON DELETE restrict,
+	FOREIGN KEY (\`graph_run_id\`,\`source_node_id\`,\`source_attempt\`,\`from_iteration\`) REFERENCES \`graph_node_runs\`(\`graph_run_id\`,\`node_id\`,\`attempt\`,\`iteration\`) ON UPDATE no action ON DELETE restrict
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX \`graph_transitions_source_attempt_unique\` ON \`graph_transitions\` (\`graph_run_id\`,\`source_node_id\`,\`source_attempt\`);
+--> statement-breakpoint
+CREATE UNIQUE INDEX \`graph_transitions_target_iter_unique\` ON \`graph_transitions\` (\`graph_run_id\`,\`to_iteration\`,\`target_node_id\`);
+--> statement-breakpoint
+CREATE INDEX \`graph_transitions_run\` ON \`graph_transitions\` (\`graph_run_id\`,\`occurred_at\`);
+`,
+  },
+  {
+    tag: '0006_gate_decisions',
+    sql: `ALTER TABLE \`decisions\` ADD \`workflow_id\` text REFERENCES workflows(id);
+--> statement-breakpoint
+ALTER TABLE \`decisions\` ADD \`graph_run_id\` text REFERENCES graph_runs(id);
+--> statement-breakpoint
+ALTER TABLE \`decisions\` ADD \`node_id\` text;
+--> statement-breakpoint
+ALTER TABLE \`decisions\` ADD \`gate_verdict\` text;
+--> statement-breakpoint
+CREATE INDEX \`decisions_gate_scope\` ON \`decisions\` (\`graph_run_id\`,\`node_id\`);
+--> statement-breakpoint
+ALTER TABLE \`graph_runs\` ADD \`project_id\` text REFERENCES projects(id);
+--> statement-breakpoint
+CREATE INDEX \`graph_runs_project\` ON \`graph_runs\` (\`project_id\`);
+`,
+  },
+  {
+    tag: '0007_agent_instances_and_custom_runtimes',
+    sql: `CREATE TABLE \`agent_instances\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`project_id\` text NOT NULL,
+	\`name\` text NOT NULL,
+	\`label\` text NOT NULL,
+	\`provider\` text NOT NULL,
+	\`account_id\` text,
+	\`role\` text NOT NULL,
+	\`created_at\` text NOT NULL,
+	\`updated_at\` text NOT NULL,
+	FOREIGN KEY (\`project_id\`) REFERENCES \`projects\`(\`id\`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX \`agent_instances_project\` ON \`agent_instances\` (\`project_id\`);
+--> statement-breakpoint
+CREATE UNIQUE INDEX \`agent_instances_project_name\` ON \`agent_instances\` (\`project_id\`,\`name\`);
+--> statement-breakpoint
+CREATE TABLE \`custom_runtimes\` (
+	\`id\` text PRIMARY KEY NOT NULL,
+	\`slug\` text NOT NULL,
+	\`name\` text NOT NULL,
+	\`command\` text NOT NULL,
+	\`args_template\` text,
+	\`capabilities\` text NOT NULL,
+	\`permission_mode\` text NOT NULL,
+	\`instruction_filenames\` text NOT NULL,
+	\`env\` text,
+	\`created_at\` text NOT NULL
+);
+--> statement-breakpoint
+CREATE UNIQUE INDEX \`custom_runtimes_slug_unique\` ON \`custom_runtimes\` (\`slug\`);
+`,
+  },
 ]

@@ -1,8 +1,18 @@
 import { writeFile } from 'node:fs/promises'
 import { app, clipboard, dialog, BrowserWindow } from 'electron'
 import { APP_NAME } from '@shared/app'
-import type { IpcResponse, ProviderChunkPayload } from '@shared/ipc'
-import { TEMPLATES } from '@shared/domain'
+import type { ModelDetail, ProviderChunkPayload } from '@shared/ipc'
+import {
+  artifactIdSchema,
+  runIdSchema,
+  TEMPLATES,
+  type AccountId,
+  type AgentInstanceId,
+  type Capability,
+  type ProjectId,
+} from '@shared/domain'
+import type { AgentInstanceStore } from '../db/agentInstanceStore'
+import type { CustomRuntimeStore } from '../db/customRuntimeStore'
 import { generateWorkflowReportMarkdown } from '../audit/workflowReportGenerator'
 import type { ProjectService } from '../projects/projectService'
 import { validateRepository } from '../projects/validateRepository'
@@ -13,17 +23,17 @@ import type { DecisionService } from '../decisions/decisionService'
 import type { ChangeSetService } from '../changesets/changeSetService'
 import type { AccountService } from '../accounts/accountService'
 import { runtimeDescription, runtimeExecutable, type RuntimeRegistry } from '../runtimes/registry'
-import { isCommandAvailable } from '../process/processManager'
 import { streamChat } from '../providers/chatStream'
 import { runAgentTurn } from '../providers/agentTurn'
 import { devModelTracker } from '../providers/devModelTracker'
+import { discoverOllamaModels } from '../providers/ollamaDiscovery'
 import type { BindingService } from '../bindings/bindingService'
 import type { EnrollmentService } from '../accounts/enrollmentService'
 import { openTerminal } from '../accounts/terminalLauncher'
 
 import type { TerminalService } from '../terminal/terminalService'
 import { TemplateV2Store } from '../templates/templateV2Store'
-import { ArtifactStore } from '../artifacts/artifactStore'
+import type { ArtifactService } from '../artifacts/artifactService'
 import {
   detectInstalledClis,
   loadAgentDefaults,
@@ -31,6 +41,7 @@ import {
   saveCustomCli,
   removeCustomCli,
 } from '../runtimes/cliDetector'
+import { probeRuntimeExecutable } from '../runtimes'
 
 export interface IpcDependencies {
   readonly projects: ProjectService
@@ -39,12 +50,14 @@ export interface IpcDependencies {
   readonly decisions: DecisionService
   readonly changeSets: ChangeSetService
   readonly accounts: AccountService
+  readonly agentInstances?: AgentInstanceStore
+  readonly customRuntimes?: CustomRuntimeStore
   readonly registry: RuntimeRegistry
   readonly bindings: BindingService
   readonly enrollment: EnrollmentService
   readonly terminal: TerminalService
   readonly templatesV2?: TemplateV2Store
-  readonly artifacts?: ArtifactStore
+  readonly artifactService?: ArtifactService
   /**
    * Broadcasts one chunk of a streamed model reply.
    *
@@ -80,18 +93,19 @@ export function createIpcHandlers({
   decisions,
   changeSets,
   accounts,
+  agentInstances,
+  customRuntimes,
   registry,
   bindings,
   enrollment,
   terminal,
   templatesV2,
-  artifacts,
+  artifactService,
   emitProviderChunk,
   setActiveModel,
   registerCustomCli,
 }: IpcDependencies): IpcHandlerMap {
   const templatesV2Store = templatesV2 ?? new TemplateV2Store()
-  const artifactStore = artifacts ?? new ArtifactStore()
 
   /**
    * Gathers everything a report needs and renders it.
@@ -169,38 +183,32 @@ export function createIpcHandlers({
       return {}
     },
 
-    'runtime:list': () => ({
-      runtimes: registry.list().map((runtime) => {
-        /*
-         * Null when this runtime drives no external command.
-         *
-         * The gate used to be `simulated`, which was the wrong question. The
-         * native agent is `simulated: false` — it does real work — but it
-         * reaches a provider over HTTP and spawns nothing, so it fell through
-         * to `runtimeExecutable('forge-native-agent')`, which has no entry in
-         * its map and returns the id itself. Settings then probed PATH for a
-         * command called `forge-native-agent`, found none, and rendered a red
-         * "Not on PATH" against a runtime that was working perfectly.
-         *
-         * `runtimeExecutable` returning its own argument IS the "no external
-         * command" signal, so read it here rather than adding a second
-         * declaration a new runtime could forget to set. The UI already has a
-         * "Spawns nothing" state for null.
-         */
-        const named = runtimeExecutable(runtime.id)
-        const executable = runtime.simulated || named === runtime.id ? null : named
+    'runtime:list': async () => {
+      const runtimes = await Promise.all(
+        registry.list().map(async (runtime) => {
+          const named = runtimeExecutable(runtime.id)
+          const executable = runtime.simulated || named === runtime.id ? null : named
+          const probe = await probeRuntimeExecutable(executable, {
+            isSimulated: runtime.simulated,
+          })
 
-        return {
-          id: runtime.id,
-          simulated: runtime.simulated,
-          supportsAccountIsolation: runtime.supportsAccountIsolation,
-          capabilities: [...runtime.capabilities],
-          executable,
-          available: executable === null ? null : isCommandAvailable(executable),
-          label: runtimeDescription(runtime.id),
-        }
-      }),
-    }),
+          return {
+            id: runtime.id,
+            simulated: runtime.simulated,
+            supportsAccountIsolation: runtime.supportsAccountIsolation,
+            capabilities: [...runtime.capabilities],
+            executable,
+            available: probe.available,
+            version: probe.version,
+            health: probe.health,
+            latencyMs: probe.latencyMs,
+            label: runtimeDescription(runtime.id),
+          }
+        }),
+      )
+
+      return { runtimes }
+    },
 
     'runtime:detectClis': async () => ({
       clis: await detectInstalledClis(),
@@ -217,12 +225,41 @@ export function createIpcHandlers({
         executable: request.executable,
         defaultArgs: request.defaultArgs,
       })
+      if (customRuntimes) {
+        customRuntimes.create(
+          {
+            slug: request.id,
+            name: request.name,
+            command: request.executable,
+            argsTemplate: request.defaultArgs ? request.defaultArgs.join(' ') : null,
+            capabilities: (request.capabilities as readonly Capability[] | undefined) ?? [
+              'repo-read',
+              'file-write',
+              'terminal',
+            ],
+            permissionMode: request.permissionMode ?? 'developer',
+            instructionFilenames: request.instructionFilenames ?? [],
+            env: request.env ?? null,
+          },
+          'user',
+          new Date().toISOString(),
+        )
+      }
       registerCustomCli?.(request)
       return { success: true }
     },
 
     'runtime:removeCustomCli': ({ id }) => {
       removeCustomCli(id)
+      if (customRuntimes) {
+        const found = customRuntimes.findBySlug(id) ?? customRuntimes.find(id)
+        if (found) {
+          customRuntimes.remove(found.id, 'user', new Date().toISOString())
+        }
+      }
+      if (registry.has(id)) {
+        registry.unregister(id)
+      }
       return { success: true }
     },
 
@@ -261,6 +298,9 @@ export function createIpcHandlers({
 
     'workflow:approveAndStartImplementation': ({ workflowId }) =>
       workflows.approveAndStartImplementation(workflowId),
+
+    'workflow:interject': ({ workflowId, stepIndex, text }) =>
+      workflows.interject(workflowId, stepIndex, text),
 
     'workflow:getPacket': ({ packetRef }) => workflows.getPacket(packetRef),
 
@@ -324,12 +364,47 @@ export function createIpcHandlers({
     'decision:lock': ({ decisionId }) => decisions.lock(decisionId),
 
     'decision:supersede': (request) => decisions.supersede(request),
+    'decision:recordGate': (request) => decisions.recordGateDecision(request),
 
     'changeset:list': ({ projectId }) => ({
       changeSets: changeSets.list(projectId),
     }),
 
     'changeset:get': ({ changeSetId }) => changeSets.get(changeSetId),
+
+    'artifacts:listForRun': ({ runId }) => {
+      if (!artifactService) {
+        throw new Error('ArtifactService is not configured')
+      }
+      return {
+        artifacts: artifactService.listArtifacts(runIdSchema.parse(runId)),
+      }
+    },
+
+    'artifacts:getMetadata': ({ artifactId }) => {
+      if (!artifactService) {
+        throw new Error('ArtifactService is not configured')
+      }
+      return {
+        artifact: artifactService.getMetadata(artifactIdSchema.parse(artifactId)),
+      }
+    },
+
+    'artifacts:readWindow': async ({ artifactId, offsetBytes, lengthBytes }) => {
+      if (!artifactService) {
+        throw new Error('ArtifactService is not configured')
+      }
+      const res = await artifactService.readWindow(
+        artifactIdSchema.parse(artifactId),
+        offsetBytes,
+        lengthBytes,
+      )
+      return {
+        data: res.data.toString('base64'),
+        encoding: 'base64' as const,
+        totalBytes: res.totalBytes,
+      }
+    },
 
     'git:getWorkingDiff': (request) => changeSets.getWorkingDiff(request.projectId),
 
@@ -382,6 +457,48 @@ export function createIpcHandlers({
       return { success: true }
     },
 
+    'agentInstance:list': ({ projectId }) => {
+      const instances = agentInstances ? agentInstances.list(projectId as ProjectId) : []
+      return { instances }
+    },
+
+    'agentInstance:create': (request) => {
+      if (!agentInstances) {
+        throw new Error('AgentInstanceStore is not configured')
+      }
+      return agentInstances.create(
+        {
+          projectId: request.projectId as ProjectId,
+          ...(request.label !== undefined ? { label: request.label } : {}),
+          provider: request.provider,
+          accountId: request.accountId ? (request.accountId as AccountId) : null,
+          role: request.role,
+        },
+        'user',
+        new Date().toISOString(),
+      )
+    },
+
+    'agentInstance:update': (request) => {
+      if (!agentInstances) {
+        throw new Error('AgentInstanceStore is not configured')
+      }
+      return agentInstances.updateLabel(
+        request.id as AgentInstanceId,
+        request.label,
+        'user',
+        new Date().toISOString(),
+      )
+    },
+
+    'agentInstance:remove': ({ id }) => {
+      if (!agentInstances) {
+        throw new Error('AgentInstanceStore is not configured')
+      }
+      agentInstances.remove(id as AgentInstanceId, 'user', new Date().toISOString())
+      return { success: true }
+    },
+
     'template:list': () => ({
       templates: Object.values(TEMPLATES),
     }),
@@ -400,12 +517,6 @@ export function createIpcHandlers({
     'template:deleteV2': ({ templateId }) => ({
       success: templatesV2Store.delete(templateId),
     }),
-
-    'artifact:list': ({ workflowId, nodeId }) => ({
-      artifacts: artifactStore.list(workflowId, nodeId),
-    }),
-
-    'artifact:get': ({ artifactId }) => artifactStore.get(artifactId),
 
     'terminal:spawn': async (request) => terminal.spawn(request),
 
@@ -432,22 +543,32 @@ export function createIpcHandlers({
       try {
         const cleanBase = endpointUrl.replace(/\/$/, '')
         let detected: string[] = []
+        let details: ModelDetail[] | undefined = undefined
 
         if (providerId === 'ollama' || cleanBase.includes('11434')) {
-          const res = await fetch(`${cleanBase}/api/tags`)
-          if (!res.ok) {
+          const discovery = await discoverOllamaModels({
+            endpointUrl: cleanBase,
+            probeCapabilities: false,
+          })
+          if (!discovery.reachable && discovery.error) {
             return {
               ok: false,
               models: [],
-              error: `Ollama returned HTTP ${String(res.status)}: ${res.statusText}`,
+              error: discovery.error,
             }
           }
-          const data = (await res.json()) as { models?: { name?: string; model?: string }[] }
-          if (Array.isArray(data.models)) {
-            detected = data.models
-              .map((m) => m.name ?? m.model ?? '')
-              .filter((name) => name.length > 0)
-          }
+          detected = discovery.models.map((m) => m.name)
+          details = discovery.models.map((m) => ({
+            name: m.name,
+            model: m.model,
+            family: m.family,
+            parameterSize: m.parameterSize,
+            quantization: m.quantization,
+            sizeBytes: m.sizeBytes,
+            modifiedAt: m.modifiedAt,
+            isCodingModel: m.isCodingModel,
+            capabilities: m.capabilities,
+          }))
         } else {
           const endpoint = cleanBase.endsWith('/v1')
             ? `${cleanBase}/models`
@@ -477,6 +598,7 @@ export function createIpcHandlers({
         return {
           ok: true,
           models: detected,
+          ...(details ? { details } : {}),
           error: null,
         }
       } catch (err) {

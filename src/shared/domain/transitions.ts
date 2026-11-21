@@ -41,6 +41,9 @@ export const WORKFLOW_TRIGGERS = [
   'reviewPassed',
   'reviewFailed',
   'correctionStarted',
+  'stageCompleted',
+  'stageSkipped',
+  'stageRerun',
   'questionRaised',
   'questionAnswered',
   'limitReached',
@@ -62,19 +65,42 @@ export type WorkflowTrigger = z.infer<typeof workflowTriggerSchema>
 const DIRECTED_TRANSITIONS = {
   DISCOVERY: { start: 'PLANNING' },
   PLANNING: { planProduced: 'PLAN_READY' },
-  // The user's approval is the only way out. A6 is about providers; this is the human
-  // gate, and nothing an agent reports can substitute for it.
-  PLAN_READY: { userApproved: 'DECISIONS_LOCKED' },
+  // The user's approval is the standard path. Partial runs can complete after planning
+  // alone (stageCompleted -> DONE) or re-run planning (#164).
+  PLAN_READY: {
+    userApproved: 'DECISIONS_LOCKED',
+    stageCompleted: 'DONE',
+    stageRerun: 'PLANNING',
+  },
   // Automatic: arriving here IS the locking, so there is no second approval. The trigger
   // names the work starting, which is what actually happens next.
   DECISIONS_LOCKED: { implementationStarted: 'IMPLEMENTING' },
-  IMPLEMENTING: { implemented: 'VERIFYING' },
+  IMPLEMENTING: {
+    implemented: 'VERIFYING',
+    stageCompleted: 'DONE',
+    stageSkipped: 'REVIEWING',
+  },
   // Verification failing is not the same as review failing: one means the build or tests
   // broke, the other means a reviewer read the diff and objected. Both loop back, and the
-  // log has to say which happened.
-  VERIFYING: { verified: 'REVIEWING', verificationFailed: 'CORRECTION_REQUIRED' },
-  REVIEWING: { reviewPassed: 'DONE', reviewFailed: 'CORRECTION_REQUIRED' },
-  CORRECTION_REQUIRED: { correctionStarted: 'IMPLEMENTING' },
+  // log has to say which happened. Flexible execution permits skipping unrequested stages
+  // or re-running with amended prompts (#164).
+  VERIFYING: {
+    verified: 'REVIEWING',
+    verificationFailed: 'CORRECTION_REQUIRED',
+    stageCompleted: 'DONE',
+    stageSkipped: 'DONE',
+    stageRerun: 'IMPLEMENTING',
+  },
+  REVIEWING: {
+    reviewPassed: 'DONE',
+    reviewFailed: 'CORRECTION_REQUIRED',
+    stageCompleted: 'DONE',
+    stageRerun: 'REVIEWING',
+  },
+  CORRECTION_REQUIRED: {
+    correctionStarted: 'IMPLEMENTING',
+    stageRerun: 'IMPLEMENTING',
+  },
   // Resume goes wherever `resumeState` says, so the destination is computed rather than
   // fixed. The trigger is still declared here so the move is legal.
   AWAITING_USER: { questionAnswered: null },
@@ -217,13 +243,13 @@ export function transition(
     return { from, to: 'AWAITING_USER', trigger, iteration, resumeState: from }
   }
 
-  if (trigger === 'correctionStarted') {
+  if (trigger === 'correctionStarted' || trigger === 'stageRerun') {
     const next = iteration + 1
     const max = context.maxIterations
 
-    // The cap is enforced here rather than left to the caller, because this is the only
-    // edge that can loop: correction is what A5 exists to bound. Halting at the boundary
-    // means the log shows a limit, not a workflow that mysteriously stopped.
+    // The cap is enforced here rather than left to the caller, because looping
+    // edges are what A5 exists to bound. Halting at the boundary means the log shows
+    // a limit, not a workflow that mysteriously stopped.
     if (max !== undefined && next > max) {
       return {
         from,
@@ -234,7 +260,11 @@ export function transition(
       }
     }
 
-    return { from, to: 'IMPLEMENTING', trigger, iteration: next, resumeState: null }
+    if (move.to === null) {
+      throw new Error(`Transition ${from} --${trigger}--> has no destination`)
+    }
+
+    return { from, to: move.to, trigger, iteration: next, resumeState: null }
   }
 
   if (move.to === null) {

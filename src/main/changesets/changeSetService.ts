@@ -1,5 +1,5 @@
 import { changeSetIdSchema, projectIdSchema, type ChangeSet } from '@shared/domain'
-import type { ChangedFileView, ChangeSetView } from '@shared/ipc'
+import type { ChangedFileView, ChangeSetView } from '@shared/views'
 import type { ChangeSetStore } from '../db/changeSetStore'
 import { GitService } from '../git'
 import type { ProjectService } from '../projects/projectService'

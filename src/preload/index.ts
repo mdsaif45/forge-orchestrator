@@ -63,6 +63,8 @@ const api: ForgeApi = {
     resume: (workflowId) => call('workflow:resume', { workflowId }),
     approveAndStartImplementation: (workflowId) =>
       call('workflow:approveAndStartImplementation', { workflowId }),
+    interject: (workflowId, stepIndex, text) =>
+      call('workflow:interject', { workflowId, stepIndex, text }),
     getPacket: (packetRef) => call('workflow:getPacket', { packetRef }),
     exportReport: (workflowId) => call('workflow:exportReport', { workflowId }),
     saveReport: (workflowId) => call('workflow:saveReport', { workflowId }),
@@ -81,10 +83,16 @@ const api: ForgeApi = {
     approve: (decisionId) => call('decision:approve', { decisionId }),
     lock: (decisionId) => call('decision:lock', { decisionId }),
     supersede: (request) => call('decision:supersede', request),
+    recordGate: (request) => call('decision:recordGate', request),
   },
   changeset: {
     list: (projectId) => call('changeset:list', { projectId }),
     get: (changeSetId) => call('changeset:get', { changeSetId }),
+  },
+  artifacts: {
+    listForRun: (runId) => call('artifacts:listForRun', { runId }),
+    getMetadata: (artifactId) => call('artifacts:getMetadata', { artifactId }),
+    readWindow: (request) => call('artifacts:readWindow', request),
   },
   account: {
     list: (provider) => call('account:list', { provider }),
@@ -96,6 +104,12 @@ const api: ForgeApi = {
     beginEnrollment: (accountId, runtimeId) =>
       call('account:beginEnrollment', { accountId, runtimeId }),
     revokeEnrollment: (accountId) => call('account:revokeEnrollment', { accountId }),
+  },
+  agentInstance: {
+    list: (projectId) => call('agentInstance:list', { projectId }),
+    create: (request) => call('agentInstance:create', request),
+    update: (request) => call('agentInstance:update', request),
+    remove: (id) => call('agentInstance:remove', { id }),
   },
   git: {
     getWorkingDiff: (projectId) => call('git:getWorkingDiff', { projectId }),
@@ -110,10 +124,6 @@ const api: ForgeApi = {
     getV2: (templateId) => call('template:getV2', { templateId }),
     saveV2: (template) => call('template:saveV2', { template }),
     deleteV2: (templateId) => call('template:deleteV2', { templateId }),
-  },
-  artifact: {
-    list: (workflowId, nodeId) => call('artifact:list', { workflowId, nodeId }),
-    get: (artifactId) => call('artifact:get', { artifactId }),
   },
   terminal: {
     spawn: (request) => call('terminal:spawn', request),
@@ -155,6 +165,15 @@ const api: ForgeApi = {
     ipcRenderer.on('workflow:log', handler)
     return () => {
       ipcRenderer.removeListener('workflow:log', handler)
+    }
+  },
+  onWorkflowRuntimeEvent: (listener) => {
+    const handler = (_event: unknown, payload: unknown) => {
+      listener(payload as Parameters<typeof listener>[0])
+    }
+    ipcRenderer.on('workflow:runtimeEvent', handler)
+    return () => {
+      ipcRenderer.removeListener('workflow:runtimeEvent', handler)
     }
   },
   onTerminalData: (listener) => {

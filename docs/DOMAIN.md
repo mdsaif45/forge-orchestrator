@@ -40,7 +40,10 @@ inherited by scope; decisions are locked and versioned.
 
 **Task vs Workflow.** A task is *what* to achieve, with the criteria that prove it
 achieved. A workflow is *how* it is being attempted right now — the state machine
-instance, including which iteration it is on.
+instance, including which iteration it is on. A task is an internal execution record
+bound to a workflow run (ADR-005); it is not a user-authored backlog ticket or an independent
+navigation item. Its objective and completion criteria surface directly on the workflow
+canvas, execution summary, and prompt packets.
 
 **ChangeSet vs Step output.** A step's output is what an agent *said*. A changeset
 is what the repository *shows*. They are reconciled, not conflated (axiom A3).
@@ -101,13 +104,23 @@ stateDiagram-v2
     DISCOVERY --> PLANNING: start
     PLANNING --> PLAN_READY: planProduced
     PLAN_READY --> DECISIONS_LOCKED: userApproved
+    PLAN_READY --> DONE: stageCompleted
+    PLAN_READY --> PLANNING: stageRerun
     DECISIONS_LOCKED --> IMPLEMENTING: implementationStarted
     IMPLEMENTING --> VERIFYING: implemented
+    IMPLEMENTING --> DONE: stageCompleted
+    IMPLEMENTING --> REVIEWING: stageSkipped
     VERIFYING --> REVIEWING: verified
     VERIFYING --> CORRECTION_REQUIRED: verificationFailed
+    VERIFYING --> DONE: stageCompleted
+    VERIFYING --> DONE: stageSkipped
+    VERIFYING --> IMPLEMENTING: stageRerun
     REVIEWING --> DONE: reviewPassed
     REVIEWING --> CORRECTION_REQUIRED: reviewFailed
+    REVIEWING --> DONE: stageCompleted
+    REVIEWING --> REVIEWING: stageRerun
     CORRECTION_REQUIRED --> IMPLEMENTING: correctionStarted
+    CORRECTION_REQUIRED --> IMPLEMENTING: stageRerun
     AWAITING_USER --> AWAITING_USER: questionAnswered (returns to resumeState)
     DONE --> [*]
     HALTED_LIMIT --> [*]

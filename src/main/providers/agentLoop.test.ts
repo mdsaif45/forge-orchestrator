@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../test/tempDir'
-import { runAgentLoop, type CompletionResult, type LoopMessage } from './agentLoop'
+import { runAgentLoop, type CompletionResult, type LoopMessage, type ToolCall } from './agentLoop'
 import type { ToolContext } from './tools'
 
 /**
@@ -45,6 +45,14 @@ const callTool = (name: string, args: Record<string, unknown>): CompletionResult
   content: '',
   reasoning: '',
   toolCalls: [{ id: `c-${name}`, name, args }],
+  error: null,
+})
+
+const callTools = (toolCalls: readonly ToolCall[]): CompletionResult => ({
+  ok: true,
+  content: '',
+  reasoning: '',
+  toolCalls,
   error: null,
 })
 
@@ -389,5 +397,53 @@ describe('requireOneOf', () => {
 
     expect(result.content).toBe('The constant is 40.')
     expect(model.sent).toHaveLength(1)
+  })
+
+  it('executes contiguous read-only tools concurrently (AGENT-003)', async () => {
+    const root = makeWorkspace()
+    writeFileSync(join(root, 'a.txt'), 'content of a', 'utf8')
+    writeFileSync(join(root, 'b.txt'), 'content of b', 'utf8')
+
+    const model = scriptedModel([
+      callTools([
+        { id: 'call_1', name: 'read_file', args: { path: 'a.txt' } },
+        { id: 'call_2', name: 'read_file', args: { path: 'b.txt' } },
+      ]),
+      answer('Read both files.'),
+    ])
+
+    const events: string[] = []
+    const result = await runAgentLoop({
+      messages: [{ role: 'user', content: 'read files' }],
+      tools: tools(root),
+      complete: model.complete,
+      onEvent: (ev) => {
+        if (ev.kind === 'tool-start' || ev.kind === 'tool-end') {
+          events.push(`${ev.kind}:${ev.name}`)
+        }
+      },
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toBe('Read both files.')
+    expect(result.toolsUsed).toEqual([
+      { name: 'read_file', ok: true },
+      { name: 'read_file', ok: true },
+    ])
+    // Verify tool results in conversation
+    const lastSent = model.sent[1]
+    expect(lastSent).toBeDefined()
+    const toolReplies = (lastSent ?? []).filter((m) => m.role === 'tool')
+    expect(toolReplies).toHaveLength(2)
+    expect(toolReplies[0]).toMatchObject({
+      role: 'tool',
+      content: 'content of a',
+      toolCallId: 'call_1',
+    })
+    expect(toolReplies[1]).toMatchObject({
+      role: 'tool',
+      content: 'content of b',
+      toolCallId: 'call_2',
+    })
   })
 })

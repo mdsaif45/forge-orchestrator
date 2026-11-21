@@ -31,6 +31,9 @@ export {
   timestampSchema,
   workflowIdSchema,
   accountIdSchema,
+  agentInstanceIdSchema,
+  runIdSchema,
+  artifactIdSchema,
   type Actor,
   type AgentBindingId,
   type ChangeSetId,
@@ -48,6 +51,9 @@ export {
   type Timestamp,
   type WorkflowId,
   type AccountId,
+  type AgentInstanceId,
+  type RunId,
+  type ArtifactId,
 } from './ids'
 
 export {
@@ -80,6 +86,7 @@ export {
 } from './enums'
 
 export { accountSchema, type Account } from './account'
+export { agentInstanceSchema, type AgentInstance, generateAgentName } from './agentInstance'
 
 export {
   agentBindingSchema,
@@ -96,8 +103,10 @@ export {
 
 export {
   decisionSchema,
+  gateVerdictSchema,
   lockedDecisionSchema,
   type Decision,
+  type GateVerdict,
   type LockedDecision,
 } from './decision'
 
@@ -144,28 +153,31 @@ export {
   evidenceArtifactSchema,
   evidenceFindings,
   evidencePassed,
+  isStepEvidencePassing,
   runOutcomeSchema,
+  stepEvidenceSchema,
   summariseEvidence,
+  summariseStepEvidence,
   testCountsSchema,
   type EvidenceArtifact,
   type RunOutcome,
+  type StepEvidence,
   type TestCounts,
 } from './evidence'
 
-export {
-  assessCompletion,
-  criterionResultSchema,
-  type CompletionAssessment,
-  type CompletionInput,
-  type CriterionResult,
-} from './completion'
+export { criterionResultSchema, formatCriterionResult, type CriterionResult } from './criterion'
+
+export { assessCompletion, type CompletionAssessment, type CompletionInput } from './completion'
 
 export {
   assessReview,
+  authoritativeReviewVerdictSchema,
   correctionConstraints,
   findingSchema,
   findingSeveritySchema,
+  reviewOutcomeSchema,
   reviewReportSchema,
+  type AuthoritativeReviewVerdict,
   type Finding,
   type FindingSeverity,
   type ReviewOutcome,
@@ -345,14 +357,30 @@ export {
   permissionModeSchema,
   type PermissionMode,
 } from './permissionMode'
-export { permissionForRole, type RolePermission } from './rolePermission'
+export {
+  ROLE_DEFAULT_PERMISSIONS,
+  defaultPermissionsForRole,
+  effectivePermissionsForRole,
+  widenedPermissionsForRole,
+  validateBindingPermissions,
+  InvalidBindingPermissionsError,
+  permissionForRole,
+  type RolePermission,
+} from './rolePermission'
 
 export {
   artifactFormatSchema,
   getReadyNodes,
   getTopologicalSort,
+  graphCheckpointSchema,
+  graphNodeRunSchema,
+  graphRunSchema,
+  graphRunStatusSchema,
+  graphStateSnapshotSchema,
+  graphTransitionSchema,
   nodePositionSchema,
   nodeRuntimeConfigSchema,
+  nodeStatusSchema,
   nodeTypeSchema,
   outputDefinitionSchema,
   runtimeTypeSchema,
@@ -365,8 +393,21 @@ export {
   workflowNodeSchema,
   workflowTemplateV2Schema,
   type ArtifactFormat,
+  type GraphCheckpoint,
+  conditionOperatorSchema,
+  edgePredicateSchema,
+  edgeConditionSchema,
+  type ConditionOperator,
+  type EdgePredicate,
+  type EdgeCondition,
+  type GraphNodeRun,
+  type GraphRun,
+  type GraphRunStatus,
+  type GraphStateSnapshot,
+  type GraphTransition,
   type NodePosition,
   type NodeRuntimeConfig,
+  type NodeStatus,
   type NodeType,
   type OutputDefinition,
   type RuntimeType,
@@ -376,4 +417,50 @@ export {
   type WorkflowEdge,
   type WorkflowNode,
   type WorkflowTemplateV2,
+  getLoopBody,
+  loopPolicySchema,
+  type LoopPolicy,
 } from './workflowGraph'
+
+export {
+  evaluateCondition,
+  resolveConditionRef,
+  type ConditionEvaluationContext,
+} from './conditions'
+
+export { canonicalizeJson, tryCanonicalizeJsonString } from './canonicalJson'
+
+export { compileLinearTemplateToGraph } from './templateCompiler'
+
+export {
+  runRecordSchema,
+  runStatusSchema,
+  runTypeSchema,
+  stepRecordSchema,
+  type RunRecord,
+  type RunStatus,
+  type RunType,
+  type StepRecord,
+} from './run'
+
+export {
+  artifactKindSchema,
+  artifactMetadataSchema,
+  artifactUri,
+  parseArtifactUri,
+  type ArtifactKind,
+  type ArtifactMetadata,
+} from './artifact'
+
+export { runEventSchema, type RunEvent, type RunEventInput } from './runEvents'
+
+export {
+  extractToolTarget,
+  filterToolTimelineByNode,
+  filterToolTimelineByStep,
+  reduceToolTimeline,
+  toolCallEntrySchema,
+  toolCallStatusSchema,
+  type ToolCallEntry,
+  type ToolCallStatus,
+} from './toolTimeline'

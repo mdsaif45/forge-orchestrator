@@ -1,5 +1,6 @@
 import type {
   AccountView,
+  AgentInstanceView,
   AgentBindingView,
   RoleBindingsView,
   AppInfo,
@@ -15,10 +16,12 @@ import type {
   ProviderChunkPayload,
   PromptPacketView,
   RepositoryProbe,
-  WorkflowArtifactView,
+  ArtifactMetadataView,
+  ArtifactWindowView,
   WorkflowDetailView,
   WorkflowEventPayload,
   WorkflowLogPayload,
+  WorkflowRuntimeEventPayload,
   WorkflowSummaryView,
   WorkflowTemplateV2View,
   WorkflowTemplateView,
@@ -139,6 +142,10 @@ export interface ForgeApi {
       readonly name: string
       readonly executable: string
       readonly defaultArgs?: readonly string[] | undefined
+      readonly capabilities?: readonly string[] | undefined
+      readonly permissionMode?: string | undefined
+      readonly instructionFilenames?: readonly string[] | undefined
+      readonly env?: Readonly<Record<string, string>> | undefined
     }) => Promise<IpcResult<{ readonly success: boolean }>>
     removeCustomCli: (id: string) => Promise<IpcResult<{ readonly success: boolean }>>
   }
@@ -205,6 +212,11 @@ export interface ForgeApi {
     cancel: (workflowId: string, reason?: string) => Promise<IpcResult<WorkflowDetailView | null>>
     resume: (workflowId: string) => Promise<IpcResult<WorkflowDetailView | null>>
     approveAndStartImplementation: (workflowId: string) => Promise<IpcResult<WorkflowDetailView>>
+    interject: (
+      workflowId: string,
+      stepIndex: number,
+      text: string,
+    ) => Promise<IpcResult<{ readonly success: boolean }>>
     getPacket: (packetRef: string) => Promise<IpcResult<PromptPacketView | null>>
     exportReport: (workflowId: string) => Promise<
       IpcResult<{
@@ -254,12 +266,33 @@ export interface ForgeApi {
         readonly replacement: DecisionView
       }>
     >
+    recordGate: (request: {
+      readonly projectId: string
+      readonly workflowId: string
+      readonly graphRunId: string
+      readonly nodeId: string
+      readonly verdict: 'approved' | 'rejected'
+      readonly rationale: string
+    }) => Promise<IpcResult<DecisionView>>
   }
   readonly changeset: {
     list: (
       projectId: string,
     ) => Promise<IpcResult<{ readonly changeSets: readonly ChangeSetView[] }>>
     get: (changeSetId: string) => Promise<IpcResult<ChangeSetView | null>>
+  }
+  readonly artifacts: {
+    readonly listForRun: (
+      runId: string,
+    ) => Promise<IpcResult<{ readonly artifacts: readonly ArtifactMetadataView[] }>>
+    readonly getMetadata: (
+      artifactId: string,
+    ) => Promise<IpcResult<{ readonly artifact: ArtifactMetadataView | null }>>
+    readonly readWindow: (request: {
+      readonly artifactId: string
+      readonly offsetBytes: number
+      readonly lengthBytes: number
+    }) => Promise<IpcResult<ArtifactWindowView>>
   }
   readonly account: {
     list: (provider?: string) => Promise<IpcResult<{ readonly accounts: readonly AccountView[] }>>
@@ -293,6 +326,23 @@ export interface ForgeApi {
     ) => Promise<IpcResult<{ readonly home: string }>>
     revokeEnrollment: (accountId: string) => Promise<IpcResult<Record<string, never>>>
   }
+  readonly agentInstance: {
+    list: (
+      projectId: string,
+    ) => Promise<IpcResult<{ readonly instances: readonly AgentInstanceView[] }>>
+    create: (request: {
+      readonly projectId: string
+      readonly label?: string
+      readonly provider: string
+      readonly accountId?: string | null
+      readonly role: 'planner' | 'user' | 'implementer' | 'system' | 'reviewer'
+    }) => Promise<IpcResult<AgentInstanceView>>
+    update: (request: {
+      readonly id: string
+      readonly label: string
+    }) => Promise<IpcResult<AgentInstanceView>>
+    remove: (id: string) => Promise<IpcResult<{ readonly success: boolean }>>
+  }
   readonly git: {
     getWorkingDiff: (projectId: string) => Promise<
       IpcResult<{
@@ -320,17 +370,6 @@ export interface ForgeApi {
     getV2: (templateId: string) => Promise<IpcResult<WorkflowTemplateV2View | null>>
     saveV2: (template: WorkflowTemplateV2View) => Promise<IpcResult<WorkflowTemplateV2View>>
     deleteV2: (templateId: string) => Promise<IpcResult<{ readonly success: boolean }>>
-  }
-  readonly artifact: {
-    list: (
-      workflowId: string,
-      nodeId?: string,
-    ) => Promise<
-      IpcResult<{
-        readonly artifacts: readonly WorkflowArtifactView[]
-      }>
-    >
-    get: (artifactId: string) => Promise<IpcResult<WorkflowArtifactView | null>>
   }
   readonly terminal: {
     spawn: (request: {
@@ -458,6 +497,9 @@ export interface ForgeApi {
   readonly onProviderChunk: (listener: (payload: ProviderChunkPayload) => void) => () => void
   readonly onWorkflowEvent: (listener: (event: WorkflowEventPayload) => void) => () => void
   readonly onWorkflowLog: (listener: (log: WorkflowLogPayload) => void) => () => void
+  readonly onWorkflowRuntimeEvent: (
+    listener: (payload: WorkflowRuntimeEventPayload) => void,
+  ) => () => void
   readonly onTerminalData: (
     listener: (payload: { readonly terminalId: string; readonly chunk: string }) => void,
   ) => () => void

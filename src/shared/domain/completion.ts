@@ -1,9 +1,10 @@
-import { z } from 'zod'
-import { criterionKindSchema, verdictSchema, type Verdict } from './enums'
+import type { Verdict } from './enums'
 import { evidencePassed, type EvidenceArtifact } from './evidence'
 import type { AgentReport } from './runtime'
 import type { CompletionCriterion, Task } from './task'
 import type { ReconcileResult } from './reconcile'
+import { matchesAny } from './glob'
+import type { ChangedFile } from './changeset'
 
 /**
  * Deciding whether a task is done, from evidence rather than opinion.
@@ -27,18 +28,8 @@ import type { ReconcileResult } from './reconcile'
  * assumptions, and whether a reviewer reached a verdict.
  */
 
-/** One criterion's outcome, with the reason a user reads in the workflow log. */
-export const criterionResultSchema = z.strictObject({
-  kind: criterionKindSchema,
-  description: z.string().min(1),
-  verdict: verdictSchema,
-  /** Why this verdict, phrased for a human. Never empty, including on a pass. */
-  reason: z.string().min(1),
-  /** Which artifact decided it, when one did. */
-  evidenceId: z.string().nullable(),
-})
-
-export type CriterionResult = z.infer<typeof criterionResultSchema>
+import { criterionResultSchema, type CriterionResult } from './criterion'
+export { criterionResultSchema, type CriterionResult }
 
 export interface CompletionInput {
   readonly task: Task
@@ -57,6 +48,8 @@ export interface CompletionInput {
    * must compile into the renderer as well as main.
    */
   readonly existingPaths?: readonly string[] | undefined
+  /** Changed files from git diff, for diff-based criteria evaluation. */
+  readonly changedFiles?: readonly ChangedFile[] | undefined
 }
 
 export interface CompletionAssessment {
@@ -120,6 +113,12 @@ function evaluate(criterion: CompletionCriterion, input: CompletionInput): Crite
       return fromReview(criterion, input)
     case 'file-exists':
       return fromFileExists(criterion, input)
+    case 'file-forbidden':
+      return fromFileForbidden(criterion, input)
+    case 'max-diff-lines':
+      return fromMaxDiffLines(criterion, input)
+    case 'artifact-regex':
+      return fromArtifactRegex(criterion, input)
   }
 }
 
@@ -260,6 +259,10 @@ function fromReview(criterion: CompletionCriterion, input: CompletionInput): Cri
   }
 }
 
+function normalisePath(p: string): string {
+  return p.replace(/\\/g, '/').replace(/^\.\//, '')
+}
+
 /** Whether every path in `params.paths` exists. */
 function fromFileExists(criterion: CompletionCriterion, input: CompletionInput): CriterionResult {
   const paths = stringArrayParam(criterion, 'paths')
@@ -275,8 +278,8 @@ function fromFileExists(criterion: CompletionCriterion, input: CompletionInput):
     )
   }
 
-  const present = new Set(input.existingPaths)
-  const missing = paths.filter((path) => !present.has(path))
+  const present = new Set(input.existingPaths.map(normalisePath))
+  const missing = paths.filter((path) => !present.has(normalisePath(path)))
 
   if (missing.length === 0) {
     return passResult(criterion, `All ${String(paths.length)} required path(s) exist`)
@@ -303,6 +306,143 @@ function stringArrayParam(criterion: CompletionCriterion, name: string): readonl
   if (!Array.isArray(value)) return null
   const strings = value.filter((entry): entry is string => typeof entry === 'string')
   return strings.length === value.length ? strings : null
+}
+
+/** Whether any changed files match forbidden glob patterns (Axiom A7: least privilege). */
+function fromFileForbidden(
+  criterion: CompletionCriterion,
+  input: CompletionInput,
+): CriterionResult {
+  const patterns = stringArrayParam(criterion, 'patterns')
+  if (patterns === null || patterns.length === 0) {
+    return unknownResult(criterion, 'The criterion names no patterns in `params.patterns`')
+  }
+
+  const files =
+    input.changedFiles?.map((f) => normalisePath(f.path)) ??
+    input.reconciliation?.discrepancies.map((d) => normalisePath(d.path))
+
+  if (files === undefined) {
+    return unknownResult(
+      criterion,
+      'The repository diff was not captured, so changed files could not be checked',
+    )
+  }
+
+  const violations = files.filter((filePath) => matchesAny(filePath, patterns))
+
+  if (violations.length === 0) {
+    return passResult(
+      criterion,
+      `No changed files match any of the ${String(patterns.length)} forbidden pattern(s)`,
+    )
+  }
+
+  return failResult(
+    criterion,
+    `${String(violations.length)} forbidden file(s) were changed: ${violations.join(', ')}`,
+  )
+}
+
+/** Whether total diff additions and deletions stay within the allowed line ceiling (Axiom A5). */
+function fromMaxDiffLines(criterion: CompletionCriterion, input: CompletionInput): CriterionResult {
+  const maxLinesVal = criterion.params.maxLines
+  const maxLines =
+    typeof maxLinesVal === 'number' && Number.isInteger(maxLinesVal) && maxLinesVal > 0
+      ? maxLinesVal
+      : null
+
+  if (maxLines === null) {
+    return unknownResult(
+      criterion,
+      'The criterion specifies no positive integer in `params.maxLines`',
+    )
+  }
+
+  if (input.changedFiles === undefined) {
+    return unknownResult(criterion, 'No git diff was captured to calculate changed line count')
+  }
+
+  const totalLines = input.changedFiles.reduce((acc, f) => acc + f.insertions + f.deletions, 0)
+
+  if (totalLines <= maxLines) {
+    return passResult(
+      criterion,
+      `Total diff changes (${String(totalLines)} lines) within allowed limit of ${String(maxLines)} lines`,
+    )
+  }
+
+  return failResult(
+    criterion,
+    `Total diff changes (${String(totalLines)} lines) exceeded ceiling of ${String(maxLines)} lines`,
+  )
+}
+
+/** Whether a specified regex pattern is present (or absent if mustMatch: false) in evidence artifacts. */
+function fromArtifactRegex(
+  criterion: CompletionCriterion,
+  input: CompletionInput,
+): CriterionResult {
+  const patternStr = stringParam(criterion, 'pattern')
+  if (patternStr === null) {
+    return unknownResult(criterion, 'The criterion names no regex pattern in `params.pattern`')
+  }
+
+  let regex: RegExp
+  try {
+    regex = new RegExp(patternStr)
+  } catch (err) {
+    return unknownResult(
+      criterion,
+      `Invalid regular expression "/${patternStr}/": ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+
+  const artifactKind = stringParam(criterion, 'artifactKind')
+  const mustMatch =
+    typeof criterion.params.mustMatch === 'boolean' ? criterion.params.mustMatch : true
+
+  const targetArtifacts =
+    artifactKind !== null ? input.evidence.filter((a) => a.kind === artifactKind) : input.evidence
+
+  if (targetArtifacts.length === 0) {
+    return unknownResult(
+      criterion,
+      `No evidence artifacts of kind "${artifactKind ?? 'any'}" were found to evaluate`,
+    )
+  }
+
+  const matchedArtifact = targetArtifacts.find((a) => regex.test(a.stdout) || regex.test(a.stderr))
+
+  if (mustMatch) {
+    if (matchedArtifact) {
+      return {
+        kind: criterion.kind,
+        description: criterion.description,
+        verdict: 'pass',
+        reason: `Pattern /${patternStr}/ matched in evidence artifact "${matchedArtifact.id}"`,
+        evidenceId: matchedArtifact.id,
+      }
+    }
+    return failResult(
+      criterion,
+      `Pattern /${patternStr}/ was not found in any matching evidence artifacts`,
+    )
+  } else {
+    if (matchedArtifact) {
+      return {
+        kind: criterion.kind,
+        description: criterion.description,
+        verdict: 'fail',
+        reason: `Forbidden pattern /${patternStr}/ was detected in evidence artifact "${matchedArtifact.id}"`,
+        evidenceId: matchedArtifact.id,
+      }
+    }
+    return passResult(
+      criterion,
+      `Forbidden pattern /${patternStr}/ was not detected in any evidence artifacts`,
+    )
+  }
 }
 
 function passResult(criterion: CompletionCriterion, reason: string): CriterionResult {

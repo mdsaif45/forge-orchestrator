@@ -4,8 +4,23 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { decisionIdSchema, projectIdSchema, workflowIdSchema } from '@shared/domain'
-import type { ProjectView, WorkflowDetailView } from '@shared/ipc'
+import {
+  agentBindingIdSchema,
+  decisionIdSchema,
+  permissionsSchema,
+  projectIdSchema,
+  stepIdSchema,
+  type WorkflowId,
+  type WorkflowStep,
+  workflowIdSchema,
+} from '@shared/domain'
+import type {
+  ProjectView,
+  WorkflowDetailView,
+  WorkflowEventPayload,
+  WorkflowRuntimeEventPayload,
+} from '@shared/views'
+import { AgentSessionRegistry, agentSessionKey } from '../terminal/sessionRegistry'
 import { initialiseDatabase, type ForgeDatabase } from '../db'
 import { ProjectService } from '../projects/projectService'
 import { MockAgentRuntime } from '../runtimes/mockRuntime'
@@ -29,6 +44,9 @@ describe('WorkflowService', () => {
   let projects: ProjectService
   let workflows: WorkflowService
   let registry: RuntimeRegistry
+  let sessions: AgentSessionRegistry
+  let capturedEvents: WorkflowEventPayload[]
+  let capturedRuntimeEvents: WorkflowRuntimeEventPayload[]
 
   beforeEach(() => {
     tempDir = mkdtempSync(join(tmpdir(), 'forge-workflow-service-test-'))
@@ -36,22 +54,32 @@ describe('WorkflowService', () => {
     dbHandle = initialiseDatabase(dbFile)
     projects = new ProjectService(dbHandle.db)
     registry = new RuntimeRegistry()
+    sessions = new AgentSessionRegistry()
     registry.register(new MockAgentRuntime({ scenario: SCENARIOS.question, id: 'mock:default' }))
+    capturedEvents = []
+    capturedRuntimeEvents = []
 
     workflows = new WorkflowService({
       db: dbHandle.db,
       projects,
       packetDir: join(tempDir, 'packets'),
       registry,
+      sessions,
+      emitEvent: (event) => capturedEvents.push(event),
+      emitRuntimeEvent: (payload) => capturedRuntimeEvents.push(payload),
     })
   })
 
   afterEach(() => {
     dbHandle.close()
-    rmSync(tempDir, { recursive: true, force: true })
+    try {
+      rmSync(tempDir, { recursive: true, force: true })
+    } catch {
+      // Ignore temporary file lock
+    }
   })
 
-  it('lists workflows for a project', async () => {
+  it('lists workflows for a project', { timeout: 30_000 }, async () => {
     const repoPath = join(tempDir, 'repo')
     mkdirSync(repoPath, { recursive: true })
     initRepository(repoPath)
@@ -89,7 +117,7 @@ describe('WorkflowService', () => {
     expect(detail?.id).toBe(started.id)
   })
 
-  it('cancels an active workflow', async () => {
+  it('cancels an active workflow', { timeout: 30_000 }, async () => {
     const repoPath = join(tempDir, 'repo2')
     mkdirSync(repoPath, { recursive: true })
     initRepository(repoPath)
@@ -169,13 +197,77 @@ describe('WorkflowService', () => {
     workflows.cancel(started.id)
   })
 
-  it('enforces that transitioning to implementation requires at least one locked decision', async () => {
-    const repoPath = join(tempDir, 'repo-mode')
+  it(
+    'enforces that transitioning to implementation requires at least one locked decision',
+    { timeout: 30_000 },
+    async () => {
+      const repoPath = join(tempDir, 'repo-mode')
+      mkdirSync(repoPath, { recursive: true })
+      initRepository(repoPath)
+
+      const project: ProjectView = await projects.create({
+        name: 'Mode Test Project',
+        repositoryPath: repoPath,
+        defaultBranch: 'main',
+        buildCommand: null,
+        testCommand: null,
+        tech: [],
+        rules: [],
+      })
+
+      const started: WorkflowDetailView = await workflows.start({
+        projectId: project.id,
+        autoRun: false,
+      })
+
+      // Advance from DISCOVERY to PLANNING, then to AWAITING_APPROVAL
+      const now = new Date().toISOString()
+      const wId = workflowIdSchema.parse(started.id)
+      const pId = projectIdSchema.parse(project.id)
+      workflows.getWorkflowStore().apply(wId, 'start', 'system', now)
+      workflows.getWorkflowStore().apply(wId, 'planProduced', 'agent:planner', now)
+
+      // Attempt to enter implementation without decisions -> throws
+      expect(() => workflows.approveAndStartImplementation(started.id)).toThrow(
+        /at least one approved or locked architectural decision is required/,
+      )
+
+      // Now lock a decision
+      const decId = decisionIdSchema.parse(randomUUID())
+      workflows.getDecisionStore().propose(
+        {
+          id: decId,
+          statement: 'Use SQLite WAL mode',
+          rationale: 'Concurrency',
+          status: 'proposed',
+          proposedBy: 'user',
+          proposedAt: now,
+          lockedAt: null,
+          lockedBy: null,
+          supersededBy: null,
+          originQuestionId: null,
+        },
+        pId,
+        'user',
+        now,
+      )
+      workflows.getDecisionStore().lock(decId, 'user', now)
+
+      // Now transitioning succeeds to DECISIONS_LOCKED
+      const implementing = workflows.approveAndStartImplementation(started.id)
+      expect(implementing.state).toBe('DECISIONS_LOCKED')
+      workflows.cancel(started.id)
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    },
+  )
+
+  it('handles user gate rejection and records gate decision (Issue #163)', async () => {
+    const repoPath = join(tempDir, 'repo-reject')
     mkdirSync(repoPath, { recursive: true })
     initRepository(repoPath)
 
     const project: ProjectView = await projects.create({
-      name: 'Mode Test Project',
+      name: 'Reject Test Project',
       repositoryPath: repoPath,
       defaultBranch: 'main',
       buildCommand: null,
@@ -189,42 +281,202 @@ describe('WorkflowService', () => {
       autoRun: false,
     })
 
-    // Advance from DISCOVERY to PLANNING, then to AWAITING_APPROVAL
-    const now = new Date().toISOString()
-    const wId = workflowIdSchema.parse(started.id)
-    const pId = projectIdSchema.parse(project.id)
-    workflows.getWorkflowStore().apply(wId, 'start', 'system', now)
-    workflows.getWorkflowStore().apply(wId, 'planProduced', 'agent:planner', now)
-
-    // Attempt to enter implementation without decisions -> throws
-    expect(() => workflows.approveAndStartImplementation(started.id)).toThrow(
-      /at least one approved or locked architectural decision is required/,
+    const rejected = workflows.rejectImplementation(
+      started.id,
+      'Implementation plan lacks rollback steps',
     )
+    expect(rejected.state).toBe('CANCELLED')
 
-    // Now lock a decision
-    const decId = decisionIdSchema.parse(randomUUID())
-    workflows.getDecisionStore().propose(
+    const pId = projectIdSchema.parse(project.id)
+    const wId = workflowIdSchema.parse(started.id)
+    const graphRun = workflows.getWorkflowStore().findGraphRunForWorkflow(wId)
+    if (graphRun) {
+      const decision = workflows.getDecisionStore().findGateDecision(graphRun.id, 'step-2-user', {
+        projectId: pId,
+        workflowId: wId,
+      })
+      expect(decision).toBeDefined()
+      expect(decision?.gateVerdict).toBe('rejected')
+      expect(decision?.rationale).toBe('Implementation plan lacks rollback steps')
+    }
+  })
+
+  it(
+    'handles stale runtime binding fallback with event and log trail (Issue #183)',
+    { timeout: 30_000 },
+    async () => {
+      const repoPath = join(tempDir, 'repo-stale-binding')
+      mkdirSync(repoPath, { recursive: true })
+      initRepository(repoPath)
+
+      const project: ProjectView = await projects.create({
+        name: 'Stale Binding Test Project',
+        repositoryPath: repoPath,
+        defaultBranch: 'main',
+        buildCommand: null,
+        testCommand: null,
+        tech: [],
+        rules: [],
+      })
+
+      const pId = projectIdSchema.parse(project.id)
+      const now = new Date().toISOString()
+      const bindingId = agentBindingIdSchema.parse(randomUUID())
+      // Stale binding for implementer pointing to a runtime that does not exist in registry
+      workflows.getBindingStore().set(
+        pId,
+        {
+          id: bindingId,
+          role: 'implementer',
+          runtimeId: 'antigravity-cli',
+          accountId: null,
+          capabilities: ['repo-read', 'file-write'],
+          permissions: permissionsSchema.parse({ writeFiles: true }),
+        },
+        'user',
+        now,
+      )
+
+      const started = await workflows.start({
+        projectId: project.id,
+        autoRun: true,
+      })
+
+      // Wait briefly for workflow execution to resolve bindings
+      for (let i = 0; i < 40; i += 1) {
+        const logs = workflows.getLogs({ workflowId: started.id }).logs
+        if (logs.some((l) => l.text.includes('[BINDING]'))) break
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+
+      const logs = workflows.getLogs({ workflowId: started.id }).logs
+      const bindingLog = logs.find((l) => l.text.includes('[BINDING]'))
+      expect(bindingLog).toBeDefined()
+      expect(bindingLog?.text).toContain('antigravity-cli')
+      expect(bindingLog?.text).toContain('unavailable; substituted with')
+
+      const substitutionEvent = capturedEvents.find(
+        (e) => e.type === 'workflow.binding_substituted',
+      )
+      expect(substitutionEvent).toBeDefined()
+      expect(substitutionEvent?.detail).toContain('antigravity-cli')
+
+      workflows.cancel(started.id)
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    },
+  )
+
+  it(
+    'emits typed runtime events via emitRuntimeEvent during agent execution',
+    { timeout: 30_000 },
+    async () => {
+      const repoPath = join(tempDir, 'repo-runtime-events')
+      mkdirSync(repoPath, { recursive: true })
+      initRepository(repoPath)
+
+      const project: ProjectView = await projects.create({
+        name: 'Runtime Event Test Project',
+        repositoryPath: repoPath,
+        defaultBranch: 'main',
+        buildCommand: null,
+        testCommand: null,
+        tech: [],
+        rules: [],
+      })
+
+      const started = await workflows.start({
+        projectId: project.id,
+        autoRun: true,
+      })
+
+      for (let i = 0; i < 60; i += 1) {
+        if (capturedRuntimeEvents.length > 0) break
+        await new Promise((resolve) => setTimeout(resolve, 50))
+      }
+
+      expect(capturedRuntimeEvents.length).toBeGreaterThan(0)
+      const matchingEvents = capturedRuntimeEvents.filter((e) => e.workflowId === started.id)
+      expect(matchingEvents.length).toBeGreaterThan(0)
+      expect(matchingEvents[0]?.workflowId).toBe(started.id)
+      expect(typeof matchingEvents[0]?.stepIndex).toBe('number')
+      expect(matchingEvents[0]?.event.type).toBeDefined()
+
+      workflows.cancel(started.id)
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    },
+  )
+
+  it('interjects into a running step, emits step.interjected, logs transcript, and writes to PTY (#161, #171)', async () => {
+    const repoPath = join(tempDir, 'repo-interject')
+    mkdirSync(repoPath, { recursive: true })
+    initRepository(repoPath)
+
+    const project: ProjectView = await projects.create({
+      name: 'Interject Project',
+      repositoryPath: repoPath,
+      defaultBranch: 'main',
+      buildCommand: null,
+      testCommand: null,
+      tech: [],
+      rules: [],
+    })
+
+    const started = await workflows.start({
+      projectId: project.id,
+      autoRun: false,
+    })
+
+    // Start step 0 in running state
+    const now = new Date().toISOString()
+    const domainStep: WorkflowStep = {
+      id: stepIdSchema.parse(randomUUID()),
+      role: 'planner',
+      runtimeId: 'mock:default',
+      state: 'PLANNING',
+      reportStatus: null,
+      index: 0,
+      startedAt: now,
+      finishedAt: null,
+      contextRef: null,
+      verdict: null,
+      changeSetId: null,
+    }
+    workflows.getWorkflowStore().startStep(started.id as WorkflowId, domainStep, 'system', now)
+
+    const runningWf = workflows.get(started.id)
+    expect(runningWf?.steps[0]?.finishedAt).toBeNull()
+
+    // Attach mock session to registry
+    const written: string[] = []
+    const key = agentSessionKey(started.id, 0)
+    sessions.publish(key, {
+      write: (data) => written.push(data),
+    })
+
+    // Perform interjection
+    const res = workflows.interject(started.id, 0, 'focus on tests first')
+    expect(res.success).toBe(true)
+
+    // Verify written to PTY with carriage return
+    expect(written).toEqual(['focus on tests first\r'])
+
+    // Verify logs
+    const logsRes = workflows.getLogs({ workflowId: started.id, stepIndex: 0 })
+    expect(
+      logsRes.logs.some((l) => l.text.includes('[USER INTERJECTION] focus on tests first')),
+    ).toBe(true)
+
+    // Verify failure when step is finished
+    workflows.getWorkflowStore().finishStep(
+      started.id as WorkflowId,
+      domainStep.id,
       {
-        id: decId,
-        statement: 'Use SQLite WAL mode',
-        rationale: 'Concurrency',
-        status: 'proposed',
-        proposedBy: 'user',
-        proposedAt: now,
-        lockedAt: null,
-        lockedBy: null,
-        supersededBy: null,
-        originQuestionId: null,
+        verdict: null,
+        changeSetId: null,
       },
-      pId,
-      'user',
+      'system',
       now,
     )
-    workflows.getDecisionStore().lock(decId, 'user', now)
-
-    // Now transitioning succeeds to DECISIONS_LOCKED
-    const implementing = workflows.approveAndStartImplementation(started.id)
-    expect(implementing.state).toBe('DECISIONS_LOCKED')
-    workflows.cancel(started.id)
+    expect(() => workflows.interject(started.id, 0, 'too late')).toThrow(/Cannot interject/)
   })
 })

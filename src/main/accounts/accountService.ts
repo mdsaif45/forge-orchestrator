@@ -5,7 +5,7 @@ import {
   type Account,
   type AccountStatus,
 } from '@shared/domain'
-import type { AccountView } from '@shared/ipc'
+import type { AccountView } from '@shared/views'
 import type { AccountStore } from '../db/accountStore'
 
 export class AccountService {

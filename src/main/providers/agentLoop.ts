@@ -1,4 +1,4 @@
-import { runTool, TOOL_DEFINITIONS, type ToolContext } from './tools'
+import { isReadOnlyTool, runTool, TOOL_DEFINITIONS, type ToolContext } from './tools'
 import { devModelTracker } from './devModelTracker'
 
 /**
@@ -222,43 +222,107 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentLoop
       toolCalls: completion.toolCalls,
     })
 
-    for (const call of completion.toolCalls) {
-      options.onEvent?.({
-        kind: 'tool-start',
-        name: call.name,
-        args: JSON.stringify(call.args).slice(0, 200),
-      })
-
-      const toolStartTime = Date.now()
-      const result = await runTool(call.name, call.args, options.tools)
-      const toolDurationMs = Date.now() - toolStartTime
-      toolsUsed.push({ name: call.name, ok: result.ok })
-
-      if (completion.callId !== undefined) {
-        devModelTracker.recordToolExecution(completion.callId, {
-          name: call.name,
-          args: call.args,
-          ok: result.ok,
-          output: result.content,
-          durationMs: toolDurationMs,
-        })
+    let i = 0
+    while (i < completion.toolCalls.length) {
+      const call = completion.toolCalls[i]
+      if (!call) {
+        i += 1
+        continue
       }
+      if (isReadOnlyTool(call.name)) {
+        // Collect contiguous read-only tools for concurrent execution (AGENT-003)
+        const batch: ToolCall[] = [call]
+        let j = i + 1
+        while (j < completion.toolCalls.length) {
+          const nextCall = completion.toolCalls[j]
+          if (nextCall && isReadOnlyTool(nextCall.name)) {
+            batch.push(nextCall)
+            j += 1
+          } else {
+            break
+          }
+        }
 
-      options.onEvent?.({
-        kind: 'tool-end',
-        name: call.name,
-        ok: result.ok,
-        summary: summarise(result.content),
-      })
+        for (const c of batch) {
+          options.onEvent?.({
+            kind: 'tool-start',
+            name: c.name,
+            args: JSON.stringify(c.args).slice(0, 200),
+          })
+        }
 
-      // A refusal is fed back as a tool result rather than aborting the turn: the
-      // model can then choose a path it is allowed to take, which is the whole
-      // point of explaining why it was refused.
-      conversation.push({
-        role: 'tool',
-        content: result.content,
-        toolCallId: call.id,
-      })
+        const batchStartTimes = batch.map(() => Date.now())
+        const results = await Promise.all(batch.map((c) => runTool(c.name, c.args, options.tools)))
+        const batchDurations = batchStartTimes.map((start) => Date.now() - start)
+
+        for (let k = 0; k < batch.length; k += 1) {
+          const c = batch[k]
+          const result = results[k]
+          const duration = batchDurations[k] ?? 0
+          if (c && result) {
+            toolsUsed.push({ name: c.name, ok: result.ok })
+            if (completion.callId !== undefined) {
+              devModelTracker.recordToolExecution(completion.callId, {
+                name: c.name,
+                args: c.args,
+                ok: result.ok,
+                output: result.content,
+                durationMs: duration,
+              })
+            }
+            options.onEvent?.({
+              kind: 'tool-end',
+              name: c.name,
+              ok: result.ok,
+              summary: summarise(result.content),
+            })
+            conversation.push({
+              role: 'tool',
+              content: result.content,
+              toolCallId: c.id,
+            })
+          }
+        }
+
+        i = j
+      } else {
+        // Mutating tools (write_file, edit_file, run_command) run sequentially to prevent race conditions
+        options.onEvent?.({
+          kind: 'tool-start',
+          name: call.name,
+          args: JSON.stringify(call.args).slice(0, 200),
+        })
+
+        const toolStartTime = Date.now()
+        const result = await runTool(call.name, call.args, options.tools)
+        const toolDurationMs = Date.now() - toolStartTime
+        toolsUsed.push({ name: call.name, ok: result.ok })
+
+        if (completion.callId !== undefined) {
+          devModelTracker.recordToolExecution(completion.callId, {
+            name: call.name,
+            args: call.args,
+            ok: result.ok,
+            output: result.content,
+            durationMs: toolDurationMs,
+          })
+        }
+
+        options.onEvent?.({
+          kind: 'tool-end',
+          name: call.name,
+          ok: result.ok,
+          summary: summarise(result.content),
+        })
+
+        conversation.push({
+          role: 'tool',
+          content: result.content,
+          toolCallId: call.id,
+        })
+
+        i += 1
+      }
     }
   }
 

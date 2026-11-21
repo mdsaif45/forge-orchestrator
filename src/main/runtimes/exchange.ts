@@ -42,6 +42,7 @@ export type ExchangeOutcome =
       /** True when the first reply was malformed and the retry succeeded. */
       readonly retried: boolean
       readonly transcript: readonly string[]
+      readonly providerSessionId?: string | null | undefined
     }
   | {
       readonly ok: false
@@ -59,6 +60,7 @@ export type ExchangeOutcome =
        */
       readonly providerLimit: boolean
       readonly transcript: readonly string[]
+      readonly providerSessionId?: string | null | undefined
     }
 
 /**
@@ -73,8 +75,16 @@ async function collectTurn(
   events: AsyncIterator<RuntimeEvent>,
   onEvent: ((event: RuntimeEvent) => void) | undefined,
 ): Promise<
-  | { readonly kind: 'report'; readonly report: AgentReport }
-  | { readonly kind: 'text'; readonly text: string }
+  | {
+      readonly kind: 'report'
+      readonly report: AgentReport
+      readonly providerSessionId: string | null
+    }
+  | {
+      readonly kind: 'text'
+      readonly text: string
+      readonly providerSessionId: string | null
+    }
   | {
       readonly kind: 'error'
       readonly message: string
@@ -83,6 +93,7 @@ async function collectTurn(
     }
 > {
   let text = ''
+  let providerSessionId: string | null = null
   // A session emits `idle` when it starts, before any instruction has been sent, and that
   // queued event is still in the stream when the first turn begins. Ending on it would cut
   // turn one short with no output at all, so `idle` only counts once work has been seen.
@@ -91,7 +102,7 @@ async function collectTurn(
   for (;;) {
     const next = await events.next()
     if (next.done === true) {
-      return { kind: 'text', text }
+      return { kind: 'text', text, providerSessionId }
     }
 
     const event = next.value
@@ -112,9 +123,12 @@ async function collectTurn(
       }
 
       case 'result': {
+        if (event.providerSessionId) {
+          providerSessionId = event.providerSessionId
+        }
         // A runtime that already produced a structured report has done the protocol's job
         // for it; there is nothing to extract.
-        return { kind: 'report', report: event.report }
+        return { kind: 'report', report: event.report, providerSessionId }
       }
 
       case 'error': {
@@ -127,6 +141,9 @@ async function collectTurn(
       }
 
       case 'state': {
+        if (event.providerSessionId) {
+          providerSessionId = event.providerSessionId
+        }
         if (event.state === 'working') {
           working = true
           break
@@ -137,7 +154,7 @@ async function collectTurn(
         // alive across steps never reaches `completed`, so waiting only for terminal states
         // would hang on exactly the runtimes that support multi-step work.
         if (event.state === 'idle') {
-          if (working) return { kind: 'text', text }
+          if (working) return { kind: 'text', text, providerSessionId }
           break
         }
 
@@ -146,7 +163,7 @@ async function collectTurn(
           event.state === 'failed' ||
           event.state === 'cancelled'
         ) {
-          return { kind: 'text', text }
+          return { kind: 'text', text, providerSessionId }
         }
         break
       }
@@ -230,6 +247,7 @@ export async function exchange(
         assessment: assessReport(turn.report),
         retried: correction !== null,
         transcript,
+        providerSessionId: turn.providerSessionId,
       }
     }
 
@@ -315,6 +333,7 @@ export async function exchange(
         assessment: assessReport(parsed.report),
         retried: correction !== null,
         transcript,
+        providerSessionId: turn.providerSessionId,
       }
     }
 
@@ -354,6 +373,7 @@ export async function exchange(
           assessment: assessReport(unreportedReport),
           retried: true,
           transcript,
+          providerSessionId: turn.providerSessionId,
         }
       }
 
@@ -365,6 +385,7 @@ export async function exchange(
         retried: true,
         providerLimit: false,
         transcript,
+        providerSessionId: turn.providerSessionId,
       }
     }
 

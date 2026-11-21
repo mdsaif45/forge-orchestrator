@@ -1,7 +1,9 @@
 export {
   ProcessManager,
+  rotateLogFile,
   type ProcessHandle,
   type ProcessManagerOptions,
+  type ProcessMetrics,
   type ProcessOutcome,
   type ProcessOutcomeReason,
   type SpawnRequest,
@@ -17,3 +19,5 @@ export {
   stripAnsi,
   withheldEnvNames,
 } from './redact'
+
+export { accountEnv } from './accountEnv'

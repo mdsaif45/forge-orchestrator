@@ -1,5 +1,16 @@
 import { z } from 'zod'
-import { evidenceIdSchema, stepIdSchema, timestampSchema, workflowIdSchema } from './ids'
+import {
+  actorSchema,
+  evidenceIdSchema,
+  shaSchema,
+  stepIdSchema,
+  taskIdSchema,
+  timestampSchema,
+  workflowIdSchema,
+} from './ids'
+import { verdictSchema } from './enums'
+import { changeSetSchema, discrepancySchema } from './changeset'
+import { criterionResultSchema } from './criterion'
 
 /**
  * Why a command run ended.
@@ -100,7 +111,14 @@ export type EvidenceArtifact = z.infer<typeof evidenceArtifactSchema>
  * boolean an agent could influence.
  */
 export function evidencePassed(artifact: EvidenceArtifact): boolean {
-  return artifact.outcome === 'completed' && artifact.exitCode === 0
+  if (artifact.outcome !== 'completed' || artifact.exitCode !== 0) {
+    return false
+  }
+  // Contradictory evidence: process exited 0, but parsed test counts report test failures
+  if (artifact.counts !== null && artifact.counts.failed !== null && artifact.counts.failed > 0) {
+    return false
+  }
+  return true
 }
 
 /**
@@ -112,7 +130,9 @@ export function summariseEvidence(artifact: EvidenceArtifact): string {
   const verdict = evidencePassed(artifact) ? 'PASS' : 'FAIL'
   const detail =
     artifact.outcome === 'completed'
-      ? `exit ${String(artifact.exitCode)}`
+      ? artifact.exitCode === 0 && artifact.counts?.failed && artifact.counts.failed > 0
+        ? `exit 0 with ${String(artifact.counts.failed)} failed test(s)`
+        : `exit ${String(artifact.exitCode)}`
       : `${artifact.outcome}: ${artifact.failure ?? 'no detail'}`
 
   const counts = artifact.counts
@@ -143,6 +163,12 @@ export function evidenceFindings(artifact: EvidenceArtifact): readonly string[] 
     ]
   }
 
+  if (artifact.exitCode === 0 && artifact.counts?.failed && artifact.counts.failed > 0) {
+    return [
+      `The ${artifact.kind} command \`${artifact.command}\` exited 0, but reported ${String(artifact.counts.failed)} failed test(s). Fix the test failures rather than masking exit codes. Output:\n${tail}`,
+    ]
+  }
+
   return [
     `The ${artifact.kind} command \`${artifact.command}\` failed with exit code ${String(artifact.exitCode)}. Fix the cause; do not change the command. Output:\n${tail}`,
   ]
@@ -153,4 +179,53 @@ function lastLines(text: string, count: number): string {
   const lines = text.split('\n')
   if (lines.length <= count) return text
   return `... (${String(lines.length - count)} earlier lines omitted)\n${lines.slice(-count).join('\n')}`
+}
+
+/**
+ * Authoritative evidence record for an agent execution step or standalone task.
+ *
+ * Implements EVIDENCE-001: separating Creation, Persistence, Verification, and Presentation.
+ * Combines:
+ * 1. Physical git modifications (`changeSet`) measured against baseline git snapshot
+ * 2. Independent command execution records (`commandArtifacts`: build, test, lint)
+ * 3. Ground-truth reconciliation discrepancies (`discrepancies`)
+ * 4. Authoritative verification verdict and findings (`verdict`, `passed`, `findings`, `falseClaims`)
+ */
+export const stepEvidenceSchema = z.strictObject({
+  id: evidenceIdSchema,
+  taskId: taskIdSchema,
+  stepId: stepIdSchema,
+  workflowId: workflowIdSchema.nullable(),
+  actor: actorSchema,
+  baseSha: shaSchema,
+  headSha: shaSchema.nullable(),
+  changeSet: changeSetSchema.nullable(),
+  commandArtifacts: z.array(evidenceArtifactSchema).readonly(),
+  criteria: z.array(criterionResultSchema).readonly().default([]),
+  discrepancies: z.array(discrepancySchema).readonly(),
+  passed: z.boolean(),
+  verdict: verdictSchema,
+  findings: z.array(z.string()).readonly(),
+  falseClaims: z.array(z.string()).readonly(),
+  recordedAt: timestampSchema,
+})
+
+export type StepEvidence = z.infer<typeof stepEvidenceSchema>
+
+/** True when the step evidence demonstrates a clean pass with no discrepancies or test failures. */
+export function isStepEvidencePassing(evidence: StepEvidence): boolean {
+  return evidence.passed && evidence.verdict === 'pass' && evidence.discrepancies.length === 0
+}
+
+/** Summarises step evidence for human-readable logs and CLI reports. */
+export function summariseStepEvidence(evidence: StepEvidence): string {
+  const verdict = evidence.verdict.toUpperCase()
+  const filesCount = evidence.changeSet !== null ? evidence.changeSet.files.length : 0
+  const discCount = evidence.discrepancies.length
+  const discStr = discCount > 0 ? `, ${String(discCount)} discrepancy(ies)` : ''
+  const cmdsCount = evidence.commandArtifacts.length
+  const cmdsStr = cmdsCount > 0 ? `, ${String(cmdsCount)} command artifact(s)` : ''
+  const critCount = evidence.criteria.length
+  const critStr = critCount > 0 ? `, ${String(critCount)} criterion(a)` : ''
+  return `[${verdict}] ${String(filesCount)} file(s) changed${discStr}${cmdsStr}${critStr}`
 }

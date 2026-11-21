@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { AntigravityCliRuntime } from './antigravityCliRuntime'
 import type { ProcessRunner } from './claudeCliRuntime'
-import { promptPacketSchema } from '@shared/domain'
+import { promptPacketSchema, type RuntimeEvent } from '@shared/domain'
 
 describe('AntigravityCliRuntime Adapter (#25)', () => {
   it('initializes with full capabilities and starts a session', async () => {
@@ -272,5 +272,131 @@ describe('the agy result envelope', () => {
     expect(text.match(/FORGE_REPORT_BEGIN/g)).toHaveLength(1)
     expect(text).toContain('FORGE_REPORT_BEGIN\n{\n  "status": "completed"')
     expect(text).not.toContain('\\"status\\"')
+  })
+
+  it('passes --conversation when resumeSessionId is configured (#157, #158)', async () => {
+    let capturedArgs: readonly string[] = []
+    const runner: ProcessRunner = (_cmd, args, options) => {
+      capturedArgs = args
+      options.onStdout?.(
+        JSON.stringify({
+          status: 'SUCCESS',
+          response: 'Resumed antigravity conversation',
+          conversation_id: 'agy-conv-789',
+        }),
+      )
+      return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' })
+    }
+
+    const runtime = new AntigravityCliRuntime({ runner })
+    const session = await runtime.start({
+      repositoryPath: 'd:/repo',
+      role: 'planner',
+      resumeSessionId: 'agy-conv-789',
+    })
+
+    await runtime.send(
+      session,
+      promptPacketSchema.parse({
+        role: 'planner',
+        objective: 'Continue plan',
+        constraints: [],
+        rules: [],
+        lockedDecisions: [],
+        allowedPaths: [],
+        forbiddenPaths: [],
+        relevantFiles: [],
+        reviewFindings: [],
+        previousAttempt: null,
+        completionCriteria: [],
+        answeredQuestions: [],
+      }),
+    )
+
+    const events = []
+    for await (const event of runtime.events(session)) {
+      events.push(event)
+      if (event.type === 'state' && event.state === 'completed') break
+    }
+
+    expect(capturedArgs).toContain('--conversation=agy-conv-789')
+
+    const completed = events.find(
+      (e): e is Extract<RuntimeEvent, { type: 'state' }> =>
+        e.type === 'state' && e.state === 'completed',
+    )
+    expect(completed).toBeDefined()
+    expect(completed?.providerSessionId).toBe('agy-conv-789')
+    await runtime.dispose(session)
+  })
+
+  it('falls back to cold start when provider rejects conversation (#157, #158)', async () => {
+    const invocations: (readonly string[])[] = []
+    const runner: ProcessRunner = (_cmd, args, options) => {
+      invocations.push(args)
+      if (args.some((a) => a.startsWith('--conversation='))) {
+        return Promise.resolve({
+          exitCode: 1,
+          stdout: '',
+          stderr: 'Error: conversation not found or expired',
+        })
+      }
+      options.onStdout?.(
+        JSON.stringify({
+          status: 'SUCCESS',
+          response: 'Cold start successful',
+          conversation_id: 'agy-conv-fresh',
+        }),
+      )
+      return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' })
+    }
+
+    const runtime = new AntigravityCliRuntime({ runner })
+    const session = await runtime.start({
+      repositoryPath: 'd:/repo',
+      role: 'planner',
+      resumeSessionId: 'dead-conv-id',
+    })
+
+    await runtime.send(
+      session,
+      promptPacketSchema.parse({
+        role: 'planner',
+        objective: 'Retry after rejection',
+        constraints: [],
+        rules: [],
+        lockedDecisions: [],
+        allowedPaths: [],
+        forbiddenPaths: [],
+        relevantFiles: [],
+        reviewFindings: [],
+        previousAttempt: null,
+        completionCriteria: [],
+        answeredQuestions: [],
+      }),
+    )
+
+    const events = []
+    for await (const event of runtime.events(session)) {
+      events.push(event)
+      if (event.type === 'state' && event.state === 'completed') break
+    }
+
+    expect(invocations).toHaveLength(2)
+    expect(invocations[0]?.some((a) => a.startsWith('--conversation='))).toBe(true)
+    expect(invocations[1]?.some((a) => a.startsWith('--conversation='))).toBe(false)
+
+    const fallbackChunk = events.find(
+      (e) =>
+        e.type === 'chunk' && e.text.includes('Conversation rejected; falling back to cold start'),
+    )
+    expect(fallbackChunk).toBeDefined()
+
+    const completed = events.find(
+      (e): e is Extract<RuntimeEvent, { type: 'state' }> =>
+        e.type === 'state' && e.state === 'completed',
+    )
+    expect(completed?.providerSessionId).toBe('agy-conv-fresh')
+    await runtime.dispose(session)
   })
 })

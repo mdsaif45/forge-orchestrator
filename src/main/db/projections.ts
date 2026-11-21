@@ -1,12 +1,18 @@
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { DomainEvent, EventPayloads, EventType, ProjectId } from '@shared/domain'
 import type { ForgeDatabase } from './connection'
 import {
   accounts,
   agentBindings,
+  agentInstances,
   changeSets,
+  customRuntimes,
   decisions,
   evidenceArtifacts,
+  graphCheckpoints,
+  graphNodeRuns,
+  graphRuns,
+  graphTransitions,
   openQuestions,
   projects,
   repositories,
@@ -386,6 +392,10 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
         lockedBy: d.lockedBy,
         supersededBy: d.supersededBy,
         originQuestionId: d.originQuestionId,
+        workflowId: d.workflowId ?? null,
+        graphRunId: d.graphRunId ?? null,
+        nodeId: d.nodeId ?? null,
+        gateVerdict: d.gateVerdict ?? null,
       })
       .onConflictDoUpdate({
         target: decisions.id,
@@ -399,6 +409,10 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
           lockedBy: d.lockedBy,
           supersededBy: d.supersededBy,
           originQuestionId: d.originQuestionId,
+          workflowId: d.workflowId ?? null,
+          graphRunId: d.graphRunId ?? null,
+          nodeId: d.nodeId ?? null,
+          gateVerdict: d.gateVerdict ?? null,
         },
       })
       .run()
@@ -531,6 +545,89 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
     return
   }
 
+  if (isType(event, 'agent_instance.created')) {
+    const inst = event.payload.agentInstance
+    db.insert(agentInstances)
+      .values({
+        id: inst.id,
+        projectId: inst.projectId,
+        name: inst.name,
+        label: inst.label,
+        provider: inst.provider,
+        accountId: inst.accountId,
+        role: inst.role,
+        createdAt: inst.createdAt,
+        updatedAt: inst.updatedAt,
+      })
+      .onConflictDoUpdate({
+        target: agentInstances.id,
+        set: {
+          name: inst.name,
+          label: inst.label,
+          provider: inst.provider,
+          accountId: inst.accountId,
+          role: inst.role,
+          updatedAt: inst.updatedAt,
+        },
+      })
+      .run()
+    return
+  }
+
+  if (isType(event, 'agent_instance.updated')) {
+    const payload = event.payload
+    db.update(agentInstances)
+      .set({
+        label: payload.label,
+        updatedAt: payload.updatedAt,
+      })
+      .where(eq(agentInstances.id, payload.id))
+      .run()
+    return
+  }
+
+  if (isType(event, 'agent_instance.removed')) {
+    db.delete(agentInstances).where(eq(agentInstances.id, event.payload.id)).run()
+    return
+  }
+
+  if (isType(event, 'custom_runtime.created')) {
+    const r = event.payload
+    db.insert(customRuntimes)
+      .values({
+        id: r.id,
+        slug: r.slug,
+        name: r.name,
+        command: r.command,
+        argsTemplate: r.argsTemplate ?? null,
+        capabilities: JSON.stringify(r.capabilities),
+        permissionMode: r.permissionMode,
+        instructionFilenames: JSON.stringify(r.instructionFilenames),
+        env: r.env ? JSON.stringify(r.env) : null,
+        createdAt: r.createdAt,
+      })
+      .onConflictDoUpdate({
+        target: customRuntimes.id,
+        set: {
+          slug: r.slug,
+          name: r.name,
+          command: r.command,
+          argsTemplate: r.argsTemplate ?? null,
+          capabilities: JSON.stringify(r.capabilities),
+          permissionMode: r.permissionMode,
+          instructionFilenames: JSON.stringify(r.instructionFilenames),
+          env: r.env ? JSON.stringify(r.env) : null,
+        },
+      })
+      .run()
+    return
+  }
+
+  if (isType(event, 'custom_runtime.removed')) {
+    db.delete(customRuntimes).where(eq(customRuntimes.id, event.payload.id)).run()
+    return
+  }
+
   if (isType(event, 'binding.set')) {
     const b = event.payload.binding
     // Conflict on (project, role) rather than on the id: a role has exactly one
@@ -561,6 +658,180 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
     return
   }
 
+  if (isType(event, 'graph.started')) {
+    db.insert(graphRuns)
+      .values({
+        id: event.payload.graphRunId,
+        projectId: event.projectId,
+        workflowId: event.payload.workflowId,
+        templateId: event.payload.templateId,
+        status: 'running',
+        iteration: 1,
+        startedAt: event.payload.startedAt,
+      })
+      .onConflictDoUpdate({
+        target: graphRuns.id,
+        set: {
+          projectId: event.projectId,
+          templateId: event.payload.templateId,
+          startedAt: event.payload.startedAt,
+        },
+      })
+      .run()
+    return
+  }
+
+  if (isType(event, 'graph.status_updated')) {
+    const payload = event.payload
+    const updateData: {
+      status: string
+      iteration?: number
+      haltReason?: string | null
+      finishedAt?: string | null
+      error?: string | null
+    } = {
+      status: payload.status,
+    }
+    if (payload.iteration !== undefined) {
+      updateData.iteration = payload.iteration
+    }
+    if (payload.haltReason !== undefined) {
+      updateData.haltReason = payload.haltReason
+    }
+    if (payload.finishedAt !== undefined) {
+      updateData.finishedAt = payload.finishedAt
+    }
+    if (payload.error !== undefined) {
+      updateData.error = payload.error
+    }
+    db.update(graphRuns).set(updateData).where(eq(graphRuns.id, payload.graphRunId)).run()
+    return
+  }
+
+  if (isType(event, 'graph.checkpointed')) {
+    db.insert(graphCheckpoints)
+      .values({
+        id: event.payload.id,
+        graphRunId: event.payload.graphRunId,
+        nodeId: event.payload.nodeId,
+        operation: event.payload.operation,
+        stateSnapshot: JSON.stringify(event.payload.stateSnapshot),
+        occurredAt: event.payload.occurredAt,
+      })
+      .onConflictDoUpdate({
+        target: graphCheckpoints.id,
+        set: {
+          nodeId: event.payload.nodeId,
+          operation: event.payload.operation,
+          stateSnapshot: JSON.stringify(event.payload.stateSnapshot),
+          occurredAt: event.payload.occurredAt,
+        },
+      })
+      .run()
+    return
+  }
+
+  if (isType(event, 'graph_node.attempt_started')) {
+    db.insert(graphNodeRuns)
+      .values({
+        id: event.payload.id,
+        graphRunId: event.payload.graphRunId,
+        nodeId: event.payload.nodeId,
+        attempt: event.payload.attempt,
+        iteration: event.payload.iteration,
+        status: event.payload.status,
+        role: event.payload.role ?? null,
+        runtimeId: event.payload.runtimeId ?? null,
+        contextRef: event.payload.contextRef ?? null,
+        startedAt: event.payload.startedAt,
+      })
+      .onConflictDoUpdate({
+        target: [graphNodeRuns.graphRunId, graphNodeRuns.nodeId, graphNodeRuns.attempt],
+        set: {
+          iteration: event.payload.iteration,
+          status: event.payload.status,
+          role: event.payload.role ?? null,
+          runtimeId: event.payload.runtimeId ?? null,
+          contextRef: event.payload.contextRef ?? null,
+          startedAt: event.payload.startedAt,
+        },
+      })
+      .run()
+    return
+  }
+
+  if (isType(event, 'graph_node.attempt_updated')) {
+    const payload = event.payload
+    const updateData: {
+      status: string
+      changeSetId?: string | null
+      evidenceId?: string | null
+      finishedAt?: string | null
+      error?: string | null
+      runtimeId?: string | null
+    } = {
+      status: payload.status,
+    }
+    if (payload.changeSetId !== undefined) {
+      updateData.changeSetId = payload.changeSetId
+    }
+    if (payload.evidenceId !== undefined) {
+      updateData.evidenceId = payload.evidenceId
+    }
+    if (payload.finishedAt !== undefined) {
+      updateData.finishedAt = payload.finishedAt
+    }
+    if (payload.error !== undefined) {
+      updateData.error = payload.error
+    }
+    if (payload.runtimeId !== undefined) {
+      updateData.runtimeId = payload.runtimeId
+    }
+    db.update(graphNodeRuns)
+      .set(updateData)
+      .where(
+        and(
+          eq(graphNodeRuns.graphRunId, payload.graphRunId),
+          eq(graphNodeRuns.nodeId, payload.nodeId),
+          eq(graphNodeRuns.attempt, payload.attempt),
+        ),
+      )
+      .run()
+    return
+  }
+
+  if (isType(event, 'graph.iteration_advanced')) {
+    const payload = event.payload
+    db.update(graphRuns)
+      .set({ iteration: payload.toIteration })
+      .where(eq(graphRuns.id, payload.graphRunId))
+      .run()
+
+    db.insert(graphTransitions)
+      .values({
+        id: payload.transitionId,
+        graphRunId: payload.graphRunId,
+        sourceNodeId: payload.sourceNodeId,
+        sourceAttempt: payload.sourceAttempt,
+        targetNodeId: payload.targetNodeId,
+        targetAttempt: payload.targetAttempt,
+        fromIteration: payload.fromIteration,
+        toIteration: payload.toIteration,
+        checkpointId: payload.checkpointId ?? null,
+        occurredAt: payload.occurredAt,
+      })
+      .onConflictDoUpdate({
+        target: graphTransitions.id,
+        set: {
+          targetAttempt: payload.targetAttempt,
+          checkpointId: payload.checkpointId ?? null,
+          occurredAt: payload.occurredAt,
+        },
+      })
+      .run()
+    return
+  }
+
   // Everything else is recorded in the log but has no read model yet. This is a
   // deliberate no-op rather than an error: the events are still replayable, and
   // their projections arrive with the features that read them.
@@ -573,7 +844,9 @@ export function applyEvent(db: ForgeDatabase, event: DomainEvent): void {
  * Event types that are logged now and projected later, with the issue that will
  * do it. Listing them explicitly means a genuinely unknown type still throws.
  */
-const PROJECTED_LATER: ReadonlySet<EventType> = new Set([])
+const PROJECTED_LATER: ReadonlySet<EventType> = new Set([
+  'step.interjected', // Issue #171: user interjection recorded in log, projected into step transcript
+])
 
 /**
  * Rebuilds every read model for a project from its events.

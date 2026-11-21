@@ -392,3 +392,191 @@ describe('combining criteria', () => {
     expect(assessment.results.every((result) => result.reason.length > 0)).toBe(true)
   })
 })
+
+describe('extended declarative criteria evaluators (CRIT-002)', () => {
+  describe('file-forbidden', () => {
+    it('passes when no changed files match forbidden patterns', () => {
+      const assessment = assessCompletion({
+        task: task([
+          criterion({
+            kind: 'file-forbidden',
+            description: 'forbidden config files are not modified',
+            params: { patterns: ['*.env*', '.env', 'package-lock.json'] },
+          }),
+        ]),
+        evidence: [],
+        changedFiles: [
+          {
+            path: 'src/main.ts',
+            changeType: 'modified',
+            previousPath: null,
+            insertions: 5,
+            deletions: 2,
+          },
+        ],
+      })
+
+      expect(assessment.verdict).toBe('pass')
+      expect(assessment.results[0]?.reason).toContain('No changed files match')
+    })
+
+    it('fails when a changed file matches a forbidden pattern', () => {
+      const assessment = assessCompletion({
+        task: task([
+          criterion({
+            kind: 'file-forbidden',
+            description: 'forbidden config files are not modified',
+            params: { patterns: ['*.env*'] },
+          }),
+        ]),
+        evidence: [],
+        changedFiles: [
+          {
+            path: '.env.production',
+            changeType: 'modified',
+            previousPath: null,
+            insertions: 1,
+            deletions: 0,
+          },
+        ],
+      })
+
+      expect(assessment.verdict).toBe('fail')
+      expect(assessment.results[0]?.reason).toContain('.env.production')
+    })
+
+    it('returns unknown when no diff was captured', () => {
+      const assessment = assessCompletion({
+        task: task([
+          criterion({
+            kind: 'file-forbidden',
+            description: 'forbidden files check',
+            params: { patterns: ['*.key'] },
+          }),
+        ]),
+        evidence: [],
+      })
+
+      expect(assessment.verdict).toBe('unknown')
+      expect(assessment.results[0]?.reason).toContain('diff was not captured')
+    })
+  })
+
+  describe('max-diff-lines', () => {
+    it('passes when diff lines are within ceiling', () => {
+      const assessment = assessCompletion({
+        task: task([
+          criterion({
+            kind: 'max-diff-lines',
+            description: 'diff is compact',
+            params: { maxLines: 50 },
+          }),
+        ]),
+        evidence: [],
+        changedFiles: [
+          {
+            path: 'src/index.ts',
+            changeType: 'modified',
+            previousPath: null,
+            insertions: 20,
+            deletions: 10,
+          },
+        ],
+      })
+
+      expect(assessment.verdict).toBe('pass')
+      expect(assessment.results[0]?.reason).toContain('within allowed limit of 50')
+    })
+
+    it('fails when diff lines exceed ceiling', () => {
+      const assessment = assessCompletion({
+        task: task([
+          criterion({
+            kind: 'max-diff-lines',
+            description: 'diff is compact',
+            params: { maxLines: 25 },
+          }),
+        ]),
+        evidence: [],
+        changedFiles: [
+          {
+            path: 'src/index.ts',
+            changeType: 'modified',
+            previousPath: null,
+            insertions: 20,
+            deletions: 10,
+          },
+        ],
+      })
+
+      expect(assessment.verdict).toBe('fail')
+      expect(assessment.results[0]?.reason).toContain('exceeded ceiling of 25')
+    })
+  })
+
+  describe('artifact-regex', () => {
+    it('passes when expected regex matches in evidence artifact stdout', () => {
+      const assessment = assessCompletion({
+        task: task([
+          criterion({
+            kind: 'artifact-regex',
+            description: 'test report shows 0 failed',
+            params: { pattern: '0 failed', artifactKind: 'tests', mustMatch: true },
+          }),
+        ]),
+        evidence: [
+          artifact({
+            kind: 'tests',
+            stdout: 'Tests: 15 passed, 0 failed, 15 total',
+          }),
+        ],
+      })
+
+      expect(assessment.verdict).toBe('pass')
+      expect(assessment.results[0]?.reason).toContain('matched in evidence artifact')
+    })
+
+    it('fails when expected regex does not match in evidence artifact', () => {
+      const assessment = assessCompletion({
+        task: task([
+          criterion({
+            kind: 'artifact-regex',
+            description: 'test report shows 0 failed',
+            params: { pattern: '0 failed', artifactKind: 'tests', mustMatch: true },
+          }),
+        ]),
+        evidence: [
+          artifact({
+            kind: 'tests',
+            stdout: 'Tests: 12 passed, 3 failed, 15 total',
+          }),
+        ],
+      })
+
+      expect(assessment.verdict).toBe('fail')
+      expect(assessment.results[0]?.reason).toContain('was not found')
+    })
+
+    it('fails when forbidden pattern is detected with mustMatch: false', () => {
+      const assessment = assessCompletion({
+        task: task([
+          criterion({
+            kind: 'artifact-regex',
+            description: 'no memory leaks reported',
+            params: { pattern: 'FATAL ERROR:.*heap out of memory', mustMatch: false },
+          }),
+        ]),
+        evidence: [
+          artifact({
+            kind: 'tests',
+            stderr:
+              'FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory',
+          }),
+        ],
+      })
+
+      expect(assessment.verdict).toBe('fail')
+      expect(assessment.results[0]?.reason).toContain('Forbidden pattern')
+    })
+  })
+})

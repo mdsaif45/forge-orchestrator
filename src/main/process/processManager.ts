@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { accessSync, constants } from 'node:fs'
-import { appendFile, mkdir } from 'node:fs/promises'
+import { appendFile, mkdir, rename, stat } from 'node:fs/promises'
 import { delimiter, isAbsolute, join } from 'node:path'
 import { spawn as spawnPty, type IPty } from 'node-pty'
 import type { OrphanTracker } from './orphans'
@@ -82,6 +82,8 @@ export interface SpawnRequest {
   readonly env?: Readonly<Record<string, string>>
   /** No output for this long ends the run. This is the hang detector. */
   readonly idleTimeoutMs?: number
+  /** Watchdog heartbeat ceiling. If no output is produced within this window, process is terminated. */
+  readonly heartbeatTimeoutMs?: number
   /** Total wall-clock ceiling for the run. */
   readonly hardTimeoutMs?: number
   readonly cols?: number
@@ -91,6 +93,20 @@ export interface SpawnRequest {
 /** Why a run ended. Distinguishing these is what lets the engine decide about retries. */
 export type ProcessOutcomeReason =
   'exited' | 'cancelled' | 'idle-timeout' | 'hard-timeout' | 'spawn-failed'
+
+export interface ProcessMetrics {
+  readonly runId: string
+  readonly pid: number | null
+  readonly command: string
+  readonly args: readonly string[]
+  readonly status: 'running' | 'completed'
+  readonly startedAt: number
+  readonly durationMs: number
+  readonly outputBytes: number
+  readonly lastDataAt: number
+  readonly outcomeReason?: ProcessOutcomeReason
+  readonly exitCode?: number | null
+}
 
 export interface ProcessOutcome {
   readonly runId: string
@@ -235,6 +251,8 @@ export class ProcessManager {
 
   private readonly running = new Map<string, Run>()
   private readonly queue: (() => void)[] = []
+  private readonly recentCompleted: ProcessMetrics[] = []
+  private readonly maxRecentCompleted = 50
   private counter = 0
   private disposed = false
 
@@ -253,6 +271,43 @@ export class ProcessManager {
 
   get queuedCount(): number {
     return this.queue.length
+  }
+
+  /** Retrieves execution metrics for a running or recently completed process. */
+  getMetrics(runId: string): ProcessMetrics | null {
+    const active = this.running.get(runId)
+    if (active !== undefined) {
+      return {
+        runId: active.runId,
+        pid: active.pty?.pid ?? null,
+        command: active.request.command,
+        args: active.request.args,
+        status: 'running',
+        startedAt: active.startedAt,
+        durationMs: this.now() - active.startedAt,
+        outputBytes: active.outputBytes,
+        lastDataAt: active.lastDataAt,
+      }
+    }
+
+    return this.recentCompleted.find((m) => m.runId === runId) ?? null
+  }
+
+  /** Lists metrics for all active and recently completed processes. */
+  listMetrics(): readonly ProcessMetrics[] {
+    const activeList: ProcessMetrics[] = Array.from(this.running.values()).map((active) => ({
+      runId: active.runId,
+      pid: active.pty?.pid ?? null,
+      command: active.request.command,
+      args: active.request.args,
+      status: 'running' as const,
+      startedAt: active.startedAt,
+      durationMs: this.now() - active.startedAt,
+      outputBytes: active.outputBytes,
+      lastDataAt: active.lastDataAt,
+    }))
+
+    return [...activeList, ...this.recentCompleted]
   }
 
   /**
@@ -436,7 +491,7 @@ export class ProcessManager {
   }
 
   private armIdleTimer(run: Run): void {
-    const idle = run.request.idleTimeoutMs
+    const idle = run.request.idleTimeoutMs ?? run.request.heartbeatTimeoutMs
     if (idle === undefined) return
 
     if (run.idleTimer !== null) clearTimeout(run.idleTimer)
@@ -444,7 +499,11 @@ export class ProcessManager {
       // The definition of done: a hung process is killed and reported, never silently
       // stuck. A run that produces nothing for this long is treated as hung even
       // though the process is technically alive.
-      void this.terminate(run, 'idle-timeout', `no output for ${String(idle)}ms`)
+      const msg =
+        run.request.heartbeatTimeoutMs !== undefined
+          ? `heartbeat timeout: no output for ${String(idle)}ms`
+          : `no output for ${String(idle)}ms`
+      void this.terminate(run, 'idle-timeout', msg)
     }, idle)
   }
 
@@ -559,6 +618,24 @@ export class ProcessManager {
 
     this.running.delete(run.runId)
     if (run.pty !== null) void this.orphans?.forget(run.pty.pid)
+
+    this.recentCompleted.unshift({
+      runId: run.runId,
+      pid: run.pty?.pid ?? null,
+      command: run.request.command,
+      args: run.request.args,
+      status: 'completed',
+      startedAt: run.startedAt,
+      durationMs: this.now() - run.startedAt,
+      outputBytes: run.outputBytes,
+      lastDataAt: run.lastDataAt,
+      outcomeReason: reason,
+      exitCode,
+    })
+    if (this.recentCompleted.length > this.maxRecentCompleted) {
+      this.recentCompleted.pop()
+    }
+
     run.resolve(outcome)
     run.emitter.emit('settled')
 
@@ -581,29 +658,52 @@ export class ProcessManager {
     }
   }
 
-  /** Writes the run's log, so a workflow step can link to what actually happened. */
+  /** Writes the run's log with size-bounded rotation, so a workflow step can link to what actually happened. */
   private async persist(run: Run, outcome: ProcessOutcome): Promise<void> {
     if (this.logDirectory === null) return
 
-    await mkdir(this.logDirectory, { recursive: true })
+    try {
+      await mkdir(this.logDirectory, { recursive: true })
 
-    const header = [
-      `run: ${outcome.runId}`,
-      `command: ${run.request.command} ${run.request.args.join(' ')}`,
-      `cwd: ${run.request.cwd}`,
-      `reason: ${outcome.reason}`,
-      `exitCode: ${String(outcome.exitCode)}`,
-      `durationMs: ${String(outcome.durationMs)}`,
-      // Recorded so the redaction decision is auditable rather than invisible.
-      `withheldEnv: ${withheldEnvNames(process.env).join(', ')}`,
-      '',
-    ].join('\n')
+      const header = [
+        `run: ${outcome.runId}`,
+        `command: ${run.request.command} ${run.request.args.join(' ')}`,
+        `cwd: ${run.request.cwd}`,
+        `reason: ${outcome.reason}`,
+        `exitCode: ${String(outcome.exitCode)}`,
+        `durationMs: ${String(outcome.durationMs)}`,
+        // Recorded so the redaction decision is auditable rather than invisible.
+        `withheldEnv: ${withheldEnvNames(process.env).join(', ')}`,
+        '',
+      ].join('\n')
 
-    await appendFile(
-      join(this.logDirectory, `${outcome.runId}.log`),
-      header + outcome.output,
-      'utf8',
-    )
+      const logPath = join(this.logDirectory, `${outcome.runId}.log`)
+      const logArchive = `${logPath}.1`
+      const content = header + outcome.output
+
+      let existingSize = 0
+      try {
+        const fileStat = await stat(logPath)
+        existingSize = fileStat.size
+      } catch {
+        // File does not exist yet
+      }
+
+      if (
+        existingSize > 0 &&
+        existingSize + Buffer.byteLength(content, 'utf8') > this.maxLogBytes
+      ) {
+        try {
+          await rename(logPath, logArchive)
+        } catch {
+          // Non-fatal rotation failure
+        }
+      }
+
+      await appendFile(logPath, content, 'utf8')
+    } catch {
+      // Non-fatal logging failure (Axiom A2: fail-safe)
+    }
   }
 
   /**
@@ -628,4 +728,21 @@ export class ProcessManager {
       [...this.running.values()].map((run) => this.terminate(run, 'cancelled', reason)),
     )
   }
+}
+
+/**
+ * Safely rotates a log file to `<filePath>.1` if its size exceeds `maxBytes`.
+ * Bounded to at most one archive file so disk growth is strictly limited (Axiom A5).
+ */
+export async function rotateLogFile(filePath: string, maxBytes: number): Promise<boolean> {
+  try {
+    const fileStat = await stat(filePath)
+    if (fileStat.size >= maxBytes) {
+      await rename(filePath, `${filePath}.1`)
+      return true
+    }
+  } catch {
+    // File not found or inaccessible; rotation not needed
+  }
+  return false
 }

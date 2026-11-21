@@ -197,6 +197,68 @@ describe('EventStore', () => {
 
     expect(() => store.read(PROJECT_A)).toThrow(/not valid JSON/)
   })
+
+  it('notifies subscribers on appended events and allows unsubscription', () => {
+    const received: string[] = []
+    const unsubscribe = store.subscribe((event) => {
+      received.push(`${event.type}:${String(event.seq)}`)
+    })
+
+    store.append(
+      { type: 'project.updated', payload: { name: 'Subscribed 1', updatedAt: LATER } },
+      { projectId: PROJECT_A, actor: 'user', occurredAt: LATER },
+    )
+    store.append(
+      { type: 'project.updated', payload: { name: 'Subscribed 2', updatedAt: LATER } },
+      { projectId: PROJECT_A, actor: 'user', occurredAt: LATER },
+    )
+
+    expect(received).toEqual(['project.updated:3', 'project.updated:4'])
+
+    unsubscribe()
+
+    store.append(
+      { type: 'project.updated', payload: { name: 'Subscribed 3', updatedAt: LATER } },
+      { projectId: PROJECT_A, actor: 'user', occurredAt: LATER },
+    )
+
+    expect(received).toEqual(['project.updated:3', 'project.updated:4'])
+  })
+
+  it('handles subscriber exceptions safely without impacting other subscribers', () => {
+    const received: string[] = []
+    store.subscribe(() => {
+      throw new Error('Subscriber failure')
+    })
+    store.subscribe((event) => {
+      received.push(event.type)
+    })
+
+    const appended = store.append(
+      { type: 'project.updated', payload: { name: 'Safe', updatedAt: LATER } },
+      { projectId: PROJECT_A, actor: 'user', occurredAt: LATER },
+    )
+
+    expect(appended.seq).toBe(3)
+    expect(received).toEqual(['project.updated'])
+  })
+
+  it('replays events from the beginning or from a sequence number', () => {
+    store.append(
+      { type: 'project.updated', payload: { name: 'Replay 1', updatedAt: LATER } },
+      { projectId: PROJECT_A, actor: 'user', occurredAt: LATER },
+    )
+    store.append(
+      { type: 'project.updated', payload: { name: 'Replay 2', updatedAt: LATER } },
+      { projectId: PROJECT_A, actor: 'user', occurredAt: LATER },
+    )
+
+    const allReplayed = store.replay(PROJECT_A)
+    expect(allReplayed.map((e) => e.seq)).toEqual([1, 2, 3, 4])
+
+    const partialReplayed = store.replay(PROJECT_A, 2)
+    expect(partialReplayed.map((e) => e.seq)).toEqual([3, 4])
+  })
 })
 
 describe('payload coverage', () => {

@@ -14,6 +14,7 @@ import {
   type WorkflowId,
 } from '@shared/domain'
 import { runCommand, type RunCommandInput } from './commandRunner'
+import { auditAdversarialEvidence, type AdversarialFinding } from './adversarial'
 
 /**
  * The `system` verification step: Forge runs the project's own build and tests and
@@ -48,6 +49,8 @@ export interface VerifyInput {
   readonly reviewVerdict?: Verdict | undefined
   /** Repository-relative paths that exist, for a `file-exists` criterion. */
   readonly existingPaths?: readonly string[] | undefined
+  /** Repository-relative paths that were physically modified in git diff. */
+  readonly physicalFilesChanged?: readonly string[] | undefined
   readonly timeoutMs?: number | undefined
   readonly now?: (() => number) | undefined
   readonly signal?: AbortSignal | undefined
@@ -85,6 +88,8 @@ export interface VerifyResult {
    * ran is a trust failure worth surfacing on its own.
    */
   readonly falseClaims: readonly string[]
+  /** Structured adversarial findings (VERIFY-003). */
+  readonly adversarialFindings?: readonly AdversarialFinding[] | undefined
 }
 
 /**
@@ -122,7 +127,7 @@ export async function verifyStep(input: VerifyInput): Promise<VerifyResult> {
   }
 
   const findings = artifacts.flatMap((artifact) => [...evidenceFindings(artifact)])
-  const falseClaims = detectFalseClaims(input.report, repository, artifacts)
+  const falseClaims = detectFalseClaims(input.report, repository, artifacts, input.reconciliation)
 
   // With a task, the task's own criteria decide the verdict — that is the point of
   // #35, and it is what lets a criterion nobody could check report `unknown` instead
@@ -140,7 +145,19 @@ export async function verifyStep(input: VerifyInput): Promise<VerifyResult> {
           ...(input.existingPaths === undefined ? {} : { existingPaths: input.existingPaths }),
         })
 
-  const verdict: Verdict =
+  // Adversarial audit: independent verifier layer detecting deception, contradictions, and boundary regressions (VERIFY-003)
+  const audit = auditAdversarialEvidence({
+    task: input.task,
+    report: input.report,
+    artifacts,
+    reconciliation: input.reconciliation,
+    criteria: assessment?.results,
+    expectedStepId: input.stepId,
+    expectedWorkflowId: input.workflowId,
+    physicalFilesChanged: input.physicalFilesChanged,
+  })
+
+  let verdict: Verdict =
     assessment !== null
       ? assessment.verdict
       : artifacts.length === 0
@@ -149,16 +166,35 @@ export async function verifyStep(input: VerifyInput): Promise<VerifyResult> {
           ? 'pass'
           : 'fail'
 
+  const mergedFalseClaims = Array.from(new Set([...falseClaims, ...audit.falseClaims]))
+
+  // An authoritative false claim, contradictory evidence, or adversarial failure invalidates a pass verdict
+  if (verdict === 'pass' && (!audit.ok || mergedFalseClaims.length > 0)) {
+    verdict = 'fail'
+  }
+
+  const allFindings = Array.from(
+    new Set([
+      ...findings,
+      ...(assessment?.findings ?? []),
+      ...mergedFalseClaims,
+      ...audit.findings
+        .filter((f) => f.severity === 'fail' || f.severity === 'halt')
+        .map((f) => f.message),
+    ]),
+  )
+
   return {
     // Only a `pass` advances. An `unknown` is explicitly not passing: treating an
     // absence of failure as success is exactly the inference A3 forbids.
     passed: verdict === 'pass',
     verdict,
     criteria: assessment?.results ?? [],
-    detail: assessment === null ? detailFor(artifacts, falseClaims) : assessment.summary,
+    detail: assessment === null ? detailFor(artifacts, mergedFalseClaims) : assessment.summary,
     artifacts,
-    findings: [...findings, ...(assessment?.findings ?? []), ...falseClaims],
-    falseClaims,
+    findings: allFindings,
+    falseClaims: mergedFalseClaims,
+    adversarialFindings: audit.findings,
   }
 }
 
@@ -174,11 +210,13 @@ function detectFalseClaims(
   report: AgentReport | null,
   repository: Repository,
   artifacts: readonly EvidenceArtifact[],
+  reconciliation?: ReconcileResult,
 ): readonly string[] {
   if (report === null) return []
 
   const claims: string[] = []
   const testEvidence = artifacts.find((artifact) => artifact.kind === 'tests')
+  const buildEvidence = artifacts.find((artifact) => artifact.kind === 'build')
 
   if (report.testsRun && testEvidence === undefined && repository.testCommand === null) {
     claims.push(
@@ -190,6 +228,44 @@ function detectFalseClaims(
     claims.push(
       `The report claims tests were run and the work is complete, but Forge ran \`${testEvidence.command}\` and it did not pass (${summariseEvidence(testEvidence)}). Fix the failures rather than reporting success.`,
     )
+  }
+
+  if (
+    report.status === 'completed' &&
+    buildEvidence !== undefined &&
+    !evidencePassed(buildEvidence)
+  ) {
+    claims.push(
+      `The report claims the work is completed, but the build failed (${summariseEvidence(buildEvidence)}). Fix the build errors.`,
+    )
+  }
+
+  if (
+    report.status === 'completed' &&
+    !report.testsRun &&
+    testEvidence !== undefined &&
+    !evidencePassed(testEvidence)
+  ) {
+    claims.push(
+      `The report claims the work is completed, but tests failed (${summariseEvidence(testEvidence)}).`,
+    )
+  }
+
+  if (report.status === 'completed' && reconciliation !== undefined && !reconciliation.inScope) {
+    claims.push(
+      `The report claims the work is completed, but changes were made outside the task scope (${reconciliation.outOfScope.join(', ')}).`,
+    )
+  }
+
+  if (reconciliation !== undefined) {
+    const claimedUnchanged = reconciliation.discrepancies.filter(
+      (d) => d.kind === 'claimed-but-unchanged',
+    )
+    if (claimedUnchanged.length > 0) {
+      claims.push(
+        `The report claims file(s) were changed, but the repository shows no change: ${claimedUnchanged.map((d) => d.path).join(', ')}.`,
+      )
+    }
   }
 
   return claims

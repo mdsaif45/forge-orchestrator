@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'n
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { isCommandAvailable, ProcessManager } from './processManager'
+import { isCommandAvailable, ProcessManager, rotateLogFile } from './processManager'
 import { buildChildEnv, isSecretEnvName, redactOutput, stripAnsi, withheldEnvNames } from './redact'
 
 const ESC = '\u001B'
@@ -450,6 +450,62 @@ describe('log capture', () => {
     await handle.completed
 
     expect(readdirSync(workDir)).toEqual([])
+  })
+
+  it('rotates log file to .log.1 when size exceeds maxLogBytes (LOG-002)', async () => {
+    const logDirectory = join(workDir, 'logs-rotate')
+    manager = new ProcessManager({ logDirectory, maxLogBytes: 250 })
+
+    // Pre-create an existing log file with 200 bytes
+    const logPath = join(logDirectory, 'run-0001.log')
+    const { mkdirSync } = await import('node:fs')
+    mkdirSync(logDirectory, { recursive: true })
+    writeFileSync(logPath, 'A'.repeat(200), 'utf8')
+
+    // Spawn process which completes and appends more bytes crossing 250 bytes
+    const handle = await manager.spawn({
+      ...nodeScript('process.stdout.write("new content that will trigger rotation")'),
+      cwd: workDir,
+    })
+    const outcome = await handle.completed
+    expect(outcome.runId).toBe('run-0001')
+
+    // Wait for log write/rotate
+    let archiveExists = false
+    const archivePath = `${logPath}.1`
+    for (let i = 0; i < 50; i += 1) {
+      try {
+        const archiveContent = readFileSync(archivePath, 'utf8')
+        if (archiveContent.includes('A'.repeat(50))) {
+          archiveExists = true
+          break
+        }
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+    }
+
+    expect(archiveExists).toBe(true)
+    const freshLog = readFileSync(logPath, 'utf8')
+    expect(freshLog).toContain('new content that will trigger rotation')
+  })
+
+  it('rotateLogFile utility rotates file when ceiling reached and is fail-safe', async () => {
+    const testLog = join(workDir, 'test-rotation.log')
+    writeFileSync(testLog, 'x'.repeat(100), 'utf8')
+
+    // Below ceiling -> returns false
+    const didRotate1 = await rotateLogFile(testLog, 200)
+    expect(didRotate1).toBe(false)
+
+    // Above ceiling -> returns true, rotates to .1
+    const didRotate2 = await rotateLogFile(testLog, 50)
+    expect(didRotate2).toBe(true)
+    expect(readFileSync(`${testLog}.1`, 'utf8')).toBe('x'.repeat(100))
+
+    // Non-existent file -> fail-safe returns false without throwing
+    const didRotate3 = await rotateLogFile(join(workDir, 'nonexistent.log'), 50)
+    expect(didRotate3).toBe(false)
   })
 })
 

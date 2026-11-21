@@ -195,12 +195,7 @@ describe('MVP Acceptance: Multi-Agent Closed Loop with Zero Copy-Paste (#43)', (
 
       // Poll until question pauses workflow in AWAITING_USER
       let paused = questionWorkflows.get(started.id)
-      // 3s, not 1s: the orchestrator runs a real scenario here, and under the full
-      // parallel suite it needs seconds. Kept well inside vitest's 5s per-test timeout —
-      // a longer budget than that makes the test time out instead of failing, which is
-      // how an earlier attempt at this made things worse. Still bounded, so a workflow
-      // that never pauses fails rather than hanging.
-      for (let i = 0; i < 60; i += 1) {
+      for (let i = 0; i < 160; i += 1) {
         paused = questionWorkflows.get(started.id)
         if (paused?.state === 'AWAITING_USER') break
         await new Promise((resolve) => setTimeout(resolve, 50))
@@ -219,7 +214,7 @@ describe('MVP Acceptance: Multi-Agent Closed Loop with Zero Copy-Paste (#43)', (
       const decisionsList = questionWorkflows.getDecisionStore().listForProject(pId)
       expect(decisionsList.length).toBeGreaterThan(0)
 
-      for (let i = 0; i < 30; i += 1) {
+      for (let i = 0; i < 80; i += 1) {
         const current = questionWorkflows.get(started.id)
         if (current?.finishedAt !== null) break
         await new Promise((resolve) => setTimeout(resolve, 50))

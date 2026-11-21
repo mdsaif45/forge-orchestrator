@@ -1,4 +1,6 @@
-import { rm } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { mkdir, rm, rmdir, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { runGit, GitCommandError } from './exec'
 
@@ -74,6 +76,10 @@ export class WorktreeService {
 
       await runGit(['worktree', 'remove', '--force', path], exec).catch(() => undefined)
       await rm(path, { recursive: true, force: true }).catch(() => undefined)
+      const parent = resolve(path, '..')
+      if (parent !== root) {
+        await rmdir(parent).catch(() => undefined)
+      }
     }
 
     await runGit(['worktree', 'prune'], exec).catch(() => undefined)
@@ -123,5 +129,97 @@ export class WorktreeService {
     }
 
     return { path, dispose }
+  }
+
+  /**
+   * Creates an isolated branch worktree for a concurrent node within a workflow.
+   *
+   * Path: `<root>/<workflowId>/branch-<nodeId>`
+   * Checked out detached at `forkSha` (or `HEAD` if omitted):
+   * `git worktree add --detach <path> <targetRef>`
+   *
+   * Ensures concurrent write-capable nodes run in distinct worktrees branched
+   * from the same snapshot commit without dirty worktree collision (Resolving Q-WF-01).
+   *
+   * Returns `null` if the repository cannot provide a worktree (e.g. empty repository).
+   */
+  async prepareBranch(
+    workflowId: string,
+    nodeId: string,
+    forkSha?: string,
+  ): Promise<PreparedWorktree | null> {
+    const parentDir = join(this.options.root, workflowId)
+    const path = join(parentDir, `branch-${nodeId}`)
+    const exec = { cwd: this.options.repositoryPath }
+    const targetRef = forkSha ?? 'HEAD'
+
+    try {
+      await runGit(['rev-parse', '--verify', targetRef], exec)
+    } catch (error) {
+      if (error instanceof GitCommandError) return null
+      throw error
+    }
+
+    // Ensure parent directory exists before adding worktree
+    await mkdir(parentDir, { recursive: true }).catch(() => undefined)
+    // Attempt to remove stale git worktree registration first (safely ignore error if unregistered),
+    // then remove physical path to ensure idempotence across duplicate allocations or crashes
+    await runGit(['worktree', 'remove', '--force', path], exec).catch(() => undefined)
+    await rm(path, { recursive: true, force: true }).catch(() => undefined)
+
+    try {
+      await runGit(['worktree', 'add', '--detach', path, targetRef], exec)
+    } catch (error) {
+      await rm(path, { recursive: true, force: true }).catch(() => undefined)
+      await rmdir(parentDir).catch(() => undefined)
+      throw error
+    }
+
+    let disposed = false
+    const dispose = async (): Promise<void> => {
+      if (disposed) return
+      disposed = true
+
+      // `--force` because the agents will have left the worktree dirty, and a clean
+      // removal is not the goal — reclaiming the directory is.
+      await runGit(['worktree', 'remove', '--force', path], exec).catch(() => undefined)
+      // `worktree remove` leaves the directory behind if git considered it already
+      // detached; removing it directly keeps the root from accumulating.
+      await rm(path, { recursive: true, force: true }).catch(() => undefined)
+      await runGit(['worktree', 'prune'], exec).catch(() => undefined)
+      // Try removing the parent workflow directory if empty (safe no-op if sibling branches exist)
+      await rmdir(parentDir).catch(() => undefined)
+    }
+
+    return { path, dispose }
+  }
+
+  /**
+   * Applies a unified patch to a prepared worktree filesystem.
+   *
+   * Enforces Axiom A2 (never guess) and conservative disjoint fan-in:
+   * uses `git apply --binary --whitespace=nowarn` directly in the target worktree.
+   * If any hunk fails or cannot be applied cleanly, git rejects and throws GitCommandError.
+   * Zero 3-way merging or synthetic conflict resolution is attempted.
+   */
+  async applyPatch(worktreePath: string, patch: string): Promise<void> {
+    if (patch.trim() === '') return
+
+    let normalizedPatch = patch.replace(/\r\n/g, '\n').replace(/\n+\s*(diff --git )/g, '\n$1')
+    if (/GIT binary patch[\s\S]*?$/m.test(normalizedPatch)) {
+      normalizedPatch = normalizedPatch.trimEnd() + '\n\n'
+    } else {
+      normalizedPatch = normalizedPatch.trimEnd() + '\n'
+    }
+
+    const exec = { cwd: worktreePath }
+    const patchFile = join(tmpdir(), `forge-patch-${randomUUID()}.patch`)
+
+    await writeFile(patchFile, normalizedPatch, 'utf8')
+    try {
+      await runGit(['apply', '--binary', '--whitespace=nowarn', patchFile], exec)
+    } finally {
+      await rm(patchFile, { force: true }).catch(() => undefined)
+    }
   }
 }

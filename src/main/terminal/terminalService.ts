@@ -1,5 +1,4 @@
 import type { ProcessHandle, ProcessManager } from '../process/processManager'
-import type { ProjectService } from '../projects/projectService'
 import type { AgentSessionRegistry, AttachableProcess } from './sessionRegistry'
 
 export interface TerminalEventDataPayload {
@@ -14,7 +13,8 @@ export interface TerminalEventExitPayload {
 
 export interface TerminalServiceOptions {
   readonly processes: ProcessManager
-  readonly projects: ProjectService
+  /** Resolves the absolute repository root path for a project, or null if project not found. */
+  readonly resolveProjectCwd: (projectId: string) => Promise<string | null>
   readonly runtimeExecutable?: ((runtimeId: string) => string) | undefined
   readonly sessions?: AgentSessionRegistry | undefined
   readonly emitData: (payload: TerminalEventDataPayload) => void
@@ -87,13 +87,13 @@ export class TerminalService {
     readonly cols?: number | undefined
     readonly rows?: number | undefined
   }): Promise<{ readonly terminalId: string; readonly pid?: number | undefined }> {
-    const detail = await this.options.projects.get(req.projectId)
-    if (detail === null) {
+    const projectCwd = await this.options.resolveProjectCwd(req.projectId)
+    if (projectCwd === null) {
       throw new Error(`Project ${req.projectId} not found`)
     }
 
     const terminalId = `term-${Date.now().toString()}-${Math.random().toString(36).slice(2, 7)}`
-    const targetCwd = req.cwd ?? detail.project.repository.absolutePath
+    const targetCwd = req.cwd ?? projectCwd
 
     const resolvedCli =
       req.runtimeId !== null &&

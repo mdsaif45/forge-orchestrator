@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, writeFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { join, resolve } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../test/tempDir'
 import { ClaudeTrustStore } from './claudeTrust'
 
@@ -119,5 +119,37 @@ describe('ClaudeTrustStore', () => {
 
     const dir = configPath.slice(0, configPath.lastIndexOf('\\') + 1) || tmpdir()
     expect(readdirSync(dir).filter((f) => f.includes('.forge-'))).toEqual([])
+  })
+
+  it('prepares workspace during ClaudeCliRuntime.start() and avoids duplicate preparation', async () => {
+    const { ClaudeCliRuntime } = await import('./claudeCliRuntime')
+    const cliRuntime = new ClaudeCliRuntime()
+    const spy = vi.spyOn(cliRuntime, 'prepareWorkspace')
+
+    const session = await cliRuntime.start({
+      repositoryPath: 'D:/test-cli-wt',
+      role: 'implementer',
+    })
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy).toHaveBeenCalledWith('D:/test-cli-wt')
+    await cliRuntime.dispose(session)
+  })
+
+  it('prepares workspace during HostedClaudeRuntime.start()', async () => {
+    const { HostedClaudeRuntime } = await import('./hostedClaudeRuntime')
+    const hostedRuntime = new HostedClaudeRuntime()
+    const spy = vi.spyOn(hostedRuntime, 'prepareWorkspace')
+
+    await expect(
+      hostedRuntime.start({ repositoryPath: 'D:/test-hosted-wt', role: 'implementer' }),
+    ).rejects.toThrow('HostedClaudeRuntime has no process manager configured')
+
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(spy).toHaveBeenCalledWith('D:/test-hosted-wt')
+  })
+
+  it('confirms WorkflowService has zero prepareWorkspace references and performs no separate workspace-preparation pass', () => {
+    const wfSource = readFileSync(resolve('src/main/workflows/workflowService.ts'), 'utf8')
+    expect(wfSource.includes('prepareWorkspace')).toBe(false)
   })
 })

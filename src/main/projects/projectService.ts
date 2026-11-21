@@ -12,7 +12,7 @@ import {
   type Repository,
   type Rule,
 } from '@shared/domain'
-import type { CreateProjectRequest, ProjectDetail, ProjectView, RuleView } from '@shared/ipc'
+import type { CreateProjectRequest, ProjectDetail, ProjectView, RuleView } from '@shared/views'
 import type { ForgeDatabase } from '../db'
 import { ProjectStore } from '../db/projectStore'
 import { RuleRepository } from '../db/ruleRepository'

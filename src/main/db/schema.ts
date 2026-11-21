@@ -1,4 +1,12 @@
-import { index, integer, primaryKey, sqliteTable, text, unique } from 'drizzle-orm/sqlite-core'
+import {
+  foreignKey,
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  unique,
+} from 'drizzle-orm/sqlite-core'
 
 /**
  * The SQLite schema, mirroring `src/shared/domain`.
@@ -93,8 +101,19 @@ export const decisions = sqliteTable(
     lockedBy: text('locked_by'),
     supersededBy: text('superseded_by'),
     originQuestionId: text('origin_question_id'),
+    /** Scopes a gate decision to a specific workflow definition */
+    workflowId: text('workflow_id').references(() => workflows.id, { onDelete: 'cascade' }),
+    /** Scopes a gate decision to a specific execution run */
+    graphRunId: text('graph_run_id').references(() => graphRuns.id, { onDelete: 'cascade' }),
+    /** Scopes a gate decision to a specific gate node in the graph */
+    nodeId: text('node_id'),
+    /** Explicit gate verdict: 'approved' | 'rejected' */
+    gateVerdict: text('gate_verdict'),
   },
-  (table) => [index('decisions_project_status').on(table.projectId, table.status)],
+  (table) => [
+    index('decisions_project_status').on(table.projectId, table.status),
+    index('decisions_gate_scope').on(table.graphRunId, table.nodeId),
+  ],
 )
 
 export const openQuestions = sqliteTable(
@@ -185,6 +204,130 @@ export const workflowSteps = sqliteTable(
     finishedAt: text('finished_at'),
   },
   (table) => [unique('workflow_steps_order').on(table.workflowId, table.index)],
+)
+
+export const graphRuns = sqliteTable(
+  'graph_runs',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+    workflowId: text('workflow_id')
+      .notNull()
+      .references(() => workflows.id, { onDelete: 'cascade' }),
+    templateId: text('template_id').notNull(),
+    status: text('status').notNull(),
+    iteration: integer('iteration').notNull().default(1),
+    startedAt: text('started_at').notNull(),
+    finishedAt: text('finished_at'),
+    haltReason: text('halt_reason'),
+    error: text('error'),
+  },
+  (table) => [
+    index('graph_runs_project').on(table.projectId),
+    index('graph_runs_workflow').on(table.workflowId),
+    index('graph_runs_status').on(table.status),
+  ],
+)
+
+export const graphNodeRuns = sqliteTable(
+  'graph_node_runs',
+  {
+    id: text('id').primaryKey(),
+    graphRunId: text('graph_run_id')
+      .notNull()
+      .references(() => graphRuns.id, { onDelete: 'cascade' }),
+    nodeId: text('node_id').notNull(),
+    attempt: integer('attempt').notNull().default(1),
+    iteration: integer('iteration').notNull().default(1),
+    status: text('status').notNull(),
+    role: text('role'),
+    runtimeId: text('runtime_id'),
+    contextRef: text('context_ref'),
+    changeSetId: text('change_set_id'),
+    evidenceId: text('evidence_id'),
+    startedAt: text('started_at'),
+    finishedAt: text('finished_at'),
+    error: text('error'),
+  },
+  (table) => [
+    unique('graph_node_runs_attempt_unique').on(table.graphRunId, table.nodeId, table.attempt),
+    unique('graph_node_runs_node_iter_attempt_unique').on(
+      table.graphRunId,
+      table.nodeId,
+      table.attempt,
+      table.iteration,
+    ),
+    index('graph_node_runs_graph_node').on(table.graphRunId, table.nodeId),
+    index('graph_node_runs_status').on(table.status),
+  ],
+)
+
+export const graphCheckpoints = sqliteTable(
+  'graph_checkpoints',
+  {
+    id: text('id').primaryKey(),
+    graphRunId: text('graph_run_id')
+      .notNull()
+      .references(() => graphRuns.id, { onDelete: 'cascade' }),
+    nodeId: text('node_id').notNull(),
+    operation: text('operation').notNull(),
+    stateSnapshot: text('state_snapshot').notNull(),
+    occurredAt: text('occurred_at').notNull(),
+  },
+  (table) => [index('graph_checkpoints_run').on(table.graphRunId, table.occurredAt)],
+)
+
+export const graphTransitions = sqliteTable(
+  'graph_transitions',
+  {
+    id: text('id').primaryKey(),
+    graphRunId: text('graph_run_id')
+      .notNull()
+      .references(() => graphRuns.id, { onDelete: 'cascade' }),
+    sourceNodeId: text('source_node_id').notNull(),
+    sourceAttempt: integer('source_attempt').notNull(),
+    targetNodeId: text('target_node_id').notNull(),
+    targetAttempt: integer('target_attempt').notNull(),
+    fromIteration: integer('from_iteration').notNull(),
+    toIteration: integer('to_iteration').notNull(),
+    checkpointId: text('checkpoint_id').references(() => graphCheckpoints.id, {
+      onDelete: 'set null',
+    }),
+    occurredAt: text('occurred_at').notNull(),
+  },
+  (table) => [
+    unique('graph_transitions_source_attempt_unique').on(
+      table.graphRunId,
+      table.sourceNodeId,
+      table.sourceAttempt,
+    ),
+    unique('graph_transitions_target_iter_unique').on(
+      table.graphRunId,
+      table.toIteration,
+      table.targetNodeId,
+    ),
+    index('graph_transitions_run').on(table.graphRunId, table.occurredAt),
+    foreignKey({
+      columns: [table.graphRunId, table.targetNodeId, table.targetAttempt, table.toIteration],
+      foreignColumns: [
+        graphNodeRuns.graphRunId,
+        graphNodeRuns.nodeId,
+        graphNodeRuns.attempt,
+        graphNodeRuns.iteration,
+      ],
+      name: 'graph_transitions_target_fk',
+    }).onDelete('restrict'),
+    foreignKey({
+      columns: [table.graphRunId, table.sourceNodeId, table.sourceAttempt, table.fromIteration],
+      foreignColumns: [
+        graphNodeRuns.graphRunId,
+        graphNodeRuns.nodeId,
+        graphNodeRuns.attempt,
+        graphNodeRuns.iteration,
+      ],
+      name: 'graph_transitions_source_fk',
+    }).onDelete('restrict'),
+  ],
 )
 
 export const changeSets = sqliteTable(
@@ -290,6 +433,146 @@ export const accounts = sqliteTable('accounts', {
   lastUsedAt: text('last_used_at'),
   createdAt: text('created_at').notNull(),
 })
+
+/**
+ * Persisted agent instances with generated names and editable labels (#138).
+ */
+export const agentInstances = sqliteTable(
+  'agent_instances',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    label: text('label').notNull(),
+    provider: text('provider').notNull(),
+    accountId: text('account_id'),
+    role: text('role').notNull(),
+    createdAt: text('created_at').notNull(),
+    updatedAt: text('updated_at').notNull(),
+  },
+  (table) => [
+    unique('agent_instances_project_name').on(table.projectId, table.name),
+    index('agent_instances_project').on(table.projectId),
+  ],
+)
+
+/**
+ * User-configured custom CLI runtimes persisted in database (#174).
+ */
+export const customRuntimes = sqliteTable('custom_runtimes', {
+  id: text('id').primaryKey(),
+  slug: text('slug').notNull().unique(),
+  name: text('name').notNull(),
+  command: text('command').notNull(),
+  argsTemplate: text('args_template'),
+  capabilities: text('capabilities').notNull(),
+  permissionMode: text('permission_mode').notNull(),
+  instructionFilenames: text('instruction_filenames').notNull(),
+  env: text('env'),
+  createdAt: text('created_at').notNull(),
+})
+
+/**
+ * Execution runs (direct tasks or workflows).
+ */
+export const runs = sqliteTable(
+  'runs',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    taskId: text('task_id').notNull(),
+    type: text('type').notNull(),
+    status: text('status').notNull(),
+    startedAt: text('started_at').notNull(),
+    finishedAt: text('finished_at'),
+    exitCode: integer('exit_code'),
+    summary: text('summary'),
+    error: text('error'),
+    /** JSON metadata (model, provider, options, etc.). */
+    metadata: text('metadata').notNull(),
+  },
+  (table) => [
+    index('runs_project').on(table.projectId, table.startedAt),
+    index('runs_task').on(table.taskId),
+  ],
+)
+
+/**
+ * Steps within an execution run.
+ */
+export const runSteps = sqliteTable(
+  'run_steps',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => runs.id, { onDelete: 'cascade' }),
+    index: integer('step_index').notNull(),
+    role: text('role').notNull(),
+    runtimeId: text('runtime_id'),
+    status: text('status').notNull(),
+    startedAt: text('started_at').notNull(),
+    finishedAt: text('finished_at'),
+    summary: text('summary'),
+    changeSetId: text('change_set_id'),
+    evidenceId: text('evidence_id'),
+  },
+  (table) => [
+    unique('run_steps_order').on(table.runId, table.index),
+    index('run_steps_run').on(table.runId),
+  ],
+)
+
+/**
+ * Physical file artifacts metadata (stdout/stderr logs, tool spills, patches).
+ */
+export const artifacts = sqliteTable(
+  'artifacts',
+  {
+    id: text('id').primaryKey(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => runs.id, { onDelete: 'cascade' }),
+    stepId: text('step_id'),
+    kind: text('kind').notNull(),
+    name: text('name').notNull(),
+    mimeType: text('mime_type').notNull(),
+    sizeBytes: integer('size_bytes').notNull(),
+    sha256: text('sha256').notNull(),
+    relativePath: text('relative_path').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (table) => [
+    index('artifacts_run').on(table.runId, table.createdAt),
+    index('artifacts_step').on(table.stepId),
+  ],
+)
+
+/**
+ * Append-only run events log.
+ */
+export const runEvents = sqliteTable(
+  'run_events',
+  {
+    id: text('id').notNull().unique(),
+    runId: text('run_id')
+      .notNull()
+      .references(() => runs.id, { onDelete: 'cascade' }),
+    seq: integer('seq').notNull(),
+    stepId: text('step_id'),
+    type: text('type').notNull(),
+    payload: text('payload').notNull(),
+    occurredAt: text('occurred_at').notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.runId, table.seq] }),
+    index('run_events_run_type').on(table.runId, table.type),
+  ],
+)
 
 /**
  * `schema_meta` is deliberately absent from this schema.

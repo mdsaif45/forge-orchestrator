@@ -152,6 +152,8 @@ export class MockAgentRuntime implements IAgentRuntime {
       await this.applyEdit(state.options.repositoryPath, edit.path, edit.contents)
     }
 
+    const providerSessionId = state.options.resumeSessionId ?? `mock-session-${session.sessionId}`
+
     switch (step.ending) {
       case 'report': {
         if (step.report === null) {
@@ -160,9 +162,19 @@ export class MockAgentRuntime implements IAgentRuntime {
           )
         }
 
-        this.emit(state, { type: 'result', at: this.now(), report: step.report })
+        this.emit(state, {
+          type: 'result',
+          at: this.now(),
+          report: step.report,
+          providerSessionId,
+        })
         state.state = 'completed'
-        this.emit(state, { type: 'state', at: this.now(), state: 'completed' })
+        this.emit(state, {
+          type: 'state',
+          at: this.now(),
+          state: 'completed',
+          providerSessionId,
+        })
         return
       }
 
@@ -172,7 +184,12 @@ export class MockAgentRuntime implements IAgentRuntime {
         // exercises parsing and the re-prompt.
         this.emit(state, { type: 'chunk', at: this.now(), text: step.replyText ?? '' })
         state.state = 'idle'
-        this.emit(state, { type: 'state', at: this.now(), state: 'idle' })
+        this.emit(state, {
+          type: 'state',
+          at: this.now(),
+          state: 'idle',
+          providerSessionId,
+        })
         return
       }
 

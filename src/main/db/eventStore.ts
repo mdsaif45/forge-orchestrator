@@ -32,7 +32,35 @@ export interface AppendOptions {
 }
 
 export class EventStore {
+  private readonly listeners = new Set<(event: DomainEvent) => void>()
+
   constructor(private readonly db: ForgeDatabase) {}
+
+  /**
+   * Subscribes a listener to receive domain events after they are appended and committed.
+   * Returns an unsubscribe function.
+   */
+  subscribe(listener: (event: DomainEvent) => void): () => void {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+
+  /**
+   * Verifies whether this EventStore instance is backed by the exact database instance supplied.
+   * Ensures transactional consistency across event emission and projection read models.
+   */
+  isBoundToDatabase(db: ForgeDatabase): boolean {
+    return this.db === db
+  }
+
+  /**
+   * Returns the underlying ForgeDatabase backing this EventStore.
+   */
+  getDatabase(): ForgeDatabase {
+    return this.db
+  }
 
   /**
    * Appends one event and returns it with its assigned sequence number.
@@ -63,7 +91,7 @@ export class EventStore {
       payload: validatePayload(input.type, input.payload),
     }))
 
-    return this.db.transaction((tx) => {
+    const committed = this.db.transaction((tx) => {
       // Read the current maximum inside the transaction. SQLite serialises
       // writers, so no two appends can observe the same value and collide — and
       // if one somehow did, the (project_id, seq) primary key would reject it.
@@ -109,6 +137,25 @@ export class EventStore {
 
       return appended
     })
+
+    for (const event of committed) {
+      for (const listener of this.listeners) {
+        try {
+          listener(event)
+        } catch {
+          // Prevent listener errors from aborting other notifications
+        }
+      }
+    }
+
+    return committed
+  }
+
+  /**
+   * Replays domain events for a project in sequence order, optionally starting after fromSeq.
+   */
+  replay(projectId: ProjectId, fromSeq?: number): readonly DomainEvent[] {
+    return fromSeq !== undefined ? this.readSince(projectId, fromSeq) : this.read(projectId)
   }
 
   /** Every event for a project, in sequence order. */

@@ -1,5 +1,5 @@
 import { projectIdSchema, questionIdSchema, type OpenQuestion } from '@shared/domain'
-import type { OpenQuestionView } from '@shared/ipc'
+import type { OpenQuestionView } from '@shared/views'
 import type { QuestionStore } from '../db/questionStore'
 
 export interface QuestionServiceOptions {

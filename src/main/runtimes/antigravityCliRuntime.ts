@@ -13,8 +13,7 @@ import {
   type SessionOptions,
 } from '@shared/domain'
 import type { ProcessRunner } from './claudeCliRuntime'
-import { observeAntigravityLine } from './antigravityStream'
-import { takeCompleteLines } from './claudeStream'
+import { checkAntigravityPreflightRefusal } from './antigravityPreflight'
 
 export interface AntigravityCliRuntimeOptions {
   readonly executablePath?: string
@@ -137,78 +136,61 @@ export class AntigravityCliRuntime implements IAgentRuntime {
   }
 
   private async executeWithRunner(session: ActiveSession, promptText: string): Promise<void> {
-    if (!this.runner) return
+    const runner = this.runner
+    if (!runner) return
 
-    let accumulatedOutput = ''
-    // Held across `onStdout` calls: a read boundary falls mid-line, so the tail of one
-    // chunk is the head of the next.
-    let streamBuffer = ''
-    // A holder rather than a `let`, for the same reason as the Claude adapter: control
-    // flow cannot see the `onStdout` closure assigning it, so a plain boolean reads as
-    // always-falsy at the check below.
-    const stream = { refusedBeforeStarting: false }
+    let currentResumeId = session.options.resumeSessionId
+
+    const runAttempt = async (targetResumeId: string | undefined) => {
+      let accumulatedOutput = ''
+
+      const result = await runner(
+        this.executable,
+        this.argsFor(session, promptText, targetResumeId),
+        {
+          cwd: session.options.repositoryPath,
+          // Forwarded so the caller can attach to the running process (#170).
+          ...(session.options.onProcess === undefined
+            ? {}
+            : { onProcess: session.options.onProcess }),
+          signal: session.abortController.signal,
+          onStdout: (chunk) => {
+            accumulatedOutput += chunk
+            session.lastActivityAt = this.now()
+          },
+          onStderr: (chunk) => {
+            session.lastActivityAt = this.now()
+            this.pushEvent(session, {
+              type: 'chunk',
+              at: session.lastActivityAt,
+              text: chunk,
+            })
+          },
+        },
+      )
+
+      return { result, accumulatedOutput }
+    }
 
     try {
-      // Every element here was found by a failing attempt, not by reading `--help`.
-      // None of it matches the Claude adapter, which is what the adapter layer is for:
-      //
-      //   prompt        `-p=<prompt>` attached, Go-style. Passing it as a separate
-      //                 argument makes agy take the *next flag* as its prompt and
-      //                 ignore the real one.
-      //   --add-dir     Required. Without it agy reports a well-formed success while
-      //                 editing somewhere else entirely — cwd alone does not establish
-      //                 the workspace, and it invents one rather than failing.
-      //   permissions   `--mode` (not `--permission-mode`, which is rejected outright),
-      //                 and `accept-edits` rather than Claude's `acceptEdits`.
-      //                 accept-edits alone still auto-denies the `command` permission,
-      //                 so a role that must run commands needs the blunt flag.
-      const result = await this.runner(this.executable, this.argsFor(session, promptText), {
-        cwd: session.options.repositoryPath,
-        // Forwarded so the caller can attach to the running process (#170).
-        ...(session.options.onProcess === undefined
-          ? {}
-          : { onProcess: session.options.onProcess }),
-        signal: session.abortController.signal,
-        onStdout: (chunk) => {
-          // Accumulated, deliberately not emitted. The envelope wraps the reply, so the
-          // report block arrives JSON-escaped inside `response`. Emitting the envelope
-          // alongside the unwrapped text would put two copies of the block in the reply,
-          // and `parseAgentReport` takes the first it finds — the escaped one — and
-          // fails on the backslashes. Same defect as #130 on the Claude side.
-          accumulatedOutput += chunk
-          session.lastActivityAt = this.now()
+      let { result, accumulatedOutput } = await runAttempt(currentResumeId)
 
-          // Observed for the live view only (#151): tool invocations are emitted as the
-          // agent makes them. The reply text still reaches `exchange()` exactly once,
-          // from the terminal result below.
-          streamBuffer += chunk
-          const { lines, rest } = takeCompleteLines(streamBuffer)
-          streamBuffer = rest
-
-          for (const line of lines) {
-            const observed = observeAntigravityLine(line)
-
-            for (const tool of observed.tools) {
-              this.pushEvent(session, {
-                type: 'tool',
-                at: this.now(),
-                name: tool.name,
-                detail: tool.detail,
-              })
-            }
-
-            if (observed.result?.refusedBeforeStarting === true) stream.refusedBeforeStarting = true
-          }
-        },
-        onStderr: (chunk) => {
-          session.lastActivityAt = this.now()
-          this.pushEvent(session, {
-            type: 'chunk',
-            at: session.lastActivityAt,
-            text: chunk,
-          })
-        },
-      })
+      // Stale / rejected conversation ID fallback (#157, #158):
+      // If the CLI refused the conversation flag, don't crash the step; log notice and retry cold.
+      if (
+        currentResumeId !== undefined &&
+        isAntigravityResumeRejection(result.stderr, result.exitCode, accumulatedOutput)
+      ) {
+        this.pushEvent(session, {
+          type: 'chunk',
+          at: this.now(),
+          text: `[RESUME] Conversation rejected; falling back to cold start\n`,
+        })
+        currentResumeId = undefined
+        const cold = await runAttempt(undefined)
+        result = cold.result
+        accumulatedOutput = cold.accumulatedOutput
+      }
 
       // Checked before the empty-output case: the refusal is reported *in* the output, so
       // `accumulatedOutput` is never empty when one occurs and the branch below could
@@ -219,7 +201,8 @@ export class AntigravityCliRuntime implements IAgentRuntime {
       // run, then succeeded on retry. Reported as retryable and explicitly not as the
       // agent's failure: the CLI never reached the model, so blaming the step would
       // consume an iteration and mislabel whose failure it was.
-      if (stream.refusedBeforeStarting) {
+      const preflight = checkAntigravityPreflightRefusal(accumulatedOutput, result.stderr)
+      if (preflight.refused) {
         session.state = 'failed'
         session.failure =
           'The Antigravity CLI refused before starting the turn (pre-flight eligibility check failed); no work was attempted'
@@ -266,9 +249,15 @@ export class AntigravityCliRuntime implements IAgentRuntime {
       // other. Read from the terminal result, whose figures are the turn's total;
       // per-step counts are partial. `agy` reports no cost, so `costUsd` stays null
       // rather than being derived from token counts.
-      const usage = observeAntigravityLine(lastResultLine(accumulatedOutput) ?? '').usage
+      const usage = extractUsage(accumulatedOutput)
       if (usage !== null) {
-        this.pushEvent(session, { type: 'usage', at: this.now(), ...usage })
+        this.pushEvent(session, {
+          type: 'usage',
+          at: this.now(),
+          costUsd: null,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+        })
       }
 
       // See ClaudeCliRuntime.executeWithRunner: parsing and the single re-prompt on a
@@ -276,11 +265,13 @@ export class AntigravityCliRuntime implements IAgentRuntime {
       // pushed above. A `state: 'completed'` here is what tells its `collectTurn` to parse
       // the accumulated transcript itself, instead of this adapter fabricating a report when
       // parsing fails.
+      const providerSessionId = extractConversationId(accumulatedOutput) ?? currentResumeId ?? null
       session.state = 'completed'
       this.pushEvent(session, {
         type: 'state',
         at: this.now(),
         state: 'completed',
+        ...(providerSessionId ? { providerSessionId } : {}),
       })
     } catch (err: unknown) {
       if (session.abortController.signal.aborted) {
@@ -307,7 +298,11 @@ export class AntigravityCliRuntime implements IAgentRuntime {
    * measured rather than documented — keeping it in one named place means the next
    * person changes it deliberately.
    */
-  private argsFor(session: ActiveSession, promptText: string): readonly string[] {
+  private argsFor(
+    session: ActiveSession,
+    promptText: string,
+    resumeId?: string,
+  ): readonly string[] {
     // `writeFiles` is not on the session, but the permission mode the orchestrator
     // derived from it is (#130). Tested by exclusion rather than equality: the modes
     // that mean "may write" are open-ended, while `plan` means read-only by
@@ -330,6 +325,8 @@ export class AntigravityCliRuntime implements IAgentRuntime {
       // directory it invented, leaving the repository untouched.
       `--add-dir=${session.options.repositoryPath}`,
       ...(session.options.model ? [`--model=${session.options.model}`] : []),
+      // Attach to earlier conversation when resuming warm (#157, #158)
+      ...(resumeId !== undefined ? [`--conversation=${resumeId}`] : []),
       // `--mode=accept-edits` still auto-denies the `command` permission, and agy has no
       // `--settings` flag to carry a narrower allow-rule, so a role that must run
       // commands needs the blunt one. Scoped to roles that already hold write
@@ -480,5 +477,78 @@ function lastResultLine(output: string): string | null {
     if (line.startsWith('{') && line.includes('"result"')) return line
   }
 
+  return null
+}
+
+function isAntigravityResumeRejection(stderr: string, exitCode: number, output: string): boolean {
+  if (exitCode === 0) return false
+  const combined = `${stderr} ${output}`.toLowerCase()
+  return (
+    combined.includes('conversation not found') ||
+    combined.includes('invalid conversation') ||
+    combined.includes('unknown conversation') ||
+    combined.includes('conversation error') ||
+    combined.includes('conversation_id') ||
+    combined.includes('no conversation')
+  )
+}
+
+function extractConversationId(output: string): string | null {
+  const lines = output.split('\n')
+
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index]?.trim() ?? ''
+    if (!line.startsWith('{')) continue
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (typeof parsed !== 'object' || parsed === null) continue
+
+    const record = parsed as Record<string, unknown>
+    if (typeof record.conversation_id === 'string' && record.conversation_id.trim() !== '') {
+      return record.conversation_id.trim()
+    }
+
+    const inner = record.result
+    if (typeof inner === 'object' && inner !== null) {
+      const innerRec = inner as Record<string, unknown>
+      if (typeof innerRec.conversation_id === 'string' && innerRec.conversation_id.trim() !== '') {
+        return innerRec.conversation_id.trim()
+      }
+    }
+  }
+
+  return null
+}
+
+function extractUsage(
+  output: string,
+): { readonly inputTokens: number | null; readonly outputTokens: number | null } | null {
+  const line = lastResultLine(output)
+  if (!line) return null
+  try {
+    const raw = JSON.parse(line) as unknown
+    if (!raw || typeof raw !== 'object') return null
+    const parsed = raw as Record<string, unknown>
+    const rec =
+      parsed.result && typeof parsed.result === 'object'
+        ? (parsed.result as Record<string, unknown>)
+        : parsed
+    const u = rec.usage
+    if (u && typeof u === 'object') {
+      const usageRec = u as Record<string, unknown>
+      const inTok = typeof usageRec.input_tokens === 'number' ? usageRec.input_tokens : null
+      const outTok = typeof usageRec.output_tokens === 'number' ? usageRec.output_tokens : null
+      if (inTok !== null || outTok !== null) {
+        return { inputTokens: inTok, outputTokens: outTok }
+      }
+    }
+  } catch {
+    // ignore
+  }
   return null
 }

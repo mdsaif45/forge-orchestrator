@@ -3,12 +3,16 @@ import {
   agentBindingIdSchema,
   agentBindingSchema,
   canHoldRole,
+  defaultPermissionsForRole,
   missingCapabilities,
   permissionsSchema,
+  ROLE_DEFAULT_PERMISSIONS,
+  validateBindingPermissions,
   type AgentBinding,
   type Capability,
   type Role,
 } from '@shared/domain'
+export type { AgentBinding }
 import { IncapableRuntimeError, type RuntimeRegistry } from './registry'
 
 /**
@@ -28,20 +32,7 @@ import { IncapableRuntimeError, type RuntimeRegistry } from './registry'
  */
 
 /** Default permissions per role, before a project narrows them. */
-const ROLE_PERMISSIONS: Record<Role, Partial<ReturnType<typeof permissionsSchema.parse>>> = {
-  // A planner reads and reasons. Giving it write access would let a plan quietly become an
-  // implementation, which is the boundary #42's discussion mode exists to enforce.
-  planner: { readFiles: true, gitRead: true },
-  implementer: { readFiles: true, writeFiles: true, runTests: true, runBuild: true, gitRead: true },
-  // A reviewer runs tests to check a claim but never edits: a reviewer that could fix what it
-  // found would have no reason to report it.
-  reviewer: { readFiles: true, runTests: true, gitRead: true },
-  tester: { readFiles: true, runTests: true, runBuild: true, gitRead: true },
-  'security-reviewer': { readFiles: true, runTests: true, gitRead: true },
-  // Forge performs these itself; no agent process is involved.
-  system: { readFiles: true, gitRead: true },
-  user: {},
-}
+export const ROLE_PERMISSIONS = ROLE_DEFAULT_PERMISSIONS
 
 export interface CreateBindingInput {
   readonly role: Role
@@ -70,7 +61,7 @@ export function bindRole(registry: RuntimeRegistry, input: CreateBindingInput): 
     )
   }
 
-  const defaults = permissionsSchema.parse(ROLE_PERMISSIONS[input.role])
+  const defaults = defaultPermissionsForRole(input.role)
   const requested = input.permissions ?? {}
 
   const permissions = permissionsSchema.parse(
@@ -111,6 +102,21 @@ export class UnboundRoleError extends Error {
   }
 }
 
+/** Raised when multiple candidate runtimes can hold a role but no binding or default is configured. */
+export class AmbiguousRoleBindingError extends Error {
+  constructor(
+    readonly role: Role,
+    readonly candidates: readonly string[],
+  ) {
+    super(
+      `Ambiguous role binding for "${role}": multiple runtimes (${candidates.join(
+        ', ',
+      )}) can hold role, but no explicit binding or default is configured`,
+    )
+    this.name = 'AmbiguousRoleBindingError'
+  }
+}
+
 /**
  * The bindings a workflow run uses, indexed by role.
  *
@@ -126,6 +132,7 @@ export class BindingSet {
   }
 
   set(binding: AgentBinding): void {
+    validateBindingPermissions(binding)
     this.byRole.set(binding.role, binding)
   }
 

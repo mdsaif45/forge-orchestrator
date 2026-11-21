@@ -126,15 +126,55 @@ describe('the happy path', () => {
     }
   })
 
-  it('requires the user to approve the plan', () => {
-    // The human gate. Nothing an agent reports can substitute for it, so no other trigger
-    // may leave PLAN_READY toward implementation.
+  it('requires the user to approve the plan or stop/rerun (#164)', () => {
+    // The human gate. Nothing an agent reports can substitute for it: the only way
+    // forward toward implementation is userApproved. The user may also choose to stop
+    // after planning alone (stageCompleted) or re-run planning (stageRerun) (#164).
     const escapes = legalTriggers('PLAN_READY').filter(
       (trigger) =>
         !['questionRaised', 'limitReached', 'policyViolated', 'cancelled'].includes(trigger),
     )
 
-    expect(escapes).toEqual(['userApproved'])
+    expect(escapes).toEqual(['userApproved', 'stageCompleted', 'stageRerun'])
+  })
+})
+
+describe('flexible stage execution (#164)', () => {
+  it('allows running planning alone and stopping', () => {
+    const planned = transition('DISCOVERY', 'start')
+    const ready = transition(planned.to, 'planProduced')
+    expect(ready.to).toBe('PLAN_READY')
+
+    const stopped = transition(ready.to, 'stageCompleted')
+    expect(stopped.to).toBe('DONE')
+  })
+
+  it('allows skipping unrequested stages (e.g. code audit / reviewer)', () => {
+    // From VERIFYING, user can skip reviewer directly to DONE
+    const skippedReview = transition('VERIFYING', 'stageSkipped')
+    expect(skippedReview.to).toBe('DONE')
+
+    // From IMPLEMENTING, user can skip verification to REVIEWING
+    const skippedVerif = transition('IMPLEMENTING', 'stageSkipped')
+    expect(skippedVerif.to).toBe('REVIEWING')
+  })
+
+  it('allows re-running a stage with amended input and increments iteration', () => {
+    // Re-run planning from PLAN_READY
+    const rerunPlanning = transition('PLAN_READY', 'stageRerun', { iteration: 1, maxIterations: 5 })
+    expect(rerunPlanning.to).toBe('PLANNING')
+    expect(rerunPlanning.iteration).toBe(2)
+
+    // Re-run implementation from VERIFYING
+    const rerunImpl = transition('VERIFYING', 'stageRerun', { iteration: 2, maxIterations: 5 })
+    expect(rerunImpl.to).toBe('IMPLEMENTING')
+    expect(rerunImpl.iteration).toBe(3)
+  })
+
+  it('bounds stage re-run loops under Axiom A5', () => {
+    const halted = transition('PLAN_READY', 'stageRerun', { iteration: 3, maxIterations: 3 })
+    expect(halted.to).toBe('HALTED_LIMIT')
+    expect(halted.trigger).toBe('limitReached')
   })
 })
 

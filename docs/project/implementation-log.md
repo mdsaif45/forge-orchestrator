@@ -1,0 +1,109 @@
+# Implementation & Engineering Log
+
+**Status:** IMPLEMENTED  
+**Authority:** Physical Implementation Truth  
+**Last Updated:** 2026-09-26  
+**Baseline:** `main` @ `7b91d67` (PR #207 merged) | Active Branch: `feat/verify-003-adversarial-verifier`  
+
+---
+
+## 1. Merged Pull Requests (Reverse Chronological)
+
+### PR #207: `docs(project): record CRIT-001 completion after PR #204 merge`
+- **Merged:** 2026-09-25T20:00:00Z
+- **Commit:** `7b91d67`
+- **Summary:** Forensic documentation stabilization; separated normative authority from implementation evidence; unified truth baselines.
+- **Tests:** 97 passed test files, 1,142 passing tests.
+
+### PR #204: `feat(criteria, cli): implement CRIT-001 criteria evaluation & runs/artifacts inspection CLI`
+- **Merged:** 2026-09-25T13:36:09Z
+- **Commit:** `5987501`
+- **Summary:** Implemented CRIT-001 completion criteria evaluation in direct task loop; added `forge runs` and `forge artifacts` inspection CLI with project scoping, UUID boundary validation, and byte-preserving base64 IPC windowed reading. CLI-004 remains NOT STARTED.
+- **Tests:** 97 passed test files, 1,142 passing tests (2 manual test files skipped; 3 tests skipped).
+
+### PR #206: `feat(verify): VERIFY-001 untracked & binary file reconciliation`
+- **Merged:** 2026-09-25T07:14:22Z
+- **Commit:** `92e4e95`
+- **Summary:** Enhanced `GitService.diffWorktree()` to capture untracked files via `--untracked-files=all` and handle binary files with zero line counts; enforced policy violation halt (exit code 2) in `taskRunner.ts`.
+
+### PR #203: `feat(state): implement STATE-001 durable run, step, artifact, and event store`
+- **Merged:** 2026-09-12T16:00:17Z
+- **Commit:** `1dfb444`
+- **Author:** `mdsaif45`
+- **Changes:** 15 files changed, +1,842 lines / -12 lines
+- **Summary:**
+  - Implemented SQLite schema migrations via Drizzle ORM (`runs`, `steps`, `artifacts`, `events`).
+  - Built `RunStore`, `EventStore`, `ArtifactStore`, and filesystem `ArtifactService`.
+  - Hardened path traversal boundary containment on artifact directories.
+  - Implemented rollback on metadata failure and authoritative event logging.
+- **Tests:** +17 tests (1,108 → 1,125 passing).
+
+### PR #198: `feat(core): Vertical Slice #1 — Headless Forge Core, Native Agent Runtime & CLI (CORE-001, AGENT-001, CLI-001, EVIDENCE-001)`
+- **Merged:** 2026-09-12T07:11:13Z
+- **Commit:** `26ac6e3`
+- **Author:** `mdsaif45`
+- **Changes:** 24 files changed, +3,150 lines / -42 lines
+- **Summary:**
+  - Decoupled `createForgeCore` from Electron Main.
+  - Implemented standalone CLI entrypoint (`bin/forge.ts`, `bin/forge.js`, `src/main/cli.ts`) with `--json` streaming and exit codes (0/1/2).
+  - Built in-process native agent task loop in `src/main/core/taskRunner.ts`.
+  - Implemented physical git diff reconciliation against declared task `allowedPaths`.
+- **Issues Closed:** #199, #200, #201, #202.
+
+### PR #196: `feat(ask): refine user message bubble padding and hover action toolbar`
+- **Merged:** 2026-09-10T12:24:33Z
+- **Commit:** `8b91a21`
+- **Summary:** UI polishing for user message boxes in desktop Ask mode.
+
+### PR #189: `feat(runtimes): incorporate 3rd-party CLI agent providers and agents settings`
+- **Merged:** 2026-09-09T14:45:38Z
+- **Summary:** Added settings UI and provider catalog for external CLI agents.
+
+### PR #188: `feat(workflows): modular lego-piece visual workflow platform, native agent, and byo-cli integration`
+- **Merged:** 2026-09-09T13:49:02Z
+- **Summary:** Initial modular workflow visual models and ConPTY terminal hosting foundation.
+
+### PR #187: `fix: Stop electron-builder publishing its own drafts, and bound the screen poll in ticks`
+- **Merged:** 2026-09-09T03:15:46Z
+- **Summary:** Fixed duplicate GitHub release draft creation in packaging pipeline.
+
+### PR #186: `chore(release): bump to 0.3.0-alpha.1`
+- **Merged:** 2026-09-09T02:59:30Z
+- **Summary:** Version bump and release preparation.
+
+---
+
+## 2. Active Development Branches & PRs
+
+| PR / Branch | State | Scope | Tests Added |
+| :--- | :--- | :--- | :--- |
+| `feat/verify-003-adversarial-verifier` | PR #208 (OPEN) | VERIFY-003 adversarial evidence verifier, cross-checking against physical diffs, contradictory evidence detection, and cryptographic artifact integrity | +31 tests (1,142 → 1,173 passing) |
+| Small Milestones Consolidation | IN PROGRESS | M0-002 (Windows git EBUSY flakiness), M0-003 (Spike #64 formal closure), AGENT-002 (Streaming artifact ingestion) | +3 tests (1,173 → 1,176 passing) |
+
+### Milestone VERIFY-003 Details
+- **Branch:** `feat/verify-003-adversarial-verifier`
+- **PR:** #208 (OPEN)
+- **Scope:** Strengthen Forge's independent verification layer to reliably detect deceptive, incomplete, contradictory, or insufficient agent-produced evidence.
+- **Key Deliverables:**
+  - `src/main/evidence/adversarial.ts`: Adversarial evidence auditor (`auditAdversarialEvidence`) detecting stale evidence, contradictory exit-0 with test failures, nonexistent artifact references, `claimed-but-unchanged` physical diff mismatches, out-of-scope modifications, false success claims, and malformed criteria inputs.
+  - `src/main/evidence/verifier.ts`: Integration with `verifyStep` and false claims cross-checking against build/test child process outputs. Disqualifies PASS verdict on adversarial findings.
+  - `src/shared/domain/evidence.ts`: Hardened `evidencePassed(artifact)` against test runners wrapped with `|| true` masking exit codes.
+  - `src/shared/domain/completion.ts`: Normalized paths in `fromFileExists` for cross-platform robustness.
+  - `src/main/artifacts/artifactService.ts`: Added `verifyArtifactIntegrity(id)` to cryptographically verify physical existence, byte count, and SHA-256 digest against SQLite metadata.
+  - `src/main/core/taskRunner.ts`: Hardened criteria evaluation and step verdict to preserve `unknown` verdict on `StepEvidence` while enforcing exit code 1.
+- **Tests Added:**
+  - `src/main/evidence/adversarial.test.ts` (12 tests)
+  - `src/main/evidence/verify003.adversarial.test.ts` (14 scenario tests)
+  - `src/main/artifacts/artifactService.test.ts` (+5 integrity tests)
+- **Suite Metrics:** 99 passed test files, 1,173 passing tests (2 manual test files skipped; 3 tests skipped).
+
+### Small Milestones (M0-002, M0-003, AGENT-002) Details
+- **M0-002 (Issue #178):** Replaced unpolled `rmSync` with polled `await removeTempDir()` in `src/main/git/gitService.test.ts`, eliminating Windows file-locking `EBUSY` flakiness during parallel test runs.
+- **M0-003 (Issue #64):** Formally closed obsolete spike #64 with documentation references to ADR-001 (§3 & §4) and ADR-003, confirming Forge reuses host CLI logins without custom re-authentication hacks.
+- **AGENT-002:** Implemented `ArtifactService.writeArtifactStream()` in `src/main/artifacts/artifactService.ts` for memory-safe streaming ingestion of high-throughput tool output (>50 KB) with on-the-fly SHA-256 hashing, byte tracking, and transactional rollback on SQLite metadata failure. Covered by 3 new unit tests in `src/main/artifacts/artifactService.test.ts`.
+
+---
+
+## 3. Open questions
+
+- **[RESOLVED] Q-IL-01:** PR #204's title and scope were remediated to `feat(criteria, cli): implement CRIT-001 criteria evaluation & runs/artifacts inspection CLI` prior to merge, explicitly decoupling it from `CLI-004`. `CLI-004` (React Ink TUI) remains NOT STARTED.

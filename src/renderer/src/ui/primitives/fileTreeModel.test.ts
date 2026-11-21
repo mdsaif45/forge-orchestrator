@@ -6,7 +6,7 @@ import {
   getAncestorsOfPath,
   normalizePath,
 } from './fileTreeModel'
-import type { ChangedFileView } from '@shared/ipc'
+import type { ChangedFileView } from '@shared/views'
 
 describe('fileTreeModel', () => {
   it('normalizes paths properly', () => {

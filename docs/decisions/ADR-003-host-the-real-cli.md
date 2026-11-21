@@ -1,6 +1,11 @@
 # ADR-003 — Host the real CLI; stop parsing a headless one
 
-Status: **proposed** · Date: 2026-08-31 · Supersedes ADR-002's implementation, keeps its goal
+**Status:** IMPLEMENTED  
+**Authority:** Architectural Decision Record  
+**Date:** 2026-08-31  
+**Supersedes:** ADR-002's implementation mechanism, keeps its goal  
+**Related Decisions:** [ADR-002](ADR-002-interactive-orchestration.md)  
+**Related Architecture:** [agent-runtime.md](../architecture/agent-runtime.md), [concurrency-and-isolation.md](../architecture/concurrency-and-isolation.md)  
 
 ---
 

@@ -69,3 +69,57 @@ export class ActiveModelStore {
     writeFileSync(this.file, JSON.stringify(model, null, 2), 'utf8')
   }
 }
+
+/**
+ * Resolves an active model from explicit options, stored model, or environment variables.
+ */
+export function resolveEffectiveModel(
+  stored: ActiveModel | null,
+  override?: {
+    readonly providerId?: string | undefined
+    readonly model?: string | undefined
+    readonly endpointUrl?: string | undefined
+    readonly apiKey?: string | undefined
+  },
+): ActiveModel {
+  if (override?.model !== undefined && override.model.trim() !== '') {
+    return {
+      providerId: override.providerId ?? 'ollama',
+      model: override.model,
+      ...(override.endpointUrl !== undefined && override.endpointUrl !== ''
+        ? { endpointUrl: override.endpointUrl }
+        : {}),
+      ...(override.apiKey !== undefined && override.apiKey !== ''
+        ? { apiKey: override.apiKey }
+        : {}),
+    }
+  }
+
+  if (stored !== null && stored.model !== '') {
+    return stored
+  }
+
+  if (process.env.OPENAI_API_KEY !== undefined && process.env.OPENAI_API_KEY.trim() !== '') {
+    return {
+      providerId: 'openai',
+      model: process.env.OPENAI_MODEL ?? 'gpt-4o',
+      apiKey: process.env.OPENAI_API_KEY,
+    }
+  }
+
+  if (
+    process.env.OPENROUTER_API_KEY !== undefined &&
+    process.env.OPENROUTER_API_KEY.trim() !== ''
+  ) {
+    return {
+      providerId: 'openrouter',
+      model: process.env.OPENROUTER_MODEL ?? 'openai/gpt-4o',
+      apiKey: process.env.OPENROUTER_API_KEY,
+    }
+  }
+
+  return {
+    providerId: 'ollama',
+    model: process.env.OLLAMA_MODEL ?? 'qwen2.5-coder:7b',
+  }
+}

@@ -1,6 +1,10 @@
 # ADR-001 — Agents, runtimes, and the end of account isolation
 
-Status: **accepted** · Date: 2026-08-31 · Supersedes: #62, #63, #64
+**Status:** IMPLEMENTED  
+**Authority:** Architectural Decision Record  
+**Date:** 2026-08-31  
+**Supersedes:** #62, #63, #64  
+**Related Architecture:** [agent-runtime.md](../architecture/agent-runtime.md)  
 
 Closes the three questions that blocked M2. All three were treated as open because
 they were framed as vendor or subscription questions. They are not: two rest on

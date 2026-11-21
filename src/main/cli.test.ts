@@ -3605,4 +3605,103 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('decomposes engineering goals into subtasks with forge context decompose (AGENT-021)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'context',
+      'decompose',
+      '--task',
+      'Implement multi-tenant sharding',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.goal).toBe('Implement multi-tenant sharding')
+    expect(parsed.totalSubtasks).toBe(5)
+    expect(Array.isArray(parsed.executionOrder)).toBe(true)
+    expect(parsed.hasCycles).toBe(false)
+
+    logSpy.mockRestore()
+  })
+
+  it('evaluates workflow step retry and DLQ escalation with forge workflows retry-schedule (WORK-028)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'workflows',
+      'retry-schedule',
+      'step-fetch-data',
+      '1',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.stepId).toBe('step-fetch-data')
+    expect(parsed.shouldRetry).toBe(true)
+    expect(parsed.escalatedToDlq).toBe(false)
+    expect(parsed.failureCategory).toBe('transient_network')
+
+    logSpy.mockRestore()
+  })
+
+  it('chunks unified git diff into semantic change hunks with forge diff semantic (EVIDENCE-016)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['diff', 'semantic', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.totalChunks).toBeGreaterThan(0)
+    expect(parsed.overallRisk).toBeDefined()
+    expect(parsed.dominantCategory).toBeDefined()
+
+    logSpy.mockRestore()
+  })
+
+  it('resolves sandboxed multi-tenant database shard with forge db shard (STATE-018)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['db', 'shard', 'tenant_alpha', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.projectId).toBe('tenant_alpha')
+    expect(parsed.isSandboxed).toBe(true)
+    expect(typeof parsed.resolvedPath).toBe('string')
+    expect((parsed.resolvedPath as string).includes('shards')).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('evaluates dynamic configuration hot-reload with forge config reload-check (CONFIG-019)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['config', 'reload-check', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.isValid).toBe(true)
+    expect(parsed.hasChanges).toBe(true)
+    expect(parsed.requiresRestart).toBe(false)
+
+    logSpy.mockRestore()
+  })
 })

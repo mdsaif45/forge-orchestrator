@@ -194,3 +194,11 @@ export {
   type ChangeImpactOptions,
   type ImpactAnalysisReport,
 } from './changeImpactSelector'
+export {
+  chunkUnifiedDiff,
+  classifyFilePath,
+  type SemanticCategory,
+  type SemanticDiffChunk,
+  type SemanticDiffReport,
+  type SemanticChunkingOptions,
+} from './diffSemanticChunker'

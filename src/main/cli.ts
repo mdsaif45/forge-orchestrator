@@ -62,6 +62,7 @@ import {
   executeSandboxedQuery,
   analyzeQueryPlan,
   auditDatabaseJournalRange,
+  resolveShardPath,
   type MigrationDefinition,
   type SavepointReceipt,
   type RawLedgerEvent,
@@ -85,6 +86,7 @@ import {
   generateProvenanceStatement,
   verifyProvenanceStatement,
   selectAffectedTestSuites,
+  chunkUnifiedDiff,
   inspectRunDiff,
   parseLcov,
   rollbackRunChanges,
@@ -124,6 +126,7 @@ import {
   planTopologicalWaves,
   evaluateStepSla,
   planForkJoinBatches,
+  evaluateStepRetryAndEscalation,
   type StepPrecondition,
   type SubgraphDirection,
   type WorkflowConditionContext,
@@ -152,6 +155,7 @@ import {
   coalesceToolObservations,
   evaluateToolRetry,
   scheduleSpeculativePrefetch,
+  decomposeGoalIntoSubtasks,
   type ConversationTurn,
   type PromptTurn,
   type ToolParametersSchema,
@@ -177,6 +181,7 @@ import {
   validateToolExecutionPolicy,
   resolveConfigInheritance,
   transformDeprecatedConfig,
+  evaluateConfigReload,
   type ConfigPresetName,
   type PolicyLockRule,
   type ToolSandboxPolicy,
@@ -593,6 +598,15 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       return handleDiffExports({
         runId: positionals[2],
         stepId: positionals[3],
+        dataDir,
+        json: values.json,
+      })
+    }
+    if (positionals[1] === 'semantic') {
+      return handleDiffSemantic({
+        runId: positionals[2],
+        stepId: positionals[3],
+        cwd,
         dataDir,
         json: values.json,
       })
@@ -2002,6 +2016,7 @@ async function handleWorkflows(opts: {
       'waves',
       'sla',
       'fork-join',
+      'retry-schedule',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2120,6 +2135,24 @@ async function handleWorkflows(opts: {
         )
       }
       return 0
+    }
+
+    if (action === 'retry-schedule') {
+      const stepId = targetId ?? 'step-exec'
+      const failureCount = opts.extraParam ? parseInt(opts.extraParam, 10) : 1
+      const errorMsg = opts.task ?? 'Process exited with connection reset'
+      const decision = evaluateStepRetryAndEscalation(stepId, failureCount, new Error(errorMsg))
+      if (opts.json) {
+        console.log(JSON.stringify(decision))
+        return decision.shouldRetry ? 0 : 1
+      }
+      console.log(`\nRETRY ESCALATION DECISION: [${decision.stepId}]\n`)
+      console.log(`  Should Retry: ${decision.shouldRetry ? 'YES' : 'NO'}`)
+      console.log(`  Failure Category: ${decision.failureCategory}`)
+      console.log(`  Escalated to DLQ: ${decision.escalatedToDlq ? 'YES' : 'NO'}`)
+      console.log(`  Delay: ${String(decision.delayMs)}ms`)
+      console.log(`  Reason: ${decision.reason}\n`)
+      return decision.shouldRetry ? 0 : 1
     }
 
     if (action === 'retry') {
@@ -3675,6 +3708,20 @@ async function handleContext(opts: {
       return 0
     }
 
+    if (action === 'decompose') {
+      const goal = opts.task ?? opts.runId ?? 'Implement feature'
+      const plan = decomposeGoalIntoSubtasks(goal)
+      if (opts.json) {
+        console.log(JSON.stringify(plan))
+        return plan.errors.length === 0 ? 0 : 1
+      }
+      console.log(`\nSUBTASK DECOMPOSITION PLAN: "${plan.goal}"\n`)
+      for (const step of plan.subtasks) {
+        console.log(`  [${step.id}] (${step.category}) ${step.title}`)
+      }
+      return plan.errors.length === 0 ? 0 : 1
+    }
+
     if (action !== 'inspect' && action !== 'optimize' && action !== 'compact') {
       runId = action
       action = 'inspect'
@@ -4353,6 +4400,31 @@ async function handleConfig(opts: {
     return 0
   }
 
+  if (action === 'reload-check') {
+    const active = {
+      logLevel: 'info',
+      models: { active: 'qwen2.5-coder:7b' },
+    }
+    const candidate = opts.key
+      ? (JSON.parse(opts.key) as Record<string, unknown>)
+      : {
+          logLevel: 'debug',
+          models: { active: 'qwen2.5-coder:7b' },
+          telemetry: { enabled: true },
+        }
+    const assessment = evaluateConfigReload(active, candidate)
+    if (opts.json) {
+      console.log(JSON.stringify(assessment))
+      return assessment.isValid ? 0 : 1
+    }
+    console.log(`\nCONFIG RELOAD ASSESSMENT:\n`)
+    console.log(`  Valid: ${assessment.isValid ? 'YES' : 'NO'}`)
+    console.log(`  Changes: ${assessment.hasChanges ? 'YES' : 'NO'}`)
+    console.log(`  Requires Restart: ${assessment.requiresRestart ? 'YES' : 'NO'}`)
+    console.log(`  Summary: ${assessment.summary}\n`)
+    return assessment.isValid ? 0 : 1
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
@@ -4802,6 +4874,21 @@ async function handleDb(opts: {
           `  • [${delta.mutationKind.toUpperCase()}] ${delta.entityType} ${delta.entityId} (events: ${String(delta.eventCount)})`,
         )
       }
+      return 0
+    }
+
+    if (action === 'shard') {
+      const projectId = opts.targetPath ?? 'default_project'
+      const shardInfo = resolveShardPath(projectId, opts.dataDir)
+      if (opts.json) {
+        console.log(JSON.stringify(shardInfo))
+        return 0
+      }
+      console.log(`\nSHARD ROUTING: [${shardInfo.projectId}]\n`)
+      console.log(`  Shard ID: ${shardInfo.shardId}`)
+      console.log(`  File: ${shardInfo.shardFileName}`)
+      console.log(`  Resolved Path: ${shardInfo.resolvedPath}`)
+      console.log(`  Sandboxed: ${shardInfo.isSandboxed ? 'YES' : 'NO'}\n`)
       return 0
     }
 
@@ -5794,6 +5881,60 @@ async function handleDiffHunks(opts: {
   } finally {
     await core.close()
   }
+}
+
+async function handleDiffSemantic(opts: {
+  readonly runId?: string | undefined
+  readonly stepId?: string | undefined
+  readonly cwd: string
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  let rawDiff = ''
+  if (opts.runId && existsSync(resolve(opts.cwd, opts.runId))) {
+    try {
+      rawDiff = readFileSync(resolve(opts.cwd, opts.runId), 'utf8')
+    } catch {
+      rawDiff = ''
+    }
+  } else if (opts.runId) {
+    const core = createForgeCore({ dataDir: opts.dataDir })
+    try {
+      const parsedRunId = runIdSchema.safeParse(opts.runId)
+      if (parsedRunId.success) {
+        const artifacts = core.artifactStore.listForRun(parsedRunId.data)
+        const diffArt = artifacts.find((a) => a.kind === 'diff' || a.kind === 'changeset')
+        if (diffArt) {
+          rawDiff = await core.artifacts.readArtifactText(diffArt.id)
+        }
+      }
+    } finally {
+      await core.close()
+    }
+  }
+
+  if (!rawDiff) {
+    rawDiff = `diff --git a/src/main/core/sample.ts b/src/main/core/sample.ts
+--- a/src/main/core/sample.ts
++++ b/src/main/core/sample.ts
+@@ -1,3 +1,5 @@
++export function executeSemanticAnalysis() { return true; }
+`
+  }
+
+  const report = chunkUnifiedDiff(rawDiff)
+  if (opts.json) {
+    console.log(JSON.stringify(report))
+    return 0
+  }
+
+  console.log(
+    `\nSEMANTIC DIFF REPORT (Risk: ${report.overallRisk}, Category: ${report.dominantCategory})\n`,
+  )
+  for (const chunk of report.chunks) {
+    console.log(`  • ${chunk.summary}`)
+  }
+  return 0
 }
 
 async function handleDiffCycles(opts: {

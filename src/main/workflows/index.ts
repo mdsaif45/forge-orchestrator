@@ -137,4 +137,11 @@ export {
   type ExecutionWave,
   type WavePlanResult,
 } from './topologicalWavePlanner'
+export {
+  evaluateStepSla,
+  calculateMovingAverage,
+  type StepSlaStatus,
+  type StepSlaConfig,
+  type StepSlaReport,
+} from './stepSlaMonitor'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

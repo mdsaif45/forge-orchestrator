@@ -3393,4 +3393,121 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('evaluates adaptive tool retry with forge context retry-tool (AGENT-019)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'context',
+      'retry-tool',
+      'bash',
+      '1',
+      '--task',
+      'ETIMEDOUT: Connection timed out',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.shouldRetry).toBe(true)
+    expect(parsed.classification).toBe('timeout')
+    expect(parsed.backoffMs).toBeGreaterThan(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('evaluates step execution SLA with forge workflows sla (WORK-026)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'workflows',
+      'sla',
+      'lint_step',
+      '2000',
+      '--concurrency',
+      '5000',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.stepId).toBe('lint_step')
+    expect(parsed.status).toBe('nominal')
+    expect(parsed.percentConsumed).toBe(40)
+
+    logSpy.mockRestore()
+  })
+
+  it('generates and verifies in-toto provenance statement with forge verify provenance (EVIDENCE-014)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'verify',
+      'provenance',
+      'run-test-123',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      statement: Record<string, unknown>
+      verification: Record<string, unknown>
+    }
+    expect(parsed.verification.valid).toBe(true)
+    expect(parsed.verification.subjectCount).toBe(1)
+    expect(parsed.statement._type).toBe('https://in-toto.io/Statement/v1')
+
+    logSpy.mockRestore()
+  })
+
+  it('analyzes sqlite query execution plans with forge db analyze-query (STATE-016)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'db',
+      'analyze-query',
+      'SELECT * FROM runs;',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(typeof parsed.score).toBe('number')
+    expect(Array.isArray(parsed.nodes)).toBe(true)
+    expect(Array.isArray(parsed.recommendations)).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('resolves layered configuration inheritance with forge config resolve-layers (CONFIG-017)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['config', 'resolve-layers', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as Record<string, unknown>
+    expect(parsed.valid).toBe(true)
+    expect(parsed.conflicts).toEqual([])
+    expect(parsed.originMap).toBeDefined()
+
+    logSpy.mockRestore()
+  })
 })

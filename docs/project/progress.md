@@ -5,8 +5,8 @@ Project:            Forge — AI Engineering Control Plane
 Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
 Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
 Last updated:       2026-11-21
-Evidence baseline:  main @ b86c86c (PR #343 merged)
-Active branch:      feat/m1-m6-coalescer-wave-tap-sandbox-policy
+Evidence baseline:  main @ ba73735 (PR #349 merged)
+Active branch:      feat/m1-m6-retry-sla-provenance-analyzer-inheritance
 ```
 
 ---
@@ -409,16 +409,17 @@ An explicit discrepancy exists between GitHub milestone numbers, GitHub mileston
   - **PR #313:** `feat(core,workflows,evidence,state,config): tool output limiter, workflow checkpoint, verification manifest, event replay, and config migrator (#308, #309, #310, #311, #312)` (`3bda40d`).
   - **PR #319:** `feat(core,workflows,evidence,db,config,cli): prompt compactor, workflow simulator, export surface auditor, ledger verifier, and env sync (#314, #315, #316, #317, #318)` (`9727b6c`).
   - **PR #325:** `feat(core,workflows,evidence,db,config,cli): stream dispatcher, subgraph extractor, patch fuzz auditor, snapshot differ, and config drift (#320, #321, #322, #323, #324)` (`bf6c9e1`).
-  - **PR #331:** `feat(core,workflows,evidence,db,config,cli): tool reflection, step retry policy, assertion reporter, db savepoints, and config template (#326, #327, #328, #329, #330)` (`7cdd99d`).
-- **In-Progress Cluster IX (feat/m1-m6-budget-semaphore-cycle-fts-boundary):**
-  - **Issue #332 (AGENT-016):** `feat(core): agent prompt context window budgeting and automatic truncation estimator (AGENT-016)`.
-  - **Issue #333 (WORK-023):** `feat(workflows): workflow execution step concurrency limiter and resource semaphore (WORK-023)`.
-  - **Issue #334 (EVIDENCE-011):** `feat(evidence): changeset ast import export dependency cycle detector (EVIDENCE-011)`.
-  - **Issue #335 (STATE-013):** `feat(db): sqlite full text search fts5 virtual table and event query engine (STATE-013)`.
-  - **Issue #336 (CONFIG-014):** `feat(config): workspace security sandboxing policy validator and boundary guard (CONFIG-014)`.
+  - **PR #343:** `feat(core,workflows,evidence,db,config,cli): conversation compressor, preflight evaluator, log sanitizer, migration runner, and sensitive data redactor (#338, #339, #340, #341, #342)` (`b86c86c`).
+  - **PR #349:** `feat(core,workflows,evidence,db,config,cli): tool result coalescer, topological wave planner, tap test parser, query sandbox, and tool sandbox policy (#344, #345, #346, #347, #348)` (`ba73735`).
+- **In-Progress Cluster XII (feat/m1-m6-retry-sla-provenance-analyzer-inheritance):**
+  - **Issue #350 (AGENT-019):** `feat(core): adaptive tool invocation retry supervisor with exponential jitter and failure pattern circuit breaker (AGENT-019)`.
+  - **Issue #351 (WORK-026):** `feat(workflows): workflow step execution duration sla monitor and deadline breach supervisor (WORK-026)`.
+  - **Issue #352 (EVIDENCE-014):** `feat(evidence): cryptographic provenance attestation generator and reproducible artifact sbom manifest (EVIDENCE-014)`.
+  - **Issue #353 (STATE-016):** `feat(db): sqlite query plan analyzer and index selectivity optimization auditor (STATE-016)`.
+  - **Issue #354 (CONFIG-017):** `feat(config): hierarchical workspace configuration inheritance resolver and override conflict detector (CONFIG-017)`.
 - **Milestones Status:** All GitHub Milestones M0 through M11 are completed and closed with zero remaining open issues.
 - **Dependencies & Blockers:** None. Local verification gates and test suites are 100% green.
 - **Immediate Next Action:**
-  1. Open PR for Issues #332, #333, #334, #335, #336.
+  1. Open PR for Issues #350, #351, #352, #353, #354.
   2. Verify all CI checks pass on GitHub Actions.
   3. Merge PR to `main` via squash merge.

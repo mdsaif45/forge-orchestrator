@@ -123,3 +123,11 @@ export {
   type CoalescedTurn,
   type CoalesceResult,
 } from './toolResultCoalescer'
+export {
+  classifyToolError,
+  calculateToolBackoff,
+  evaluateToolRetry,
+  type ToolErrorClassification,
+  type ToolRetryPolicy,
+  type ToolRetryDecision,
+} from './toolRetrySupervisor'

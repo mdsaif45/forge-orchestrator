@@ -163,3 +163,11 @@ export {
   type DiagnosticFailure,
   type LogSanitizationResult,
 } from './logSanitizer'
+export {
+  parseJUnitXmlReport,
+  parseTapStreamReport,
+  parseUniversalTestReport,
+  type TestCaseResult,
+  type TestSuiteResult,
+  type UnifiedTestReport,
+} from './unifiedTestParser'

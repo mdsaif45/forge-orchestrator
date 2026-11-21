@@ -122,6 +122,13 @@ export {
   type MigrationIntegrityReport,
   type MigrationExecutionResult,
 } from './schemaMigrationRunner'
+export {
+  validateReadOnlySql,
+  executeSandboxedQuery,
+  type QueryValidationResult,
+  type SandboxedQueryResult,
+  type SandboxOptions,
+} from './querySandbox'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

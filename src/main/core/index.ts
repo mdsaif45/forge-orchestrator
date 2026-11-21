@@ -140,3 +140,10 @@ export {
   type PrefetchSchedulerOptions,
   type PrefetchScheduleReport,
 } from './speculativePrefetchScheduler'
+export {
+  decomposeGoalIntoSubtasks,
+  topologicallySortSubtasks,
+  type SubtaskNode,
+  type DecompositionPlan,
+  type DecompositionOptions,
+} from './subtaskDecompositionPlanner'

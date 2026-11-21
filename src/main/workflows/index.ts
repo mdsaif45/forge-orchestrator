@@ -155,4 +155,13 @@ export {
   type ForkJoinTaskOutcome,
   type ForkJoinAggregateReport,
 } from './forkJoinSubflowOrchestrator'
+export {
+  classifyWorkflowFailure,
+  calculateWorkflowBackoffDelay,
+  evaluateStepRetryAndEscalation,
+  DEFAULT_WORKFLOW_RETRY_POLICY,
+  type FailureCategory,
+  type WorkflowRetryEscalationPolicy,
+  type RetryDecision,
+} from './retryEscalationRouter'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

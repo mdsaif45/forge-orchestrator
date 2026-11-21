@@ -149,6 +149,15 @@ export {
   type JournalDiffOptions,
   type JournalDiffReport,
 } from './journalDiffAuditor'
+export {
+  sanitizeProjectId,
+  computeShardFileName,
+  resolveShardPath,
+  auditShardRegistry,
+  type ShardRoutingInfo,
+  type ShardRegistryReport,
+  type ShardRouterOptions,
+} from './partitionShardRouter'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

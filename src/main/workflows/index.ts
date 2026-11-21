@@ -193,4 +193,11 @@ export {
   type CircuitBreakerConfig,
   type CircuitBreakerMetrics,
 } from './workflowCircuitBreaker'
+export {
+  WorkflowBackpressureSupervisor,
+  type BackpressureState,
+  type BackpressureConfig,
+  type IngestionDecision,
+  type BackpressureMetrics,
+} from './workflowBackpressureSupervisor'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

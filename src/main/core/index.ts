@@ -175,3 +175,10 @@ export {
   type CapabilityValidationContext,
   type CapabilityValidationReport,
 } from './agentCapabilityValidator'
+export {
+  AgentToolDryRunSimulator,
+  type ToolMutationSeverity,
+  type PlannedToolInvocation,
+  type ToolDryRunConfig,
+  type ToolDryRunReport,
+} from './agentToolDryRunSimulator'

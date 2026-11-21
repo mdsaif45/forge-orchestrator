@@ -67,6 +67,7 @@ import {
   SqliteConnectionPoolSupervisor,
   SqliteSnapshotBarrierManager,
   SqliteAuditLogCompactor,
+  SqliteWriteLeaseCoordinator,
   type RawAuditEvent,
   type MigrationDefinition,
   type SavepointReceipt,
@@ -102,6 +103,7 @@ import {
   auditChangesetPaths,
   maskChangesetTokens,
   auditChangesetEntropy,
+  sliceChangesetForContextBudget,
   type ExportSurfaceReport,
   type FileCoverageData,
   type PatchFuzzReport,
@@ -140,6 +142,7 @@ import {
   detectWorkflowDeadlocks,
   partitionFanOutBatches,
   WorkflowCircuitBreaker,
+  WorkflowBackpressureSupervisor,
   type BarrierPolicy,
   type StepDependencyOutcome,
   type StepPrecondition,
@@ -175,6 +178,7 @@ import {
   AgentTokenBudgetThrottler,
   AgentSubgoalCheckpointEngine,
   AgentCapabilityValidator,
+  AgentToolDryRunSimulator,
   type SubgoalCheckpointInput,
   type ConversationTurn,
   type PromptTurn,
@@ -206,6 +210,7 @@ import {
   coerceAndValidateConfig,
   planConfigRemediation,
   WorkspaceEnvSanitizer,
+  ConfigProvenanceLedger,
   type ConfigPolicyBaseline,
   type ConfigSchema,
   type ConfigPresetName,
@@ -663,6 +668,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     }
     if (positionals[1] === 'audit-entropy' || positionals[1] === 'entropy') {
       return handleDiffEntropy({
+        runId: positionals[2],
+        stepId: positionals[3],
+        dataDir,
+        json: values.json,
+      })
+    }
+    if (positionals[1] === 'slice-budget' || positionals[1] === 'budget-slice') {
+      return handleDiffSliceBudget({
         runId: positionals[2],
         stepId: positionals[3],
         dataDir,
@@ -2080,6 +2093,7 @@ async function handleWorkflows(opts: {
       'deadlock-check',
       'fan-out',
       'breaker',
+      'backpressure',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2307,6 +2321,30 @@ async function handleWorkflows(opts: {
         `\nWorkflow Circuit Breaker: State=${metrics.state} (Allowed: ${String(check.allowed)})\n`,
       )
       return check.allowed ? 0 : 1
+    }
+
+    if (action === 'backpressure') {
+      const supervisor = new WorkflowBackpressureSupervisor({
+        maxQueueCapacity: 10,
+        throttleThresholdRatio: 0.5,
+        saturatedThresholdRatio: 0.8,
+      })
+      const subAction = targetId ?? 'enqueue'
+      const task = opts.extraParam ?? 'step-compiler'
+      if (subAction === 'enqueue') {
+        supervisor.enqueueTask(task)
+      }
+      const evalResult = supervisor.evaluateSubmission(1)
+      const metrics = supervisor.getMetrics()
+      const result = { evalResult, metrics }
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+        return evalResult.allowSubmission ? 0 : 1
+      }
+      console.log(
+        `\nWorkflow Backpressure: State=${metrics.state} (Allowed: ${String(evalResult.allowSubmission)}, Queue: ${String(metrics.pendingQueueDepth)})\n`,
+      )
+      return evalResult.allowSubmission ? 0 : 1
     }
 
     if (action === 'retry') {
@@ -3816,6 +3854,27 @@ async function handleContext(opts: {
       return report.isReady ? 0 : 1
     }
 
+    if (action === 'dry-run' || action === 'tool-dryrun') {
+      const simulator = new AgentToolDryRunSimulator()
+      const toolName = opts.runId ?? opts.task ?? 'workspace_edit'
+      const simulation = simulator.simulate({
+        toolName,
+        parameters: { path: opts.extraParam ?? 'src/index.ts', content: 'test content' },
+      })
+      if (opts.json) {
+        console.log(JSON.stringify(simulation))
+        return simulation.isAllowed ? 0 : 1
+      }
+      console.log(
+        `\nTool Dry-Run Simulation: ${simulation.toolName} (Permitted: ${String(simulation.isAllowed)}, Severity: ${simulation.severity})\n`,
+      )
+      console.log(`  Blast radius: ${String(simulation.blastRadiusScore)}/100`)
+      for (const diag of simulation.diagnostics) {
+        console.log(`  • Diagnostic: ${diag}`)
+      }
+      return simulation.isAllowed ? 0 : 1
+    }
+
     if (action === 'budget') {
       const maxTokens = opts.maxTokens ?? 8192
       let content = ''
@@ -4816,6 +4875,35 @@ async function handleConfig(opts: {
     return report.missingRequiredKeys.length === 0 ? 0 : 1
   }
 
+  if (action === 'rollback' || action === 'provenance') {
+    const ledger = new ConfigProvenanceLedger()
+    const snap1 = ledger.recordSnapshot({
+      author: 'admin',
+      reason: 'initial setup',
+      configState: { theme: 'dark', maxRetries: 3 },
+    })
+    ledger.recordSnapshot({
+      author: 'automation',
+      reason: 'unsafe update',
+      configState: { theme: 'light', maxRetries: 99 },
+    })
+    const rollbackSnap = ledger.rollbackTo(snap1.snapshotId, 'admin', 'revert unsafe changes')
+    const integrity = ledger.verifyLedgerIntegrity()
+    const result = {
+      revertedTo: snap1.snapshotId,
+      currentSnapshot: rollbackSnap,
+      integrity,
+    }
+    if (opts.json) {
+      console.log(JSON.stringify(result))
+      return integrity.valid ? 0 : 1
+    }
+    console.log(
+      `\nConfig Provenance Rollback: Successfully reverted to ${snap1.snapshotId} (Integrity: ${String(integrity.valid)})\n`,
+    )
+    return integrity.valid ? 0 : 1
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
@@ -5425,6 +5513,27 @@ async function handleDb(opts: {
         `\nCompacted Audit Record for ${record.runId}: MerkleRoot=${record.merkleRoot} (Verified: ${String(isValid)})\n`,
       )
       return isValid ? 0 : 1
+    }
+
+    if (action === 'write-lease' || action === 'lease') {
+      const coordinator = new SqliteWriteLeaseCoordinator()
+      const lease = await coordinator.acquireWriteLease({
+        holderId: opts.targetId ?? 'cli-writer',
+        purpose: 'transaction-barrier-check',
+        ttlMs: 5000,
+      })
+      const isValid = coordinator.validateWriteLease(lease.leaseId, lease.fencingToken)
+      const released = coordinator.releaseWriteLease(lease.leaseId)
+      const metrics = coordinator.getMetrics()
+      const result = { lease, isValid, released, metrics }
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+        return isValid && released ? 0 : 1
+      }
+      console.log(
+        `\nSQLite Write Lease: ${lease.leaseId} (FencingToken: ${String(lease.fencingToken)}, Released: ${String(released)})\n`,
+      )
+      return isValid && released ? 0 : 1
     }
 
     const err = `Unknown db action: ${action}`
@@ -6567,6 +6676,39 @@ async function handleDiffEntropy(opts: {
   }
   console.log(`\n${report.summary}\n`)
   return report.isSafe ? 0 : 1
+}
+
+async function handleDiffSliceBudget(opts: {
+  readonly runId?: string | undefined
+  readonly stepId?: string | undefined
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  await Promise.resolve()
+  const sampleDiff = `diff --git a/src/math.ts b/src/math.ts
+--- a/src/math.ts
++++ b/src/math.ts
+@@ -1,3 +1,4 @@
+ export function add(a: number, b: number): number {
++  // sum two numbers
+   return a + b;
+ }
+@@ -10,3 +11,4 @@
+ export function multiply(a: number, b: number): number {
++  // multiply two numbers
+   return a * b;
+ }
+`
+  const sliced = sliceChangesetForContextBudget(sampleDiff, 60)
+  if (opts.json) {
+    console.log(JSON.stringify(sliced))
+    return 0
+  }
+  console.log(
+    `\nChangeset Budget Slicing: retained ${String(sliced.retainedHunks)}/${String(sliced.totalHunks)} hunks (Tokens: ${String(sliced.slicedTokens)})\n`,
+  )
+  console.log(sliced.slicedDiff)
+  return 0
 }
 
 async function handleDiffCycles(opts: {

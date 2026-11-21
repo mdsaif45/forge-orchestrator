@@ -55,6 +55,14 @@ export interface AgentTurnRequest {
    * reported capability, which is the normal case.
    */
   readonly useTools?: boolean | undefined
+  readonly projectId?: string | undefined
+  readonly setRule?: ((scope: string, key: string, statement: string) => Promise<void>) | undefined
+  readonly getRules?:
+    | (() => Promise<
+        readonly { readonly scope: string; readonly key: string; readonly statement: string }[]
+      >)
+    | undefined
+  readonly activeFilePath?: string | undefined
 }
 
 export interface AgentTurnEvent {
@@ -213,6 +221,10 @@ export async function runAgentTurn(
     forbiddenPaths: [...NEVER_WRITABLE, ...(request.forbiddenPaths ?? [])],
     canWrite: toolsEnabled,
     runCommand: makeCommandRunner(),
+    projectId: request.projectId,
+    setRule: request.setRule,
+    getRules: request.getRules,
+    activeFilePath: request.activeFilePath,
   }
 
   const plan: AgentTurnPlan = { capabilities, usedTools: toolsEnabled }
@@ -238,13 +250,14 @@ export async function runAgentTurn(
     // A model that cannot call tools is offered none, decided once here rather
     // than re-filtered on every round inside `complete`.
     toolDefinitions: toolsEnabled ? TOOL_DEFINITIONS : [],
-    complete: (messages, toolDefinitions) =>
+    complete: (messages, toolDefinitions, round) =>
       completeWithTools(
         {
           providerId: request.providerId,
           model: request.model,
           endpointUrl: request.endpointUrl,
           apiKey: request.apiKey,
+          round,
         },
         messages,
         // Already narrowed by `toolDefinitions` above; passed straight through

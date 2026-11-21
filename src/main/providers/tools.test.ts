@@ -462,3 +462,554 @@ describe('edit_file', () => {
     expect(result.content).toMatch(/write_file to create it/i)
   })
 })
+
+describe('grep_search', () => {
+  it('finds matching lines with line numbers and file paths', async () => {
+    const root = makeWorkspace()
+    const result = await runTool('grep_search', { query: 'answer' }, context(root))
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('src/math.ts:1:')
+    expect(result.content).toContain('answer = 40')
+  })
+
+  it('reports when no matches are found', async () => {
+    const root = makeWorkspace()
+    const result = await runTool('grep_search', { query: 'nonexistent_symbol_123' }, context(root))
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('No matches found')
+  })
+
+  it('refuses searches outside the workspace', async () => {
+    const root = makeWorkspace()
+    const result = await runTool(
+      'grep_search',
+      { query: 'hello', path: '../elsewhere' },
+      context(root),
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toMatch(/outside the workspace/i)
+  })
+})
+
+describe('file_glob_search', () => {
+  it('finds files matching a glob pattern', async () => {
+    const root = makeWorkspace()
+    const result = await runTool('file_glob_search', { pattern: '**/*.ts' }, context(root))
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('src/math.ts')
+  })
+
+  it('reports when no files match the glob', async () => {
+    const root = makeWorkspace()
+    const result = await runTool('file_glob_search', { pattern: '**/*.rs' }, context(root))
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('No files matched glob')
+  })
+})
+
+describe('view_diff', () => {
+  it('executes git diff via command runner', async () => {
+    const root = makeWorkspace()
+    const result = await runTool(
+      'view_diff',
+      {},
+      context(root, {
+        runCommand: () => Promise.resolve({ output: '+ new line in math.ts', code: 0 }),
+      }),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('+ new line in math.ts')
+  })
+
+  it('reports when no changes are detected', async () => {
+    const root = makeWorkspace()
+    const result = await runTool(
+      'view_diff',
+      {},
+      context(root, {
+        runCommand: () => Promise.resolve({ output: '', code: 0 }),
+      }),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('No working git changes detected')
+  })
+})
+
+describe('fetch_url_content', () => {
+  it('refuses non-http URLs', async () => {
+    const root = makeWorkspace()
+    const result = await runTool('fetch_url_content', { url: 'ftp://example.com' }, context(root))
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toMatch(/must begin with http:\/\/ or https:\/\//i)
+  })
+
+  it('fetches HTML and converts to clean markdown', async () => {
+    const root = makeWorkspace()
+    const fakeHtml =
+      '<html><head><title>Docs</title></head><body><h1>API Reference</h1><p>Welcome to the <code>API</code>.</p><a href="https://example.com/login">Login</a></body></html>'
+
+    const result = await runTool(
+      'fetch_url_content',
+      { url: 'https://docs.example.com' },
+      context(root, {
+        fetchImpl: () =>
+          Promise.resolve(
+            new Response(fakeHtml, {
+              status: 200,
+              headers: { 'Content-Type': 'text/html' },
+            }),
+          ),
+      }),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('# API Reference')
+    expect(result.content).toContain('`API`')
+    expect(result.content).toContain('[Login](https://example.com/login)')
+  })
+})
+
+describe('search_web', () => {
+  it('returns formatted web search results', async () => {
+    const root = makeWorkspace()
+    const fakeApiResponse = {
+      Heading: 'TypeScript',
+      AbstractText:
+        'TypeScript is a strongly typed programming language that builds on JavaScript.',
+      AbstractURL: 'https://www.typescriptlang.org',
+      RelatedTopics: [],
+    }
+
+    const result = await runTool(
+      'search_web',
+      { query: 'typescript' },
+      context(root, {
+        fetchImpl: () =>
+          Promise.resolve(
+            new Response(JSON.stringify(fakeApiResponse), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }),
+          ),
+      }),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('TypeScript')
+    expect(result.content).toContain('https://www.typescriptlang.org')
+  })
+})
+
+describe('create_rule_block and request_rule', () => {
+  it('persists a rule and retrieves it', async () => {
+    const root = makeWorkspace()
+    const savedRules: { scope: string; key: string; statement: string }[] = []
+
+    const ctx = context(root, {
+      setRule: (scope, key, statement) => {
+        savedRules.push({ scope, key, statement })
+        return Promise.resolve()
+      },
+      getRules: () => Promise.resolve(savedRules),
+    })
+
+    const createRes = await runTool(
+      'create_rule_block',
+      { scope: 'workspace', key: 'no-any', statement: 'Do not use explicit any in TypeScript.' },
+      ctx,
+    )
+    expect(createRes.ok).toBe(true)
+    expect(savedRules).toHaveLength(1)
+    expect(savedRules[0]?.key).toBe('no-any')
+
+    const getRes = await runTool('request_rule', { query: 'explicit any' }, ctx)
+    expect(getRes.ok).toBe(true)
+    expect(getRes.content).toContain('no-any')
+    expect(getRes.content).toContain('Do not use explicit any')
+  })
+})
+
+describe('read_skill', () => {
+  it('reads skill from workspace .forge/skills', async () => {
+    const root = makeWorkspace()
+    mkdirSync(join(root, '.forge', 'skills', 'test-skill'), { recursive: true })
+    writeFileSync(
+      join(root, '.forge', 'skills', 'test-skill', 'SKILL.md'),
+      '# Test Skill Workflow\nStep 1: check files.\n',
+    )
+
+    const result = await runTool('read_skill', { name: 'test-skill' }, context(root))
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('Test Skill Workflow')
+  })
+
+  it('reports missing skills with list of available ones', async () => {
+    const root = makeWorkspace()
+    const result = await runTool('read_skill', { name: 'missing-skill' }, context(root))
+    expect(result.ok).toBe(false)
+    expect(result.content).toContain('Skill "missing-skill" not found')
+  })
+})
+
+describe('read_currently_open_file', () => {
+  it('reads the active file when set', async () => {
+    const root = makeWorkspace()
+    const result = await runTool(
+      'read_currently_open_file',
+      {},
+      context(root, { activeFilePath: 'src/math.ts' }),
+    )
+
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('answer = 40')
+  })
+
+  it('reports when no file is active', async () => {
+    const root = makeWorkspace()
+    const result = await runTool('read_currently_open_file', {}, context(root))
+
+    expect(result.ok).toBe(false)
+    expect(result.content).toContain('No file is currently active')
+  })
+})
+
+describe('tool aliases', () => {
+  it('supports ls, create_new_file, edit_existing_file, run_terminal_command', async () => {
+    const root = makeWorkspace()
+    const lsRes = await runTool('ls', { path: '.' }, context(root))
+    expect(lsRes.ok).toBe(true)
+    expect(lsRes.content).toContain('README.md')
+
+    const writeRes = await runTool(
+      'create_new_file',
+      { path: 'src/created.ts', content: 'test' },
+      context(root),
+    )
+    expect(writeRes.ok).toBe(true)
+
+    const editRes = await runTool(
+      'edit_existing_file',
+      { path: 'src/created.ts', old_text: 'test', new_text: 'updated' },
+      context(root),
+    )
+    expect(editRes.ok).toBe(true)
+
+    const cmdRes = await runTool(
+      'run_terminal_command',
+      { command: 'echo 123' },
+      context(root, {
+        runCommand: (cmd) => Promise.resolve({ output: cmd, code: 0 }),
+      }),
+    )
+    expect(cmdRes.ok).toBe(true)
+  })
+})
+
+describe('Domain A: Task & Todo Tracking Tools', () => {
+  it('updates and persists session todos via todo_write', async () => {
+    const root = makeWorkspace()
+    const todos = [
+      { content: 'Research dependencies', status: 'completed' },
+      { content: 'Implement new feature', status: 'in_progress' },
+      { content: 'Write unit tests', status: 'pending' },
+    ]
+
+    const result = await runTool('todo_write', { todos }, context(root))
+    expect(result.ok).toBe(true)
+    expect(result.content).toContain('1 completed, 1 in progress, 1 pending')
+    expect(result.content).toContain('[x] Research dependencies')
+    expect(result.content).toContain('[-] Implement new feature')
+    expect(result.content).toContain('[ ] Write unit tests')
+
+    const fileRaw = readFileSync(join(root, '.forge', 'todos.json'), 'utf8')
+    expect(fileRaw).toContain('Research dependencies')
+  })
+
+  it('creates, retrieves, lists, and updates tasks', async () => {
+    const root = makeWorkspace()
+
+    // Create
+    const createRes = await runTool(
+      'task_create',
+      {
+        subject: 'Fix crash',
+        description: 'Address null pointer in parser',
+        activeForm: 'Fixing crash',
+      },
+      context(root),
+    )
+    expect(createRes.ok).toBe(true)
+    const { task } = JSON.parse(createRes.content) as {
+      task: { id: string; subject: string; status: string }
+    }
+    expect(task.subject).toBe('Fix crash')
+    expect(task.status).toBe('pending')
+
+    // Get
+    const getRes = await runTool('task_get', { task_id: task.id }, context(root))
+    expect(getRes.ok).toBe(true)
+    expect(getRes.content).toContain('Address null pointer in parser')
+
+    // List
+    const listRes = await runTool('task_list', {}, context(root))
+    expect(listRes.ok).toBe(true)
+    expect(listRes.content).toContain('Fix crash')
+
+    // Update
+    const updateRes = await runTool(
+      'task_update',
+      { task_id: task.id, status: 'completed' },
+      context(root),
+    )
+    expect(updateRes.ok).toBe(true)
+    expect(updateRes.content).toContain('completed')
+
+    // Delete
+    const deleteRes = await runTool(
+      'task_update',
+      { task_id: task.id, status: 'deleted' },
+      context(root),
+    )
+    expect(deleteRes.ok).toBe(true)
+    expect(deleteRes.content).toContain('deleted')
+  })
+
+  it('handles task_output and task_stop', async () => {
+    const root = makeWorkspace()
+    const outRes = await runTool('task_output', { task_id: 'unknown-task-123' }, context(root))
+    expect(outRes.ok).toBe(true)
+    expect(outRes.content).toContain('not_found_or_finished')
+
+    const stopRes = await runTool('task_stop', { task_id: 'unknown-task-123' }, context(root))
+    expect(stopRes.ok).toBe(true)
+    expect(stopRes.content).toContain('stopped')
+  })
+})
+
+describe('Domain B: Planning Mode & Git Worktree Isolation', () => {
+  it('enters plan mode and prevents file modifications until exit_plan_mode', async () => {
+    const root = makeWorkspace()
+
+    const enterRes = await runTool('enter_plan_mode', {}, context(root))
+    expect(enterRes.ok).toBe(true)
+    expect(enterRes.content).toContain('Entered plan mode')
+
+    // Write should be refused while in plan mode
+    const writeRefused = await runTool(
+      'write_file',
+      { path: 'src/refused.ts', content: 'hello' },
+      context(root),
+    )
+    expect(writeRefused.ok).toBe(false)
+    expect(writeRefused.content).toContain('Planning mode is currently active')
+
+    // Exit plan mode
+    const exitRes = await runTool(
+      'exit_plan_mode',
+      { plan: '# Implementation Plan\n1. Do X\n2. Do Y' },
+      context(root),
+    )
+    expect(exitRes.ok).toBe(true)
+    expect(exitRes.content).toContain('Plan mode exited')
+
+    const planOnDisk = readFileSync(join(root, '.forge', 'plan.md'), 'utf8')
+    expect(planOnDisk).toContain('# Implementation Plan')
+
+    // Write should now succeed
+    const writeAllowed = await runTool(
+      'write_file',
+      { path: 'src/allowed.ts', content: 'hello' },
+      context(root),
+    )
+    expect(writeAllowed.ok).toBe(true)
+  })
+
+  it('creates and exits isolated git worktrees', async () => {
+    const root = makeWorkspace()
+    const enterWtRes = await runTool('enter_worktree', { name: 'feature-box' }, context(root))
+    expect(enterWtRes.ok).toBe(true)
+    expect(enterWtRes.content).toContain('feature-box')
+
+    const exitWtRes = await runTool('exit_worktree', { action: 'keep' }, context(root))
+    expect(exitWtRes.ok).toBe(true)
+    expect(exitWtRes.content).toContain('Exited worktree session')
+  })
+})
+
+describe('Domain C: Code Intelligence & Jupyter Notebooks', () => {
+  it('edits Jupyter notebook cells safely without JSON corruption', async () => {
+    const root = makeWorkspace()
+    const initialNotebook = {
+      cells: [
+        { cell_type: 'markdown', id: 'cell-1', source: ['# Title\n'] },
+        {
+          cell_type: 'code',
+          id: 'cell-2',
+          source: ['print(1)\n'],
+          outputs: [],
+          execution_count: 1,
+        },
+      ],
+      metadata: {},
+      nbformat: 4,
+      nbformat_minor: 5,
+    }
+    writeFileSync(join(root, 'analysis.ipynb'), JSON.stringify(initialNotebook, null, 2))
+
+    // Replace cell
+    const replaceRes = await runTool(
+      'notebook_edit',
+      {
+        notebook_path: 'analysis.ipynb',
+        cell_index: 1,
+        new_source: 'print(42)',
+        edit_mode: 'replace',
+      },
+      context(root),
+    )
+    expect(replaceRes.ok).toBe(true)
+
+    // Insert cell
+    const insertRes = await runTool(
+      'notebook_edit',
+      {
+        notebook_path: 'analysis.ipynb',
+        new_source: '## Section 2',
+        cell_type: 'markdown',
+        edit_mode: 'insert',
+      },
+      context(root),
+    )
+    expect(insertRes.ok).toBe(true)
+
+    const updatedRaw = readFileSync(join(root, 'analysis.ipynb'), 'utf8')
+    const updated = JSON.parse(updatedRaw) as { cells: { source: string[] }[] }
+    expect(updated.cells).toHaveLength(3)
+    expect(updated.cells[1]?.source[0]).toContain('print(42)')
+    expect(updated.cells[2]?.source[0]).toContain('## Section 2')
+  })
+
+  it('performs lsp_query operations', async () => {
+    const root = makeWorkspace()
+    writeFileSync(
+      join(root, 'src', 'service.ts'),
+      'export class AnalyticsEngine {\n  computeMetrics() {\n    return 42\n  }\n}\n',
+    )
+
+    const docSymbols = await runTool(
+      'lsp_query',
+      { operation: 'documentSymbol', filePath: 'src/service.ts' },
+      context(root),
+    )
+    expect(docSymbols.ok).toBe(true)
+    expect(docSymbols.content).toContain('AnalyticsEngine')
+
+    const hoverRes = await runTool(
+      'lsp_query',
+      { operation: 'hover', filePath: 'src/service.ts', line: 1 },
+      context(root),
+    )
+    expect(hoverRes.ok).toBe(true)
+    expect(hoverRes.content).toContain('AnalyticsEngine')
+  })
+})
+
+describe('Domain D: Subagents & Multi-Agent Collaboration', () => {
+  it('dispatches subagents via spawn_subagent and sends messages', async () => {
+    const root = makeWorkspace()
+    const spawnRes = await runTool(
+      'spawn_subagent',
+      { subagent_type: 'explore', prompt: 'Find all database adapters' },
+      context(root),
+    )
+    expect(spawnRes.ok).toBe(true)
+    expect(spawnRes.content).toContain('Subagent (explore) dispatched')
+
+    const msgRes = await runTool(
+      'send_agent_message',
+      { to: 'researcher', message: 'Please prioritize SQL adapters' },
+      context(root),
+    )
+    expect(msgRes.ok).toBe(true)
+    expect(msgRes.content).toContain('Message delivered to agent "researcher"')
+  })
+})
+
+describe('Domain E: MCP Resources & Dynamic Tool Search', () => {
+  it('inspects MCP resources and searches tools', async () => {
+    const root = makeWorkspace()
+    mkdirSync(join(root, '.forge'), { recursive: true })
+    writeFileSync(
+      join(root, '.forge', 'mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          docs: {
+            resources: [
+              {
+                uri: 'docs://api/reference',
+                name: 'API Reference',
+                content: '# API Reference\nEndpoint docs.',
+              },
+            ],
+          },
+        },
+      }),
+    )
+
+    const listRes = await runTool('list_mcp_resources', {}, context(root))
+    expect(listRes.ok).toBe(true)
+    expect(listRes.content).toContain('docs://api/reference')
+
+    const readRes = await runTool(
+      'read_mcp_resource',
+      { server_name: 'docs', uri: 'docs://api/reference' },
+      context(root),
+    )
+    expect(readRes.ok).toBe(true)
+    expect(readRes.content).toContain('# API Reference')
+
+    // Tool search
+    const searchRes = await runTool('tool_search', { query: 'notebook' }, context(root))
+    expect(searchRes.ok).toBe(true)
+    expect(searchRes.content).toContain('notebook_edit')
+
+    const selectRes = await runTool(
+      'tool_search',
+      { query: 'select:read_file,todo_write' },
+      context(root),
+    )
+    expect(selectRes.ok).toBe(true)
+    expect(selectRes.content).toContain('read_file')
+    expect(selectRes.content).toContain('todo_write')
+  })
+})
+
+describe('Domain F: Scheduling & Automation Triggers', () => {
+  it('manages cron schedules and sleep delays', async () => {
+    const root = makeWorkspace()
+
+    const createRes = await runTool(
+      'schedule_cron',
+      { action: 'create', cron_expression: '*/10 * * * *', prompt: 'Run security scan' },
+      context(root),
+    )
+    expect(createRes.ok).toBe(true)
+    expect(createRes.content).toContain('Cron schedule created')
+
+    const listRes = await runTool('schedule_cron', { action: 'list' }, context(root))
+    expect(listRes.ok).toBe(true)
+    expect(listRes.content).toContain('Run security scan')
+
+    const sleepRes = await runTool('sleep_delay', { seconds: 1 }, context(root))
+    expect(sleepRes.ok).toBe(true)
+    expect(sleepRes.content).toContain('Paused for 1 second')
+  })
+})

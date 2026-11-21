@@ -324,6 +324,7 @@ export class AntigravityCliRuntime implements IAgentRuntime {
       // adapter: agy reports `status: SUCCESS` with a plausible report and edits a
       // directory it invented, leaving the repository untouched.
       `--add-dir=${session.options.repositoryPath}`,
+      ...(session.options.model ? [`--model=${session.options.model}`] : []),
       // Attach to earlier conversation when resuming warm (#157, #158)
       ...(resumeId !== undefined ? [`--conversation=${resumeId}`] : []),
       // `--mode=accept-edits` still auto-denies the `command` permission, and agy has no

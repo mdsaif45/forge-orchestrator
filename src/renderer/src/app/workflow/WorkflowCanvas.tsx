@@ -847,7 +847,7 @@ export function WorkflowCanvas({
                   }}
                   className="w-full rounded border border-(--color-border) bg-(--color-surface) px-2.5 py-1.5 text-(--color-text) focus:border-(--color-accent) focus:outline-none"
                 >
-                  <option value="forge-native">Forge Native Agent (Built-in tool loop)</option>
+                  <option value="forge-native">Forge Agent (Built-in tool loop)</option>
                   <option value="cli-agent">Bring-Your-Own System CLI</option>
                   <option value="human">Human Reviewer</option>
                   <option value="forge-engine">Forge Engine (Tests & builds)</option>

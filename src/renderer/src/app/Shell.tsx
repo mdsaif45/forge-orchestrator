@@ -7,9 +7,18 @@ import { SettingsDialog } from './Settings'
 import { Sidebar } from './Sidebar'
 import { StatusStrip, type WorkflowStatePlaceholder } from './StatusStrip'
 import { useUiStore } from './uiStore'
+import { useDevConsoleStore } from './devConsoleStore'
 
 const KitchenSink = import.meta.env.DEV
   ? lazy(async () => ({ default: (await import('../dev/KitchenSink')).KitchenSink }))
+  : null
+
+const DevConsole = import.meta.env.DEV
+  ? lazy(async () => ({ default: (await import('./DevConsole')).DevConsole }))
+  : null
+
+const DevConsoleLauncher = import.meta.env.DEV
+  ? lazy(async () => ({ default: (await import('./DevConsoleLauncher')).DevConsoleLauncher }))
   : null
 
 /**
@@ -26,6 +35,9 @@ export function Shell(): React.JSX.Element {
   const createProjectOpen = useUiStore((state) => state.createProjectOpen)
   const openCreateProject = useUiStore((state) => state.openCreateProject)
   const closeCreateProject = useUiStore((state) => state.closeCreateProject)
+
+  const isDevConsoleOpen = useDevConsoleStore((state) => state.isOpen)
+  const devConsoleDock = useDevConsoleStore((state) => state.dockPosition)
 
   const projects = useProjectStore((state) => state.projects)
   const selectedProjectId = useProjectStore((state) => state.selectedProjectId)
@@ -109,7 +121,24 @@ export function Shell(): React.JSX.Element {
         <main className="min-h-0 min-w-0 flex-1">
           <Outlet />
         </main>
+        {isDevConsoleOpen && devConsoleDock === 'right' && DevConsole !== null && (
+          <Suspense fallback={null}>
+            <DevConsole />
+          </Suspense>
+        )}
       </div>
+
+      {isDevConsoleOpen && devConsoleDock === 'bottom' && DevConsole !== null && (
+        <Suspense fallback={null}>
+          <DevConsole />
+        </Suspense>
+      )}
+
+      {DevConsoleLauncher !== null && (
+        <Suspense fallback={null}>
+          <DevConsoleLauncher />
+        </Suspense>
+      )}
 
       {KitchenSink !== null && (
         <Dialog

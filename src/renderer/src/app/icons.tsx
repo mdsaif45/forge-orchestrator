@@ -7,7 +7,19 @@
  * `IconButton`, which carries the accessible name.
  */
 
-function Icon({ children }: { readonly children: React.ReactNode }): React.JSX.Element {
+import { cn } from '../ui'
+
+export interface IconProps {
+  readonly className?: string | undefined
+}
+
+function Icon({
+  children,
+  className,
+}: {
+  readonly children: React.ReactNode
+  readonly className?: string | undefined
+}): React.JSX.Element {
   return (
     <svg
       viewBox="0 0 16 16"
@@ -16,7 +28,7 @@ function Icon({ children }: { readonly children: React.ReactNode }): React.JSX.E
       strokeWidth="1.5"
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="shrink-0"
+      className={cn('shrink-0', className)}
       aria-hidden="true"
     >
       {children}
@@ -134,10 +146,186 @@ export function AskIcon(): React.JSX.Element {
   )
 }
 
-export function CloseIcon(): React.JSX.Element {
+export function CloseIcon({ className }: IconProps = {}): React.JSX.Element {
   return (
-    <Icon>
+    <Icon className={className}>
       <path d="m3.5 3.5 9 9M12.5 3.5l-9 9" />
+    </Icon>
+  )
+}
+
+export function PanelRightIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
+      <line x1="10.25" y1="2.5" x2="10.25" y2="13.5" />
+    </Icon>
+  )
+}
+
+export function OverviewPanelIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
+      <line x1="5.75" y1="2.5" x2="5.75" y2="13.5" />
+    </Icon>
+  )
+}
+
+export function ReviewIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <path d="M3.5 2.5h5.5l3.5 3.5v7.5h-9z" />
+      <path d="M9 2.5v3.5h3.5" />
+      <path d="m5.5 8.5 2 2 3.5-3.5" />
+    </Icon>
+  )
+}
+
+export function TerminalIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <rect x="2" y="2.5" width="12" height="11" rx="1.5" />
+      <path d="m4.5 6 2 2-2 2M8 10h3.5" />
+    </Icon>
+  )
+}
+
+export function DiffIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <path d="M3.5 2.5h5.5l3.5 3.5v7.5h-9z" />
+      <path d="M9 2.5v3.5h3.5" />
+      <path d="M5.5 8.5h5M8 6v5M5.5 11.5h5" />
+    </Icon>
+  )
+}
+
+export function MediaIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+      <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
+      <path d="m13.5 10.5-3.5-3.5-4.5 4.5" />
+    </Icon>
+  )
+}
+
+export function BookIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <path d="M2.5 3.5a1.5 1.5 0 0 1 1.5-1.5h3.5v11H4a1.5 1.5 0 0 0-1.5 1.5V3.5z" />
+      <path d="M13.5 3.5a1.5 1.5 0 0 0-1.5-1.5H8.5v11H12a1.5 1.5 0 0 1 1.5 1.5V3.5z" />
+    </Icon>
+  )
+}
+
+export function DocumentIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <path d="M3.5 2.5h5.5l3.5 3.5v7.5h-9z" />
+      <path d="M9 2.5v3.5h3.5M5.5 8h5M5.5 10.5h3" />
+    </Icon>
+  )
+}
+
+export function CodeFileIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <path d="m5.5 5.5-2.5 2.5 2.5 2.5M10.5 5.5l2.5 2.5-2.5 2.5" />
+      <path d="m9 4-2 8" />
+    </Icon>
+  )
+}
+
+export function FolderIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <path d="M2 4.25A1.25 1.25 0 0 1 3.25 3h3l1.5 2h5A1.25 1.25 0 0 1 14 6.25v6.5A1.25 1.25 0 0 1 12.75 14H3.25A1.25 1.25 0 0 1 2 12.75z" />
+    </Icon>
+  )
+}
+
+export function PlusIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <path d="M8 3.5v9M3.5 8h9" />
+    </Icon>
+  )
+}
+
+export function MaximizeSquareIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <path d="M2.5 5.5V3a.5.5 0 0 1 .5-.5h2.5M13.5 5.5V3a.5.5 0 0 0-.5-.5h-2.5M2.5 10.5V13a.5.5 0 0 0 .5.5h2.5M13.5 10.5V13a.5.5 0 0 1-.5.5h-2.5" />
+    </Icon>
+  )
+}
+
+export function RestoreSquareIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <rect x="5" y="5" width="8" height="8" rx="1.5" />
+      <path d="M5 11H3.5a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1H10a1 1 0 0 1 1 1V5" />
+    </Icon>
+  )
+}
+
+export function CheckIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <path d="m3.5 8.5 3 3 6-6" />
+    </Icon>
+  )
+}
+
+export function CopyIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+      <path d="M3.5 10.5h-1a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v1" />
+    </Icon>
+  )
+}
+
+export function ChevronRightIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <path d="m6 4 4 4-4 4" />
+    </Icon>
+  )
+}
+
+export function ChevronDownIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <path d="m4 6 4 4 4-4" />
+    </Icon>
+  )
+}
+
+export function RefreshIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <path d="M2.5 8a5.5 5.5 0 0 1 9.39-3.89L13.5 5.5M13.5 2v3.5H10M13.5 8a5.5 5.5 0 0 1-9.39 3.89L2.5 10.5M2.5 14v-3.5H6" />
+    </Icon>
+  )
+}
+
+export function ThinkingIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M6 7.5h.01M10 7.5h.01M6.5 10.5c.5.5 1.5.5 2 0" />
+    </Icon>
+  )
+}
+
+export function TerminalSquareIcon({ className }: IconProps = {}): React.JSX.Element {
+  return (
+    <Icon className={className}>
+      <rect x="2.5" y="2.5" width="11" height="11" rx="1.5" />
+      <path d="m5 6 2 2-2 2M8.5 10h2.5" />
     </Icon>
   )
 }

@@ -16,6 +16,13 @@ export interface InstalledCliInfo {
   readonly resolvedPath?: string | undefined
   readonly isCustom?: boolean | undefined
   readonly defaultModel?: string | undefined
+  readonly models?:
+    | readonly {
+        readonly id: string
+        readonly label: string
+        readonly category?: string | undefined
+      }[]
+    | undefined
 }
 
 export interface CustomCliConfig {
@@ -45,6 +52,13 @@ export interface StandardAgentInfo {
   readonly name: string
   readonly executable: string
   readonly defaultModel?: string | undefined
+  readonly models?:
+    | readonly {
+        readonly id: string
+        readonly label: string
+        readonly category?: string | undefined
+      }[]
+    | undefined
 }
 
 /**
@@ -52,11 +66,69 @@ export interface StandardAgentInfo {
  * Conforms to Forge Axiom A6 (confined to src/main/runtimes/*).
  */
 export const STANDARD_AGENT_CATALOG: readonly StandardAgentInfo[] = [
-  { id: 'claude', name: 'Claude Code', executable: 'claude', defaultModel: 'sonnet' },
-  { id: 'agy', name: 'Agy', executable: 'agy', defaultModel: 'gemini-2.5-pro' },
+  {
+    id: 'claude',
+    name: 'Claude Code',
+    executable: 'claude',
+    defaultModel: 'sonnet',
+    models: [
+      { id: 'sonnet', label: 'Claude 3.7 Sonnet', category: 'Claude Models' },
+      { id: 'haiku', label: 'Claude 3.5 Haiku', category: 'Claude Models' },
+      { id: 'opus', label: 'Claude 3 Opus', category: 'Claude Models' },
+    ],
+  },
+  {
+    id: 'agy',
+    name: 'Agy',
+    executable: 'agy',
+    defaultModel: 'gemini-3.1-pro',
+    models: [
+      { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash', category: 'Gemini Models' },
+      { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash', category: 'Gemini Models' },
+      { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', category: 'Gemini Models' },
+      { id: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro', category: 'Gemini Models' },
+      { id: 'gemini-3.1-pro-high', label: 'Gemini 3.1 Pro (High)', category: 'Gemini Models' },
+      { id: 'gemini-3.1-pro-low', label: 'Gemini 3.1 Pro (Low)', category: 'Gemini Models' },
+      {
+        id: 'claude-sonnet-4-6',
+        label: 'Claude Sonnet 4.6 (Thinking)',
+        category: 'Claude & Open Models',
+      },
+      {
+        id: 'claude-opus-4-6-thinking',
+        label: 'Claude Opus 4.6 (Thinking)',
+        category: 'Claude & Open Models',
+      },
+      {
+        id: 'gpt-oss-120b-medium',
+        label: 'GPT-OSS 120B (Medium)',
+        category: 'Claude & Open Models',
+      },
+    ],
+  },
   { id: 'cline', name: 'Cline', executable: 'cline' },
-  { id: 'opencode', name: 'OpenCode', executable: 'opencode' },
-  { id: 'codex', name: 'Codex', executable: 'codex' },
+  {
+    id: 'opencode',
+    name: 'OpenCode',
+    executable: 'opencode',
+    defaultModel: 'deepseek-r1',
+    models: [
+      { id: 'deepseek-r1', label: 'DeepSeek R1', category: 'Open Models' },
+      { id: 'deepseek-v3', label: 'DeepSeek V3', category: 'Open Models' },
+      { id: 'qwen-2.5-coder', label: 'Qwen 2.5 Coder', category: 'Open Models' },
+    ],
+  },
+  {
+    id: 'codex',
+    name: 'Codex',
+    executable: 'codex',
+    defaultModel: 'o3-mini',
+    models: [
+      { id: 'o3-mini', label: 'OpenAI o3-mini', category: 'OpenAI Models' },
+      { id: 'gpt-4o', label: 'GPT-4o', category: 'OpenAI Models' },
+      { id: 'gpt-4o-mini', label: 'GPT-4o mini', category: 'OpenAI Models' },
+    ],
+  },
   { id: 'aider', name: 'Aider', executable: 'aider' },
   { id: 'continue', name: 'Continue', executable: 'continue' },
   { id: 'kilocode', name: 'Kilo Code', executable: 'kilocode' },
@@ -109,6 +181,7 @@ export function saveCustomCli(cli: CustomCliConfig): readonly CustomCliConfig[] 
     mkdirSync(dirname(customClisFilePath), { recursive: true })
     writeFileSync(customClisFilePath, JSON.stringify(updated, null, 2), 'utf8')
   }
+  cachedClis = getCatalogClis()
   return updated
 }
 
@@ -118,6 +191,7 @@ export function removeCustomCli(id: string): readonly CustomCliConfig[] {
     mkdirSync(dirname(customClisFilePath), { recursive: true })
     writeFileSync(customClisFilePath, JSON.stringify(current, null, 2), 'utf8')
   }
+  cachedClis = getCatalogClis()
   return current
 }
 
@@ -239,10 +313,36 @@ function checkCandidatePaths(executable: string): string | undefined {
   return undefined
 }
 
-/**
- * Probes the operating system PATH and candidate paths to detect installed AI coding CLIs.
- */
-export async function detectInstalledClis(): Promise<readonly InstalledCliInfo[]> {
+export function getCatalogClis(): readonly InstalledCliInfo[] {
+  const customClis = loadCustomClis()
+  const standard: InstalledCliInfo[] = STANDARD_AGENT_CATALOG.map((c) => ({
+    id: c.id,
+    name: c.name,
+    executable: c.executable,
+    available: true,
+    installation: 'installed',
+    authentication: 'unknown',
+    isCustom: false,
+    defaultModel: c.defaultModel,
+    models: c.models,
+  }))
+  const custom: InstalledCliInfo[] = customClis.map((c) => ({
+    id: c.id,
+    name: c.name,
+    executable: c.executable,
+    available: true,
+    installation: 'installed',
+    authentication: 'unknown',
+    isCustom: true,
+    defaultModel: undefined,
+    models: undefined,
+  }))
+  return [...standard, ...custom]
+}
+
+let cachedClis: readonly InstalledCliInfo[] = getCatalogClis()
+
+async function probeAllClis(): Promise<readonly InstalledCliInfo[]> {
   const isWin = process.platform === 'win32'
   const lookupCmd = isWin ? 'where.exe' : 'which'
 
@@ -254,6 +354,7 @@ export async function detectInstalledClis(): Promise<readonly InstalledCliInfo[]
       name: c.name,
       executable: c.executable,
       defaultModel: c.defaultModel,
+      models: c.models,
       isCustom: false,
     })),
     ...customClis.map((c) => ({
@@ -261,6 +362,7 @@ export async function detectInstalledClis(): Promise<readonly InstalledCliInfo[]
       name: c.name,
       executable: c.executable,
       defaultModel: undefined,
+      models: undefined,
       isCustom: true,
     })),
   ]
@@ -301,6 +403,7 @@ export async function detectInstalledClis(): Promise<readonly InstalledCliInfo[]
         resolvedPath,
         isCustom: cli.isCustom,
         defaultModel: cli.defaultModel,
+        models: cli.models,
       })
     }),
   )
@@ -311,10 +414,29 @@ export async function detectInstalledClis(): Promise<readonly InstalledCliInfo[]
     orderMap.set(item.id, index)
   })
 
-  return results.sort((a, b) => {
+  cachedClis = results.sort((a, b) => {
     const idxA = orderMap.get(a.id) ?? 999
     const idxB = orderMap.get(b.id) ?? 999
     if (idxA !== idxB) return idxA - idxB
     return a.name.localeCompare(b.name)
   })
+
+  return cachedClis
 }
+
+/**
+ * Probes the operating system PATH and candidate paths to detect installed AI coding CLIs.
+ * Returns the cached catalog immediately, then updates candidate paths in the background.
+ */
+export async function detectInstalledClis(
+  forceRefresh = false,
+): Promise<readonly InstalledCliInfo[]> {
+  if (!forceRefresh && cachedClis.length > 0) {
+    void probeAllClis().catch(() => undefined)
+    return cachedClis
+  }
+  return probeAllClis()
+}
+
+// Warm up CLI detection asynchronously on module load
+void detectInstalledClis().catch(() => undefined)

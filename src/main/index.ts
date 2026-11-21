@@ -4,6 +4,7 @@ import { createForgeCore, type ForgeCore } from './core'
 import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
 import { GenericCliAgentRuntime } from './runtimes/genericCliRuntime'
+import { devModelTracker } from './providers/devModelTracker'
 import {
   applyContentSecurityPolicy,
   claimSingleInstance,
@@ -189,6 +190,14 @@ if (!claimSingleInstance()) {
         },
       }),
     )
+
+    devModelTracker.subscribe((record) => {
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) {
+          win.webContents.send('dev:modelCall', record)
+        }
+      }
+    })
 
     createWindow()
 

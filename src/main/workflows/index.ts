@@ -119,4 +119,9 @@ export {
   type StepRetryPolicy,
   type RetryEvaluation,
 } from './stepRetryPolicy'
+export {
+  StepExecutionConcurrencyLimiter,
+  type SemaphorePermit,
+  type SemaphoreStatus,
+} from './stepConcurrencyLimiter'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

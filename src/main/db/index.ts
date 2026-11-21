@@ -129,6 +129,16 @@ export {
   type SandboxedQueryResult,
   type SandboxOptions,
 } from './querySandbox'
+export {
+  analyzeQueryPlan,
+  auditTableIndexes,
+  parseQueryPlanRows,
+  type IndexAuditReport,
+  type QueryPlanAnalysis,
+  type QueryPlanNode,
+  type TableIndexHealth,
+  type TableIndexInfo,
+} from './queryAnalyzer'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

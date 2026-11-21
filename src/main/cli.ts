@@ -60,6 +60,7 @@ import {
   getMigrationStatus,
   verifyMigrationIntegrity,
   executeSandboxedQuery,
+  analyzeQueryPlan,
   type MigrationDefinition,
   type SavepointReceipt,
   type RawLedgerEvent,
@@ -80,6 +81,8 @@ import {
   verifyManifestIntegrity,
   sanitizeExecutionLog,
   parseUniversalTestReport,
+  generateProvenanceStatement,
+  verifyProvenanceStatement,
   inspectRunDiff,
   parseLcov,
   rollbackRunChanges,
@@ -117,6 +120,7 @@ import {
   StepExecutionConcurrencyLimiter,
   evaluateStepPreconditions,
   planTopologicalWaves,
+  evaluateStepSla,
   type StepPrecondition,
   type SubgraphDirection,
   type WorkflowConditionContext,
@@ -143,6 +147,7 @@ import {
   auditPromptContextBudget,
   compressConversationHistory,
   coalesceToolObservations,
+  evaluateToolRetry,
   type ConversationTurn,
   type PromptTurn,
   type ToolParametersSchema,
@@ -165,9 +170,11 @@ import {
   validateWorkspaceBoundary,
   redactSensitiveString,
   validateToolExecutionPolicy,
+  resolveConfigInheritance,
   type ConfigPresetName,
   type PolicyLockRule,
   type ToolSandboxPolicy,
+  type ConfigLayer,
 } from './config'
 
 const VERSION = '0.3.0-alpha.1'
@@ -447,6 +454,8 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       action: positionals[1],
       runId: positionals[2],
       stepId: positionals[3],
+      task: values.task,
+      extraParam: positionals[3],
       maxTokens: values['max-tokens'] ? parseInt(values['max-tokens'], 10) : undefined,
       keepTurns: values['keep-turns'] ? parseInt(values['keep-turns'], 10) : undefined,
       dataDir,
@@ -506,6 +515,12 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     if (positionals[1] === 'test-report') {
       return handleVerifyTestReport({
         input: positionals[2],
+        json: values.json,
+      })
+    }
+    if (positionals[1] === 'provenance') {
+      return handleVerifyProvenance({
+        runId: positionals[2],
         json: values.json,
       })
     }
@@ -1972,6 +1987,7 @@ async function handleWorkflows(opts: {
       'semaphore',
       'preflight',
       'waves',
+      'sla',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2056,6 +2072,19 @@ async function handleWorkflows(opts: {
         )
       }
       return 0
+    }
+
+    if (action === 'sla') {
+      const stepId = targetId ?? 'build_step'
+      const elapsedMs = opts.extraParam ? parseInt(opts.extraParam, 10) : 4500
+      const targetMs = opts.concurrency ? parseInt(opts.concurrency, 10) : 5000
+      const report = evaluateStepSla(stepId, elapsedMs, { targetDurationMs: targetMs })
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return report.status === 'breached' ? 1 : 0
+      }
+      console.log(`\n${report.formattedSummary}\n`)
+      return report.status === 'breached' ? 1 : 0
     }
 
     if (action === 'retry') {
@@ -3421,6 +3450,8 @@ async function handleContext(opts: {
   action: string | undefined
   runId: string | undefined
   stepId: string | undefined
+  task?: string | undefined
+  extraParam?: string | undefined
   maxTokens?: number | undefined
   keepTurns?: number | undefined
   dataDir: string
@@ -3566,6 +3597,19 @@ async function handleContext(opts: {
       }
       console.log(`\n${report.formattedSummary}\n`)
       return 0
+    }
+
+    if (action === 'retry-tool') {
+      const toolName = opts.runId ?? 'bash'
+      const attempt = opts.extraParam ? parseInt(opts.extraParam, 10) : 1
+      const errorMessage = opts.task ?? 'Process exited with network timeout'
+      const evaluation = evaluateToolRetry(toolName, attempt, errorMessage)
+      if (opts.json) {
+        console.log(JSON.stringify(evaluation))
+        return evaluation.shouldRetry ? 0 : 1
+      }
+      console.log(`\n${evaluation.formattedSummary}\n`)
+      return evaluation.shouldRetry ? 0 : 1
     }
 
     if (action !== 'inspect' && action !== 'optimize' && action !== 'compact') {
@@ -4202,6 +4246,32 @@ async function handleConfig(opts: {
     return check.allowed ? 0 : 1
   }
 
+  if (action === 'resolve-layers') {
+    const layers: ConfigLayer[] = [
+      {
+        name: 'defaults',
+        values: { timeoutMs: 5000, maxRetries: 3, strictMode: true },
+      },
+      {
+        name: 'global',
+        values: { timeoutMs: 8000 },
+      },
+      {
+        name: 'workspace',
+        values: { maxRetries: 5 },
+      },
+    ]
+    const res = resolveConfigInheritance(layers, {
+      lockedKeys: ['strictMode'],
+    })
+    if (opts.json) {
+      console.log(JSON.stringify(res))
+      return res.valid ? 0 : 1
+    }
+    console.log(`\n${res.formattedSummary}\n`)
+    return res.valid ? 0 : 1
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
@@ -4619,6 +4689,20 @@ async function handleDb(opts: {
       console.log(`\n${result.formattedSummary}\n`)
       for (const row of result.rows) {
         console.log(`  ${JSON.stringify(row)}`)
+      }
+      return 0
+    }
+
+    if (action === 'analyze-query') {
+      const sql = opts.targetPath ?? opts.targetId ?? 'SELECT * FROM runs ORDER BY created_at;'
+      const analysis = analyzeQueryPlan(core.sqlite, sql)
+      if (opts.json) {
+        console.log(JSON.stringify(analysis))
+        return 0
+      }
+      console.log(`\n${analysis.formattedSummary}\n`)
+      for (const rec of analysis.recommendations) {
+        console.log(`  • ${rec}`)
       }
       return 0
     }
@@ -5083,6 +5167,31 @@ function handleVerifyTestReport(opts: {
     console.log('')
   }
   return report.verdict === 'pass' ? 0 : 1
+}
+
+function handleVerifyProvenance(opts: {
+  readonly runId?: string | undefined
+  readonly json?: boolean | undefined
+}): number {
+  const runId = opts.runId ?? 'run-latest'
+  const statement = generateProvenanceStatement({
+    runId,
+    artifacts: [
+      {
+        name: 'dist/index.js',
+        sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      },
+    ],
+    gitHeadSha: 'ba73735000000000000000000000000000000000',
+    isDirty: false,
+  })
+  const verification = verifyProvenanceStatement(statement)
+  if (opts.json) {
+    console.log(JSON.stringify({ statement, verification }))
+    return verification.valid ? 0 : 1
+  }
+  console.log(`\n${verification.formattedSummary}\n`)
+  return verification.valid ? 0 : 1
 }
 
 async function handleProjects(opts: {

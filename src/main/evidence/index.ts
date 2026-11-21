@@ -171,3 +171,20 @@ export {
   type TestSuiteResult,
   type UnifiedTestReport,
 } from './unifiedTestParser'
+export {
+  computeStatementDigest,
+  generateProvenanceStatement,
+  verifyProvenanceStatement,
+  IN_TOTO_STATEMENT_V1,
+  SLSA_PROVENANCE_V1,
+  FORGE_BUILD_TYPE_V1,
+  type GenerateProvenanceInput,
+  type ProvenanceDigest,
+  type ProvenanceInvocation,
+  type ProvenanceMaterial,
+  type ProvenanceMetadata,
+  type ProvenanceStatement,
+  type ProvenanceSubject,
+  type ProvenanceVerificationResult,
+  type SlsaPredicateV1,
+} from './provenanceAttestation'

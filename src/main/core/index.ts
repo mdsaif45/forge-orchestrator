@@ -189,3 +189,13 @@ export {
   type ForecasterConfig,
   type ContextHealthReport,
 } from './agentContextBudgetForecaster'
+export {
+  AgentToolSpeculativeExecutionSupervisor,
+  type ToolSideEffectClass,
+  type SpeculativeToolInvocation,
+  type SpeculativeExecutionSupervisorConfig,
+  type SpeculativeExecutionPlan,
+  type SpeculativeInvocationResult,
+  type SpeculativeExecutionSummary,
+  type SpeculativeExecutionHandlers,
+} from './agentToolSpeculativeExecutionSupervisor'

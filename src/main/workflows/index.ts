@@ -210,4 +210,17 @@ export {
   type ResumeStepAction,
   type JournalResumePlan,
 } from './workflowStepJournalResumeEngine'
+export {
+  WorkflowResourceQuotaGovernor,
+  WorkflowQuotaExceededError,
+  DEFAULT_STEP_RESOURCE_LIMITS,
+  type StepResourceLimits,
+  type StepResourceUsage,
+  type QuotaStatus,
+  type QuotaResourceKind,
+  type QuotaViolation,
+  type QuotaEvaluationResult,
+  type GovernorMetrics,
+  type WorkflowResourceQuotaGovernorConfig,
+} from './workflowResourceQuotaGovernor'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

@@ -248,3 +248,11 @@ export {
   type ChangesetConflict,
   type ChangesetConflictMatrixReport,
 } from './changesetConflictMatrixAnalyzer'
+export {
+  ChangesetSymbolRegressionAuditor,
+  type ExportKind,
+  type SymbolChangeKind,
+  type ExportSymbolDiff,
+  type SymbolRegressionAuditConfig,
+  type SymbolRegressionAuditResult,
+} from './changesetSymbolRegressionAuditor'

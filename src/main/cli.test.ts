@@ -4446,4 +4446,122 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('coordinates speculative execution DAG and commits results with forge context speculative-exec (AGENT-028)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['context', 'speculative-exec', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      totalCount: number
+      speculativeCount: number
+      committedCount: number
+      rollbackTriggered: boolean
+    }
+    expect(parsed.totalCount).toBe(3)
+    expect(parsed.speculativeCount).toBe(2)
+    expect(parsed.committedCount).toBe(3)
+    expect(parsed.rollbackTriggered).toBe(false)
+
+    logSpy.mockRestore()
+  })
+
+  it('evaluates step resource quota utilization with forge workflows quota-eval (WORK-035)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'workflows',
+      'quota-eval',
+      'step-compile',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      stepId: string
+      status: string
+      shouldEvict: boolean
+      recommendedAction: string
+    }
+    expect(parsed.stepId).toBe('step-compile')
+    expect(parsed.status).toBe('WITHIN_LIMITS')
+    expect(parsed.shouldEvict).toBe(false)
+    expect(parsed.recommendedAction).toBe('CONTINUE')
+
+    logSpy.mockRestore()
+  })
+
+  it('audits export symbol regressions in diff with forge diff symbol-regression (EVIDENCE-023)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['diff', 'symbol-regression', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(1) // 1 because breaking regression was detected fail-closed
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      hasBreakingChanges: boolean
+      breakingCount: number
+      totalSeverityScore: number
+      recommendations: string[]
+    }
+    expect(parsed.hasBreakingChanges).toBe(true)
+    expect(parsed.breakingCount).toBe(1)
+    expect(parsed.totalSeverityScore).toBe(25)
+    expect(parsed.recommendations.length).toBeGreaterThan(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('evaluates partition shard imbalance and compaction with forge db shard-rebalance (STATE-025)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['db', 'shard-rebalance', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      plan: { isRebalanceNeeded: boolean; moves: { fromShardId: string; toShardId: string }[] }
+      compaction: { shardId: string; pagesFreed: number; bytesReclaimed: number }
+    }
+    expect(parsed.plan.isRebalanceNeeded).toBe(true)
+    expect(parsed.plan.moves.length).toBeGreaterThan(0)
+    expect(parsed.compaction.shardId).toBe('shard-01')
+    expect(parsed.compaction.pagesFreed).toBeGreaterThan(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('audits workspace permission escalation and capability sandbox with forge config audit-escalation (CONFIG-026)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['config', 'audit-escalation', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      isApproved: boolean
+      agentId: string
+      tier: string
+      capability: string
+      violations: unknown[]
+      auditFingerprint: string
+    }
+    expect(parsed.isApproved).toBe(true)
+    expect(parsed.tier).toBe('STANDARD')
+    expect(parsed.capability).toBe('FILE_WRITE')
+    expect(parsed.violations).toHaveLength(0)
+    expect(parsed.auditFingerprint).toMatch(/^audit-[0-9a-f]{16}$/)
+
+    logSpy.mockRestore()
+  })
 })

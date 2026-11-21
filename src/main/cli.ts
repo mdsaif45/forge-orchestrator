@@ -69,6 +69,7 @@ import {
   SqliteAuditLogCompactor,
   SqliteWriteLeaseCoordinator,
   SqliteIndexAdvisoryEngine,
+  SqlitePartitionShardCoordinator,
   type RawAuditEvent,
   type MigrationDefinition,
   type SavepointReceipt,
@@ -106,6 +107,7 @@ import {
   auditChangesetEntropy,
   sliceChangesetForContextBudget,
   ChangesetConflictMatrixAnalyzer,
+  ChangesetSymbolRegressionAuditor,
   type ExportSurfaceReport,
   type FileCoverageData,
   type PatchFuzzReport,
@@ -146,6 +148,7 @@ import {
   WorkflowCircuitBreaker,
   WorkflowBackpressureSupervisor,
   WorkflowStepJournalResumeEngine,
+  WorkflowResourceQuotaGovernor,
   type BarrierPolicy,
   type StepDependencyOutcome,
   type StepPrecondition,
@@ -183,6 +186,7 @@ import {
   AgentCapabilityValidator,
   AgentToolDryRunSimulator,
   AgentContextBudgetForecaster,
+  AgentToolSpeculativeExecutionSupervisor,
   type SubgoalCheckpointInput,
   type ConversationTurn,
   type PromptTurn,
@@ -216,6 +220,7 @@ import {
   WorkspaceEnvSanitizer,
   ConfigProvenanceLedger,
   WorkspaceSecurityAttestationVerifier,
+  WorkspacePermissionEscalationAuditor,
   type ConfigPolicyBaseline,
   type ConfigSchema,
   type ConfigPresetName,
@@ -689,6 +694,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     }
     if (positionals[1] === 'conflict-matrix' || positionals[1] === 'conflicts-matrix') {
       return handleDiffConflictMatrix({
+        runId: positionals[2],
+        stepId: positionals[3],
+        dataDir,
+        json: values.json,
+      })
+    }
+    if (positionals[1] === 'symbol-regression' || positionals[1] === 'regression') {
+      return handleDiffSymbolRegression({
         runId: positionals[2],
         stepId: positionals[3],
         dataDir,
@@ -2108,6 +2121,7 @@ async function handleWorkflows(opts: {
       'breaker',
       'backpressure',
       'journal-resume',
+      'quota-eval',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2386,6 +2400,33 @@ async function handleWorkflows(opts: {
         `\nWorkflow Resume Plan: Replayed ${String(plan.replayedNodesCount)}/${String(plan.totalNodes)} nodes (Resumable: ${String(plan.isFullyResumable)})\n`,
       )
       return plan.isFullyResumable ? 0 : 1
+    }
+
+    if (action === 'quota-eval' || action === 'quota') {
+      const governor = new WorkflowResourceQuotaGovernor({
+        defaultLimits: {
+          maxMemoryRssBytes: 128 * 1024 * 1024,
+          maxCpuTimeMs: 15_000,
+          maxOutputBytes: 1024 * 1024,
+          maxDurationMs: 30_000,
+        },
+      })
+      const stepId = opts.targetId ?? 'step-compile'
+      const usage = {
+        memoryRssBytes: 32 * 1024 * 1024,
+        cpuTimeMs: 2500,
+        outputBytes: 45 * 1024,
+        durationMs: 3200,
+      }
+      const evalResult = governor.evaluateStepUsage(stepId, usage)
+      if (opts.json) {
+        console.log(JSON.stringify(evalResult))
+        return evalResult.status === 'EXCEEDED' ? 1 : 0
+      }
+      console.log(
+        `\nWorkflow Resource Quota Evaluation: Step=${evalResult.stepId}, Status=${evalResult.status}, Action=${evalResult.recommendedAction} (MaxRatio=${(evalResult.maxUtilizationRatio * 100).toFixed(1)}%)\n`,
+      )
+      return evalResult.status === 'EXCEEDED' ? 1 : 0
     }
 
     if (action === 'retry') {
@@ -3936,6 +3977,27 @@ async function handleContext(opts: {
       return report.healthStatus === 'CRITICAL_EVICTION_REQUIRED' ? 1 : 0
     }
 
+    if (action === 'speculative-exec' || action === 'spec-exec') {
+      const supervisor = new AgentToolSpeculativeExecutionSupervisor()
+      const sampleInvocations = [
+        { id: 'step-read-config', toolName: 'read_config' },
+        { id: 'step-read-env', toolName: 'get_environment' },
+        { id: 'step-write-output', toolName: 'write_file', dependencies: ['step-read-config'] },
+      ]
+      const plan = supervisor.buildPlan(sampleInvocations)
+      const execution = await supervisor.executePlan(plan, sampleInvocations, {
+        execute: (inv) => Promise.resolve({ executed: inv.id }),
+      })
+      if (opts.json) {
+        console.log(JSON.stringify(execution))
+        return execution.committedCount > 0 ? 0 : 1
+      }
+      console.log(
+        `\nSpeculative Execution: Committed=${String(execution.committedCount)}/${String(execution.totalCount)} (Speculative=${String(execution.speculativeCount)}, RolledBack=${String(execution.rolledBackCount)})\n`,
+      )
+      return execution.committedCount > 0 ? 0 : 1
+    }
+
     if (action === 'budget') {
       const maxTokens = opts.maxTokens ?? 8192
       let content = ''
@@ -4988,6 +5050,27 @@ async function handleConfig(opts: {
     return report.isAttested ? 0 : 1
   }
 
+  if (action === 'audit-escalation' || action === 'escalation') {
+    const auditor = new WorkspacePermissionEscalationAuditor({
+      workspaceRoot: process.cwd(),
+    })
+    const sampleRequest = {
+      agentId: opts.profile ?? 'subagent-worker',
+      tier: 'STANDARD' as const,
+      capability: 'FILE_WRITE' as const,
+      targetPath: 'src/main/config.ts',
+    }
+    const report = auditor.auditCapabilityRequest(sampleRequest)
+    if (opts.json) {
+      console.log(JSON.stringify(report))
+      return report.isApproved ? 0 : 1
+    }
+    console.log(
+      `\nPermission Escalation Audit: Agent=${report.agentId}, Tier=${report.tier}, Capability=${report.capability} (Approved: ${String(report.isApproved)}, Fingerprint=${report.auditFingerprint})\n`,
+    )
+    return report.isApproved ? 0 : 1
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
@@ -5639,6 +5722,37 @@ async function handleDb(opts: {
       for (const rec of report.recommendations) {
         console.log(`  • DDL: ${rec.ddlStatement}`)
       }
+      return 0
+    }
+
+    if (action === 'shard-rebalance' || action === 'shard') {
+      const coordinator = new SqlitePartitionShardCoordinator()
+      coordinator.registerShard({
+        shardId: 'shard-01',
+        dbPath: '/data/shard-01.sqlite',
+        tenantIds: ['tenant-alpha', 'tenant-beta'],
+        recordCount: 800,
+        sizeBytes: 1024 * 1024 * 8,
+        status: 'ACTIVE',
+      })
+      coordinator.registerShard({
+        shardId: 'shard-02',
+        dbPath: '/data/shard-02.sqlite',
+        tenantIds: ['tenant-gamma'],
+        recordCount: 100,
+        sizeBytes: 1024 * 1024 * 1,
+        status: 'ACTIVE',
+      })
+      const plan = coordinator.computeRebalancePlan()
+      const compaction = coordinator.simulateCompaction('shard-01')
+      const result = { plan, compaction }
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+        return 0
+      }
+      console.log(
+        `\nSQLite Shard Rebalance: Needed=${String(plan.isRebalanceNeeded)}, Moves=${String(plan.moves.length)} (Compacted Shard=${compaction.shardId}, PagesFreed=${String(compaction.pagesFreed)})\n`,
+      )
       return 0
     }
 
@@ -6852,6 +6966,36 @@ async function handleDiffConflictMatrix(opts: {
   }
   console.log(`\n${report.summary}\n`)
   return report.isMergeFeasible ? 0 : 1
+}
+
+async function handleDiffSymbolRegression(opts: {
+  readonly runId?: string | undefined
+  readonly stepId?: string | undefined
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  await Promise.resolve()
+  const auditor = new ChangesetSymbolRegressionAuditor()
+  const sampleDiff = `diff --git a/src/api.ts b/src/api.ts
+--- a/src/api.ts
++++ b/src/api.ts
+@@ -1,5 +1,5 @@
+-export function computeMetric(a: number): number { return a * 2; }
++export function computeMetric(a: number, factor: number): number { return a * factor; }
++export const NEW_METRIC = 'v2';
+`
+  const report = auditor.auditDiff(sampleDiff)
+  if (opts.json) {
+    console.log(JSON.stringify(report))
+    return report.hasBreakingChanges ? 1 : 0
+  }
+  console.log(
+    `\nChangeset Symbol Regression Audit: Breaking=${String(report.hasBreakingChanges)}, SeverityScore=${String(report.totalSeverityScore)}\n`,
+  )
+  for (const rec of report.recommendations) {
+    console.log(`  • Recommendation: ${rec}`)
+  }
+  return report.hasBreakingChanges ? 1 : 0
 }
 
 async function handleDiffCycles(opts: {

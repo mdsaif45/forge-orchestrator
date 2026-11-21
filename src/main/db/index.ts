@@ -197,6 +197,15 @@ export {
   type IndexRecommendation,
   type QueryPlanAuditReport,
 } from './sqliteIndexAdvisoryEngine'
+export {
+  SqlitePartitionShardCoordinator,
+  type ShardStatus,
+  type ShardDescriptor,
+  type TenantMigrationMove,
+  type ShardRebalancePlan,
+  type ShardCompactionReport,
+  type ShardCoordinatorConfig,
+} from './sqlitePartitionShardCoordinator'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

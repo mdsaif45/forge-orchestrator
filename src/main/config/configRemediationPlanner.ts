@@ -46,7 +46,7 @@ function formatUnknown(val: unknown): string {
 export function planConfigRemediation(
   activeConfig: Record<string, unknown>,
   policyBaseline: ConfigPolicyBaseline,
-  options: RemediationOptions = {}
+  options: RemediationOptions = {},
 ): ConfigRemediationPlan {
   const actions: RemediationAction[] = []
   const patchAccumulator: Record<string, unknown> = { ...activeConfig }

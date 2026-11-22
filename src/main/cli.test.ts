@@ -4678,4 +4678,117 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('evaluates conversation keyframe pruning and token compression with forge context pruner-eval (AGENT-030)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['context', 'pruner-eval', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      originalTurnCount: number
+      retainedTurnCount: number
+      tokenReductionPercentage: number
+      turns: { role: string; content: string }[]
+    }
+    expect(parsed.originalTurnCount).toBe(4)
+    expect(parsed.retainedTurnCount).toBe(4)
+    expect(parsed.tokenReductionPercentage).toBeGreaterThan(0)
+    const toolTurn = parsed.turns.find((t) => t.role === 'tool')
+    expect(toolTurn?.content).toContain('[Truncated observation')
+
+    logSpy.mockRestore()
+  })
+
+  it('coordinates distributed step 2PC Prepare/Commit with forge workflows 2pc-arbitrate (WORK-037)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['workflows', '2pc-arbitrate', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      txId: string
+      phase: string
+      participants: string[]
+      votes: { participantId: string; vote: string }[]
+    }
+    expect(parsed.phase).toBe('COMMITTED')
+    expect(parsed.participants).toEqual(['worker-1', 'worker-2'])
+    expect(parsed.votes).toHaveLength(2)
+
+    logSpy.mockRestore()
+  })
+
+  it('formats diff chunks with gutters and ANSI styling with forge diff highlight-ansi (EVIDENCE-025)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['diff', 'highlight-ansi', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      filePath: string
+      hunksCount: number
+      additionsCount: number
+      deletionsCount: number
+      renderedAnsi: string
+      renderedClean: string
+    }
+    expect(parsed.filePath).toBe('src/app.ts')
+    expect(parsed.hunksCount).toBe(1)
+    expect(parsed.additionsCount).toBe(1)
+    expect(parsed.deletionsCount).toBe(1)
+    expect(parsed.renderedAnsi).toContain('\x1b[32m')
+    expect(parsed.renderedClean).not.toContain('\x1b[')
+
+    logSpy.mockRestore()
+  })
+
+  it('performs indexed BM25 full-text search with forge db fts-search (STATE-027)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['db', 'fts-search', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      query: string
+      totalMatches: number
+      matches: { docId: string; score: number; titleSnippet: string; bodySnippet: string }[]
+    }
+    expect(parsed.totalMatches).toBe(1)
+    expect(parsed.matches[0]?.docId).toBe('doc-001')
+    expect(parsed.matches[0]?.score).toBeGreaterThan(0)
+    expect(parsed.matches[0]?.titleSnippet).toContain('<mark>electron</mark>')
+
+    logSpy.mockRestore()
+  })
+
+  it('audits workspace dependencies against CVE advisory gates with forge config audit-deps (CONFIG-028)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['config', 'audit-deps', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      scannedPackagesCount: number
+      vulnerabilitiesCount: number
+      gateApproved: boolean
+      summary: string
+    }
+    expect(parsed.scannedPackagesCount).toBe(3)
+    expect(parsed.vulnerabilitiesCount).toBe(0)
+    expect(parsed.gateApproved).toBe(true)
+    expect(parsed.summary).toContain('Audit PASSED')
+
+    logSpy.mockRestore()
+  })
 })

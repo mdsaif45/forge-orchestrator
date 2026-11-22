@@ -232,4 +232,11 @@ export {
   type FencingDecision,
   type ConsensusReport,
 } from './workflowConsensusFencingCoordinator'
+export {
+  WorkflowStepTwoPhaseCommitArbiter,
+  type TransactionPhase,
+  type ParticipantVote,
+  type TwoPhaseTransaction,
+  type TwoPhaseArbiterConfig,
+} from './workflowStepTwoPhaseCommitArbiter'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

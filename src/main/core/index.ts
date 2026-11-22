@@ -206,3 +206,10 @@ export {
   type SpeculativeCacheStats,
   type CacheEvaluationReport,
 } from './agentToolSpeculativeCacheEngine'
+export {
+  AgentConversationKeyframePruner,
+  type KeyframeRole,
+  type ConversationTurnNode,
+  type PrunerConfig,
+  type PruningPlan,
+} from './agentConversationKeyframePruner'

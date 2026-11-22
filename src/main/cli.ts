@@ -72,6 +72,7 @@ import {
   SqlitePartitionShardCoordinator,
   SqliteHotBackupPointInTimeRestorer,
   SqliteFts5SearchRankerSupervisor,
+  SqliteWalFrameTruncationMonitor,
   type RawAuditEvent,
   type MigrationDefinition,
   type SavepointReceipt,
@@ -112,6 +113,7 @@ import {
   ChangesetSymbolRegressionAuditor,
   ChangesetHunkOffsetStabilizer,
   ChangesetChunkAnsiHighlighter,
+  ChangesetThreeWayMergeSynthesizer,
   type ExportSurfaceReport,
   type FileCoverageData,
   type PatchFuzzReport,
@@ -155,6 +157,7 @@ import {
   WorkflowResourceQuotaGovernor,
   WorkflowConsensusFencingCoordinator,
   WorkflowStepTwoPhaseCommitArbiter,
+  WorkflowStepDynamicFanInAggregator,
   type BarrierPolicy,
   type StepDependencyOutcome,
   type StepPrecondition,
@@ -195,6 +198,7 @@ import {
   AgentToolSpeculativeExecutionSupervisor,
   AgentToolSpeculativeCacheEngine,
   AgentConversationKeyframePruner,
+  AgentToolCallDeduplicationLedger,
   type SubgoalCheckpointInput,
   type ConversationTurn,
   type PromptTurn,
@@ -231,6 +235,7 @@ import {
   WorkspacePermissionEscalationAuditor,
   WorkspaceSecretLifecycleGovernor,
   WorkspaceDependencyAuditGate,
+  WorkspaceSecurityComplianceMatrix,
   type ConfigPolicyBaseline,
   type ConfigSchema,
   type ConfigPresetName,
@@ -728,6 +733,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     }
     if (positionals[1] === 'highlight-ansi' || positionals[1] === 'highlight') {
       return handleDiffHighlightAnsi({
+        runId: positionals[2],
+        stepId: positionals[3],
+        dataDir,
+        json: values.json,
+      })
+    }
+    if (positionals[1] === 'three-way-merge' || positionals[1] === '3way-merge') {
+      return handleDiffThreeWayMerge({
         runId: positionals[2],
         stepId: positionals[3],
         dataDir,
@@ -2150,6 +2163,7 @@ async function handleWorkflows(opts: {
       'quota-eval',
       'consensus-fence',
       '2pc-arbitrate',
+      'fan-in-eval',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2512,6 +2526,31 @@ async function handleWorkflows(opts: {
         `\nWorkflow 2PC Arbiter: Tx=${committed.txId}, Phase=${committed.phase}, Participants=${String(committed.participants.length)}, Votes=${String(committed.votes.length)}\n`,
       )
       return committed.phase === 'COMMITTED' ? 0 : 1
+    }
+
+    if (action === 'fan-in-eval' || action === 'fan-in') {
+      const aggregator = new WorkflowStepDynamicFanInAggregator()
+      const report = aggregator.createBarrier('step-fan-in', ['branch-1', 'branch-2'], 'ALL')
+      aggregator.registerBranchResult(report.barrierId, {
+        branchId: 'branch-1',
+        status: 'SUCCESS',
+        outputPayload: { itemsProcessed: 50 },
+        durationMs: 150,
+      })
+      const finalReport = aggregator.registerBranchResult(report.barrierId, {
+        branchId: 'branch-2',
+        status: 'SUCCESS',
+        outputPayload: { itemsProcessed: 75 },
+        durationMs: 200,
+      })
+      if (opts.json) {
+        console.log(JSON.stringify(finalReport))
+        return finalReport.status === 'SATISFIED' ? 0 : 1
+      }
+      console.log(
+        `\nWorkflow Dynamic Fan-In: Status=${finalReport.status}, Completed=${String(finalReport.completedCount)}/${String(finalReport.totalBranches)}, Success=${String(finalReport.successfulCount)} (${finalReport.decisionReason})\n`,
+      )
+      return finalReport.status === 'SATISFIED' ? 0 : 1
     }
 
     if (action === 'retry') {
@@ -4122,6 +4161,21 @@ async function handleContext(opts: {
       return 0
     }
 
+    if (action === 'dedup-eval' || action === 'dedup') {
+      const ledger = new AgentToolCallDeduplicationLedger()
+      const firstEval = ledger.evaluateAndLock('read_file', { path: 'package.json' }, 'ws-main')
+      ledger.complete(firstEval.fingerprint, { content: '{"name": "forge"}' })
+      const secondEval = ledger.evaluateAndLock('read_file', { path: 'package.json' }, 'ws-main')
+      if (opts.json) {
+        console.log(JSON.stringify(secondEval))
+        return secondEval.isDuplicate ? 0 : 1
+      }
+      console.log(
+        `\nTool Call Deduplication Ledger: Duplicate=${String(secondEval.isDuplicate)}, CanProceed=${String(secondEval.canProceed)}, Reason=${secondEval.reason}\n`,
+      )
+      return secondEval.isDuplicate ? 0 : 1
+    }
+
     if (action === 'budget') {
       const maxTokens = opts.maxTokens ?? 8192
       let content = ''
@@ -5230,6 +5284,25 @@ async function handleConfig(opts: {
     return report.gateApproved ? 0 : 1
   }
 
+  if (action === 'compliance-matrix' || action === 'compliance') {
+    const matrix = new WorkspaceSecurityComplianceMatrix()
+    const report = matrix.audit({
+      unmaskedHostSecretsCount: 0,
+      toolSandboxConfigured: true,
+      expiredSecretsCount: 0,
+      unpatchedHighCvesCount: 0,
+      pathTraversalGuardActive: true,
+    })
+    if (opts.json) {
+      console.log(JSON.stringify(report))
+      return report.overallStatus === 'APPROVED' ? 0 : 1
+    }
+    console.log(
+      `\nWorkspace Security Compliance Matrix: Status=${report.overallStatus}, Score=${String(report.complianceScorePercentage)}%, Passed=${String(report.passedCount)}/${String(report.totalControls)}, FailedMandatory=${String(report.failedMandatoryCount)}\n`,
+    )
+    return report.overallStatus === 'APPROVED' ? 0 : 1
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
@@ -5950,6 +6023,20 @@ async function handleDb(opts: {
         `\nSQLite FTS5 Search Ranker: Query="${result.query}", Matches=${String(result.totalMatches)}, TopScore=${String(result.matches[0]?.score ?? 0)} (${String(result.executionDurationMs)}ms)\n`,
       )
       return result.totalMatches > 0 ? 0 : 1
+    }
+
+    if (action === 'wal-truncation-eval' || action === 'wal-truncation') {
+      const monitor = new SqliteWalFrameTruncationMonitor()
+      monitor.updateFrameStats(100, 100)
+      const advisory = monitor.evaluateAdvisory()
+      if (opts.json) {
+        console.log(JSON.stringify(advisory))
+        return advisory.isTruncationFeasible ? 0 : 1
+      }
+      console.log(
+        `\nSQLite WAL Truncation Monitor: Feasible=${String(advisory.isTruncationFeasible)}, Mode=${advisory.recommendedMode}, Urgency=${advisory.urgency} (${advisory.reason})\n`,
+      )
+      return advisory.isTruncationFeasible ? 0 : 1
     }
 
     const err = `Unknown db action: ${action}`
@@ -7249,6 +7336,28 @@ async function handleDiffHighlightAnsi(opts: {
     `\nDiff Chunk ANSI Highlighter: File=${report.filePath ?? 'unknown'}, Hunks=${String(report.hunksCount)}, Adds=+${String(report.additionsCount)}, Dels=-${String(report.deletionsCount)}\n`,
   )
   return report.hunksCount > 0 ? 0 : 1
+}
+
+async function handleDiffThreeWayMerge(opts: {
+  readonly runId?: string | undefined
+  readonly stepId?: string | undefined
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  await Promise.resolve()
+  const synthesizer = new ChangesetThreeWayMergeSynthesizer()
+  const base = 'line1\nline2\nline3'
+  const ours = 'line1 (ours)\nline2\nline3'
+  const theirs = 'line1\nline2\nline3 (theirs)'
+  const report = synthesizer.merge(base, ours, theirs)
+  if (opts.json) {
+    console.log(JSON.stringify(report))
+    return report.hasConflicts ? 1 : 0
+  }
+  console.log(
+    `\nThree-Way Diff Merge: Conflicts=${String(report.hasConflicts)} (${String(report.conflictsCount)} conflicts), CleanChunks=${String(report.cleanChunksCount)}/${String(report.totalChunksCount)}\n`,
+  )
+  return report.hasConflicts ? 1 : 0
 }
 
 async function handleDiffCycles(opts: {

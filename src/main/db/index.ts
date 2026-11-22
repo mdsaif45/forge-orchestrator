@@ -222,6 +222,15 @@ export {
   type FtsSearchResult,
   type FtsRankerConfig,
 } from './sqliteFts5SearchRankerSupervisor'
+export {
+  SqliteWalFrameTruncationMonitor,
+  type WalCheckpointMode,
+  type WalUrgency,
+  type WalReaderLock,
+  type WalFrameStats,
+  type WalTruncationAdvisory,
+  type WalMonitorConfig,
+} from './sqliteWalFrameTruncationMonitor'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

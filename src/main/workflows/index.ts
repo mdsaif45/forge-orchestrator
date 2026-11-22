@@ -239,4 +239,12 @@ export {
   type TwoPhaseTransaction,
   type TwoPhaseArbiterConfig,
 } from './workflowStepTwoPhaseCommitArbiter'
+export {
+  WorkflowStepDynamicFanInAggregator,
+  type FanInPolicy,
+  type FanInBarrierStatus,
+  type BranchExecutionResult,
+  type FanInAggregationReport,
+  type AggregatorConfig,
+} from './workflowStepDynamicFanInAggregator'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

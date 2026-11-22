@@ -213,3 +213,10 @@ export {
   type PrunerConfig,
   type PruningPlan,
 } from './agentConversationKeyframePruner'
+export {
+  AgentToolCallDeduplicationLedger,
+  type DeduplicationStatus,
+  type DeduplicationLedgerEntry,
+  type DeduplicationEvaluation,
+  type LedgerConfig,
+} from './agentToolCallDeduplicationLedger'

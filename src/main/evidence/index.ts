@@ -271,3 +271,10 @@ export {
   type DiffHighlightReport,
   type HighlighterOptions,
 } from './changesetChunkAnsiHighlighter'
+export {
+  ChangesetThreeWayMergeSynthesizer,
+  type ChunkMergeStatus,
+  type MergedChunk,
+  type ThreeWayMergeReport,
+  type ThreeWayMergeOptions,
+} from './changesetThreeWayMergeSynthesizer'

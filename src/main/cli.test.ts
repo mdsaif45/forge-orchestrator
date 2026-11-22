@@ -4791,4 +4791,118 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('evaluates tool call deduplication and state hash caching with forge context dedup-eval (AGENT-031)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['context', 'dedup-eval', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      isDuplicate: boolean
+      canProceed: boolean
+      existingStatus: string
+      reason: string
+    }
+    expect(parsed.isDuplicate).toBe(true)
+    expect(parsed.canProceed).toBe(false)
+    expect(parsed.existingStatus).toBe('COMPLETED')
+    expect(parsed.reason).toContain('already completed recently')
+
+    logSpy.mockRestore()
+  })
+
+  it('evaluates multi-branch dynamic fan-in synchronization with forge workflows fan-in-eval (WORK-038)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['workflows', 'fan-in-eval', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      barrierId: string
+      status: string
+      totalBranches: number
+      successfulCount: number
+      aggregatedPayload: Record<string, { itemsProcessed: number }>
+    }
+    expect(parsed.status).toBe('SATISFIED')
+    expect(parsed.totalBranches).toBe(2)
+    expect(parsed.successfulCount).toBe(2)
+    expect(parsed.aggregatedPayload['branch-1']?.itemsProcessed).toBe(50)
+    expect(parsed.aggregatedPayload['branch-2']?.itemsProcessed).toBe(75)
+
+    logSpy.mockRestore()
+  })
+
+  it('synthesizes three-way diff merge with forge diff three-way-merge (EVIDENCE-026)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['diff', 'three-way-merge', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      hasConflicts: boolean
+      conflictsCount: number
+      cleanChunksCount: number
+      mergedContent: string
+    }
+    expect(parsed.hasConflicts).toBe(false)
+    expect(parsed.conflictsCount).toBe(0)
+    expect(parsed.mergedContent).toContain('line1 (ours)')
+    expect(parsed.mergedContent).toContain('line3 (theirs)')
+
+    logSpy.mockRestore()
+  })
+
+  it('monitors SQLite WAL frame progression and truncation advisories with forge db wal-truncation-eval (STATE-028)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['db', 'wal-truncation-eval', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      isTruncationFeasible: boolean
+      recommendedMode: string
+      urgency: string
+      uncheckpointedFrames: number
+    }
+    expect(parsed.isTruncationFeasible).toBe(true)
+    expect(parsed.recommendedMode).toBe('TRUNCATE')
+    expect(parsed.urgency).toBe('LOW')
+    expect(parsed.uncheckpointedFrames).toBe(0)
+
+    logSpy.mockRestore()
+  })
+
+  it('evaluates workspace security compliance matrix with forge config compliance-matrix (CONFIG-029)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['config', 'compliance-matrix', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      overallStatus: string
+      complianceScorePercentage: number
+      totalControls: number
+      passedCount: number
+      failedMandatoryCount: number
+    }
+    expect(parsed.overallStatus).toBe('APPROVED')
+    expect(parsed.complianceScorePercentage).toBe(100)
+    expect(parsed.totalControls).toBe(5)
+    expect(parsed.passedCount).toBe(5)
+    expect(parsed.failedMandatoryCount).toBe(0)
+
+    logSpy.mockRestore()
+  })
 })

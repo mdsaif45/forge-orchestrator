@@ -70,6 +70,7 @@ import {
   SqliteWriteLeaseCoordinator,
   SqliteIndexAdvisoryEngine,
   SqlitePartitionShardCoordinator,
+  SqliteHotBackupPointInTimeRestorer,
   type RawAuditEvent,
   type MigrationDefinition,
   type SavepointReceipt,
@@ -108,6 +109,7 @@ import {
   sliceChangesetForContextBudget,
   ChangesetConflictMatrixAnalyzer,
   ChangesetSymbolRegressionAuditor,
+  ChangesetHunkOffsetStabilizer,
   type ExportSurfaceReport,
   type FileCoverageData,
   type PatchFuzzReport,
@@ -149,6 +151,7 @@ import {
   WorkflowBackpressureSupervisor,
   WorkflowStepJournalResumeEngine,
   WorkflowResourceQuotaGovernor,
+  WorkflowConsensusFencingCoordinator,
   type BarrierPolicy,
   type StepDependencyOutcome,
   type StepPrecondition,
@@ -187,6 +190,7 @@ import {
   AgentToolDryRunSimulator,
   AgentContextBudgetForecaster,
   AgentToolSpeculativeExecutionSupervisor,
+  AgentToolSpeculativeCacheEngine,
   type SubgoalCheckpointInput,
   type ConversationTurn,
   type PromptTurn,
@@ -221,6 +225,7 @@ import {
   ConfigProvenanceLedger,
   WorkspaceSecurityAttestationVerifier,
   WorkspacePermissionEscalationAuditor,
+  WorkspaceSecretLifecycleGovernor,
   type ConfigPolicyBaseline,
   type ConfigSchema,
   type ConfigPresetName,
@@ -702,6 +707,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     }
     if (positionals[1] === 'symbol-regression' || positionals[1] === 'regression') {
       return handleDiffSymbolRegression({
+        runId: positionals[2],
+        stepId: positionals[3],
+        dataDir,
+        json: values.json,
+      })
+    }
+    if (positionals[1] === 'stabilize-offsets' || positionals[1] === 'stabilize') {
+      return handleDiffStabilizeOffsets({
         runId: positionals[2],
         stepId: positionals[3],
         dataDir,
@@ -2122,6 +2135,7 @@ async function handleWorkflows(opts: {
       'backpressure',
       'journal-resume',
       'quota-eval',
+      'consensus-fence',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2427,6 +2441,47 @@ async function handleWorkflows(opts: {
         `\nWorkflow Resource Quota Evaluation: Step=${evalResult.stepId}, Status=${evalResult.status}, Action=${evalResult.recommendedAction} (MaxRatio=${(evalResult.maxUtilizationRatio * 100).toFixed(1)}%)\n`,
       )
       return evalResult.status === 'EXCEEDED' ? 1 : 0
+    }
+
+    if (action === 'consensus-fence' || action === 'fence') {
+      const coordinator = new WorkflowConsensusFencingCoordinator({ initialEpoch: 1 })
+      const now = Date.now()
+      coordinator.grantLease('worker-alpha', 10_000, now)
+      coordinator.grantLease('worker-beta', 10_000, now)
+      const proposal = coordinator.createProposal('step-verify', 'sha256-state-commit', 3, now)
+      coordinator.submitVote(
+        proposal.proposalId,
+        {
+          workerId: 'worker-alpha',
+          stepId: 'step-verify',
+          stateCommitHash: 'sha256-state-commit',
+          epochNumber: 1,
+          timestamp: now,
+          approved: true,
+        },
+        now,
+      )
+      coordinator.submitVote(
+        proposal.proposalId,
+        {
+          workerId: 'worker-beta',
+          stepId: 'step-verify',
+          stateCommitHash: 'sha256-state-commit',
+          epochNumber: 1,
+          timestamp: now,
+          approved: true,
+        },
+        now,
+      )
+      const report = coordinator.evaluateConsensus(proposal.proposalId)
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return report.status === 'admitted' ? 0 : 1
+      }
+      console.log(
+        `\nWorkflow Consensus Fencing: Status=${report.status}, Epoch=${String(report.epochNumber)}, Quorum=${String(report.approvedCount)}/${String(report.requiredQuorum)} (${report.decisionReason})\n`,
+      )
+      return report.status === 'admitted' ? 0 : 1
     }
 
     if (action === 'retry') {
@@ -3998,6 +4053,26 @@ async function handleContext(opts: {
       return execution.committedCount > 0 ? 0 : 1
     }
 
+    if (action === 'cache-eval' || action === 'cache') {
+      const engine = new AgentToolSpeculativeCacheEngine()
+      engine.set(
+        'read_file',
+        { path: 'package.json' },
+        'ws-default',
+        { ok: true, output: '{"name": "forge"}' },
+        300_000,
+      )
+      const report = engine.evaluate('read_file', { path: 'package.json' }, 'ws-default')
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return report.hit ? 0 : 1
+      }
+      console.log(
+        `\nAgent Speculative Cache Evaluation: Hit=${String(report.hit)}, Reason=${report.reason}, Key=${report.key.slice(0, 12)}...\n`,
+      )
+      return report.hit ? 0 : 1
+    }
+
     if (action === 'budget') {
       const maxTokens = opts.maxTokens ?? 8192
       let content = ''
@@ -5071,6 +5146,21 @@ async function handleConfig(opts: {
     return report.isApproved ? 0 : 1
   }
 
+  if (action === 'secret-lifecycle' || action === 'secrets') {
+    const governor = new WorkspaceSecretLifecycleGovernor()
+    governor.registerSecret('OPENAI_API_KEY', { maxLifetimeMs: 30 * 24 * 60 * 60 * 1000 })
+    governor.evaluateAccess('OPENAI_API_KEY', 1, 'agentTurn')
+    const summary = governor.auditLifecycle()
+    if (opts.json) {
+      console.log(JSON.stringify(summary))
+      return summary.violationsCount === 0 ? 0 : 1
+    }
+    console.log(
+      `\nWorkspace Secret Lifecycle: Total=${String(summary.totalSecrets)}, Active=${String(summary.activeCount)}, InRotation=${String(summary.inRotationCount)}, Deprecated=${String(summary.deprecatedCount)}, Violations=${String(summary.violationsCount)}\n`,
+    )
+    return summary.violationsCount === 0 ? 0 : 1
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
@@ -5754,6 +5844,23 @@ async function handleDb(opts: {
         `\nSQLite Shard Rebalance: Needed=${String(plan.isRebalanceNeeded)}, Moves=${String(plan.moves.length)} (Compacted Shard=${compaction.shardId}, PagesFreed=${String(compaction.pagesFreed)})\n`,
       )
       return 0
+    }
+
+    if (action === 'hot-backup-pitr' || action === 'pitr') {
+      const restorer = new SqliteHotBackupPointInTimeRestorer()
+      const { snapshot } = restorer.createHotBackupSnapshot('db-main', 100)
+      restorer.recordWalEvent('db-main', 'tx-001', 'INSERT INTO runs VALUES (1);')
+      restorer.recordWalEvent('db-main', 'tx-002', 'UPDATE runs SET status=2;')
+      const plan = restorer.planPointInTimeRecovery(snapshot.snapshotId, { targetLsn: 2 })
+      const result = restorer.executeRestore(plan)
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+        return result.success ? 0 : 1
+      }
+      console.log(
+        `\nSQLite Hot-Backup PITR: Success=${String(result.success)}, RestoredLsn=${String(result.restoredLsn)}, Replayed=${String(result.replayedEventCount)} (Verified=${String(result.integrityVerified)})\n`,
+      )
+      return result.success ? 0 : 1
     }
 
     const err = `Unknown db action: ${action}`
@@ -6996,6 +7103,35 @@ async function handleDiffSymbolRegression(opts: {
     console.log(`  • Recommendation: ${rec}`)
   }
   return report.hasBreakingChanges ? 1 : 0
+}
+
+async function handleDiffStabilizeOffsets(opts: {
+  readonly runId?: string | undefined
+  readonly stepId?: string | undefined
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  await Promise.resolve()
+  const stabilizer = new ChangesetHunkOffsetStabilizer()
+  const sampleBuffer = 'header\nline1\nline2\nline3\nfooter'
+  const sampleHunks = [
+    {
+      oldStart: 2,
+      oldLines: 2,
+      newStart: 2,
+      newLines: 2,
+      lines: [' line1', '-line2', '+line2_mod'],
+    },
+  ]
+  const report = stabilizer.stabilize(sampleBuffer, sampleHunks)
+  if (opts.json) {
+    console.log(JSON.stringify(report))
+    return report.success ? 0 : 1
+  }
+  console.log(
+    `\nChangeset Hunk Offset Stabilization: Success=${String(report.success)}, Drift=${String(report.totalDrift)}, StabilizedHunks=${String(report.stabilizedHunks.length)}\n`,
+  )
+  return report.success ? 0 : 1
 }
 
 async function handleDiffCycles(opts: {

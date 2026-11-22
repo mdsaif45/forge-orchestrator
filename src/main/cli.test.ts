@@ -4564,4 +4564,118 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('evaluates speculative execution cache hit and stats with forge context cache-eval (AGENT-029)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['context', 'cache-eval', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      toolName: string
+      hit: boolean
+      reason: string
+      key: string
+      stats: { hits: number; misses: number; entryCount: number }
+    }
+    expect(parsed.toolName).toBe('read_file')
+    expect(parsed.hit).toBe(true)
+    expect(parsed.reason).toBe('hit')
+    expect(parsed.stats.hits).toBe(1)
+    expect(parsed.stats.entryCount).toBe(1)
+
+    logSpy.mockRestore()
+  })
+
+  it('evaluates workflow consensus epoch fencing and quorum commit with forge workflows consensus-fence (WORK-036)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['workflows', 'consensus-fence', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      status: string
+      epochNumber: number
+      votesCount: number
+      approvedCount: number
+      requiredQuorum: number
+      quorumAchieved: boolean
+    }
+    expect(parsed.status).toBe('admitted')
+    expect(parsed.epochNumber).toBe(1)
+    expect(parsed.votesCount).toBe(2)
+    expect(parsed.approvedCount).toBe(2)
+    expect(parsed.quorumAchieved).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('stabilizes diff hunk line offsets with forge diff stabilize-offsets (EVIDENCE-024)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['diff', 'stabilize-offsets', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      success: boolean
+      stabilizedHunks: { hunkIndex: number; stabilizedOldStart: number; offsetDelta: number }[]
+      totalDrift: number
+    }
+    expect(parsed.success).toBe(true)
+    expect(parsed.stabilizedHunks).toHaveLength(1)
+    expect(parsed.stabilizedHunks[0]?.stabilizedOldStart).toBe(2)
+
+    logSpy.mockRestore()
+  })
+
+  it('coordinates SQLite hot-backup checkpoint and point-in-time recovery with forge db hot-backup-pitr (STATE-026)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['db', 'hot-backup-pitr', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      success: boolean
+      restoredLsn: number
+      replayedEventCount: number
+      integrityVerified: boolean
+    }
+    expect(parsed.success).toBe(true)
+    expect(parsed.restoredLsn).toBe(2)
+    expect(parsed.replayedEventCount).toBe(2)
+    expect(parsed.integrityVerified).toBe(true)
+
+    logSpy.mockRestore()
+  })
+
+  it('audits workspace secret lifecycle and rotation schedules with forge config secret-lifecycle (CONFIG-027)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['config', 'secret-lifecycle', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      totalSecrets: number
+      activeCount: number
+      violationsCount: number
+      records: { secretName: string; state: string }[]
+    }
+    expect(parsed.totalSecrets).toBe(1)
+    expect(parsed.activeCount).toBe(1)
+    expect(parsed.violationsCount).toBe(0)
+    expect(parsed.records[0]?.secretName).toBe('OPENAI_API_KEY')
+    expect(parsed.records[0]?.state).toBe('active')
+
+    logSpy.mockRestore()
+  })
 })

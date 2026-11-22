@@ -256,3 +256,11 @@ export {
   type SymbolRegressionAuditConfig,
   type SymbolRegressionAuditResult,
 } from './changesetSymbolRegressionAuditor'
+export {
+  ChangesetHunkOffsetStabilizer,
+  type HunkInput,
+  type StabilizedHunk,
+  type OffsetStabilizationConflict,
+  type OffsetStabilizationResult,
+  type HunkStabilizerConfig,
+} from './changesetHunkOffsetStabilizer'

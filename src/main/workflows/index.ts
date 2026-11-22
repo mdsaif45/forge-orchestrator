@@ -223,4 +223,13 @@ export {
   type GovernorMetrics,
   type WorkflowResourceQuotaGovernorConfig,
 } from './workflowResourceQuotaGovernor'
+export {
+  WorkflowConsensusFencingCoordinator,
+  type ConsensusCoordinatorConfig,
+  type WorkerLease,
+  type VotePayload,
+  type ConsensusProposal,
+  type FencingDecision,
+  type ConsensusReport,
+} from './workflowConsensusFencingCoordinator'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

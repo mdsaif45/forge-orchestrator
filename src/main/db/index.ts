@@ -206,6 +206,15 @@ export {
   type ShardCompactionReport,
   type ShardCoordinatorConfig,
 } from './sqlitePartitionShardCoordinator'
+export {
+  SqliteHotBackupPointInTimeRestorer,
+  type BackupSnapshotMeta,
+  type WalEvent,
+  type PointInTimeTarget,
+  type PitrRestorePlan,
+  type PitrRestoreResult,
+  type HotBackupRestorerConfig,
+} from './sqliteHotBackupPointInTimeRestorer'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

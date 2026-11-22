@@ -199,3 +199,10 @@ export {
   type SpeculativeExecutionSummary,
   type SpeculativeExecutionHandlers,
 } from './agentToolSpeculativeExecutionSupervisor'
+export {
+  AgentToolSpeculativeCacheEngine,
+  type SpeculativeCacheConfig,
+  type SpeculativeCacheEntry,
+  type SpeculativeCacheStats,
+  type CacheEvaluationReport,
+} from './agentToolSpeculativeCacheEngine'

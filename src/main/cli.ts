@@ -71,6 +71,7 @@ import {
   SqliteIndexAdvisoryEngine,
   SqlitePartitionShardCoordinator,
   SqliteHotBackupPointInTimeRestorer,
+  SqliteFts5SearchRankerSupervisor,
   type RawAuditEvent,
   type MigrationDefinition,
   type SavepointReceipt,
@@ -110,6 +111,7 @@ import {
   ChangesetConflictMatrixAnalyzer,
   ChangesetSymbolRegressionAuditor,
   ChangesetHunkOffsetStabilizer,
+  ChangesetChunkAnsiHighlighter,
   type ExportSurfaceReport,
   type FileCoverageData,
   type PatchFuzzReport,
@@ -152,6 +154,7 @@ import {
   WorkflowStepJournalResumeEngine,
   WorkflowResourceQuotaGovernor,
   WorkflowConsensusFencingCoordinator,
+  WorkflowStepTwoPhaseCommitArbiter,
   type BarrierPolicy,
   type StepDependencyOutcome,
   type StepPrecondition,
@@ -191,6 +194,7 @@ import {
   AgentContextBudgetForecaster,
   AgentToolSpeculativeExecutionSupervisor,
   AgentToolSpeculativeCacheEngine,
+  AgentConversationKeyframePruner,
   type SubgoalCheckpointInput,
   type ConversationTurn,
   type PromptTurn,
@@ -226,6 +230,7 @@ import {
   WorkspaceSecurityAttestationVerifier,
   WorkspacePermissionEscalationAuditor,
   WorkspaceSecretLifecycleGovernor,
+  WorkspaceDependencyAuditGate,
   type ConfigPolicyBaseline,
   type ConfigSchema,
   type ConfigPresetName,
@@ -715,6 +720,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     }
     if (positionals[1] === 'stabilize-offsets' || positionals[1] === 'stabilize') {
       return handleDiffStabilizeOffsets({
+        runId: positionals[2],
+        stepId: positionals[3],
+        dataDir,
+        json: values.json,
+      })
+    }
+    if (positionals[1] === 'highlight-ansi' || positionals[1] === 'highlight') {
+      return handleDiffHighlightAnsi({
         runId: positionals[2],
         stepId: positionals[3],
         dataDir,
@@ -2136,6 +2149,7 @@ async function handleWorkflows(opts: {
       'journal-resume',
       'quota-eval',
       'consensus-fence',
+      '2pc-arbitrate',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2482,6 +2496,22 @@ async function handleWorkflows(opts: {
         `\nWorkflow Consensus Fencing: Status=${report.status}, Epoch=${String(report.epochNumber)}, Quorum=${String(report.approvedCount)}/${String(report.requiredQuorum)} (${report.decisionReason})\n`,
       )
       return report.status === 'admitted' ? 0 : 1
+    }
+
+    if (action === '2pc-arbitrate' || action === '2pc') {
+      const arbiter = new WorkflowStepTwoPhaseCommitArbiter()
+      const tx = arbiter.beginTransaction('step-parallel-write', ['worker-1', 'worker-2'])
+      arbiter.registerVote(tx.txId, 'worker-1', 'READY')
+      arbiter.registerVote(tx.txId, 'worker-2', 'READY')
+      const committed = arbiter.commitTransaction(tx.txId)
+      if (opts.json) {
+        console.log(JSON.stringify(committed))
+        return committed.phase === 'COMMITTED' ? 0 : 1
+      }
+      console.log(
+        `\nWorkflow 2PC Arbiter: Tx=${committed.txId}, Phase=${committed.phase}, Participants=${String(committed.participants.length)}, Votes=${String(committed.votes.length)}\n`,
+      )
+      return committed.phase === 'COMMITTED' ? 0 : 1
     }
 
     if (action === 'retry') {
@@ -4073,6 +4103,25 @@ async function handleContext(opts: {
       return report.hit ? 0 : 1
     }
 
+    if (action === 'pruner-eval' || action === 'prune') {
+      const pruner = new AgentConversationKeyframePruner({ maxContextTokens: 256 })
+      const turns = [
+        { role: 'system' as const, content: 'Forge agent core system instructions.' },
+        { role: 'user' as const, content: 'Analyze codebase performance.' },
+        { role: 'tool' as const, content: 'x'.repeat(1000), toolName: 'search_files' },
+        { role: 'assistant' as const, content: 'Analysis completed.' },
+      ]
+      const report = pruner.prune(turns)
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return 0
+      }
+      console.log(
+        `\nConversation Keyframe Pruner: Retained=${String(report.retainedTurnCount)}/${String(report.originalTurnCount)}, Tokens=${String(report.prunedTokensEst)}/${String(report.originalTokensEst)} (-${String(report.tokenReductionPercentage)}%)\n`,
+      )
+      return 0
+    }
+
     if (action === 'budget') {
       const maxTokens = opts.maxTokens ?? 8192
       let content = ''
@@ -5161,6 +5210,26 @@ async function handleConfig(opts: {
     return summary.violationsCount === 0 ? 0 : 1
   }
 
+  if (action === 'audit-deps' || action === 'deps-audit') {
+    const gate = new WorkspaceDependencyAuditGate()
+    const sampleManifest = JSON.stringify({
+      dependencies: {
+        lodash: '4.17.21',
+        tar: '6.2.1',
+        express: '4.18.2',
+      },
+    })
+    const report = gate.audit(sampleManifest)
+    if (opts.json) {
+      console.log(JSON.stringify(report))
+      return report.gateApproved ? 0 : 1
+    }
+    console.log(
+      `\nWorkspace Dependency Audit Gate: GateApproved=${String(report.gateApproved)}, Scanned=${String(report.scannedPackagesCount)}, Vulnerabilities=${String(report.vulnerabilitiesCount)} (${report.summary})\n`,
+    )
+    return report.gateApproved ? 0 : 1
+  }
+
   const err = `Unknown config action: ${action}`
   if (opts.json) console.log(JSON.stringify({ error: err }))
   else {
@@ -5861,6 +5930,26 @@ async function handleDb(opts: {
         `\nSQLite Hot-Backup PITR: Success=${String(result.success)}, RestoredLsn=${String(result.restoredLsn)}, Replayed=${String(result.replayedEventCount)} (Verified=${String(result.integrityVerified)})\n`,
       )
       return result.success ? 0 : 1
+    }
+
+    if (action === 'fts-search' || action === 'fts') {
+      const supervisor = new SqliteFts5SearchRankerSupervisor()
+      supervisor.indexDocument({
+        docId: 'doc-001',
+        runId: 'run-alpha',
+        eventType: 'STEP_EXECUTION',
+        title: 'Build and package electron app',
+        body: 'Compilation succeeded with zero errors and all tests passed.',
+      })
+      const result = supervisor.search('electron*')
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+        return result.totalMatches > 0 ? 0 : 1
+      }
+      console.log(
+        `\nSQLite FTS5 Search Ranker: Query="${result.query}", Matches=${String(result.totalMatches)}, TopScore=${String(result.matches[0]?.score ?? 0)} (${String(result.executionDurationMs)}ms)\n`,
+      )
+      return result.totalMatches > 0 ? 0 : 1
     }
 
     const err = `Unknown db action: ${action}`
@@ -7132,6 +7221,34 @@ async function handleDiffStabilizeOffsets(opts: {
     `\nChangeset Hunk Offset Stabilization: Success=${String(report.success)}, Drift=${String(report.totalDrift)}, StabilizedHunks=${String(report.stabilizedHunks.length)}\n`,
   )
   return report.success ? 0 : 1
+}
+
+async function handleDiffHighlightAnsi(opts: {
+  readonly runId?: string | undefined
+  readonly stepId?: string | undefined
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  await Promise.resolve()
+  const highlighter = new ChangesetChunkAnsiHighlighter()
+  const sampleDiff = [
+    'diff --git a/src/app.ts b/src/app.ts',
+    '--- a/src/app.ts',
+    '+++ b/src/app.ts',
+    '@@ -1,3 +1,3 @@',
+    ' const a = 1;',
+    '-const b = 2;',
+    '+const b = 20;',
+  ].join('\n')
+  const report = highlighter.highlight(sampleDiff)
+  if (opts.json) {
+    console.log(JSON.stringify(report))
+    return report.hunksCount > 0 ? 0 : 1
+  }
+  console.log(
+    `\nDiff Chunk ANSI Highlighter: File=${report.filePath ?? 'unknown'}, Hunks=${String(report.hunksCount)}, Adds=+${String(report.additionsCount)}, Dels=-${String(report.deletionsCount)}\n`,
+  )
+  return report.hunksCount > 0 ? 0 : 1
 }
 
 async function handleDiffCycles(opts: {

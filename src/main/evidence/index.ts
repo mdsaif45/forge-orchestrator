@@ -264,3 +264,10 @@ export {
   type OffsetStabilizationResult,
   type HunkStabilizerConfig,
 } from './changesetHunkOffsetStabilizer'
+export {
+  ChangesetChunkAnsiHighlighter,
+  type LineChunkType,
+  type HighlightedDiffLine,
+  type DiffHighlightReport,
+  type HighlighterOptions,
+} from './changesetChunkAnsiHighlighter'

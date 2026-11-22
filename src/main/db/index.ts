@@ -215,6 +215,13 @@ export {
   type PitrRestoreResult,
   type HotBackupRestorerConfig,
 } from './sqliteHotBackupPointInTimeRestorer'
+export {
+  SqliteFts5SearchRankerSupervisor,
+  type FtsDocument,
+  type FtsSearchMatch,
+  type FtsSearchResult,
+  type FtsRankerConfig,
+} from './sqliteFts5SearchRankerSupervisor'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

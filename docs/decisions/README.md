@@ -19,6 +19,7 @@ These records serve as the defense against architectural drift.
 | [**ADR-005**](ADR-005-task-domain-boundary.md) | Task Domain Boundary and Workflow-Bound Execution Lifecycle | **IMPLEMENTED** | 2026-11-18 | Establishes Tasks as internal execution records; maintains /tasks absent from navigation. |
 | [**ADR-006**](ADR-006-artifact-storage-authority.md) | Artifact Storage Authority | **ACCEPTED** | 2026-09-28 | Establishes ArtifactService as application authority, SQLite ArtifactStore as metadata persistence, and removes legacy in-memory prototype. |
 | [**ADR-007**](ADR-007-generic-workflow-graph-engine.md) | Generic Workflow Graph Architecture & Execution Model | **ACCEPTED** | 2026-09-29 | Defines DAG workflow execution, branch worktree isolation (Q-WF-01), graph checkpoints, and linear template compilation. |
+| [**ADR-008**](ADR-008-modular-monorepo-workspace-architecture.md) | Modular Monorepo Workspace Architecture | **ACCEPTED** | 2026-11-23 | Establishes @forge/* npm/pnpm workspace monorepo packaging, strict DAG boundaries, and headless core decoupling. |
 
 ---
 

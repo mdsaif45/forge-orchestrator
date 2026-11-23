@@ -14,6 +14,10 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
   resolve: {
     alias: {
+      '@forge/shared': resolve('packages/forge-shared/src'),
+      '@forge/core': resolve('packages/forge-core/src'),
+      '@forge/runtimes': resolve('packages/forge-runtimes/src'),
+      '@forge/cli': resolve('packages/forge-cli/src'),
       '@main': resolve('src/main'),
       '@shared': resolve('src/shared'),
       '@renderer': resolve('src/renderer/src'),
@@ -27,7 +31,7 @@ export default defineConfig({
         test: {
           name: 'node',
           environment: 'node',
-          include: ['src/{main,shared}/**/*.test.ts'],
+          include: ['src/{main,shared}/**/*.test.ts', 'packages/**/*.test.ts'],
         },
       },
       {

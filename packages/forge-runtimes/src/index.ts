@@ -142,11 +142,7 @@ export {
   type RuntimeQuotaAuditReport,
 } from './resourceLimiter'
 
-export {
-  ClaudeHookBridge,
-  type HookEvent,
-  type ClaudeHookBridgeOptions,
-} from './claudeHooks'
+export { ClaudeHookBridge, type HookEvent, type ClaudeHookBridgeOptions } from './claudeHooks'
 export {
   type ClaudeRateLimitInfo,
   isClaudeRateLimitSpent,

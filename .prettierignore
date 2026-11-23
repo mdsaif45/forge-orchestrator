@@ -7,5 +7,6 @@ coverage/
 scripts/build/
 package-lock.json
 *.md
+mirage_benchmark/
 src/main/db/migrations/
 src/main/db/migrations.generated.ts

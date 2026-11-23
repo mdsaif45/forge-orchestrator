@@ -4,6 +4,7 @@
     "src/main/**/*",
     "src/preload/**/*",
     "src/shared/**/*",
+    "packages/**/*",
     "bin/**/*",
     "electron.vite.config.ts"
   ],
@@ -13,6 +14,14 @@
     "outDir": "node_modules/.tmp/tsc-node",
     "baseUrl": ".",
     "paths": {
+      "@forge/shared": ["packages/forge-shared/src/index.ts", "src/shared/index.ts"],
+      "@forge/shared/*": ["packages/forge-shared/src/*", "src/shared/*"],
+      "@forge/core": ["packages/forge-core/src/index.ts", "src/main/core/index.ts"],
+      "@forge/core/*": ["packages/forge-core/src/*", "src/main/core/*"],
+      "@forge/runtimes": ["packages/forge-runtimes/src/index.ts", "src/main/runtimes/index.ts"],
+      "@forge/runtimes/*": ["packages/forge-runtimes/src/*", "src/main/runtimes/*"],
+      "@forge/cli": ["packages/forge-cli/src/index.ts", "src/main/cli.ts"],
+      "@forge/cli/*": ["packages/forge-cli/src/*", "src/main/*"],
       "@main/*": ["src/main/*"],
       "@shared/*": ["src/shared/*"]
     }

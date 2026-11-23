@@ -9,6 +9,10 @@ export default defineConfig({
   main: {
     resolve: {
       alias: {
+        '@forge/shared': resolve('packages/forge-shared/src'),
+        '@forge/core': resolve('packages/forge-core/src'),
+        '@forge/runtimes': resolve('packages/forge-runtimes/src'),
+        '@forge/cli': resolve('packages/forge-cli/src'),
         '@main': resolve('src/main'),
         '@shared': shared,
       },
@@ -32,6 +36,7 @@ export default defineConfig({
   preload: {
     resolve: {
       alias: {
+        '@forge/shared': resolve('packages/forge-shared/src'),
         '@shared': shared,
       },
     },
@@ -49,6 +54,7 @@ export default defineConfig({
     plugins: [react(), tailwind()],
     resolve: {
       alias: {
+        '@forge/shared': resolve('packages/forge-shared/src'),
         '@renderer': resolve('src/renderer/src'),
         '@shared': shared,
       },

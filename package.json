@@ -10,6 +10,9 @@
   "bin": {
     "forge": "./bin/forge.js"
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "engines": {
     "node": ">=22"
   },

@@ -5,10 +5,19 @@ import { describe, expect, it } from 'vitest'
 
 const ROOT_DIR = resolve(process.cwd())
 const SRC_DIR = join(ROOT_DIR, 'src')
+const PACKAGES_DIR = join(ROOT_DIR, 'packages')
 
 const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.d.ts', '.js', '.mjs', '.cjs']
 
 const PATH_ALIASES = [
+  { prefix: '@forge/shared/', target: 'packages/forge-shared/src/' },
+  { prefix: '@forge/shared', target: 'packages/forge-shared/src/index' },
+  { prefix: '@forge/runtimes/', target: 'packages/forge-runtimes/src/' },
+  { prefix: '@forge/runtimes', target: 'packages/forge-runtimes/src/index' },
+  { prefix: '@forge/core/', target: 'packages/forge-core/src/' },
+  { prefix: '@forge/core', target: 'packages/forge-core/src/index' },
+  { prefix: '@forge/cli/', target: 'packages/forge-cli/src/' },
+  { prefix: '@forge/cli', target: 'packages/forge-cli/src/index' },
   { prefix: '@shared/', target: 'src/shared/' },
   { prefix: '@shared', target: 'src/shared/index' },
   { prefix: '@main/', target: 'src/main/' },
@@ -190,11 +199,16 @@ function tarjanSCC(adjacencyList: Record<string, string[]>): string[][] {
 }
 
 describe('ADR-004 Architectural Boundaries & Invariants', () => {
-  const allProdFiles = findProductionSourceFiles(SRC_DIR)
+  const allProdFiles = [
+    ...findProductionSourceFiles(SRC_DIR),
+    ...(existsSync(PACKAGES_DIR) ? findProductionSourceFiles(PACKAGES_DIR) : []),
+  ]
 
   it('verifies src/shared/domain is pure and imports 0 external or outer layer modules', () => {
-    const domainFiles = allProdFiles.filter((f) =>
-      normalizeRelative(f).startsWith('src/shared/domain/'),
+    const domainFiles = allProdFiles.filter(
+      (f) =>
+        normalizeRelative(f).startsWith('src/shared/domain/') ||
+        normalizeRelative(f).startsWith('packages/forge-shared/src/domain/'),
     )
     expect(domainFiles.length).toBeGreaterThan(0)
 
@@ -233,8 +247,10 @@ describe('ADR-004 Architectural Boundaries & Invariants', () => {
   })
 
   it('verifies src/shared/views is pure and imports 0 main, electron, or ipc modules', () => {
-    const viewsFiles = allProdFiles.filter((f) =>
-      normalizeRelative(f).startsWith('src/shared/views/'),
+    const viewsFiles = allProdFiles.filter(
+      (f) =>
+        normalizeRelative(f).startsWith('src/shared/views/') ||
+        normalizeRelative(f).startsWith('packages/forge-shared/src/views/'),
     )
     expect(viewsFiles.length).toBeGreaterThan(0)
 
@@ -459,7 +475,9 @@ describe('ADR-004 Architectural Boundaries & Invariants', () => {
     const wfContent = readFileSync(wfFile, 'utf8')
     expect(wfContent.includes('prepareWorkspace')).toBe(false)
 
-    const runtimeFile = join(SRC_DIR, 'shared', 'domain', 'runtime.ts')
+    const runtimeFile = existsSync(join(SRC_DIR, 'shared', 'domain', 'runtime.ts'))
+      ? join(SRC_DIR, 'shared', 'domain', 'runtime.ts')
+      : join(ROOT_DIR, 'packages', 'forge-shared', 'src', 'domain', 'runtime.ts')
     const runtimeContent = readFileSync(runtimeFile, 'utf8')
     expect(runtimeContent.includes('prepareWorkspace')).toBe(false)
   })

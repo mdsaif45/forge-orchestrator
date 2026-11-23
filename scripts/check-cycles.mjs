@@ -18,12 +18,21 @@ import ts from 'typescript'
 
 const ROOT_DIR = resolve(process.cwd())
 const SRC_DIR = join(ROOT_DIR, 'src')
+const PACKAGES_DIR = join(ROOT_DIR, 'packages')
 
 // Standard extensions to try when resolving modules without extension or .js
 const RESOLVE_EXTENSIONS = ['.ts', '.tsx', '.d.ts', '.js', '.mjs', '.cjs']
 
 // Path aliases based on tsconfig.json
 const PATH_ALIASES = [
+  { prefix: '@forge/shared/', target: 'packages/forge-shared/src/' },
+  { prefix: '@forge/shared', target: 'packages/forge-shared/src/index' },
+  { prefix: '@forge/runtimes/', target: 'packages/forge-runtimes/src/' },
+  { prefix: '@forge/runtimes', target: 'packages/forge-runtimes/src/index' },
+  { prefix: '@forge/core/', target: 'packages/forge-core/src/' },
+  { prefix: '@forge/core', target: 'packages/forge-core/src/index' },
+  { prefix: '@forge/cli/', target: 'packages/forge-cli/src/' },
+  { prefix: '@forge/cli', target: 'packages/forge-cli/src/index' },
   { prefix: '@shared/', target: 'src/shared/' },
   { prefix: '@shared', target: 'src/shared/index' },
   { prefix: '@main/', target: 'src/main/' },
@@ -296,8 +305,11 @@ function findCyclePath(scc, adjacencyList) {
  * Main execution.
  */
 function main() {
-  console.log('ADR-004: Scanning src/ for circular dependencies...')
-  const files = findSourceFiles(SRC_DIR)
+  console.log('ADR-004: Scanning src/ and packages/ for circular dependencies...')
+  const files = [
+    ...findSourceFiles(SRC_DIR),
+    ...(existsSync(PACKAGES_DIR) ? findSourceFiles(PACKAGES_DIR) : []),
+  ]
   const graph = {}
 
   for (const file of files) {

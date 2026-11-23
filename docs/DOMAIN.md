@@ -96,7 +96,7 @@ cannot drift from the code — `npm run check` fails if it is stale.
 
 <!-- BEGIN GENERATED STATE DIAGRAM -->
 
-<!-- Generated from src/shared/domain/transitions.ts by npm run docs:diagram. Do not edit. -->
+<!-- Generated from packages/forge-shared/src/domain/transitions.ts by npm run docs:diagram. Do not edit. -->
 
 ```mermaid
 stateDiagram-v2

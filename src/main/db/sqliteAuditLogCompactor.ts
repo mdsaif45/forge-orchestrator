@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { canonicalizeJson } from '../../shared/domain/canonicalJson'
+import { canonicalizeJson } from '@forge/shared'
 
 export interface RawAuditEvent {
   eventId: string

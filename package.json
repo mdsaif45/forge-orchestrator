@@ -45,8 +45,8 @@
     "db:generate": "drizzle-kit generate && node scripts/generate-migrations.mjs",
     "db:check": "drizzle-kit check",
     "setup:pty": "node scripts/setup-native.mjs --pty",
-    "docs:diagram": "esbuild src/shared/domain/transitions.ts --bundle --format=esm --platform=node --outfile=scripts/build/transitions.js --log-level=warning && node scripts/generate-state-diagram.mjs",
-    "check:docs": "esbuild src/shared/domain/transitions.ts --bundle --format=esm --platform=node --outfile=scripts/build/transitions.js --log-level=warning && node scripts/generate-state-diagram.mjs --check",
+    "docs:diagram": "esbuild packages/forge-shared/src/domain/transitions.ts --bundle --format=esm --platform=node --outfile=scripts/build/transitions.js --log-level=warning && node scripts/generate-state-diagram.mjs",
+    "check:docs": "esbuild packages/forge-shared/src/domain/transitions.ts --bundle --format=esm --platform=node --outfile=scripts/build/transitions.js --log-level=warning && node scripts/generate-state-diagram.mjs --check",
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win --publish never",
     "dist:dir": "npm run build && electron-builder --dir"

@@ -36,7 +36,7 @@ if (begin === -1 || end === -1) {
 const block = [
   BEGIN,
   '',
-  '<!-- Generated from src/shared/domain/transitions.ts by npm run docs:diagram. Do not edit. -->',
+  '<!-- Generated from packages/forge-shared/src/domain/transitions.ts by npm run docs:diagram. Do not edit. -->',
   '',
   '```mermaid',
   renderStateDiagram(),

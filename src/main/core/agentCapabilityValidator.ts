@@ -1,4 +1,4 @@
-import type { PermissionMode } from '../../shared/domain/permissionMode'
+import type { PermissionMode } from '@forge/shared'
 
 export interface ToolCapabilityDescriptor {
   id: string

@@ -119,7 +119,12 @@ export default tseslint.config(
   // ships no headless CLI — be a scoping decision instead of a rewrite.
   {
     files: ['src/**/*.{ts,tsx}', 'packages/**/*.{ts,tsx}'],
-    ignores: ['src/main/runtimes/**', 'src/main/index.ts', '**/*.test.{ts,tsx}'],
+    ignores: [
+      'src/main/runtimes/**',
+      'packages/forge-runtimes/**',
+      'src/main/index.ts',
+      '**/*.test.{ts,tsx}',
+    ],
     rules: {
       'no-restricted-imports': [
         'error',

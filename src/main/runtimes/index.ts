@@ -1,12 +1,8 @@
 /**
  * Agent runtimes.
  *
- * **The only directory allowed to name a provider.** Everything above talks to
- * `IAgentRuntime` and resolves through `RuntimeRegistry`, which is what axiom A6
- * buys: the #20 spike found Antigravity ships no headless CLI, and that became a
- * scoping decision rather than a rewrite.
- *
- * Enforced by an ESLint boundary rule, not by convention — see `eslint.config.js`.
+ * Re-exports universal agent runtime abstractions from `@forge/runtimes`
+ * along with the local `Orchestrator` execution coordinator.
  */
 
 export {
@@ -16,9 +12,6 @@ export {
   runtimeDescription,
   runtimeExecutable,
   type RuntimeDescription,
-} from './registry'
-
-export {
   AmbiguousRoleBindingError,
   bindRole,
   BindingSet,
@@ -26,63 +19,37 @@ export {
   requiredCapabilities,
   UnboundRoleError,
   type CreateBindingInput,
-} from './bindings'
-
-export { exchange, type ExchangeOutcome } from './exchange'
-
-export {
-  Orchestrator,
-  UnrunnableWorkflowError,
-  type OrchestratorDeps,
-  type RunOptions,
-  type RunOutcome,
-  type StepContext,
-} from './orchestrator'
-
-export { MockAgentRuntime, type MockRuntimeOptions } from './mockRuntime'
-
-export {
+  exchange,
+  type ExchangeOutcome,
+  MockAgentRuntime,
+  type MockRuntimeOptions,
   SCENARIOS,
   scenarioSchema,
   type Scenario,
   type ScenarioFileEdit,
   type ScenarioName,
   type ScenarioStep,
-} from './scenario'
-
-export {
   ClaudeCliRuntime,
   type ClaudeCliRuntimeOptions,
   type ProcessRunner,
   type ProcessRunnerResult,
-} from './claudeCliRuntime'
-
-export { CustomCliRuntime, type CustomCliRuntimeOptions } from './customCliRuntime'
-
-export { AntigravityCliRuntime, type AntigravityCliRuntimeOptions } from './antigravityCliRuntime'
-
-export { HostedClaudeRuntime, type HostedClaudeRuntimeOptions } from './hostedClaudeRuntime'
-
-export {
+  CustomCliRuntime,
+  type CustomCliRuntimeOptions,
+  AntigravityCliRuntime,
+  type AntigravityCliRuntimeOptions,
+  HostedClaudeRuntime,
+  type HostedClaudeRuntimeOptions,
   HostedAntigravityRuntime,
   type HostedAntigravityRuntimeOptions,
-} from './hostedAntigravityRuntime'
-
-export {
   probeRuntimeExecutable,
   testRuntimeExecution,
   type RuntimeProbeResult,
   type RuntimeHealthStatus,
   type RuntimeExecutionTestResult,
-} from './probe'
-
-export {
   sanitizeRuntimeEnvironment,
   DEFAULT_ALLOWED_ENV_VARS,
   type SanitizeEnvironmentOptions,
   type SanitizedEnvironmentReport,
-} from './environmentSanitizer'
-export {
   auditRuntimeQuotas,
   createResourceBudget,
   DEFAULT_RESOURCE_BUDGET,
@@ -93,4 +60,13 @@ export {
   type ResourceBudgetConfig,
   type ResourceEvaluationResult,
   type RuntimeQuotaAuditReport,
-} from './resourceLimiter'
+} from '@forge/runtimes'
+
+export {
+  Orchestrator,
+  UnrunnableWorkflowError,
+  type OrchestratorDeps,
+  type RunOptions,
+  type RunOutcome,
+  type StepContext,
+} from './orchestrator'

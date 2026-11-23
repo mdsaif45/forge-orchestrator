@@ -451,9 +451,11 @@ describe('ADR-004 Architectural Boundaries & Invariants', () => {
     expect(cycles).toEqual([])
   })
 
-  it('verifies ClaudeTrustStore is strictly private to src/main/runtimes/**', () => {
+  it('verifies ClaudeTrustStore is strictly private to src/main/runtimes/** and packages/forge-runtimes/**', () => {
     const nonRuntimeFiles = allProdFiles.filter(
-      (f) => !normalizeRelative(f).startsWith('src/main/runtimes/'),
+      (f) =>
+        !normalizeRelative(f).startsWith('src/main/runtimes/') &&
+        !normalizeRelative(f).startsWith('packages/forge-runtimes/src/'),
     )
     expect(nonRuntimeFiles.length).toBeGreaterThan(0)
 

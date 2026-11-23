@@ -1,6 +1,6 @@
 {
   "extends": "./tsconfig.base.json",
-  "include": ["src/renderer/src/**/*", "src/shared/**/*", "src/preload/api.ts"],
+  "include": ["src/renderer/src/**/*", "src/shared/**/*", "src/preload/api.ts", "packages/**/*"],
   "compilerOptions": {
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     // Vite's client types only — for `import.meta.env`, which gates development-only
@@ -12,7 +12,16 @@
     "baseUrl": ".",
     "paths": {
       "@renderer/*": ["src/renderer/src/*"],
-      "@shared/*": ["src/shared/*"]
+      "@shared": ["src/shared/domain/index.ts"],
+      "@shared/*": ["src/shared/*"],
+      "@forge/shared": ["packages/forge-shared/src/index.ts"],
+      "@forge/shared/*": ["packages/forge-shared/src/*"],
+      "@forge/core": ["packages/forge-core/src/index.ts"],
+      "@forge/core/*": ["packages/forge-core/src/*"],
+      "@forge/runtimes": ["packages/forge-runtimes/src/index.ts"],
+      "@forge/runtimes/*": ["packages/forge-runtimes/src/*"],
+      "@forge/cli": ["packages/forge-cli/src/index.ts"],
+      "@forge/cli/*": ["packages/forge-cli/src/*"]
     }
   },
   "exclude": ["**/*.test.ts", "**/*.test.tsx", "src/test/**"]

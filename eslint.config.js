@@ -33,7 +33,7 @@ export default tseslint.config(
   // plain JS with no tsconfig behind them; running type-aware rules there would
   // report every value as `any` — noise about the linter's own view, not defects.
   {
-    files: ['src/**/*.{ts,tsx}'],
+    files: ['src/**/*.{ts,tsx}', 'packages/**/*.{ts,tsx}'],
     extends: [tseslint.configs.strictTypeChecked, tseslint.configs.stylisticTypeChecked],
     languageOptions: {
       parserOptions: {
@@ -118,7 +118,7 @@ export default tseslint.config(
   // a concrete adapter. This is what let the #20 spike's finding — Antigravity
   // ships no headless CLI — be a scoping decision instead of a rewrite.
   {
-    files: ['src/**/*.{ts,tsx}'],
+    files: ['src/**/*.{ts,tsx}', 'packages/**/*.{ts,tsx}'],
     ignores: ['src/main/runtimes/**', 'src/main/index.ts', '**/*.test.{ts,tsx}'],
     rules: {
       'no-restricted-imports': [
@@ -154,7 +154,7 @@ export default tseslint.config(
 
   // ---- ADR-004: Domain purity ---------------------------------------------
   {
-    files: ['src/shared/domain/**/*.ts'],
+    files: ['src/shared/domain/**/*.ts', 'packages/forge-shared/src/domain/**/*.ts'],
     ignores: ['**/*.test.ts'],
     rules: {
       'no-restricted-imports': [
@@ -194,7 +194,7 @@ export default tseslint.config(
 
   // ---- ADR-004: Views purity ----------------------------------------------
   {
-    files: ['src/shared/views/**/*.ts'],
+    files: ['src/shared/views/**/*.ts', 'packages/forge-shared/src/views/**/*.ts'],
     ignores: ['**/*.test.ts'],
     rules: {
       'no-restricted-imports': [
@@ -313,7 +313,7 @@ export default tseslint.config(
 
   // ---- ADR-004: DB schema and drizzle-orm privacy -------------------------
   {
-    files: ['src/**/*.{ts,tsx}'],
+    files: ['src/**/*.{ts,tsx}', 'packages/**/*.{ts,tsx}'],
     ignores: ['src/main/db/**', '**/*.test.{ts,tsx}', 'scripts/**'],
     rules: {
       'no-restricted-imports': [
@@ -365,7 +365,7 @@ export default tseslint.config(
 
   // ---- Shared -------------------------------------------------------------
   {
-    files: ['src/shared/**/*.ts'],
+    files: ['src/shared/**/*.ts', 'packages/forge-shared/**/*.ts'],
     rules: {
       // Shared code compiles into all three targets, so it must stay
       // environment-free: no Node, no Electron, no React.

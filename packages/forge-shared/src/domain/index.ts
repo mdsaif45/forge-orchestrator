@@ -1,0 +1,466 @@
+/**
+ * The domain model — Forge's single definition of the project truth (axiom A1).
+ *
+ * Everything here is a zod schema plus its inferred type, so one declaration
+ * serves persistence, the IPC contract, and agent prompt packets. A field cannot
+ * exist in the database and be missing from a packet, or vice versa.
+ *
+ * Two constraints hold throughout:
+ *
+ *   - **no provider-specific fields** (axiom A6). Runtime and account identifiers
+ *     are opaque strings; nothing here knows that Claude or Antigravity exist.
+ *   - **no environment imports**. This directory compiles into main, preload, and
+ *     the renderer, so it stays pure data and pure functions.
+ */
+
+export {
+  actorSchema,
+  agentBindingIdSchema,
+  changeSetIdSchema,
+  decisionIdSchema,
+  eventIdSchema,
+  evidenceIdSchema,
+  projectIdSchema,
+  questionIdSchema,
+  repoPathSchema,
+  repositoryIdSchema,
+  ruleIdSchema,
+  shaSchema,
+  stepIdSchema,
+  taskIdSchema,
+  timestampSchema,
+  workflowIdSchema,
+  accountIdSchema,
+  agentInstanceIdSchema,
+  runIdSchema,
+  artifactIdSchema,
+  type Actor,
+  type AgentBindingId,
+  type ChangeSetId,
+  type DecisionId,
+  type EventId,
+  type EvidenceId,
+  type ProjectId,
+  type QuestionId,
+  type RepoPath,
+  type RepositoryId,
+  type RuleId,
+  type Sha,
+  type StepId,
+  type TaskId,
+  type Timestamp,
+  type WorkflowId,
+  type AccountId,
+  type AgentInstanceId,
+  type RunId,
+  type ArtifactId,
+} from './ids'
+
+export {
+  capabilitySchema,
+  changeTypeSchema,
+  criterionKindSchema,
+  decisionStatusSchema,
+  isTerminalWorkflowState,
+  reportStatusSchema,
+  roleSchema,
+  ruleScopeSchema,
+  ruleScopeSpecificity,
+  RULE_SCOPES,
+  TERMINAL_WORKFLOW_STATES,
+  verdictSchema,
+  workflowStateSchema,
+  WORKFLOW_STATES,
+  accountStatusSchema,
+  ACCOUNT_STATUSES,
+  type Capability,
+  type ChangeType,
+  type CriterionKind,
+  type DecisionStatus,
+  type ReportStatus,
+  type Role,
+  type RuleScope,
+  type Verdict,
+  type WorkflowState,
+  type AccountStatus,
+} from './enums'
+
+export { accountSchema, type Account } from './account'
+export { agentInstanceSchema, type AgentInstance, generateAgentName } from './agentInstance'
+
+export {
+  agentBindingSchema,
+  permissionsSchema,
+  projectSchema,
+  repositorySchema,
+  ruleSchema,
+  type AgentBinding,
+  type Permissions,
+  type Project,
+  type Repository,
+  type Rule,
+} from './project'
+
+export {
+  decisionSchema,
+  gateVerdictSchema,
+  lockedDecisionSchema,
+  type Decision,
+  type GateVerdict,
+  type LockedDecision,
+} from './decision'
+
+export {
+  evidenceRefSchema,
+  isAnswered,
+  openQuestionSchema,
+  type EvidenceRef,
+  type OpenQuestion,
+} from './question'
+
+export {
+  completionCriterionSchema,
+  scopePolicySchema,
+  taskSchema,
+  type CompletionCriterion,
+  type ScopePolicy,
+  type Task,
+} from './task'
+
+export {
+  workflowCheckpointSchema,
+  workflowLimitsSchema,
+  workflowSchema,
+  workflowStepSchema,
+  type Workflow,
+  type WorkflowCheckpoint,
+  type WorkflowLimits,
+  type WorkflowStep,
+} from './workflow'
+
+export {
+  changedFileSchema,
+  changeSetSchema,
+  changeSetSize,
+  discrepancySchema,
+  isEmptyChangeSet,
+  type ChangedFile,
+  type ChangeSet,
+  type Discrepancy,
+} from './changeset'
+
+export {
+  evidenceArtifactSchema,
+  evidenceFindings,
+  evidencePassed,
+  isStepEvidencePassing,
+  runOutcomeSchema,
+  stepEvidenceSchema,
+  summariseEvidence,
+  summariseStepEvidence,
+  testCountsSchema,
+  type EvidenceArtifact,
+  type RunOutcome,
+  type StepEvidence,
+  type TestCounts,
+} from './evidence'
+
+export { criterionResultSchema, formatCriterionResult, type CriterionResult } from './criterion'
+
+export { assessCompletion, type CompletionAssessment, type CompletionInput } from './completion'
+
+export {
+  assessReview,
+  authoritativeReviewVerdictSchema,
+  correctionConstraints,
+  findingSchema,
+  findingSeveritySchema,
+  reviewOutcomeSchema,
+  reviewReportSchema,
+  type AuthoritativeReviewVerdict,
+  type Finding,
+  type FindingSeverity,
+  type ReviewOutcome,
+  type ReviewReport,
+} from './review'
+
+export {
+  domainEventSchema,
+  eventTypeSchema,
+  EVENT_TYPES,
+  type DomainEvent,
+  type EventType,
+} from './event'
+
+export { EVENT_PAYLOADS, type EventInput, type EventPayloads } from './eventPayloads'
+
+export {
+  formatPolicyForAgent,
+  isOverridden,
+  POLICY_SCOPES,
+  resolveEffectivePolicy,
+  type EffectiveRule,
+  type ResolvableRule,
+  type ShadowedRule,
+} from './policy'
+
+export { FORGE_DEFAULT_RULES, FORGE_DEFAULT_RULE_KEYS, type DefaultRule } from './forgeRules'
+
+export {
+  agentReportSchema,
+  agentSessionKey,
+  canHoldRole,
+  hasDisqualifyingAssumptions,
+  missingCapabilities,
+  promptPacketSchema,
+  ROLE_REQUIRED_CAPABILITIES,
+  runtimeEventSchema,
+  runtimeIdSchema,
+  runtimeSessionStateSchema,
+  runtimeStatusSchema,
+  sessionIdSchema,
+  type AgentReport,
+  type AgentSessionId,
+  type IAgentRuntime,
+  type PromptPacket,
+  type RuntimeEvent,
+  type RuntimeId,
+  type RuntimeSessionState,
+  type RuntimeStatus,
+  type SessionHandle,
+  type SessionOptions,
+} from './runtime'
+
+export {
+  assessReport,
+  parseAgentReport,
+  protocolErrorCodeSchema,
+  renderPromptPacket,
+  REPORT_BEGIN,
+  REPORT_END,
+  REPORT_INSTRUCTIONS,
+  reportVerdictSchema,
+  type ProtocolErrorCode,
+  type ProtocolFailure,
+  type ProtocolResult,
+  type ProtocolSuccess,
+  type ReportAssessment,
+  type ReportVerdict,
+} from './protocol'
+
+export {
+  canTransition,
+  IllegalTransitionError,
+  legalTriggers,
+  parseWorkflowState,
+  renderStateDiagram,
+  transition,
+  TRANSITIONS,
+  workflowTriggerSchema,
+  WORKFLOW_TRIGGERS,
+  type Transition,
+  type TransitionContext,
+  type TransitionResult,
+  type WorkflowTrigger,
+} from './transitions'
+
+export {
+  checkBudgets,
+  checkStopConditions,
+  decideRetry,
+  detectNoProgress,
+  failureKindSchema,
+  fingerprintChange,
+  haltCodeSchema,
+  haltStateFor,
+  HALT_CODES,
+  remainingBudget,
+  type BudgetState,
+  type FailureKind,
+  type HaltCode,
+  type HaltDecision,
+  type RemainingBudget,
+  type RetryDecision,
+  type StepOutcomeSignals,
+} from './guards'
+
+export {
+  limitRuleKey,
+  limitRuleProblemSchema,
+  resolveLimits,
+  type LimitRuleProblem,
+  type ResolvedLimits,
+} from './limitRules'
+
+export { isForbiddenPath, redactSecrets, REDACTION } from './redaction'
+
+export {
+  compileContext,
+  rankFiles,
+  truncationNotice,
+  type CompiledContext,
+  type ContextBudget,
+  type ContextInput,
+  type ContextTrace,
+  type FileCandidate,
+} from './contextEngine'
+
+export {
+  BUG_FIX,
+  exportTemplateJson,
+  FEATURE_IMPLEMENTATION,
+  importTemplateJson,
+  REFACTOR,
+  SECURITY_AUDIT,
+  templateStepSchema,
+  TEMPLATES,
+  isTemplateId,
+  TEST_COVERAGE,
+  validateTemplate,
+  workflowTemplateSchema,
+  type TemplateId,
+  type TemplateProblem,
+  type TemplateStep,
+  type WorkflowTemplate,
+} from './template'
+
+export { firstMatching, matchesAny, matchesGlob } from './glob'
+
+export {
+  correctionFindings,
+  isPathAllowed,
+  reconcile,
+  scopeRefusalFor,
+  shouldHalt,
+  summariseDiscrepancies,
+  type ReconcileInput,
+  type ReconcileResult,
+} from './reconcile'
+
+export {
+  assessCommandPolicy,
+  assessStepPolicy,
+  DANGEROUS_COMMANDS,
+  formatPolicyHaltReason,
+  policyViolationKindSchema,
+  policyViolationSchema,
+  type DangerousCommandPattern,
+  type PolicyViolation,
+  type PolicyViolationKind,
+  type StepPolicyAssessment,
+  type StepPolicyInput,
+} from './policyEngine'
+
+export {
+  DEFAULT_PERMISSION_MODE,
+  PERMISSION_MODE_DESCRIPTIONS,
+  permissionModeSchema,
+  type PermissionMode,
+} from './permissionMode'
+export {
+  ROLE_DEFAULT_PERMISSIONS,
+  defaultPermissionsForRole,
+  effectivePermissionsForRole,
+  widenedPermissionsForRole,
+  validateBindingPermissions,
+  InvalidBindingPermissionsError,
+  permissionForRole,
+  type RolePermission,
+} from './rolePermission'
+
+export {
+  artifactFormatSchema,
+  getReadyNodes,
+  getTopologicalSort,
+  graphCheckpointSchema,
+  graphNodeRunSchema,
+  graphRunSchema,
+  graphRunStatusSchema,
+  graphStateSnapshotSchema,
+  graphTransitionSchema,
+  nodePositionSchema,
+  nodeRuntimeConfigSchema,
+  nodeStatusSchema,
+  nodeTypeSchema,
+  outputDefinitionSchema,
+  runtimeTypeSchema,
+  slotDefinitionSchema,
+  templateStatusSchema,
+  validateWorkflowGraph,
+  workflowArtifactSchema,
+  workflowEdgeSchema,
+  WorkflowGraphCycleError,
+  workflowNodeSchema,
+  workflowTemplateV2Schema,
+  type ArtifactFormat,
+  type GraphCheckpoint,
+  conditionOperatorSchema,
+  edgePredicateSchema,
+  edgeConditionSchema,
+  type ConditionOperator,
+  type EdgePredicate,
+  type EdgeCondition,
+  type GraphNodeRun,
+  type GraphRun,
+  type GraphRunStatus,
+  type GraphStateSnapshot,
+  type GraphTransition,
+  type NodePosition,
+  type NodeRuntimeConfig,
+  type NodeStatus,
+  type NodeType,
+  type OutputDefinition,
+  type RuntimeType,
+  type SlotDefinition,
+  type TemplateStatus,
+  type WorkflowArtifact,
+  type WorkflowEdge,
+  type WorkflowNode,
+  type WorkflowTemplateV2,
+  getLoopBody,
+  loopPolicySchema,
+  type LoopPolicy,
+} from './workflowGraph'
+
+export {
+  evaluateCondition,
+  resolveConditionRef,
+  type ConditionEvaluationContext,
+} from './conditions'
+
+export { canonicalizeJson, tryCanonicalizeJsonString } from './canonicalJson'
+
+export { compileLinearTemplateToGraph } from './templateCompiler'
+
+export {
+  runRecordSchema,
+  runStatusSchema,
+  runTypeSchema,
+  stepRecordSchema,
+  type RunRecord,
+  type RunStatus,
+  type RunType,
+  type StepRecord,
+} from './run'
+
+export {
+  artifactKindSchema,
+  artifactMetadataSchema,
+  artifactUri,
+  parseArtifactUri,
+  type ArtifactKind,
+  type ArtifactMetadata,
+} from './artifact'
+
+export { runEventSchema, type RunEvent, type RunEventInput } from './runEvents'
+
+export {
+  extractToolTarget,
+  filterToolTimelineByNode,
+  filterToolTimelineByStep,
+  reduceToolTimeline,
+  toolCallEntrySchema,
+  toolCallStatusSchema,
+  type ToolCallEntry,
+  type ToolCallStatus,
+} from './toolTimeline'

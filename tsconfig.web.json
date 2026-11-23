@@ -1,6 +1,11 @@
 {
   "extends": "./tsconfig.base.json",
-  "include": ["src/renderer/src/**/*", "src/shared/**/*", "src/preload/api.ts", "packages/**/*"],
+  "include": [
+    "src/renderer/src/**/*",
+    "src/shared/**/*",
+    "src/preload/api.ts",
+    "packages/forge-shared/**/*"
+  ],
   "compilerOptions": {
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     // Vite's client types only — for `import.meta.env`, which gates development-only

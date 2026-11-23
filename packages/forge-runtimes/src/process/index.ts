@@ -1,0 +1,25 @@
+export {
+  ProcessManager,
+  rotateLogFile,
+  resolveCommand,
+  isCommandAvailable,
+  type ProcessHandle,
+  type ProcessManagerOptions,
+  type ProcessMetrics,
+  type ProcessOutcome,
+  type ProcessOutcomeReason,
+  type SpawnRequest,
+} from './processManager'
+
+export { isAlive, OrphanTracker, type OrphanReport, type TrackedProcess } from './orphans'
+
+export {
+  buildChildEnv,
+  isSecretEnvName,
+  REDACTION,
+  redactOutput,
+  stripAnsi,
+  withheldEnvNames,
+} from './redact'
+
+export { accountEnv } from './accountEnv'

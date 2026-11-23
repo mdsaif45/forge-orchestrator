@@ -1,0 +1,17 @@
+{
+  "name": "@forge/runtimes",
+  "version": "0.3.0-alpha.1",
+  "description": "Agent runtime contracts, PTY process hosting, and CLI adapters for Forge",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./process": "./src/process/index.ts"
+  },
+  "dependencies": {
+    "@forge/shared": "*",
+    "node-pty": "^1.1.0",
+    "zod": "^4.4.3"
+  }
+}

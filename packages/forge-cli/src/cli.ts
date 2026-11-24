@@ -73,6 +73,7 @@ import {
   SqliteHotBackupPointInTimeRestorer,
   SqliteFts5SearchRankerSupervisor,
   SqliteWalFrameTruncationMonitor,
+  SqlitePlannerHintOptimizer,
   type RawAuditEvent,
   type MigrationDefinition,
   type SavepointReceipt,
@@ -6147,6 +6148,23 @@ async function handleDb(opts: {
         `\nSQLite WAL Truncation Monitor: Feasible=${String(advisory.isTruncationFeasible)}, Mode=${advisory.recommendedMode}, Urgency=${advisory.urgency} (${advisory.reason})\n`,
       )
       return advisory.isTruncationFeasible ? 0 : 1
+    }
+
+    if (action === 'planner-hints' || action === 'hints') {
+      const optimizer = new SqlitePlannerHintOptimizer()
+      const query =
+        opts.targetPath ??
+        opts.targetId ??
+        'SELECT e.id, a.path FROM events e JOIN artifacts a ON a.run_id = e.run_id WHERE e.run_id = ?'
+      const report = optimizer.optimizeQuery(query)
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return report.hintsInjected.length > 0 ? 0 : 1
+      }
+      console.log(
+        `\nSQLite Planner Hint Optimizer: Hints=${String(report.hintsInjected.length)}, CostReduction=${String(report.estimatedCostReductionPercent)}%, FullScanPrevented=${String(report.fullScanPrevented)}\n`,
+      )
+      return report.hintsInjected.length > 0 ? 0 : 1
     }
 
     const err = `Unknown db action: ${action}`

@@ -220,3 +220,14 @@ export {
   type DeduplicationEvaluation,
   type LedgerConfig,
 } from './agentToolCallDeduplicationLedger'
+export {
+  AgentToolStreamingChunkPipeline,
+  type ChunkChannel,
+  type FlowControlState,
+  type StreamingChunk,
+  type PipelineMetrics,
+  type StreamingChunkConfig,
+  type ChunkEvent,
+  type ChunkObserver,
+  type StreamEvaluationResult,
+} from './agentToolStreamingChunkPipeline'

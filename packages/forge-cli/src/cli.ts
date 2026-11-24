@@ -203,6 +203,8 @@ import {
   AgentToolSpeculativeCacheEngine,
   AgentConversationKeyframePruner,
   AgentToolCallDeduplicationLedger,
+  AgentToolStreamingChunkPipeline,
+  type StreamingChunk,
   type SubgoalCheckpointInput,
   type ConversationTurn,
   type PromptTurn,
@@ -4178,6 +4180,50 @@ async function handleContext(opts: {
         `\nTool Call Deduplication Ledger: Duplicate=${String(secondEval.isDuplicate)}, CanProceed=${String(secondEval.canProceed)}, Reason=${secondEval.reason}\n`,
       )
       return secondEval.isDuplicate ? 0 : 1
+    }
+
+    if (action === 'tool-stream-eval' || action === 'tool-stream' || action === 'stream-eval') {
+      const pipeline = new AgentToolStreamingChunkPipeline({
+        highWatermarkBytes: 4096,
+        lowWatermarkBytes: 1024,
+        maxRingBufferBytes: 8192,
+        maxChunkSizeBytes: 1024,
+      })
+
+      const emittedChunks: StreamingChunk[] = []
+      pipeline.subscribe((event) => {
+        if (event.type === 'chunk') {
+          emittedChunks.push(event.chunk)
+        }
+      })
+
+      pipeline.push('Starting autonomous agent tool execution...\n', 'stdout')
+      pipeline.push('npm test -- --runInBand\n', 'stdout')
+      pipeline.push('Warning: Deprecated dependency detected in workspace\n', 'stderr')
+      pipeline.push('Tests: 42 passed, 42 total\n', 'stdout')
+      pipeline.push('[system] tool execution completed successfully\n', 'system')
+      pipeline.complete()
+
+      const metrics = pipeline.getMetrics()
+      const evalReport = {
+        chunksEmitted: metrics.totalChunks,
+        totalBytesStreamed: metrics.totalBytes,
+        stdoutBytes: metrics.stdoutBytes,
+        stderrBytes: metrics.stderrBytes,
+        systemBytes: metrics.systemBytes,
+        ringBufferSample: pipeline.getRingBuffer().slice(0, 100),
+        backpressurePauses: metrics.backpressurePauseCount,
+        isHealthy: metrics.totalChunks > 0 && metrics.totalBytes > 0,
+      }
+
+      if (opts.json) {
+        console.log(JSON.stringify(evalReport))
+        return 0
+      }
+      console.log(
+        `\nAgent Tool Streaming Chunk Pipeline: Chunks=${String(evalReport.chunksEmitted)}, TotalBytes=${String(evalReport.totalBytesStreamed)}, Stdout=${String(evalReport.stdoutBytes)}B, Stderr=${String(evalReport.stderrBytes)}B, Pauses=${String(evalReport.backpressurePauses)}\n`,
+      )
+      return 0
     }
 
     if (action === 'budget') {

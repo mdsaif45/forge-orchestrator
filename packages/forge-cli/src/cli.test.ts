@@ -4814,6 +4814,35 @@ index 1111111..2222222 100644
     logSpy.mockRestore()
   })
 
+  it('evaluates tool call streaming chunk pipeline with forge context tool-stream-eval (AGENT-032)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['context', 'tool-stream-eval', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      chunksEmitted: number
+      totalBytesStreamed: number
+      stdoutBytes: number
+      stderrBytes: number
+      systemBytes: number
+      ringBufferSample: string
+      backpressurePauses: number
+      isHealthy: boolean
+    }
+    expect(parsed.chunksEmitted).toBe(5)
+    expect(parsed.totalBytesStreamed).toBeGreaterThan(0)
+    expect(parsed.stdoutBytes).toBeGreaterThan(0)
+    expect(parsed.stderrBytes).toBeGreaterThan(0)
+    expect(parsed.systemBytes).toBeGreaterThan(0)
+    expect(parsed.isHealthy).toBe(true)
+    expect(parsed.ringBufferSample).toContain('autonomous agent tool execution')
+
+    logSpy.mockRestore()
+  })
+
   it('evaluates multi-branch dynamic fan-in synchronization with forge workflows fan-in-eval (WORK-038)', async () => {
     const logs: string[] = []
     const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {

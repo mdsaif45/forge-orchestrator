@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { promptPacketSchema, type PromptPacket, type RuntimeEvent } from '@shared/domain'
-import type { runAgentTurn } from '../providers/agentTurn'
+import type { runAgentTurn } from '@forge/core/providers/agentTurn'
 import { NativeAgentRuntime, type NativeAgentRuntimeOptions } from './nativeAgentRuntime'
 
 /**

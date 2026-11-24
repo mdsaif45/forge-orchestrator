@@ -1,10 +1,10 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog } from 'electron'
-import { createForgeCore, type ForgeCore } from './core'
+import { createForgeCore, type ForgeCore } from '@forge/core'
 import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
 import { GenericCliAgentRuntime } from './runtimes/genericCliRuntime'
-import { devModelTracker } from './providers/devModelTracker'
+import { devModelTracker } from '@forge/core/providers/devModelTracker'
 import {
   applyContentSecurityPolicy,
   claimSingleInstance,

@@ -17,16 +17,16 @@ import {
   type WorkflowTemplateV2,
 } from '@shared/domain'
 import type { WorkflowDetailView, WorkflowSummaryView } from '@shared/views'
-import { createForgeCore, resolveDataDir } from './core/forgeCore'
-import { executeDirectTask, type DirectTaskEvent } from './core/taskRunner'
-import { GitService } from './git'
-import { discoverOllamaModels } from './providers/ollamaDiscovery'
+import { createForgeCore, resolveDataDir } from '@forge/core/core/forgeCore'
+import { executeDirectTask, type DirectTaskEvent } from '@forge/core/core/taskRunner'
+import { GitService } from '@forge/core/git'
+import { discoverOllamaModels } from '@forge/core/providers/ollamaDiscovery'
 import {
   probeRuntimeExecutable,
   runtimeDescription,
   runtimeExecutable,
   testRuntimeExecution,
-} from './runtimes'
+} from '@forge/runtimes'
 import {
   findForgeConfigFile,
   getForgeConfigValue,
@@ -34,9 +34,9 @@ import {
   loadForgeConfig,
   setForgeConfigValue,
   switchForgeProfile,
-} from './config/forgeConfig'
-import { auditForgeEnvironment } from './config/configDoctor'
-import { exportRunArtifactArchive } from './artifacts'
+} from '@forge/core/config/forgeConfig'
+import { auditForgeEnvironment } from '@forge/core/config/configDoctor'
+import { exportRunArtifactArchive } from '@forge/core/artifacts'
 import {
   auditDatabaseIntegrity,
   auditDatabaseStorageQuota,
@@ -77,8 +77,8 @@ import {
   type MigrationDefinition,
   type SavepointReceipt,
   type RawLedgerEvent,
-} from './db'
-import { ProjectStore } from './db/projectStore'
+} from '@forge/core/db'
+import { ProjectStore } from '@forge/core/db/projectStore'
 import {
   AssertionReportAggregator,
   auditArtifactChecksums,
@@ -119,12 +119,12 @@ import {
   type PatchFuzzReport,
   type TestCaseAssertion,
   type TestSuiteAssertion,
-} from './evidence'
-import { DEFAULT_TEMPLATES_V2 } from './templates/defaultTemplatesV2'
+} from '@forge/core/evidence'
+import { DEFAULT_TEMPLATES_V2 } from '@forge/core/templates/defaultTemplatesV2'
 import {
   discoverCustomTemplates,
   validateCustomTemplateFile,
-} from './templates/customTemplateLoader'
+} from '@forge/core/templates/customTemplateLoader'
 import {
   createWorkflowCheckpoint,
   createWorkflowSnapshot,
@@ -166,11 +166,15 @@ import {
   type WorkflowDAG,
   type WorkflowSimulationDAG,
   type WorkflowNodeDefinition,
-} from './workflows'
-import { validateTemplateGraph } from './workflows/validation'
-import { auditRuntimeQuotas, createResourceBudget, sanitizeRuntimeEnvironment } from './runtimes'
-import { calculateRunTokenAccounting } from './core/tokenAccounting'
-import { optimizePromptPacket } from './core/promptOptimizer'
+} from '@forge/core/workflows'
+import { validateTemplateGraph } from '@forge/core/workflows/validation'
+import {
+  auditRuntimeQuotas,
+  createResourceBudget,
+  sanitizeRuntimeEnvironment,
+} from '@forge/runtimes'
+import { calculateRunTokenAccounting } from '@forge/core/core/tokenAccounting'
+import { optimizePromptPacket } from '@forge/core/core/promptOptimizer'
 import {
   getMemoryStats,
   indexRunMemory,
@@ -205,7 +209,7 @@ import {
   type ToolParametersSchema,
   type ToolObservation,
   type PlannedToolStep,
-} from './core'
+} from '@forge/core'
 import {
   bootstrapForgeConfig,
   getVaultSecret,
@@ -242,7 +246,7 @@ import {
   type PolicyLockRule,
   type ToolSandboxPolicy,
   type ConfigLayer,
-} from './config'
+} from '@forge/core/config'
 
 const VERSION = '0.3.0-alpha.1'
 

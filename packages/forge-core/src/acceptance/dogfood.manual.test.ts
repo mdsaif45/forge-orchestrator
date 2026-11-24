@@ -3,14 +3,17 @@ import { readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import type { WorkflowEventPayload, WorkflowLogPayload } from '@forge/shared/views'
 import { initialiseDatabase } from '../db'
 import { ProjectService } from '../projects/projectService'
 import { WorkflowService } from '../workflows/workflowService'
-import { ProcessManager } from '../process/processManager'
-import { AntigravityCliRuntime } from '../runtimes/antigravityCliRuntime'
-import { ClaudeCliRuntime } from '../runtimes/claudeCliRuntime'
-import { createPipeProcessRunner } from '../runtimes/pipeProcessRunner'
-import { RuntimeRegistry } from '../runtimes/registry'
+import {
+  AntigravityCliRuntime,
+  ClaudeCliRuntime,
+  createPipeProcessRunner,
+  ProcessManager,
+  RuntimeRegistry,
+} from '@forge/runtimes'
 
 /**
  * Traces where a real workflow actually stops.
@@ -61,10 +64,10 @@ describe.skipIf(process.env.FORGE_DOGFOOD === undefined)('dogfood', () => {
         projects,
         packetDir,
         registry,
-        emitEvent: (payload) => {
+        emitEvent: (payload: WorkflowEventPayload) => {
           note(`EVENT ${payload.type} state=${payload.state ?? '-'} ${payload.detail ?? ''}`)
         },
-        emitLog: (payload) => {
+        emitLog: (payload: WorkflowLogPayload) => {
           note(`LOG step=${String(payload.stepIndex)} ${payload.text.slice(0, 300)}`)
         },
       })

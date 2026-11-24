@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import Database from 'better-sqlite3'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { projectIdSchema, runIdSchema, stepIdSchema, taskIdSchema } from '@shared/domain'
-import { createForgeCore } from './core/forgeCore'
+import { createForgeCore } from '@forge/core'
 import { runCli } from './cli'
 
 describe('Forge CLI (runCli)', () => {

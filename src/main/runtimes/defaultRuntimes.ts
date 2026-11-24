@@ -11,9 +11,9 @@ import {
   loadCustomClis,
   STANDARD_AGENT_CATALOG,
 } from './cliDetector'
-import type { ActiveModel, ActiveModelStore } from '../providers/activeModel'
+import type { ActiveModel, ActiveModelStore } from '@forge/core/providers/activeModel'
 import { CustomCliRuntime } from './customCliRuntime'
-import type { CustomRuntimeConfig } from '../config/forgeConfig'
+import type { CustomRuntimeConfig } from '@forge/core/config/forgeConfig'
 
 export interface DefaultRuntimesOptions {
   readonly processes: ProcessManager

@@ -12,7 +12,7 @@ import {
   type SessionHandle,
   type SessionOptions,
 } from '@shared/domain'
-import { runAgentTurn } from '../providers/agentTurn'
+import { runAgentTurn } from '@forge/core/providers/agentTurn'
 
 /**
  * Forge's own agent: a model plus the tool loop, with no CLI in between.

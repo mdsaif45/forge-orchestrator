@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync, readdirSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -149,7 +149,12 @@ describe('ClaudeTrustStore', () => {
   })
 
   it('confirms WorkflowService has zero prepareWorkspace references and performs no separate workspace-preparation pass', () => {
-    const wfSource = readFileSync(resolve('src/main/workflows/workflowService.ts'), 'utf8')
+    const candidatePath = existsSync(
+      resolve('packages/forge-core/src/workflows/workflowService.ts'),
+    )
+      ? resolve('packages/forge-core/src/workflows/workflowService.ts')
+      : resolve('src/main/workflows/workflowService.ts')
+    const wfSource = readFileSync(candidatePath, 'utf8')
     expect(wfSource.includes('prepareWorkspace')).toBe(false)
   })
 })

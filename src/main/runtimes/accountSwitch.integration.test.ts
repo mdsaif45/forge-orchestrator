@@ -12,14 +12,14 @@ import {
   type Account,
   type Decision,
 } from '@shared/domain'
-import { AccountStore } from '../db/accountStore'
-import { EventStore } from '../db/eventStore'
-import { initialiseDatabase, type ForgeDatabase } from '../db'
-import { ProjectService } from '../projects/projectService'
+import { AccountStore } from '@forge/core/db/accountStore'
+import { EventStore } from '@forge/core/db/eventStore'
+import { initialiseDatabase, type ForgeDatabase } from '@forge/core/db'
+import { ProjectService } from '@forge/core/projects/projectService'
 import { MockAgentRuntime } from './mockRuntime'
 import { RuntimeRegistry } from './registry'
 import { SCENARIOS } from './scenario'
-import { WorkflowService } from '../workflows/workflowService'
+import { WorkflowService } from '@forge/core/workflows/workflowService'
 
 function initGitRepository(directory: string): void {
   execFileSync('git', ['init', '--quiet', '--initial-branch=main', '.'], { cwd: directory })

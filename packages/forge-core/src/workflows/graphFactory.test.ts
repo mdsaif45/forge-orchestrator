@@ -806,12 +806,13 @@ describe('Graph Composition Factory (Slice 5B-1A)', () => {
     })
 
     it('verifies no IPC handler exposes GraphExecutor directly', () => {
+      const fallbackPath = resolve('src/main/ipc/handlers.ts')
       const candidatePaths = [
-        resolve('src/main/ipc/handlers.ts'),
+        fallbackPath,
         resolve('packages/forge-desktop/src/main/ipc/handlers.ts'),
         join(__dirname, '../ipc/handlers.ts'),
       ]
-      const handlersPath = candidatePaths.find((p) => existsSync(p)) ?? candidatePaths[0]
+      const handlersPath = candidatePaths.find((p) => existsSync(p)) ?? fallbackPath
       const handlersSource = readFileSync(handlersPath, 'utf8')
 
       // IPC handlers invoke WorkflowService methods, never GraphExecutor directly

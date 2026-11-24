@@ -35,16 +35,12 @@ const PATH_ALIASES = [
   { prefix: '@forge/cli', target: 'packages/forge-cli/src/index' },
   { prefix: '@forge/desktop/', target: 'packages/forge-desktop/src/' },
   { prefix: '@forge/desktop', target: 'packages/forge-desktop/src/index' },
-  { prefix: '@main/', target: 'packages/forge-core/src/' },
-  { prefix: '@main/', target: 'src/main/' },
-  { prefix: '@main', target: 'packages/forge-core/src/index' },
-  { prefix: '@main', target: 'src/main/index' },
+  { prefix: '@main/', target: 'packages/forge-desktop/src/main/' },
+  { prefix: '@main', target: 'packages/forge-desktop/src/main/index' },
   { prefix: '@shared/', target: 'packages/forge-shared/src/' },
-  { prefix: '@shared/', target: 'src/shared/' },
   { prefix: '@shared', target: 'packages/forge-shared/src/index' },
-  { prefix: '@shared', target: 'src/shared/index' },
-  { prefix: '@renderer/', target: 'src/renderer/src/' },
-  { prefix: '@renderer', target: 'src/renderer/src/index' },
+  { prefix: '@renderer/', target: 'packages/forge-desktop/src/renderer/src/' },
+  { prefix: '@renderer', target: 'packages/forge-desktop/src/renderer/src/index' },
 ]
 
 /**
@@ -64,6 +60,7 @@ function isTestFile(relPath) {
     norm.endsWith('.test.tsx') ||
     norm.endsWith('.spec.ts') ||
     norm.endsWith('.spec.tsx') ||
+    norm.startsWith('test/') ||
     norm.startsWith('src/test/') ||
     norm.includes('/__tests__/')
   )
@@ -312,9 +309,9 @@ function findCyclePath(scc, adjacencyList) {
  * Main execution.
  */
 function main() {
-  console.log('ADR-004: Scanning src/ and packages/ for circular dependencies...')
+  console.log('ADR-004: Scanning packages/ for circular dependencies...')
   const files = [
-    ...findSourceFiles(SRC_DIR),
+    ...(existsSync(SRC_DIR) ? findSourceFiles(SRC_DIR) : []),
     ...(existsSync(PACKAGES_DIR) ? findSourceFiles(PACKAGES_DIR) : []),
   ]
   const graph = {}

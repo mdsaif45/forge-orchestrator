@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import {
-  DEFAULT_DESKTOP_WINDOW_OPTIONS,
-  createDesktopWindowOptions,
-  createIpcHandlers,
-  registerIpcHandlers,
-} from './index'
+import { DEFAULT_DESKTOP_WINDOW_OPTIONS, createDesktopWindowOptions } from './index'
 
-describe('@forge/desktop package window and ipc contracts', () => {
+describe('@forge/desktop package window contracts', () => {
   it('verifies default window options adhere to desktop security standards', () => {
     expect(DEFAULT_DESKTOP_WINDOW_OPTIONS.width).toBe(1440)
     expect(DEFAULT_DESKTOP_WINDOW_OPTIONS.height).toBe(900)
@@ -31,8 +26,7 @@ describe('@forge/desktop package window and ipc contracts', () => {
     expect(custom.webPreferences.sandbox).toBe(true)
   })
 
-  it('exports IPC handler factory and registration functions', () => {
-    expect(typeof createIpcHandlers).toBe('function')
-    expect(typeof registerIpcHandlers).toBe('function')
+  it('exports valid window configuration factory function', () => {
+    expect(typeof createDesktopWindowOptions).toBe('function')
   })
 })

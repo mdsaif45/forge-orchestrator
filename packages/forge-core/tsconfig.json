@@ -14,5 +14,6 @@
       "@shared/*": ["../forge-shared/src/*"]
     }
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "test/**"]
 }

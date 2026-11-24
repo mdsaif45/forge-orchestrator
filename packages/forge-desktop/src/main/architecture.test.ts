@@ -20,16 +20,12 @@ const PATH_ALIASES = [
   { prefix: '@forge/cli', target: 'packages/forge-cli/src/index' },
   { prefix: '@forge/desktop/', target: 'packages/forge-desktop/src/' },
   { prefix: '@forge/desktop', target: 'packages/forge-desktop/src/index' },
-  { prefix: '@main/', target: 'packages/forge-core/src/' },
-  { prefix: '@main/', target: 'src/main/' },
-  { prefix: '@main', target: 'packages/forge-core/src/index' },
-  { prefix: '@main', target: 'src/main/index' },
+  { prefix: '@main/', target: 'packages/forge-desktop/src/main/' },
+  { prefix: '@main', target: 'packages/forge-desktop/src/main/index' },
   { prefix: '@shared/', target: 'packages/forge-shared/src/' },
-  { prefix: '@shared/', target: 'src/shared/' },
   { prefix: '@shared', target: 'packages/forge-shared/src/index' },
-  { prefix: '@shared', target: 'src/shared/index' },
-  { prefix: '@renderer/', target: 'src/renderer/src/' },
-  { prefix: '@renderer', target: 'src/renderer/src/index' },
+  { prefix: '@renderer/', target: 'packages/forge-desktop/src/renderer/src/' },
+  { prefix: '@renderer', target: 'packages/forge-desktop/src/renderer/src/index' },
 ]
 
 function normalizeRelative(absPath: string): string {
@@ -207,7 +203,7 @@ function tarjanSCC(adjacencyList: Record<string, string[]>): string[][] {
 
 describe('ADR-004 Architectural Boundaries & Invariants', () => {
   const allProdFiles = [
-    ...findProductionSourceFiles(SRC_DIR),
+    ...(existsSync(SRC_DIR) ? findProductionSourceFiles(SRC_DIR) : []),
     ...(existsSync(PACKAGES_DIR) ? findProductionSourceFiles(PACKAGES_DIR) : []),
   ]
 

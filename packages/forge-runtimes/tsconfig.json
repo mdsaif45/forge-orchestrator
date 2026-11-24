@@ -2,7 +2,16 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    "baseUrl": ".",
+    "paths": {
+      "@forge/shared": ["../forge-shared/src/index.ts"],
+      "@forge/shared/*": ["../forge-shared/src/*"],
+      "@forge/runtimes": ["./src/index.ts"],
+      "@forge/runtimes/*": ["./src/*"],
+      "@shared/*": ["../forge-shared/src/*"]
+    }
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "test/**"]
 }

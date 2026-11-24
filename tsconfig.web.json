@@ -1,9 +1,8 @@
 {
   "extends": "./tsconfig.base.json",
   "include": [
-    "src/renderer/src/**/*",
-    "src/shared/**/*",
-    "src/preload/api.ts",
+    "packages/forge-desktop/src/renderer/src/**/*",
+    "packages/forge-desktop/src/preload/api.ts",
     "packages/forge-shared/**/*"
   ],
   "compilerOptions": {
@@ -16,9 +15,9 @@
     "outDir": "node_modules/.tmp/tsc-web",
     "baseUrl": ".",
     "paths": {
-      "@renderer/*": ["src/renderer/src/*"],
-      "@shared": ["src/shared/domain/index.ts"],
-      "@shared/*": ["src/shared/*"],
+      "@renderer/*": ["packages/forge-desktop/src/renderer/src/*"],
+      "@shared": ["packages/forge-shared/src/domain/index.ts"],
+      "@shared/*": ["packages/forge-shared/src/*"],
       "@forge/shared": ["packages/forge-shared/src/index.ts"],
       "@forge/shared/*": ["packages/forge-shared/src/*"],
       "@forge/core": ["packages/forge-core/src/index.ts"],
@@ -29,5 +28,5 @@
       "@forge/cli/*": ["packages/forge-cli/src/*"]
     }
   },
-  "exclude": ["**/*.test.ts", "**/*.test.tsx", "src/test/**"]
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "test/**"]
 }

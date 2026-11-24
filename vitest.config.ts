@@ -1,6 +1,9 @@
 import { resolve } from 'node:path'
 import { defineConfig } from 'vitest/config'
 
+process.env.ELECTRON_OVERRIDE_DIST_PATH =
+  process.env.ELECTRON_OVERRIDE_DIST_PATH || resolve('node_modules/electron/dist')
+
 /**
  * Unit and component tests.
  *
@@ -19,9 +22,9 @@ export default defineConfig({
       '@forge/runtimes': resolve('packages/forge-runtimes/src'),
       '@forge/cli': resolve('packages/forge-cli/src'),
       '@forge/desktop': resolve('packages/forge-desktop/src'),
-      '@main': resolve('src/main'),
-      '@shared': resolve('src/shared'),
-      '@renderer': resolve('src/renderer/src'),
+      '@main': resolve('packages/forge-desktop/src/main'),
+      '@shared': resolve('packages/forge-shared/src'),
+      '@renderer': resolve('packages/forge-desktop/src/renderer/src'),
     },
   },
   test: {
@@ -32,7 +35,8 @@ export default defineConfig({
         test: {
           name: 'node',
           environment: 'node',
-          include: ['src/{main,shared}/**/*.test.ts', 'packages/**/*.test.ts'],
+          include: ['packages/**/*.test.ts'],
+          exclude: ['packages/forge-desktop/src/renderer/**'],
         },
       },
       {
@@ -40,21 +44,21 @@ export default defineConfig({
         test: {
           name: 'renderer',
           environment: 'jsdom',
-          include: ['src/renderer/**/*.test.{ts,tsx}'],
-          setupFiles: ['src/test/setup.ts'],
+          include: ['packages/forge-desktop/src/renderer/**/*.test.{ts,tsx}'],
+          setupFiles: ['test/setup.ts'],
         },
       },
     ],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],
-      include: ['src/**/*.{ts,tsx}'],
+      include: ['packages/**/*.{ts,tsx}'],
       exclude: [
-        'src/**/*.test.{ts,tsx}',
-        'src/test/**',
+        'packages/**/*.test.{ts,tsx}',
+        'test/**',
         // Icons are static markup, and the kitchen sink is itself a test surface.
-        'src/renderer/src/app/icons.tsx',
-        'src/renderer/src/dev/**',
+        'packages/forge-desktop/src/renderer/src/app/icons.tsx',
+        'packages/forge-desktop/src/renderer/src/dev/**',
       ],
     },
   },

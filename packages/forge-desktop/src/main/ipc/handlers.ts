@@ -40,8 +40,8 @@ import {
   saveAgentDefaults,
   saveCustomCli,
   removeCustomCli,
-} from '../runtimes/cliDetector'
-import { probeRuntimeExecutable } from '../runtimes'
+  probeRuntimeExecutable,
+} from '@forge/runtimes'
 
 export interface IpcDependencies {
   readonly projects: ProjectService

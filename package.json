@@ -36,7 +36,7 @@
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "smoke": "electron scripts/smoke.cjs",
-    "check:router": "esbuild src/renderer/src/ipc.ts --bundle --format=esm --platform=node --outfile=scripts/build/renderer-ipc.js --log-level=warning && node scripts/router-check.mjs",
+    "check:router": "esbuild packages/forge-desktop/src/renderer/src/ipc.ts --bundle --format=esm --platform=node --outfile=scripts/build/renderer-ipc.js --log-level=warning && node scripts/router-check.mjs",
     "check:cycles": "node scripts/check-cycles.mjs",
     "check:ui": "npm run build:ui-dev && electron scripts/ui-check.cjs",
     "check:no-dev-code": "node scripts/check-no-dev-code.mjs",

@@ -114,6 +114,7 @@ import {
   ChangesetHunkOffsetStabilizer,
   ChangesetChunkAnsiHighlighter,
   ChangesetThreeWayMergeSynthesizer,
+  ChangesetReversePatchSynthesizer,
   type ExportSurfaceReport,
   type FileCoverageData,
   type PatchFuzzReport,
@@ -749,6 +750,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     }
     if (positionals[1] === 'three-way-merge' || positionals[1] === '3way-merge') {
       return handleDiffThreeWayMerge({
+        runId: positionals[2],
+        stepId: positionals[3],
+        dataDir,
+        json: values.json,
+      })
+    }
+    if (positionals[1] === 'reverse-patch' || positionals[1] === 'invert-patch') {
+      return handleDiffReversePatch({
         runId: positionals[2],
         stepId: positionals[3],
         dataDir,
@@ -7459,6 +7468,44 @@ async function handleDiffThreeWayMerge(opts: {
     `\nThree-Way Diff Merge: Conflicts=${String(report.hasConflicts)} (${String(report.conflictsCount)} conflicts), CleanChunks=${String(report.cleanChunksCount)}/${String(report.totalChunksCount)}\n`,
   )
   return report.hasConflicts ? 1 : 0
+}
+
+async function handleDiffReversePatch(opts: {
+  readonly runId?: string | undefined
+  readonly stepId?: string | undefined
+  readonly dataDir: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  await Promise.resolve()
+  const synthesizer = new ChangesetReversePatchSynthesizer()
+  const original = ['function test() {', '  const val = 1;', '  return val;', '}'].join('\n')
+  const modified = ['function test() {', '  const val = 42;', '  return val;', '}'].join('\n')
+  const patch = [
+    '--- a/test.ts',
+    '+++ b/test.ts',
+    '@@ -1,4 +1,4 @@',
+    ' function test() {',
+    '-  const val = 1;',
+    '+  const val = 42;',
+    '   return val;',
+    ' }',
+  ].join('\n')
+
+  const report = synthesizer.verifyRollback({
+    patch,
+    originalBuffer: original,
+    modifiedBuffer: modified,
+  })
+
+  if (opts.json) {
+    console.log(JSON.stringify(report))
+    return report.valid ? 0 : 1
+  }
+
+  console.log(
+    `\nChangeset Reverse Patch: Valid=${String(report.valid)}, InvertedHunks=${String(report.hunksInverted)}, InvertedAdditions=${String(report.totalAdditionsInverted)}, InvertedDeletions=${String(report.totalDeletionsInverted)}, DryRunSuccess=${String(report.dryRunSuccess)}\n`,
+  )
+  return report.valid ? 0 : 1
 }
 
 async function handleDiffCycles(opts: {

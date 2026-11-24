@@ -1,6 +1,9 @@
 import { resolve } from 'node:path'
 import { defineConfig } from 'vitest/config'
 
+process.env.ELECTRON_OVERRIDE_DIST_PATH =
+  process.env.ELECTRON_OVERRIDE_DIST_PATH || resolve('node_modules/electron/dist')
+
 /**
  * Unit and component tests.
  *

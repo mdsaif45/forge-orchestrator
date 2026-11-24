@@ -49,5 +49,5 @@ export function createDesktopWindowOptions(
   }
 }
 
-export { createIpcHandlers, type IpcDependencies } from './main/ipc/handlers'
-export { registerIpcHandlers } from './main/ipc/register'
+export type { IpcDependencies } from './main/ipc/handlers'
+export type { IpcHandlerMap } from './main/ipc/router'

@@ -3,6 +3,7 @@
   "version": "0.3.0-alpha.1",
   "description": "Core AI control plane engine, task runner, DAG workflow graph executor, SQLite persistence, and evidence verification for Forge",
   "private": true,
+  "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {

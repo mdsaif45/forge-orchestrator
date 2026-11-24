@@ -3,4 +3,4 @@
  * and interactive terminal TUI for Forge.
  */
 
-export { runCli } from '../../../src/main/cli'
+export { runCli } from './cli'

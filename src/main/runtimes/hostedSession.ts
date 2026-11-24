@@ -1,4 +1,5 @@
-import xterm from '@xterm/headless'
+import type { Terminal as HeadlessTerminal } from '@xterm/headless'
+import * as xtermModule from '@xterm/headless'
 import {
   blockingPrompt,
   isPromptReady,
@@ -6,7 +7,15 @@ import {
   turnLooksComplete,
 } from './interactiveTurn'
 
-const { Terminal } = xterm
+interface XtermContainer {
+  Terminal?: typeof HeadlessTerminal
+  default?: { Terminal?: typeof HeadlessTerminal }
+}
+const container = xtermModule as unknown as XtermContainer
+const Terminal =
+  container.Terminal ??
+  container.default?.Terminal ??
+  (xtermModule as unknown as typeof HeadlessTerminal)
 
 /**
  * One hosted CLI session: a real interactive process, with a terminal emulator

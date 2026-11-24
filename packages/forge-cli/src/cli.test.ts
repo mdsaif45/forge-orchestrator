@@ -4976,6 +4976,28 @@ index 1111111..2222222 100644
     logSpy.mockRestore()
   })
 
+  it('optimizes SQLite query planner hints and prevents table scans with forge db planner-hints (STATE-029)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['db', 'planner-hints', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      hintsInjected: { tableName: string; indexName: string }[]
+      fullScanPrevented: boolean
+      estimatedCostReductionPercent: number
+      optimizedQuery: string
+    }
+    expect(parsed.hintsInjected.length).toBeGreaterThan(0)
+    expect(parsed.fullScanPrevented).toBe(true)
+    expect(parsed.estimatedCostReductionPercent).toBeGreaterThan(0)
+    expect(parsed.optimizedQuery).toContain('INDEXED BY')
+
+    logSpy.mockRestore()
+  })
+
   it('evaluates workspace security compliance matrix with forge config compliance-matrix (CONFIG-029)', async () => {
     const logs: string[] = []
     const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {

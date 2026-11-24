@@ -231,6 +231,15 @@ export {
   type WalTruncationAdvisory,
   type WalMonitorConfig,
 } from './sqliteWalFrameTruncationMonitor'
+export {
+  SqlitePlannerHintOptimizer,
+  FullTableScanDetectedError,
+  type HintMode,
+  type TableIndexDefinition,
+  type QueryPlanHint,
+  type OptimizationOptions,
+  type IndexAdvisoryReport,
+} from './sqlitePlannerHintOptimizer'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

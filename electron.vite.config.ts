@@ -13,6 +13,7 @@ export default defineConfig({
         '@forge/core': resolve('packages/forge-core/src'),
         '@forge/runtimes': resolve('packages/forge-runtimes/src'),
         '@forge/cli': resolve('packages/forge-cli/src'),
+        '@forge/desktop': resolve('packages/forge-desktop/src'),
         '@main': resolve('src/main'),
         '@shared': shared,
       },

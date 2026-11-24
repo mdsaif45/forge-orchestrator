@@ -18,6 +18,8 @@ const PATH_ALIASES = [
   { prefix: '@forge/core', target: 'packages/forge-core/src/index' },
   { prefix: '@forge/cli/', target: 'packages/forge-cli/src/' },
   { prefix: '@forge/cli', target: 'packages/forge-cli/src/index' },
+  { prefix: '@forge/desktop/', target: 'packages/forge-desktop/src/' },
+  { prefix: '@forge/desktop', target: 'packages/forge-desktop/src/index' },
   { prefix: '@shared/', target: 'src/shared/' },
   { prefix: '@shared', target: 'src/shared/index' },
   { prefix: '@main/', target: 'src/main/' },

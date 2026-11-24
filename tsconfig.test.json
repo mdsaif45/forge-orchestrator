@@ -38,6 +38,8 @@
       "@forge/runtimes/*": ["packages/forge-runtimes/src/*", "src/main/runtimes/*"],
       "@forge/cli": ["packages/forge-cli/src/index.ts", "src/main/cli.ts"],
       "@forge/cli/*": ["packages/forge-cli/src/*", "src/main/*"],
+      "@forge/desktop": ["packages/forge-desktop/src/index.ts", "src/main/index.ts"],
+      "@forge/desktop/*": ["packages/forge-desktop/src/*", "src/main/*"],
       "@main/*": ["src/main/*"],
       "@shared/*": ["src/shared/*"],
       "@renderer/*": ["src/renderer/src/*"]

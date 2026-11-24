@@ -4867,6 +4867,42 @@ index 1111111..2222222 100644
     logSpy.mockRestore()
   })
 
+  it('evaluates speculative branch pruning and state eviction with forge workflows prune-branches (WORK-039)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'workflows',
+      'prune-branches',
+      'spec-branch-alpha',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      status: string
+      prunedNodeIds: string[]
+      activeLeavesAborted: string[]
+      reclaimedArtifacts: string[]
+      releasedLeases: string[]
+      reclaimedMemoryBytes: number
+      reason: string
+    }
+    expect(parsed.status).toBe('SUCCESS')
+    expect(parsed.prunedNodeIds).toHaveLength(2)
+    expect(parsed.prunedNodeIds).toContain('spec-node-1')
+    expect(parsed.prunedNodeIds).toContain('spec-node-2')
+    expect(parsed.activeLeavesAborted).toContain('spec-node-1')
+    expect(parsed.reclaimedArtifacts).toContain('tmp/step-spec-1.json')
+    expect(parsed.releasedLeases).toContain('lease:sandbox-1')
+    expect(parsed.reclaimedMemoryBytes).toBe(12288)
+
+    logSpy.mockRestore()
+  })
+
   it('synthesizes three-way diff merge with forge diff three-way-merge (EVIDENCE-026)', async () => {
     const logs: string[] = []
     const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {

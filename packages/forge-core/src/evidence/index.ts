@@ -278,3 +278,11 @@ export {
   type ThreeWayMergeReport,
   type ThreeWayMergeOptions,
 } from './changesetThreeWayMergeSynthesizer'
+export {
+  ChangesetReversePatchSynthesizer,
+  type ReversePatchRequest,
+  type InvertedHunk,
+  type RollbackVerificationResult,
+  type SynthesizedPatchDetails,
+  type VirtualApplyResult,
+} from './changesetReversePatchSynthesizer'

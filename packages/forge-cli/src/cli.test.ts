@@ -4925,6 +4925,35 @@ index 1111111..2222222 100644
     logSpy.mockRestore()
   })
 
+  it('synthesizes and verifies changeset reverse patch with forge diff reverse-patch (EVIDENCE-027)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['diff', 'reverse-patch', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      valid: boolean
+      hunksInverted: number
+      totalAdditionsInverted: number
+      totalDeletionsInverted: number
+      dryRunSuccess: boolean
+      collisionDetected: boolean
+      expectedRollbackHash?: string
+      actualRollbackHash?: string
+    }
+    expect(parsed.valid).toBe(true)
+    expect(parsed.hunksInverted).toBe(1)
+    expect(parsed.totalAdditionsInverted).toBe(1)
+    expect(parsed.totalDeletionsInverted).toBe(1)
+    expect(parsed.dryRunSuccess).toBe(true)
+    expect(parsed.collisionDetected).toBe(false)
+    expect(parsed.actualRollbackHash).toBe(parsed.expectedRollbackHash)
+
+    logSpy.mockRestore()
+  })
+
   it('monitors SQLite WAL frame progression and truncation advisories with forge db wal-truncation-eval (STATE-028)', async () => {
     const logs: string[] = []
     const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {

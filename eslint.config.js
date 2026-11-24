@@ -33,7 +33,7 @@ export default tseslint.config(
   // plain JS with no tsconfig behind them; running type-aware rules there would
   // report every value as `any` — noise about the linter's own view, not defects.
   {
-    files: ['src/**/*.{ts,tsx}', 'packages/**/*.{ts,tsx}'],
+    files: ['packages/**/*.{ts,tsx}', 'test/**/*.{ts,tsx}'],
     extends: [tseslint.configs.strictTypeChecked, tseslint.configs.stylisticTypeChecked],
     languageOptions: {
       parserOptions: {
@@ -70,7 +70,7 @@ export default tseslint.config(
 
   // ---- Renderer -----------------------------------------------------------
   {
-    files: ['src/renderer/**/*.{ts,tsx}'],
+    files: ['packages/forge-desktop/src/renderer/**/*.{ts,tsx}'],
     languageOptions: {
       globals: globals.browser,
     },
@@ -86,7 +86,7 @@ export default tseslint.config(
             {
               group: ['electron', 'node:*', 'fs', 'path', 'child_process'],
               message:
-                'The renderer has no Node or Electron access. Route privileged work through the IPC contract in src/shared/ipc.ts.',
+                'The renderer has no Node or Electron access. Route privileged work through the IPC contract in @forge/shared/ipc.',
             },
             {
               group: ['**/ui/primitives/*'],
@@ -101,13 +101,16 @@ export default tseslint.config(
 
   // The design system is the one place allowed to reach into itself.
   {
-    files: ['src/renderer/src/ui/**/*.{ts,tsx}'],
+    files: ['packages/forge-desktop/src/renderer/src/ui/**/*.{ts,tsx}'],
     rules: { 'no-restricted-imports': 'off' },
   },
 
   // ---- Main and preload ---------------------------------------------------
   {
-    files: ['src/main/**/*.ts', 'src/preload/**/*.ts'],
+    files: [
+      'packages/forge-desktop/src/main/**/*.ts',
+      'packages/forge-desktop/src/preload/**/*.ts',
+    ],
     languageOptions: {
       globals: globals.node,
     },
@@ -116,15 +119,16 @@ export default tseslint.config(
   // ---- Axiom A6: no provider in core --------------------------------------
   //
   // The application layer talks to `IAgentRuntime` and resolves through
-  // `RuntimeRegistry`. Only `src/main/runtimes/*` may name a provider or reach for
-  // a concrete adapter. This is what let the #20 spike's finding — Antigravity
-  // ships no headless CLI — be a scoping decision instead of a rewrite.
+  // `RuntimeRegistry`. Only runtime layers may name a provider or reach for
+  // a concrete adapter.
   {
-    files: ['src/**/*.{ts,tsx}', 'packages/**/*.{ts,tsx}'],
+    files: ['packages/**/*.{ts,tsx}'],
     ignores: [
-      'src/main/runtimes/**',
       'packages/forge-runtimes/**',
-      'src/main/index.ts',
+      'packages/forge-core/src/runtimes/**',
+      'packages/forge-desktop/src/main/index.ts',
+      'packages/forge-desktop/src/main/ipc/**',
+      'packages/forge-cli/**',
       '**/*.test.{ts,tsx}',
     ],
     rules: {
@@ -140,7 +144,7 @@ export default tseslint.config(
                 '**/runtimes/claudeTrust*',
               ],
               message:
-                'Axiom A6: core must not import a concrete runtime. Depend on IAgentRuntime and resolve through RuntimeRegistry. Only src/main/runtimes/* may name a provider.',
+                'Axiom A6: core must not import a concrete runtime. Depend on IAgentRuntime and resolve through RuntimeRegistry. Only runtimes may name a provider.',
             },
           ],
         },
@@ -153,7 +157,7 @@ export default tseslint.config(
           selector:
             'Literal[value=/(?:^|[^a-z])(?:claude|anthropic|antigravity)(?:[^a-z]|$)/i], TemplateElement[value.raw=/(?:^|[^a-z])(?:claude|anthropic|antigravity)(?:[^a-z]|$)/i]',
           message:
-            'Axiom A6: no provider name outside src/main/runtimes/*. Runtime and account identifiers are opaque strings to core.',
+            'Axiom A6: no provider name outside runtimes. Runtime and account identifiers are opaque strings to core.',
         },
       ],
     },
@@ -161,7 +165,7 @@ export default tseslint.config(
 
   // ---- ADR-004: Domain purity ---------------------------------------------
   {
-    files: ['src/shared/domain/**/*.ts', 'packages/forge-shared/src/domain/**/*.ts'],
+    files: ['packages/forge-shared/src/domain/**/*.ts'],
     ignores: ['**/*.test.ts'],
     rules: {
       'no-restricted-imports': [
@@ -177,21 +181,17 @@ export default tseslint.config(
                 'child_process',
                 'crypto',
                 'os',
-                'src/main/**',
                 '@main/**',
-                'src/preload/**',
-                'src/renderer/**',
                 '@renderer/**',
-                '@shared/views',
-                '@shared/views/**',
-                '@shared/ipc',
-                '@shared/ipc/**',
+                '@forge/desktop/**',
+                '@forge/core/**',
+                '@forge/runtimes/**',
+                '@forge/cli/**',
                 '../views*',
                 '../ipc*',
                 '../app*',
               ],
-              message:
-                'ADR-004: src/shared/domain must remain pure and not import upward or outside domain.',
+              message: 'ADR-004: domain must remain pure and not import upward or outside domain.',
             },
           ],
         },
@@ -201,7 +201,7 @@ export default tseslint.config(
 
   // ---- ADR-004: Views purity ----------------------------------------------
   {
-    files: ['src/shared/views/**/*.ts', 'packages/forge-shared/src/views/**/*.ts'],
+    files: ['packages/forge-shared/src/views/**/*.ts'],
     ignores: ['**/*.test.ts'],
     rules: {
       'no-restricted-imports': [
@@ -217,18 +217,17 @@ export default tseslint.config(
                 'child_process',
                 'crypto',
                 'os',
-                'src/main/**',
                 '@main/**',
-                'src/preload/**',
-                'src/renderer/**',
                 '@renderer/**',
-                '@shared/ipc',
-                '@shared/ipc/**',
+                '@forge/desktop/**',
+                '@forge/core/**',
+                '@forge/runtimes/**',
+                '@forge/cli/**',
                 '../ipc*',
                 '../app*',
               ],
               message:
-                'ADR-004: src/shared/views must remain pure read models and not import main, preload, renderer, or ipc transport.',
+                'ADR-004: views must remain pure read models and not import main, preload, renderer, or ipc transport.',
             },
           ],
         },
@@ -239,19 +238,6 @@ export default tseslint.config(
   // ---- ADR-004: Application services isolated from IPC transport ----------
   {
     files: [
-      'src/main/projects/**/*.ts',
-      'src/main/accounts/**/*.ts',
-      'src/main/workflows/**/*.ts',
-      'src/main/changesets/**/*.ts',
-      'src/main/decisions/**/*.ts',
-      'src/main/questions/**/*.ts',
-      'src/main/bindings/**/*.ts',
-      'src/main/artifacts/**/*.ts',
-      'src/main/audit/**/*.ts',
-      'src/main/health/**/*.ts',
-      'src/main/templates/**/*.ts',
-      'src/main/context/**/*.ts',
-      'src/main/evidence/**/*.ts',
       'packages/forge-core/src/projects/**/*.ts',
       'packages/forge-core/src/accounts/**/*.ts',
       'packages/forge-core/src/workflows/**/*.ts',
@@ -280,6 +266,7 @@ export default tseslint.config(
                 '**/ipc/router*',
                 '**/ipc/handlers*',
                 '@main/ipc/**',
+                '@forge/desktop/**',
               ],
               message:
                 'ADR-004: Application services must not import IPC transport. Depend on @shared/views instead.',
@@ -293,11 +280,6 @@ export default tseslint.config(
   // ---- ADR-004: Infrastructure downward direction -------------------------
   {
     files: [
-      'src/main/db/**/*.ts',
-      'src/main/process/**/*.ts',
-      'src/main/git/**/*.ts',
-      'src/main/terminal/**/*.ts',
-      'src/main/logging/**/*.ts',
       'packages/forge-core/src/db/**/*.ts',
       'packages/forge-core/src/git/**/*.ts',
       'packages/forge-core/src/terminal/**/*.ts',
@@ -338,13 +320,8 @@ export default tseslint.config(
 
   // ---- ADR-004: DB schema and drizzle-orm privacy -------------------------
   {
-    files: ['src/**/*.{ts,tsx}', 'packages/**/*.{ts,tsx}'],
-    ignores: [
-      'src/main/db/**',
-      'packages/forge-core/src/db/**',
-      '**/*.test.{ts,tsx}',
-      'scripts/**',
-    ],
+    files: ['packages/**/*.{ts,tsx}'],
+    ignores: ['packages/forge-core/src/db/**', '**/*.test.{ts,tsx}', 'scripts/**'],
     rules: {
       'no-restricted-imports': [
         'error',
@@ -353,7 +330,7 @@ export default tseslint.config(
             {
               group: ['drizzle-orm', 'drizzle-orm/**', '**/db/schema*'],
               message:
-                'ADR-004: Database table schemas and drizzle-orm queries must remain private to src/main/db/*. Application code must interact via Store/Repository abstractions.',
+                'ADR-004: Database table schemas and drizzle-orm queries must remain private to forge-core/src/db/*. Application code must interact via Store/Repository abstractions.',
             },
           ],
         },
@@ -363,7 +340,11 @@ export default tseslint.config(
 
   // ---- ADR-004: Runtime adapters isolated from application services -------
   {
-    files: ['src/main/runtimes/**/*.ts', 'src/main/providers/**/*.ts'],
+    files: [
+      'packages/forge-runtimes/**/*.ts',
+      'packages/forge-core/src/runtimes/**/*.ts',
+      'packages/forge-core/src/providers/**/*.ts',
+    ],
     ignores: ['**/*.test.ts'],
     rules: {
       'no-restricted-imports': [
@@ -395,7 +376,7 @@ export default tseslint.config(
 
   // ---- Shared -------------------------------------------------------------
   {
-    files: ['src/shared/**/*.ts', 'packages/forge-shared/**/*.ts'],
+    files: ['packages/forge-shared/**/*.ts'],
     rules: {
       // Shared code compiles into all three targets, so it must stay
       // environment-free: no Node, no Electron, no React.
@@ -406,7 +387,7 @@ export default tseslint.config(
             {
               group: ['electron', 'node:*', 'react', 'react-dom'],
               message:
-                'src/shared is compiled into main, preload, and renderer. Keep it to pure data and pure functions.',
+                '@forge/shared is compiled into main, preload, and renderer. Keep it to pure data and pure functions.',
             },
           ],
         },
@@ -416,7 +397,7 @@ export default tseslint.config(
 
   // ---- Tests and checks ---------------------------------------------------
   {
-    files: ['**/*.test.{ts,tsx}', 'src/test/**/*.{ts,tsx}'],
+    files: ['**/*.test.{ts,tsx}', 'test/**/*.{ts,tsx}'],
     rules: {
       '@typescript-eslint/no-non-null-assertion': 'off',
       '@typescript-eslint/no-unsafe-assignment': 'off',
@@ -428,7 +409,6 @@ export default tseslint.config(
     files: [
       'scripts/**/*.{cjs,mjs,js}',
       'eslint.config.js',
-      'src/main/cli.ts',
       'packages/forge-cli/src/cli.ts',
       'packages/forge-cli/bin/**/*.{ts,js}',
       'bin/**/*.{ts,js}',

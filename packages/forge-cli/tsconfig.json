@@ -13,8 +13,9 @@
       "@forge/runtimes/*": ["../../packages/forge-runtimes/src/*"],
       "@forge/cli": ["./src/index.ts"],
       "@forge/cli/*": ["./src/*"],
-      "@shared/*": ["../../src/shared/*"]
+      "@shared/*": ["../../packages/forge-shared/src/*"]
     }
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "test/**"]
 }

@@ -1,8 +1,28 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node", "vite/client"],
+    "jsx": "react-jsx",
     "rootDir": "src",
-    "outDir": "dist"
+    "outDir": "dist",
+    "baseUrl": ".",
+    "paths": {
+      "@forge/shared": ["../../packages/forge-shared/src/index.ts"],
+      "@forge/shared/*": ["../../packages/forge-shared/src/*"],
+      "@forge/core": ["../../packages/forge-core/src/index.ts"],
+      "@forge/core/*": ["../../packages/forge-core/src/*"],
+      "@forge/runtimes": ["../../packages/forge-runtimes/src/index.ts"],
+      "@forge/runtimes/*": ["../../packages/forge-runtimes/src/*"],
+      "@forge/cli": ["../../packages/forge-cli/src/index.ts"],
+      "@forge/cli/*": ["../../packages/forge-cli/src/*"],
+      "@forge/desktop": ["./src/index.ts"],
+      "@forge/desktop/*": ["./src/*"],
+      "@main/*": ["./src/main/*"],
+      "@shared/*": ["../../packages/forge-shared/src/*"],
+      "@renderer/*": ["./src/renderer/src/*"]
+    }
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": ["**/*.test.ts", "**/*.test.tsx", "test/**"]
 }

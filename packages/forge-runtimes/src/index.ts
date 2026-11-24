@@ -104,6 +104,8 @@ export {
   removeCustomCli,
   loadAgentDefaults,
   saveAgentDefaults,
+  setCustomCliStorePath,
+  setAgentDefaultsStorePath,
   getCatalogClis,
   type InstalledCliInfo,
   type CustomCliConfig,

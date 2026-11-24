@@ -22,12 +22,16 @@ import { ProjectStore } from '@forge/core/db/projectStore'
 import { applyEvent } from '@forge/core/db/projections'
 import { WorkflowStore } from '@forge/core/db/workflowStore'
 import { PacketStore } from '@forge/core/context/packetStore'
-import type { ProcessHandle, ProcessManager } from '../process/processManager'
-import { bindRole, BindingSet } from './bindings'
-import { HostedClaudeRuntime } from './hostedClaudeRuntime'
+import {
+  type ProcessHandle,
+  type ProcessManager,
+  bindRole,
+  BindingSet,
+  HostedClaudeRuntime,
+  RuntimeRegistry,
+} from '@forge/runtimes'
 import { NativeAgentRuntime } from './nativeAgentRuntime'
 import { Orchestrator } from './orchestrator'
-import { RuntimeRegistry } from './registry'
 
 /**
  * A whole workflow driven through the HOSTED runtime, not the mock.
@@ -304,7 +308,7 @@ function hostedRegistry(processes: ProcessManager): {
       // Scaled, not flattened: `runTurnByHook` races a 600s deadline against a
       // 500ms dialog poll, and a sleep that ignores its argument collapses them
       // so the deadline can win a race it must never win.
-      sleep: (ms) => new Promise((r) => setTimeout(r, Math.max(1, Math.round(ms / 1000)))),
+      sleep: (ms: number) => new Promise((r) => setTimeout(r, Math.max(1, Math.round(ms / 1000)))),
     }),
   )
 

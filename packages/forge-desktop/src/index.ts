@@ -49,5 +49,5 @@ export function createDesktopWindowOptions(
   }
 }
 
-export { createIpcHandlers, type IpcDependencies } from '../../../src/main/ipc/handlers'
-export { registerIpcHandlers } from '../../../src/main/ipc/register'
+export { createIpcHandlers, type IpcDependencies } from './main/ipc/handlers'
+export { registerIpcHandlers } from './main/ipc/register'

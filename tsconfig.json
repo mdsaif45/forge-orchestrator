@@ -2,19 +2,19 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@forge/shared": ["packages/forge-shared/src/index.ts", "src/shared/index.ts"],
-      "@forge/shared/*": ["packages/forge-shared/src/*", "src/shared/*"],
+      "@forge/shared": ["packages/forge-shared/src/index.ts"],
+      "@forge/shared/*": ["packages/forge-shared/src/*"],
       "@forge/core": ["packages/forge-core/src/index.ts"],
       "@forge/core/*": ["packages/forge-core/src/*"],
-      "@forge/runtimes": ["packages/forge-runtimes/src/index.ts", "src/main/runtimes/index.ts"],
-      "@forge/runtimes/*": ["packages/forge-runtimes/src/*", "src/main/runtimes/*"],
-      "@forge/cli": ["packages/forge-cli/src/index.ts", "src/main/cli.ts"],
-      "@forge/cli/*": ["packages/forge-cli/src/*", "src/main/*"],
-      "@forge/desktop": ["packages/forge-desktop/src/index.ts", "src/main/index.ts"],
-      "@forge/desktop/*": ["packages/forge-desktop/src/*", "src/main/*"],
-      "@main/*": ["packages/forge-core/src/*", "src/main/*"],
-      "@shared/*": ["src/shared/*"],
-      "@renderer/*": ["src/renderer/src/*"]
+      "@forge/runtimes": ["packages/forge-runtimes/src/index.ts"],
+      "@forge/runtimes/*": ["packages/forge-runtimes/src/*"],
+      "@forge/cli": ["packages/forge-cli/src/index.ts"],
+      "@forge/cli/*": ["packages/forge-cli/src/*"],
+      "@forge/desktop": ["packages/forge-desktop/src/index.ts"],
+      "@forge/desktop/*": ["packages/forge-desktop/src/*"],
+      "@main/*": ["packages/forge-desktop/src/main/*"],
+      "@shared/*": ["packages/forge-shared/src/*"],
+      "@renderer/*": ["packages/forge-desktop/src/renderer/src/*"]
     }
   },
   "files": [],

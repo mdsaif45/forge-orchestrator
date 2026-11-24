@@ -2,13 +2,15 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { promptPacketSchema } from '@shared/domain'
+import { promptPacketSchema } from '@forge/shared/domain'
 import { removeTempDir } from '../../test/tempDir'
-import { ProcessManager } from '../process/processManager'
-import { ClaudeCliRuntime } from './claudeCliRuntime'
-import { ClaudeTrustStore } from './claudeTrust'
-import { HostedClaudeRuntime } from './hostedClaudeRuntime'
-import { createPtyProcessRunner } from './ptyProcessRunner'
+import {
+  ProcessManager,
+  ClaudeCliRuntime,
+  ClaudeTrustStore,
+  HostedClaudeRuntime,
+  createPtyProcessRunner,
+} from '@forge/runtimes'
 
 /**
  * Drives the real Claude CLI, end to end, through Forge's own adapter and runner.

@@ -3,7 +3,7 @@ import { app, BrowserWindow, dialog } from 'electron'
 import { createForgeCore, type ForgeCore } from '@forge/core'
 import { createIpcHandlers } from './ipc/handlers'
 import { registerIpcHandlers } from './ipc/register'
-import { GenericCliAgentRuntime } from './runtimes/genericCliRuntime'
+import { GenericCliAgentRuntime } from '@forge/runtimes'
 import { devModelTracker } from '@forge/core/providers/devModelTracker'
 import {
   applyContentSecurityPolicy,

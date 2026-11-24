@@ -3,7 +3,7 @@ import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwind from '@tailwindcss/vite'
 
-const shared = resolve('src/shared')
+const shared = resolve('packages/forge-shared/src')
 
 export default defineConfig({
   main: {
@@ -14,22 +14,22 @@ export default defineConfig({
         '@forge/runtimes': resolve('packages/forge-runtimes/src'),
         '@forge/cli': resolve('packages/forge-cli/src'),
         '@forge/desktop': resolve('packages/forge-desktop/src'),
-        '@main': resolve('src/main'),
+        '@main': resolve('packages/forge-desktop/src/main'),
         '@shared': shared,
       },
     },
     build: {
       rollupOptions: {
         input: {
-          index: resolve('src/main/index.ts'),
+          index: resolve('packages/forge-desktop/src/main/index.ts'),
           // The routing core is emitted separately so `npm run check:router` can
           // exercise the boundary rules in plain Node, with no window involved.
-          router: resolve('src/main/ipc/router.ts'),
+          router: resolve('packages/forge-desktop/src/main/ipc/router.ts'),
           // Emitted separately so the smoke check can apply and assert the real
           // policy instead of reimplementing it.
-          security: resolve('src/main/security.ts'),
+          security: resolve('packages/forge-desktop/src/main/security.ts'),
           // Standalone CLI entrypoint emitted for headless command-line execution.
-          cli: resolve('src/main/cli.ts'),
+          cli: resolve('packages/forge-cli/src/cli.ts'),
         },
       },
     },
@@ -43,7 +43,7 @@ export default defineConfig({
     },
     build: {
       rollupOptions: {
-        input: { index: resolve('src/preload/index.ts') },
+        input: { index: resolve('packages/forge-desktop/src/preload/index.ts') },
         // A sandboxed preload cannot be an ES module, so emit CommonJS and
         // keep the extension explicit rather than relying on the default.
         output: { format: 'cjs', entryFileNames: '[name].cjs' },
@@ -51,12 +51,12 @@ export default defineConfig({
     },
   },
   renderer: {
-    root: resolve('src/renderer'),
+    root: resolve('packages/forge-desktop/src/renderer'),
     plugins: [react(), tailwind()],
     resolve: {
       alias: {
         '@forge/shared': resolve('packages/forge-shared/src'),
-        '@renderer': resolve('src/renderer/src'),
+        '@renderer': resolve('packages/forge-desktop/src/renderer/src'),
         '@shared': shared,
       },
     },
@@ -73,7 +73,7 @@ export default defineConfig({
       // bundle can never become the thing electron-builder packages.
       outDir: process.env.FORGE_RENDERER_OUT_DIR ?? resolve('out/renderer'),
       rollupOptions: {
-        input: { index: resolve('src/renderer/index.html') },
+        input: { index: resolve('packages/forge-desktop/src/renderer/index.html') },
       },
     },
   },

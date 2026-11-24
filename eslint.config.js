@@ -425,7 +425,14 @@ export default tseslint.config(
   {
     // The verification scripts and standalone CLI are run outside the app,
     // and print to stdout by design.
-    files: ['scripts/**/*.{cjs,mjs,js}', 'eslint.config.js', 'src/main/cli.ts', 'bin/**/*.{ts,js}'],
+    files: [
+      'scripts/**/*.{cjs,mjs,js}',
+      'eslint.config.js',
+      'src/main/cli.ts',
+      'packages/forge-cli/src/cli.ts',
+      'packages/forge-cli/bin/**/*.{ts,js}',
+      'bin/**/*.{ts,js}',
+    ],
     languageOptions: {
       globals: globals.node,
     },

@@ -3,6 +3,7 @@
   "version": "0.3.0-alpha.1",
   "description": "Pure domain entities, branded IDs, FSM transitions, view projections, and typed IPC contracts for Forge",
   "private": true,
+  "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {

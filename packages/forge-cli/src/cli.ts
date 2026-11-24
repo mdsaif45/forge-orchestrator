@@ -158,6 +158,8 @@ import {
   WorkflowConsensusFencingCoordinator,
   WorkflowStepTwoPhaseCommitArbiter,
   WorkflowStepDynamicFanInAggregator,
+  WorkflowSpeculativeBranchPruner,
+  type PruningReason,
   type BarrierPolicy,
   type StepDependencyOutcome,
   type StepPrecondition,
@@ -2170,6 +2172,8 @@ async function handleWorkflows(opts: {
       'consensus-fence',
       '2pc-arbitrate',
       'fan-in-eval',
+      'prune-branches',
+      'prune',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2557,6 +2561,53 @@ async function handleWorkflows(opts: {
         `\nWorkflow Dynamic Fan-In: Status=${finalReport.status}, Completed=${String(finalReport.completedCount)}/${String(finalReport.totalBranches)}, Success=${String(finalReport.successfulCount)} (${finalReport.decisionReason})\n`,
       )
       return finalReport.status === 'SATISFIED' ? 0 : 1
+    }
+
+    if (action === 'prune-branches' || action === 'prune') {
+      const pruner = new WorkflowSpeculativeBranchPruner({
+        defaultWorkflowId: 'wf-speculative-prune',
+      })
+      const targetBranch = targetId ?? 'spec-branch-alpha'
+      pruner.registerNodes([
+        {
+          id: 'spec-node-1',
+          branchId: targetBranch,
+          dependencies: [],
+          state: 'RUNNING',
+          isSpeculative: true,
+          ephemeralArtifacts: ['tmp/step-spec-1.json'],
+          resourceLeases: ['lease:sandbox-1'],
+          estimatedMemoryBytes: 8192,
+        },
+        {
+          id: 'spec-node-2',
+          branchId: targetBranch,
+          dependencies: ['spec-node-1'],
+          state: 'PENDING',
+          isSpeculative: true,
+          estimatedMemoryBytes: 4096,
+        },
+        {
+          id: 'primary-node-1',
+          branchId: 'primary-branch',
+          dependencies: [],
+          state: 'COMPLETED',
+          isSpeculative: false,
+        },
+      ])
+      pruner.createAbortController('spec-node-1')
+      const report = await pruner.pruneBranch(
+        targetBranch,
+        (opts.reason as PruningReason | undefined) ?? 'BRANCH_SUPERSEDED',
+      )
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return report.status === 'SUCCESS' || report.status === 'NO_OP' ? 0 : 1
+      }
+      console.log(
+        `\nWorkflow Speculative Branch Pruner: Status=${report.status}, Pruned=${String(report.prunedNodeIds.length)}, Aborted=${String(report.activeLeavesAborted.length)}, Reclaimed=${String(report.reclaimedMemoryBytes)}B (${report.reason})\n`,
+      )
+      return report.status === 'SUCCESS' || report.status === 'NO_OP' ? 0 : 1
     }
 
     if (action === 'retry') {

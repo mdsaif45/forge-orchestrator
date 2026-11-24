@@ -247,4 +247,15 @@ export {
   type FanInAggregationReport,
   type AggregatorConfig,
 } from './workflowStepDynamicFanInAggregator'
+export {
+  WorkflowSpeculativeBranchPruner,
+  type NodeExecutionState,
+  type PruningReason,
+  type SpeculativeBranchNode,
+  type BranchPruningPolicy,
+  type PruningDecision,
+  type EvictionReport,
+  type PrunerConfig,
+  type ResourceReclaimer,
+} from './workflowSpeculativeBranchPruner'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

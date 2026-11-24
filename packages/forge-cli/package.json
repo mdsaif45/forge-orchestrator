@@ -1,0 +1,21 @@
+{
+  "name": "@forge/cli",
+  "version": "0.3.0-alpha.1",
+  "description": "Standalone CLI binary, subcommands router, NDJSON streaming, and interactive terminal TUI for Forge",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "bin": {
+    "forge": "./bin/forge.js"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@forge/core": "*",
+    "@forge/runtimes": "*",
+    "@forge/shared": "*",
+    "better-sqlite3": "^13.0.3",
+    "zod": "^4.4.3"
+  }
+}

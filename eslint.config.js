@@ -37,7 +37,9 @@ export default tseslint.config(
     extends: [tseslint.configs.strictTypeChecked, tseslint.configs.stylisticTypeChecked],
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        projectService: {
+          defaultProject: 'tsconfig.test.json',
+        },
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -250,6 +252,19 @@ export default tseslint.config(
       'src/main/templates/**/*.ts',
       'src/main/context/**/*.ts',
       'src/main/evidence/**/*.ts',
+      'packages/forge-core/src/projects/**/*.ts',
+      'packages/forge-core/src/accounts/**/*.ts',
+      'packages/forge-core/src/workflows/**/*.ts',
+      'packages/forge-core/src/changesets/**/*.ts',
+      'packages/forge-core/src/decisions/**/*.ts',
+      'packages/forge-core/src/questions/**/*.ts',
+      'packages/forge-core/src/bindings/**/*.ts',
+      'packages/forge-core/src/artifacts/**/*.ts',
+      'packages/forge-core/src/audit/**/*.ts',
+      'packages/forge-core/src/health/**/*.ts',
+      'packages/forge-core/src/templates/**/*.ts',
+      'packages/forge-core/src/context/**/*.ts',
+      'packages/forge-core/src/evidence/**/*.ts',
     ],
     ignores: ['**/*.test.ts'],
     rules: {
@@ -283,6 +298,11 @@ export default tseslint.config(
       'src/main/git/**/*.ts',
       'src/main/terminal/**/*.ts',
       'src/main/logging/**/*.ts',
+      'packages/forge-core/src/db/**/*.ts',
+      'packages/forge-core/src/git/**/*.ts',
+      'packages/forge-core/src/terminal/**/*.ts',
+      'packages/forge-core/src/logging/**/*.ts',
+      'packages/forge-runtimes/src/process/**/*.ts',
     ],
     ignores: ['**/*.test.ts'],
     rules: {
@@ -319,7 +339,12 @@ export default tseslint.config(
   // ---- ADR-004: DB schema and drizzle-orm privacy -------------------------
   {
     files: ['src/**/*.{ts,tsx}', 'packages/**/*.{ts,tsx}'],
-    ignores: ['src/main/db/**', '**/*.test.{ts,tsx}', 'scripts/**'],
+    ignores: [
+      'src/main/db/**',
+      'packages/forge-core/src/db/**',
+      '**/*.test.{ts,tsx}',
+      'scripts/**',
+    ],
     rules: {
       'no-restricted-imports': [
         'error',

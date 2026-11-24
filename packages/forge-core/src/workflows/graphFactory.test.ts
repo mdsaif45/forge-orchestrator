@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   projectIdSchema,
@@ -806,7 +806,14 @@ describe('Graph Composition Factory (Slice 5B-1A)', () => {
     })
 
     it('verifies no IPC handler exposes GraphExecutor directly', () => {
-      const handlersSource = readFileSync(join(__dirname, '../ipc/handlers.ts'), 'utf8')
+      const fallbackPath = resolve('src/main/ipc/handlers.ts')
+      const candidatePaths = [
+        fallbackPath,
+        resolve('packages/forge-desktop/src/main/ipc/handlers.ts'),
+        join(__dirname, '../ipc/handlers.ts'),
+      ]
+      const handlersPath = candidatePaths.find((p) => existsSync(p)) ?? fallbackPath
+      const handlersSource = readFileSync(handlersPath, 'utf8')
 
       // IPC handlers invoke WorkflowService methods, never GraphExecutor directly
       expect(handlersSource).toContain('workflows.start(')

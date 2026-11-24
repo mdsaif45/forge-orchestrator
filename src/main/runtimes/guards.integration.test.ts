@@ -12,7 +12,7 @@ import {
   type PromptPacket,
   type WorkflowState,
 } from '@shared/domain'
-import { GitService } from '../git'
+import { GitService } from '@forge/core/git'
 import { MockAgentRuntime } from './mockRuntime'
 import { SCENARIOS } from './scenario'
 

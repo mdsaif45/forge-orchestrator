@@ -28,8 +28,8 @@ import {
   type WorkflowStep,
   type WorkflowTemplate,
 } from '@shared/domain'
-import type { WorkflowStore } from '../db/workflowStore'
-import type { PacketStore } from '../context/packetStore'
+import type { WorkflowStore } from '@forge/core/db/workflowStore'
+import type { PacketStore } from '@forge/core/context/packetStore'
 import { permits, type BindingSet } from './bindings'
 import { exchange } from './exchange'
 import type { RuntimeRegistry } from './registry'

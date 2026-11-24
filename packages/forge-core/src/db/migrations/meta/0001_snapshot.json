@@ -60,10 +60,7 @@
       "indexes": {
         "agent_bindings_project_role": {
           "name": "agent_bindings_project_role",
-          "columns": [
-            "project_id",
-            "role"
-          ],
+          "columns": ["project_id", "role"],
           "isUnique": true
         }
       },
@@ -72,12 +69,8 @@
           "name": "agent_bindings_project_id_projects_id_fk",
           "tableFrom": "agent_bindings",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -184,10 +177,7 @@
       "indexes": {
         "change_sets_task": {
           "name": "change_sets_task",
-          "columns": [
-            "task_id",
-            "captured_at"
-          ],
+          "columns": ["task_id", "captured_at"],
           "isUnique": false
         }
       },
@@ -196,12 +186,8 @@
           "name": "change_sets_project_id_projects_id_fk",
           "tableFrom": "change_sets",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -294,10 +280,7 @@
       "indexes": {
         "decisions_project_status": {
           "name": "decisions_project_status",
-          "columns": [
-            "project_id",
-            "status"
-          ],
+          "columns": ["project_id", "status"],
           "isUnique": false
         }
       },
@@ -306,12 +289,8 @@
           "name": "decisions_project_id_projects_id_fk",
           "tableFrom": "decisions",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -383,27 +362,19 @@
       "indexes": {
         "events_id_unique": {
           "name": "events_id_unique",
-          "columns": [
-            "id"
-          ],
+          "columns": ["id"],
           "isUnique": true
         },
         "events_project_type": {
           "name": "events_project_type",
-          "columns": [
-            "project_id",
-            "type"
-          ],
+          "columns": ["project_id", "type"],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "events_project_id_seq_pk": {
-          "columns": [
-            "project_id",
-            "seq"
-          ],
+          "columns": ["project_id", "seq"],
           "name": "events_project_id_seq_pk"
         }
       },
@@ -529,10 +500,7 @@
       "indexes": {
         "evidence_artifacts_step": {
           "name": "evidence_artifacts_step",
-          "columns": [
-            "step_id",
-            "recorded_at"
-          ],
+          "columns": ["step_id", "recorded_at"],
           "isUnique": false
         }
       },
@@ -541,12 +509,8 @@
           "name": "evidence_artifacts_project_id_projects_id_fk",
           "tableFrom": "evidence_artifacts",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -646,10 +610,7 @@
       "indexes": {
         "open_questions_unanswered": {
           "name": "open_questions_unanswered",
-          "columns": [
-            "answered_at",
-            "asked_at"
-          ],
+          "columns": ["answered_at", "asked_at"],
           "isUnique": false
         }
       },
@@ -658,12 +619,8 @@
           "name": "open_questions_project_id_projects_id_fk",
           "tableFrom": "open_questions",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -766,9 +723,7 @@
       "indexes": {
         "repositories_project_id_unique": {
           "name": "repositories_project_id_unique",
-          "columns": [
-            "project_id"
-          ],
+          "columns": ["project_id"],
           "isUnique": true
         }
       },
@@ -777,12 +732,8 @@
           "name": "repositories_project_id_projects_id_fk",
           "tableFrom": "repositories",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -847,11 +798,7 @@
       "indexes": {
         "rules_scope_key": {
           "name": "rules_scope_key",
-          "columns": [
-            "project_id",
-            "scope",
-            "key"
-          ],
+          "columns": ["project_id", "scope", "key"],
           "isUnique": true
         }
       },
@@ -860,12 +807,8 @@
           "name": "rules_project_id_projects_id_fk",
           "tableFrom": "rules",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -947,12 +890,8 @@
           "name": "tasks_project_id_projects_id_fk",
           "tableFrom": "tasks",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1052,10 +991,7 @@
       "indexes": {
         "workflow_steps_order": {
           "name": "workflow_steps_order",
-          "columns": [
-            "workflow_id",
-            "step_index"
-          ],
+          "columns": ["workflow_id", "step_index"],
           "isUnique": true
         }
       },
@@ -1064,12 +1000,8 @@
           "name": "workflow_steps_workflow_id_workflows_id_fk",
           "tableFrom": "workflow_steps",
           "tableTo": "workflows",
-          "columnsFrom": [
-            "workflow_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workflow_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1176,10 +1108,7 @@
       "indexes": {
         "workflows_project_state": {
           "name": "workflows_project_state",
-          "columns": [
-            "project_id",
-            "state"
-          ],
+          "columns": ["project_id", "state"],
           "isUnique": false
         }
       },
@@ -1188,12 +1117,8 @@
           "name": "workflows_project_id_projects_id_fk",
           "tableFrom": "workflows",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1201,12 +1126,8 @@
           "name": "workflows_task_id_tasks_id_fk",
           "tableFrom": "workflows",
           "tableTo": "tasks",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }

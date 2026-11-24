@@ -7,8 +7,8 @@ import { defineConfig } from 'drizzle-kit'
  */
 export default defineConfig({
   dialect: 'sqlite',
-  schema: './src/main/db/schema.ts',
-  out: './src/main/db/migrations',
+  schema: './packages/forge-core/src/db/schema.ts',
+  out: './packages/forge-core/src/db/migrations',
   strict: true,
   verbose: true,
 })

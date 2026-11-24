@@ -13,8 +13,8 @@
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const MIGRATIONS_DIR = join('src', 'main', 'db', 'migrations')
-const OUTPUT = join('src', 'main', 'db', 'migrations.generated.ts')
+const MIGRATIONS_DIR = join('packages', 'forge-core', 'src', 'db', 'migrations')
+const OUTPUT = join('packages', 'forge-core', 'src', 'db', 'migrations.generated.ts')
 
 const files = readdirSync(MIGRATIONS_DIR)
   .filter((name) => name.endsWith('.sql'))

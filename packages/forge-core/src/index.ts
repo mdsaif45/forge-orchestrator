@@ -3,4 +3,5 @@
  * SQLite persistence, and evidence verification for Forge.
  */
 
-export * from '../../../src/main/core/index'
+export * from './core/index'
+export * from './db/index'

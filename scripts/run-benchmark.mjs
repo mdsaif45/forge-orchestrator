@@ -4,7 +4,7 @@ import {
   computeBenchmarkResult,
   formatBenchmarkReport,
   parseTimelineJsonl,
-} from '../src/main/benchmarks/benchmarkHarness.ts'
+} from '../packages/forge-core/src/benchmarks/benchmarkHarness.ts'
 
 const logPath = process.env.TIMELINE_LOG ?? join('audit-out', 'timeline.jsonl')
 

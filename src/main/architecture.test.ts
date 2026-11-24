@@ -20,10 +20,14 @@ const PATH_ALIASES = [
   { prefix: '@forge/cli', target: 'packages/forge-cli/src/index' },
   { prefix: '@forge/desktop/', target: 'packages/forge-desktop/src/' },
   { prefix: '@forge/desktop', target: 'packages/forge-desktop/src/index' },
-  { prefix: '@shared/', target: 'src/shared/' },
-  { prefix: '@shared', target: 'src/shared/index' },
+  { prefix: '@main/', target: 'packages/forge-core/src/' },
   { prefix: '@main/', target: 'src/main/' },
+  { prefix: '@main', target: 'packages/forge-core/src/index' },
   { prefix: '@main', target: 'src/main/index' },
+  { prefix: '@shared/', target: 'packages/forge-shared/src/' },
+  { prefix: '@shared/', target: 'src/shared/' },
+  { prefix: '@shared', target: 'packages/forge-shared/src/index' },
+  { prefix: '@shared', target: 'src/shared/index' },
   { prefix: '@renderer/', target: 'src/renderer/src/' },
   { prefix: '@renderer', target: 'src/renderer/src/index' },
 ]
@@ -144,7 +148,8 @@ function resolveSpecifier(specifier: string, containingFile: string): string | n
     if (specifier === alias.prefix.replace(/\/$/, '') || specifier.startsWith(alias.prefix)) {
       const sub = specifier.slice(alias.prefix.length)
       const targetPath = join(ROOT_DIR, alias.target, sub)
-      return tryResolveCandidate(targetPath)
+      const resolved = tryResolveCandidate(targetPath)
+      if (resolved) return resolved
     }
   }
   return null
@@ -303,6 +308,19 @@ describe('ADR-004 Architectural Boundaries & Invariants', () => {
       'src/main/templates/',
       'src/main/context/',
       'src/main/evidence/',
+      'packages/forge-core/src/projects/',
+      'packages/forge-core/src/accounts/',
+      'packages/forge-core/src/workflows/',
+      'packages/forge-core/src/changesets/',
+      'packages/forge-core/src/decisions/',
+      'packages/forge-core/src/questions/',
+      'packages/forge-core/src/bindings/',
+      'packages/forge-core/src/artifacts/',
+      'packages/forge-core/src/audit/',
+      'packages/forge-core/src/health/',
+      'packages/forge-core/src/templates/',
+      'packages/forge-core/src/context/',
+      'packages/forge-core/src/evidence/',
     ]
 
     const appFiles = allProdFiles.filter((f) => {
@@ -340,6 +358,11 @@ describe('ADR-004 Architectural Boundaries & Invariants', () => {
       'src/main/git/',
       'src/main/terminal/',
       'src/main/logging/',
+      'packages/forge-core/src/db/',
+      'packages/forge-core/src/git/',
+      'packages/forge-core/src/terminal/',
+      'packages/forge-core/src/logging/',
+      'packages/forge-runtimes/src/process/',
     ]
 
     const infraFiles = allProdFiles.filter((f) => {
@@ -385,7 +408,11 @@ describe('ADR-004 Architectural Boundaries & Invariants', () => {
   })
 
   it('verifies non-DB files import 0 drizzle-orm or db/schema modules', () => {
-    const nonDbFiles = allProdFiles.filter((f) => !normalizeRelative(f).startsWith('src/main/db/'))
+    const nonDbFiles = allProdFiles.filter(
+      (f) =>
+        !normalizeRelative(f).startsWith('src/main/db/') &&
+        !normalizeRelative(f).startsWith('packages/forge-core/src/db/'),
+    )
     expect(nonDbFiles.length).toBeGreaterThan(0)
 
     const violations: string[] = []
@@ -475,7 +502,9 @@ describe('ADR-004 Architectural Boundaries & Invariants', () => {
   })
 
   it('verifies WorkflowService has zero prepareWorkspace references and IAgentRuntime declares no prepareWorkspace contract', () => {
-    const wfFile = join(SRC_DIR, 'main', 'workflows', 'workflowService.ts')
+    const wfFile = existsSync(join(SRC_DIR, 'main', 'workflows', 'workflowService.ts'))
+      ? join(SRC_DIR, 'main', 'workflows', 'workflowService.ts')
+      : join(ROOT_DIR, 'packages', 'forge-core', 'src', 'workflows', 'workflowService.ts')
     const wfContent = readFileSync(wfFile, 'utf8')
     expect(wfContent.includes('prepareWorkspace')).toBe(false)
 

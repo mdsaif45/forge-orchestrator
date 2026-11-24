@@ -35,10 +35,14 @@ const PATH_ALIASES = [
   { prefix: '@forge/cli', target: 'packages/forge-cli/src/index' },
   { prefix: '@forge/desktop/', target: 'packages/forge-desktop/src/' },
   { prefix: '@forge/desktop', target: 'packages/forge-desktop/src/index' },
-  { prefix: '@shared/', target: 'src/shared/' },
-  { prefix: '@shared', target: 'src/shared/index' },
+  { prefix: '@main/', target: 'packages/forge-core/src/' },
   { prefix: '@main/', target: 'src/main/' },
+  { prefix: '@main', target: 'packages/forge-core/src/index' },
   { prefix: '@main', target: 'src/main/index' },
+  { prefix: '@shared/', target: 'packages/forge-shared/src/' },
+  { prefix: '@shared/', target: 'src/shared/' },
+  { prefix: '@shared', target: 'packages/forge-shared/src/index' },
+  { prefix: '@shared', target: 'src/shared/index' },
   { prefix: '@renderer/', target: 'src/renderer/src/' },
   { prefix: '@renderer', target: 'src/renderer/src/index' },
 ]
@@ -150,7 +154,8 @@ function resolveSpecifier(specifier, containingFile) {
     if (specifier === alias.prefix.replace(/\/$/, '') || specifier.startsWith(alias.prefix)) {
       const sub = specifier.slice(alias.prefix.length)
       const targetPath = join(ROOT_DIR, alias.target, sub)
-      return tryResolveCandidate(targetPath)
+      const resolved = tryResolveCandidate(targetPath)
+      if (resolved) return resolved
     }
   }
 

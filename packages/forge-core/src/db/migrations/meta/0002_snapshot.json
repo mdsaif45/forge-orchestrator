@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "e65f8299-26c8-4d80-9a6e-3ad1dc5ca56a",
-  "prevId": "8a9a5251-5af6-4617-8211-3b49b584047a",
+  "id": "8a9a5251-5af6-4617-8211-3b49b584047a",
+  "prevId": "a0269b9f-29d1-4b25-9cda-49aa022849c2",
   "tables": {
     "accounts": {
       "name": "accounts",
@@ -112,10 +112,7 @@
       "indexes": {
         "agent_bindings_project_role": {
           "name": "agent_bindings_project_role",
-          "columns": [
-            "project_id",
-            "role"
-          ],
+          "columns": ["project_id", "role"],
           "isUnique": true
         }
       },
@@ -124,12 +121,8 @@
           "name": "agent_bindings_project_id_projects_id_fk",
           "tableFrom": "agent_bindings",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -215,17 +208,12 @@
       "indexes": {
         "artifacts_run": {
           "name": "artifacts_run",
-          "columns": [
-            "run_id",
-            "created_at"
-          ],
+          "columns": ["run_id", "created_at"],
           "isUnique": false
         },
         "artifacts_step": {
           "name": "artifacts_step",
-          "columns": [
-            "step_id"
-          ],
+          "columns": ["step_id"],
           "isUnique": false
         }
       },
@@ -234,12 +222,8 @@
           "name": "artifacts_run_id_runs_id_fk",
           "tableFrom": "artifacts",
           "tableTo": "runs",
-          "columnsFrom": [
-            "run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -346,10 +330,7 @@
       "indexes": {
         "change_sets_task": {
           "name": "change_sets_task",
-          "columns": [
-            "task_id",
-            "captured_at"
-          ],
+          "columns": ["task_id", "captured_at"],
           "isUnique": false
         }
       },
@@ -358,12 +339,8 @@
           "name": "change_sets_project_id_projects_id_fk",
           "tableFrom": "change_sets",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -456,10 +433,7 @@
       "indexes": {
         "decisions_project_status": {
           "name": "decisions_project_status",
-          "columns": [
-            "project_id",
-            "status"
-          ],
+          "columns": ["project_id", "status"],
           "isUnique": false
         }
       },
@@ -468,12 +442,8 @@
           "name": "decisions_project_id_projects_id_fk",
           "tableFrom": "decisions",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -545,27 +515,19 @@
       "indexes": {
         "events_id_unique": {
           "name": "events_id_unique",
-          "columns": [
-            "id"
-          ],
+          "columns": ["id"],
           "isUnique": true
         },
         "events_project_type": {
           "name": "events_project_type",
-          "columns": [
-            "project_id",
-            "type"
-          ],
+          "columns": ["project_id", "type"],
           "isUnique": false
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "events_project_id_seq_pk": {
-          "columns": [
-            "project_id",
-            "seq"
-          ],
+          "columns": ["project_id", "seq"],
           "name": "events_project_id_seq_pk"
         }
       },
@@ -691,10 +653,7 @@
       "indexes": {
         "evidence_artifacts_step": {
           "name": "evidence_artifacts_step",
-          "columns": [
-            "step_id",
-            "recorded_at"
-          ],
+          "columns": ["step_id", "recorded_at"],
           "isUnique": false
         }
       },
@@ -703,331 +662,8 @@
           "name": "evidence_artifacts_project_id_projects_id_fk",
           "tableFrom": "evidence_artifacts",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "graph_checkpoints": {
-      "name": "graph_checkpoints",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "graph_run_id": {
-          "name": "graph_run_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "node_id": {
-          "name": "node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "operation": {
-          "name": "operation",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "state_snapshot": {
-          "name": "state_snapshot",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "occurred_at": {
-          "name": "occurred_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "graph_checkpoints_run": {
-          "name": "graph_checkpoints_run",
-          "columns": [
-            "graph_run_id",
-            "occurred_at"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "graph_checkpoints_graph_run_id_graph_runs_id_fk": {
-          "name": "graph_checkpoints_graph_run_id_graph_runs_id_fk",
-          "tableFrom": "graph_checkpoints",
-          "tableTo": "graph_runs",
-          "columnsFrom": [
-            "graph_run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "graph_node_runs": {
-      "name": "graph_node_runs",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "graph_run_id": {
-          "name": "graph_run_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "node_id": {
-          "name": "node_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "attempt": {
-          "name": "attempt",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "role": {
-          "name": "role",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "runtime_id": {
-          "name": "runtime_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "context_ref": {
-          "name": "context_ref",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "change_set_id": {
-          "name": "change_set_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "evidence_id": {
-          "name": "evidence_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "started_at": {
-          "name": "started_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "finished_at": {
-          "name": "finished_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "error": {
-          "name": "error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "graph_node_runs_graph_node": {
-          "name": "graph_node_runs_graph_node",
-          "columns": [
-            "graph_run_id",
-            "node_id"
-          ],
-          "isUnique": false
-        },
-        "graph_node_runs_status": {
-          "name": "graph_node_runs_status",
-          "columns": [
-            "status"
-          ],
-          "isUnique": false
-        },
-        "graph_node_runs_attempt_unique": {
-          "name": "graph_node_runs_attempt_unique",
-          "columns": [
-            "graph_run_id",
-            "node_id",
-            "attempt"
-          ],
-          "isUnique": true
-        }
-      },
-      "foreignKeys": {
-        "graph_node_runs_graph_run_id_graph_runs_id_fk": {
-          "name": "graph_node_runs_graph_run_id_graph_runs_id_fk",
-          "tableFrom": "graph_node_runs",
-          "tableTo": "graph_runs",
-          "columnsFrom": [
-            "graph_run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "graph_runs": {
-      "name": "graph_runs",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "workflow_id": {
-          "name": "workflow_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "template_id": {
-          "name": "template_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "iteration": {
-          "name": "iteration",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": 1
-        },
-        "started_at": {
-          "name": "started_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "finished_at": {
-          "name": "finished_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "halt_reason": {
-          "name": "halt_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "error": {
-          "name": "error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "graph_runs_workflow": {
-          "name": "graph_runs_workflow",
-          "columns": [
-            "workflow_id"
-          ],
-          "isUnique": false
-        },
-        "graph_runs_status": {
-          "name": "graph_runs_status",
-          "columns": [
-            "status"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "graph_runs_workflow_id_workflows_id_fk": {
-          "name": "graph_runs_workflow_id_workflows_id_fk",
-          "tableFrom": "graph_runs",
-          "tableTo": "workflows",
-          "columnsFrom": [
-            "workflow_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1127,10 +763,7 @@
       "indexes": {
         "open_questions_unanswered": {
           "name": "open_questions_unanswered",
-          "columns": [
-            "answered_at",
-            "asked_at"
-          ],
+          "columns": ["answered_at", "asked_at"],
           "isUnique": false
         }
       },
@@ -1139,12 +772,8 @@
           "name": "open_questions_project_id_projects_id_fk",
           "tableFrom": "open_questions",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1247,9 +876,7 @@
       "indexes": {
         "repositories_project_id_unique": {
           "name": "repositories_project_id_unique",
-          "columns": [
-            "project_id"
-          ],
+          "columns": ["project_id"],
           "isUnique": true
         }
       },
@@ -1258,12 +885,8 @@
           "name": "repositories_project_id_projects_id_fk",
           "tableFrom": "repositories",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1328,11 +951,7 @@
       "indexes": {
         "rules_scope_key": {
           "name": "rules_scope_key",
-          "columns": [
-            "project_id",
-            "scope",
-            "key"
-          ],
+          "columns": ["project_id", "scope", "key"],
           "isUnique": true
         }
       },
@@ -1341,12 +960,8 @@
           "name": "rules_project_id_projects_id_fk",
           "tableFrom": "rules",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1411,17 +1026,12 @@
       "indexes": {
         "run_events_id_unique": {
           "name": "run_events_id_unique",
-          "columns": [
-            "id"
-          ],
+          "columns": ["id"],
           "isUnique": true
         },
         "run_events_run_type": {
           "name": "run_events_run_type",
-          "columns": [
-            "run_id",
-            "type"
-          ],
+          "columns": ["run_id", "type"],
           "isUnique": false
         }
       },
@@ -1430,22 +1040,15 @@
           "name": "run_events_run_id_runs_id_fk",
           "tableFrom": "run_events",
           "tableTo": "runs",
-          "columnsFrom": [
-            "run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {
         "run_events_run_id_seq_pk": {
-          "columns": [
-            "run_id",
-            "seq"
-          ],
+          "columns": ["run_id", "seq"],
           "name": "run_events_run_id_seq_pk"
         }
       },
@@ -1536,17 +1139,12 @@
       "indexes": {
         "run_steps_run": {
           "name": "run_steps_run",
-          "columns": [
-            "run_id"
-          ],
+          "columns": ["run_id"],
           "isUnique": false
         },
         "run_steps_order": {
           "name": "run_steps_order",
-          "columns": [
-            "run_id",
-            "step_index"
-          ],
+          "columns": ["run_id", "step_index"],
           "isUnique": true
         }
       },
@@ -1555,12 +1153,8 @@
           "name": "run_steps_run_id_runs_id_fk",
           "tableFrom": "run_steps",
           "tableTo": "runs",
-          "columnsFrom": [
-            "run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["run_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1653,17 +1247,12 @@
       "indexes": {
         "runs_project": {
           "name": "runs_project",
-          "columns": [
-            "project_id",
-            "started_at"
-          ],
+          "columns": ["project_id", "started_at"],
           "isUnique": false
         },
         "runs_task": {
           "name": "runs_task",
-          "columns": [
-            "task_id"
-          ],
+          "columns": ["task_id"],
           "isUnique": false
         }
       },
@@ -1672,12 +1261,8 @@
           "name": "runs_project_id_projects_id_fk",
           "tableFrom": "runs",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1759,12 +1344,8 @@
           "name": "tasks_project_id_projects_id_fk",
           "tableFrom": "tasks",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1864,10 +1445,7 @@
       "indexes": {
         "workflow_steps_order": {
           "name": "workflow_steps_order",
-          "columns": [
-            "workflow_id",
-            "step_index"
-          ],
+          "columns": ["workflow_id", "step_index"],
           "isUnique": true
         }
       },
@@ -1876,12 +1454,8 @@
           "name": "workflow_steps_workflow_id_workflows_id_fk",
           "tableFrom": "workflow_steps",
           "tableTo": "workflows",
-          "columnsFrom": [
-            "workflow_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["workflow_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1988,10 +1562,7 @@
       "indexes": {
         "workflows_project_state": {
           "name": "workflows_project_state",
-          "columns": [
-            "project_id",
-            "state"
-          ],
+          "columns": ["project_id", "state"],
           "isUnique": false
         }
       },
@@ -2000,12 +1571,8 @@
           "name": "workflows_project_id_projects_id_fk",
           "tableFrom": "workflows",
           "tableTo": "projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -2013,12 +1580,8 @@
           "name": "workflows_task_id_tasks_id_fk",
           "tableFrom": "workflows",
           "tableTo": "tasks",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }

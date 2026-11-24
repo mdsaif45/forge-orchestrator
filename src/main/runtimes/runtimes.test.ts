@@ -13,7 +13,7 @@ import {
   type PromptPacket,
   type RuntimeEvent,
 } from '@shared/domain'
-import { GitService } from '../git'
+import { GitService } from '@forge/core/git'
 import {
   IncapableRuntimeError,
   RuntimeRegistry,

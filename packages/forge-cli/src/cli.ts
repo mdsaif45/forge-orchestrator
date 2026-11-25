@@ -246,6 +246,7 @@ import {
   WorkspaceSecretLifecycleGovernor,
   WorkspaceDependencyAuditGate,
   WorkspaceSecurityComplianceMatrix,
+  WorkspaceCapabilityRevocationTripwire,
   type ConfigPolicyBaseline,
   type ConfigSchema,
   type ConfigPresetName,
@@ -5412,6 +5413,27 @@ async function handleConfig(opts: {
       `\nWorkspace Security Compliance Matrix: Status=${report.overallStatus}, Score=${String(report.complianceScorePercentage)}%, Passed=${String(report.passedCount)}/${String(report.totalControls)}, FailedMandatory=${String(report.failedMandatoryCount)}\n`,
     )
     return report.overallStatus === 'APPROVED' ? 0 : 1
+  }
+
+  if (action === 'tripwire-eval' || action === 'tripwire' || action === 'killswitch') {
+    const tripwire = new WorkspaceCapabilityRevocationTripwire()
+    tripwire.grantLease('subagent-worker-1', 'TOOL_EXEC')
+    tripwire.grantLease('subagent-worker-2', 'FILE_WRITE')
+    const auditEntry = tripwire.triggerEmergencyKillswitch({
+      reason: 'ESCAPE_SANDBOX_PROBE',
+      severity: 'CRITICAL',
+      details: 'Subagent attempted unauthorized process namespace escape.',
+      triggeredBy: 'operator',
+    })
+    const status = tripwire.getStatusReport()
+    if (opts.json) {
+      console.log(JSON.stringify({ auditEntry, status }))
+      return status.state === 'TRIPPED_GLOBAL' ? 0 : 1
+    }
+    console.log(
+      `\nWorkspace Capability Revocation Tripwire: State=${status.state}, RevokedLeases=${String(status.revokedLeasesCount)}, Trigger=${auditEntry.trigger.reason} (${auditEntry.trigger.severity})\n`,
+    )
+    return status.state === 'TRIPPED_GLOBAL' ? 0 : 1
   }
 
   const err = `Unknown config action: ${action}`

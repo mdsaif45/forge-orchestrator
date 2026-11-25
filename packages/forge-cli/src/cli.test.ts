@@ -5050,4 +5050,47 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('evaluates workflow transactional savepoints and rewind availability with forge workflows savepoint-eval (WORK-040)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'workflows',
+      'savepoint-eval',
+      'wf-savepoint-eval',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      workflowId: string
+      runId: string
+      totalSavepoints: number
+      latestSavepointId: string
+      canRewind: boolean
+      availableRewindTargets: string[]
+      savepoints: {
+        savepointId: string
+        turnIndex: number
+        refName: string
+        verified: boolean
+      }[]
+    }
+    expect(parsed.workflowId).toBe('wf-savepoint-eval')
+    expect(parsed.runId).toBe('run-savepoint-eval-1')
+    expect(parsed.totalSavepoints).toBe(2)
+    expect(parsed.canRewind).toBe(true)
+    expect(parsed.availableRewindTargets).toHaveLength(2)
+    expect(parsed.savepoints[0]?.refName).toContain('refs/forge/checkpoints/')
+    expect(parsed.savepoints[0]?.verified).toBe(true)
+    expect(parsed.savepoints[1]?.verified).toBe(true)
+
+    logSpy.mockRestore()
+  })
 })

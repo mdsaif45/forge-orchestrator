@@ -5174,4 +5174,51 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('inspects SQLite database and WAL pages zero-copy with forge db mmap-read (STATE-030)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['db', 'mmap-read', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      valid: boolean
+      kind: string
+      pageSize: number
+      pageOrFrameCount: number
+      zeroCopyVerified: boolean
+      dbHeader?: { magicValid: boolean; magicString: string }
+    }
+    expect(parsed.valid).toBe(true)
+    expect(parsed.kind).toBe('SQLITE_DB')
+    expect(parsed.pageSize).toBe(4096)
+    expect(parsed.pageOrFrameCount).toBeGreaterThanOrEqual(1)
+    expect(parsed.zeroCopyVerified).toBe(true)
+    expect(parsed.dbHeader?.magicValid).toBe(true)
+    expect(parsed.dbHeader?.magicString).toBe('SQLite format 3')
+
+    // Missing file path fails closed with code 1
+    const missingLogs: string[] = []
+    logSpy.mockImplementation((msg) => {
+      missingLogs.push(String(msg))
+    })
+    const missingCode = await runCli([
+      'db',
+      'mmap-read',
+      'nonexistent.sqlite',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(missingCode).toBe(1)
+    const missingParsed = JSON.parse(missingLogs[0] ?? '{}') as { valid: boolean; error: string }
+    expect(missingParsed.valid).toBe(false)
+    expect(missingParsed.error).toContain('Target SQLite/WAL file not found')
+
+    logSpy.mockRestore()
+  })
 })

@@ -240,6 +240,29 @@ export {
   type OptimizationOptions,
   type IndexAdvisoryReport,
 } from './sqlitePlannerHintOptimizer'
+export {
+  SqliteMmapPageReader,
+  MmapBoundaryError,
+  MmapInvalidMagicError,
+  MmapCorruptFrameError,
+  computeWalChecksum,
+  SQLITE_DB_MAGIC,
+  SQLITE_DB_HEADER_BYTES,
+  SQLITE_WAL_MAGIC_LE,
+  SQLITE_WAL_MAGIC_BE,
+  SQLITE_WAL_FORMAT_VERSION,
+  SQLITE_WAL_HEADER_BYTES,
+  SQLITE_WAL_FRAME_HEADER_BYTES,
+  type BTreePageType,
+  type SqliteFileKind,
+  type DatabaseFileHeader,
+  type PageHeader,
+  type ZeroCopyPageSlice,
+  type WalHeader,
+  type WalFrameView,
+  type WalInspectionReport,
+  type MmapDatabaseInspectionReport,
+} from './sqliteMmapPageReader'
 
 export * as schema from './schema'
 export { MIGRATIONS } from './migrations.generated'

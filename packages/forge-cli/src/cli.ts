@@ -74,6 +74,7 @@ import {
   SqliteFts5SearchRankerSupervisor,
   SqliteWalFrameTruncationMonitor,
   SqlitePlannerHintOptimizer,
+  SqliteMmapPageReader,
   type RawAuditEvent,
   type MigrationDefinition,
   type SavepointReceipt,
@@ -298,7 +299,7 @@ ${ANSI.bold}COMMANDS${ANSI.reset}
   projects [list|prune]      Inspect multi-project workspace registry, health, and prune missing projects
   verify [pipeline|coverage|commit|manifest|report] Execute ordered verification pipeline, audit code coverage, validate commit messages, manifest audit, or JUnit/TAP assertion report
   config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features|migrate|sync-env|drift|template|boundary] Inspect, profile, doctor, secret vault encryption, workspace bootstrap, policy lock, env interpolation, safe export, feature flags, schema migration, .env synchronization, schema drift, templates, and boundary guard
-  db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal|replay|verify-ledger|diff-snapshots|savepoint|search] Inspect SQLite database storage, backup, restore, compaction, integrity/orphan audit, WAL checkpoint, quota monitor, audit journals, time-travel replay, ledger verification, snapshot delta diffing, savepoints, and full-text search
+  db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal|replay|verify-ledger|diff-snapshots|savepoint|search|mmap-read] Inspect SQLite database storage, backup, restore, compaction, integrity/orphan audit, WAL checkpoint, quota monitor, audit journals, time-travel replay, ledger verification, snapshot delta diffing, savepoints, full-text search, and zero-copy mmap page inspection
 
 ${ANSI.bold}OPTIONS${ANSI.reset}
   -v, --version        Display Forge version
@@ -861,6 +862,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       fix: values.fix,
       threshold: values.threshold ? parseInt(values.threshold, 10) : undefined,
       toSeq: values['to-seq'] ? parseInt(values['to-seq'], 10) : undefined,
+      cwd,
       dataDir,
       json: values.json,
     })
@@ -5513,6 +5515,7 @@ async function handleDb(opts: {
   fix?: boolean | undefined
   threshold?: number | undefined
   toSeq?: number | undefined
+  cwd?: string | undefined
   dataDir: string
   json: boolean
 }): Promise<number> {
@@ -6241,6 +6244,38 @@ async function handleDb(opts: {
         `\nSQLite Planner Hint Optimizer: Hints=${String(report.hintsInjected.length)}, CostReduction=${String(report.estimatedCostReductionPercent)}%, FullScanPrevented=${String(report.fullScanPrevented)}\n`,
       )
       return report.hintsInjected.length > 0 ? 0 : 1
+    }
+
+    if (action === 'mmap-read' || action === 'mmap') {
+      let targetFile = dbFile
+      if (opts.targetPath) {
+        if (opts.targetPath === 'wal') {
+          targetFile = `${dbFile}-wal`
+        } else {
+          targetFile = resolve(opts.cwd ?? process.cwd(), opts.targetPath)
+        }
+      }
+
+      if (!existsSync(targetFile)) {
+        const errMsg = `Target SQLite/WAL file not found for mmap read: ${targetFile}`
+        if (opts.json) {
+          console.log(JSON.stringify({ valid: false, error: errMsg }))
+        } else {
+          console.error(`${ANSI.red}Error: ${errMsg}${ANSI.reset}`)
+        }
+        return 1
+      }
+
+      const reader = await SqliteMmapPageReader.fromFile(targetFile)
+      const report = reader.inspect()
+      if (opts.json) {
+        console.log(JSON.stringify(report))
+        return report.valid ? 0 : 1
+      }
+      console.log(
+        `\nSQLite Zero-Copy Mmap Reader (${report.kind}): Valid=${String(report.valid)}, Source=${report.source}, PageSize=${String(report.pageSize)}B, Items=${String(report.pageOrFrameCount)}, ZeroCopy=${String(report.zeroCopyVerified)}\n`,
+      )
+      return report.valid ? 0 : 1
     }
 
     const err = `Unknown db action: ${action}`

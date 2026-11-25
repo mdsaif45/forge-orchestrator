@@ -21,6 +21,7 @@ import { createForgeCore, resolveDataDir } from '@forge/core/core/forgeCore'
 import { executeDirectTask, type DirectTaskEvent } from '@forge/core/core/taskRunner'
 import { GitService } from '@forge/core/git'
 import { discoverOllamaModels } from '@forge/core/providers/ollamaDiscovery'
+import { ConcurrencyStressSuite, createDefaultStressProfiles } from '@forge/core/runtimes'
 import { InteractiveTerminalTui } from './tui'
 import {
   probeRuntimeExecutable,
@@ -299,7 +300,7 @@ ${ANSI.bold}COMMANDS${ANSI.reset}
   processes [list]           Inspect active and completed background process metrics
   status                     Display current repository status and Forge control plane state
   tui [runId]                Launch interactive multi-pane terminal TUI monitor and live diff renderer
-  benchmark [run|latency] [id] Run empirical benchmark harness or stage wall-clock latency profiler
+  benchmark [run|latency|stress] [id] Run empirical benchmark harness, stage latency profiler, or concurrency stress suite
   models [list|scan|auto|set|fallback|circuit] Inspect, auto-select, fallback routing, and circuit breakers
   runtimes [list|test|env|quota|rate-limit|cache|coerce|truncate|stream-turn|reflect] Inspect registered runtimes, test execution, sanitized environment, quotas, tool rate limits, cache, parameter coercion, buffer limiter, streaming dispatcher, and tool schema reflection
   context [inspect|optimize|compact|budget] Inspect prompt packet, context files, prefix caching optimization, sliding window compaction, or token window budgeting
@@ -452,6 +453,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     return handleBenchmark({
       action: positionals[1] ?? 'run',
       scenarioId: positionals[2],
+      concurrency: values.concurrency ? parseInt(values.concurrency, 10) : undefined,
       thresholdMs: values.threshold ? parseFloat(values.threshold) : undefined,
       json: values.json,
     })
@@ -1084,9 +1086,53 @@ async function handleTui(opts: {
 async function handleBenchmark(opts: {
   readonly action: string
   readonly scenarioId?: string | undefined
+  readonly concurrency?: number | undefined
   readonly thresholdMs?: number | undefined
   readonly json: boolean
 }): Promise<number> {
+  if (opts.action === 'stress' || opts.action === 'endurance') {
+    const [defaultProfile] = createDefaultStressProfiles()
+    if (!defaultProfile) {
+      return 1
+    }
+    const profile = {
+      ...defaultProfile,
+      ...(opts.concurrency !== undefined &&
+      Number.isInteger(opts.concurrency) &&
+      opts.concurrency > 0
+        ? { concurrencyLevel: opts.concurrency }
+        : {}),
+      ...(opts.thresholdMs !== undefined &&
+      Number.isFinite(opts.thresholdMs) &&
+      opts.thresholdMs > 0
+        ? { maxDurationMs: opts.thresholdMs }
+        : {}),
+    }
+
+    const suite = new ConcurrencyStressSuite()
+    const report = await suite.runProfile(profile)
+    if (opts.json) {
+      console.log(JSON.stringify(report))
+      return report.passed ? 0 : 1
+    }
+
+    console.log(
+      `\n${ANSI.bold}CONCURRENCY STRESS & ENDURANCE REPORT (${report.profileId})${ANSI.reset}`,
+    )
+    console.log(`  Verdict:     ${report.verdict}`)
+    console.log(
+      `  Iterations:  ${String(report.completedIterations)}/${String(report.targetIterations)} (${String(report.concurrencyLevel)} workers, ${String(report.throughputIterationsPerSec)} iter/s)`,
+    )
+    console.log(
+      `  SQLite WAL:  Writes=${String(report.sqliteWalStats.writes)}, Reads=${String(report.sqliteWalStats.reads)}, Integrity=${String(report.sqliteWalStats.integrityVerified)}`,
+    )
+    console.log(
+      `  Safety:      LeakedHandles=${String(report.leakedHandlesCount)}, UnhandledRejections=${String(report.unhandledRejectionsCount)}, MemoryWithinCeiling=${String(report.memoryStats.withinCeiling)}`,
+    )
+    console.log(`  Digest:      ${report.evidenceDigest}\n`)
+    return report.passed ? 0 : 1
+  }
+
   if (opts.action === 'latency' || opts.action === 'profile') {
     const profiler = new BenchmarkLatencyProfiler({
       maxTotalBudgetMs: opts.thresholdMs ?? 15_000,

@@ -5419,4 +5419,45 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('executes high-concurrency multi-agent WAL stress suite with forge benchmark stress (BENCH-003)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['benchmark', 'stress', '--concurrency', '20', '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      verdict: string
+      passed: boolean
+      concurrencyLevel: number
+      targetIterations: number
+      completedIterations: number
+      leakedHandlesCount: number
+      unhandledRejectionsCount: number
+      sqliteWalStats: {
+        enabled: boolean
+        writes: number
+        reads: number
+        integrityVerified: boolean
+      }
+      memoryStats: { withinCeiling: boolean }
+      evidenceDigest: string
+    }
+    expect(parsed.passed).toBe(true)
+    expect(parsed.verdict).toBe('PASS')
+    expect(parsed.concurrencyLevel).toBe(20)
+    expect(parsed.targetIterations).toBe(120)
+    expect(parsed.completedIterations).toBe(120)
+    expect(parsed.leakedHandlesCount).toBe(0)
+    expect(parsed.unhandledRejectionsCount).toBe(0)
+    expect(parsed.sqliteWalStats.enabled).toBe(true)
+    expect(parsed.sqliteWalStats.writes).toBe(120)
+    expect(parsed.sqliteWalStats.integrityVerified).toBe(true)
+    expect(parsed.memoryStats.withinCeiling).toBe(true)
+    expect(parsed.evidenceDigest).toHaveLength(64)
+
+    logSpy.mockRestore()
+  })
 })

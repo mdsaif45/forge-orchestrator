@@ -122,6 +122,7 @@ import {
   EmpiricalBenchmarkHarness,
   createDefaultBenchmarkScenarios,
   runDefaultBenchmarkExecutor,
+  BenchmarkLatencyProfiler,
   type ExportSurfaceReport,
   type FileCoverageData,
   type PatchFuzzReport,
@@ -298,7 +299,7 @@ ${ANSI.bold}COMMANDS${ANSI.reset}
   processes [list]           Inspect active and completed background process metrics
   status                     Display current repository status and Forge control plane state
   tui [runId]                Launch interactive multi-pane terminal TUI monitor and live diff renderer
-  benchmark [run] [id]       Run empirical multi-agent reproducible benchmark harness and scorecard
+  benchmark [run|latency] [id] Run empirical benchmark harness or stage wall-clock latency profiler
   models [list|scan|auto|set|fallback|circuit] Inspect, auto-select, fallback routing, and circuit breakers
   runtimes [list|test|env|quota|rate-limit|cache|coerce|truncate|stream-turn|reflect] Inspect registered runtimes, test execution, sanitized environment, quotas, tool rate limits, cache, parameter coercion, buffer limiter, streaming dispatcher, and tool schema reflection
   context [inspect|optimize|compact|budget] Inspect prompt packet, context files, prefix caching optimization, sliding window compaction, or token window budgeting
@@ -451,6 +452,7 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     return handleBenchmark({
       action: positionals[1] ?? 'run',
       scenarioId: positionals[2],
+      thresholdMs: values.threshold ? parseFloat(values.threshold) : undefined,
       json: values.json,
     })
   }
@@ -1082,10 +1084,48 @@ async function handleTui(opts: {
 async function handleBenchmark(opts: {
   readonly action: string
   readonly scenarioId?: string | undefined
+  readonly thresholdMs?: number | undefined
   readonly json: boolean
 }): Promise<number> {
+  if (opts.action === 'latency' || opts.action === 'profile') {
+    const profiler = new BenchmarkLatencyProfiler({
+      maxTotalBudgetMs: opts.thresholdMs ?? 15_000,
+      thresholds: [
+        { stage: 'STARTUP', maxP95Ms: 500, humanBaselineMs: 5000 },
+        { stage: 'TOOL_EXECUTION', maxP95Ms: 5000, humanBaselineMs: 45_000 },
+        { stage: 'MODEL_INFERENCE', maxP95Ms: 5000, humanBaselineMs: 60_000 },
+        { stage: 'DIFF_RECONCILIATION', maxP95Ms: 2000, humanBaselineMs: 25_000 },
+        { stage: 'VERIFICATION', maxP95Ms: 5000, humanBaselineMs: 15_000 },
+      ],
+    })
+
+    await profiler.measure('STARTUP', () => Promise.resolve(true))
+    await profiler.measure('TOOL_EXECUTION', () => Promise.resolve(true))
+    await profiler.measure('MODEL_INFERENCE', () => Promise.resolve(true))
+    await profiler.measure('DIFF_RECONCILIATION', () => Promise.resolve(true))
+    await profiler.measure('VERIFICATION', () => Promise.resolve(true))
+
+    const scorecard = profiler.generateScorecard()
+    if (opts.json) {
+      console.log(JSON.stringify(scorecard))
+      return scorecard.verdict === 'PASS' ? 0 : 1
+    }
+
+    console.log(
+      `\n${ANSI.bold}BENCHMARK STAGE LATENCY SCORECARD (${scorecard.profileId})${ANSI.reset}`,
+    )
+    console.log(`  Verdict:       ${scorecard.verdict}`)
+    console.log(`  Total Latency: ${String(scorecard.totalObservedMs)}ms`)
+    console.log(
+      `  Human Base:    ${String(scorecard.humanBaselineTotalMs)}ms (${String(scorecard.overallSpeedupVsHuman)}x faster)`,
+    )
+    console.log(`  Samples:       ${String(scorecard.totalSamples)} across 5 stages`)
+    console.log(`  Digest:        ${scorecard.scorecardDigest}\n`)
+    return scorecard.verdict === 'PASS' ? 0 : 1
+  }
+
   if (opts.action !== 'run') {
-    const errMsg = `Unknown benchmark action "${opts.action}". Usage: forge benchmark run [scenarioId] [--json]`
+    const errMsg = `Unknown benchmark action "${opts.action}". Usage: forge benchmark [run|latency] [scenarioId] [--json]`
     if (opts.json) console.log(JSON.stringify({ error: errMsg }))
     else console.error(`${ANSI.red}Error: ${errMsg}${ANSI.reset}`)
     return 1

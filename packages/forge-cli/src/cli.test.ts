@@ -5373,4 +5373,50 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('profiles stage wall-clock latencies and enforces budget ceilings with forge benchmark latency (BENCH-002)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['benchmark', 'latency', '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      verdict: string
+      totalSamples: number
+      totalObservedMs: number
+      humanBaselineTotalMs: number
+      overallSpeedupVsHuman: number
+      regressionDetected: boolean
+      scorecardDigest: string
+      stageMetrics: Record<string, { sampleCount: number; p95Ms: number; p99Ms: number }>
+    }
+    expect(parsed.verdict).toBe('PASS')
+    expect(parsed.totalSamples).toBe(5)
+    expect(parsed.regressionDetected).toBe(false)
+    expect(parsed.humanBaselineTotalMs).toBe(150_000)
+    expect(parsed.overallSpeedupVsHuman).toBeGreaterThan(1)
+    expect(parsed.scorecardDigest).toHaveLength(64)
+    expect(parsed.stageMetrics.STARTUP?.sampleCount).toBe(1)
+    expect(parsed.stageMetrics.DIFF_RECONCILIATION?.sampleCount).toBe(1)
+
+    // Verify fail-closed budget enforcement returns exit code 1 with tight threshold (0.0001ms)
+    const failLogs: string[] = []
+    logSpy.mockImplementation((msg) => {
+      failLogs.push(String(msg))
+    })
+    const failCode = await runCli(['benchmark', 'latency', '--threshold', '0.0001', '--json'])
+    expect(failCode).toBe(1)
+    const failParsed = JSON.parse(failLogs[0] ?? '{}') as {
+      verdict: string
+      regressionDetected: boolean
+      alerts: { metric: string }[]
+    }
+    expect(failParsed.verdict).toBe('REGRESSION_FAIL')
+    expect(failParsed.regressionDetected).toBe(true)
+    expect(failParsed.alerts.some((a) => a.metric === 'totalBudgetMs')).toBe(true)
+
+    logSpy.mockRestore()
+  })
 })

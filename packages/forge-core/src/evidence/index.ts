@@ -323,3 +323,18 @@ export {
   type BenchmarkResult,
   type EmpiricalBenchmarkResult,
 } from './benchmarkHarness'
+export {
+  BenchmarkLatencyProfiler,
+  LatencyBudgetExceededError,
+  InvalidLatencySampleError,
+  ALL_LATENCY_STAGES,
+  computePercentile,
+  type LatencyStageCategory,
+  type LatencyTimerHandle,
+  type LatencySample,
+  type LatencyRegressionThreshold,
+  type StageLatencyMetrics,
+  type ComparativeRegressionAlert,
+  type ComparativeScorecard,
+  type LatencyProfilerConfig,
+} from './benchmarkLatencyProfiler'

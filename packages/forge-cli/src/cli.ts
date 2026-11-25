@@ -119,6 +119,9 @@ import {
   ChangesetThreeWayMergeSynthesizer,
   ChangesetReversePatchSynthesizer,
   BinaryDiffHunkCompressor,
+  EmpiricalBenchmarkHarness,
+  createDefaultBenchmarkScenarios,
+  runDefaultBenchmarkExecutor,
   type ExportSurfaceReport,
   type FileCoverageData,
   type PatchFuzzReport,
@@ -295,6 +298,7 @@ ${ANSI.bold}COMMANDS${ANSI.reset}
   processes [list]           Inspect active and completed background process metrics
   status                     Display current repository status and Forge control plane state
   tui [runId]                Launch interactive multi-pane terminal TUI monitor and live diff renderer
+  benchmark [run] [id]       Run empirical multi-agent reproducible benchmark harness and scorecard
   models [list|scan|auto|set|fallback|circuit] Inspect, auto-select, fallback routing, and circuit breakers
   runtimes [list|test|env|quota|rate-limit|cache|coerce|truncate|stream-turn|reflect] Inspect registered runtimes, test execution, sanitized environment, quotas, tool rate limits, cache, parameter coercion, buffer limiter, streaming dispatcher, and tool schema reflection
   context [inspect|optimize|compact|budget] Inspect prompt packet, context files, prefix caching optimization, sliding window compaction, or token window budgeting
@@ -439,6 +443,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       runId: positionals[1],
       cwd,
       dataDir,
+      json: values.json,
+    })
+  }
+
+  if (command === 'benchmark' || command === 'bench') {
+    return handleBenchmark({
+      action: positionals[1] ?? 'run',
+      scenarioId: positionals[2],
       json: values.json,
     })
   }
@@ -1065,6 +1077,54 @@ async function handleTui(opts: {
     process.stdin.on('data', onData)
     interactiveTui.start()
   })
+}
+
+async function handleBenchmark(opts: {
+  readonly action: string
+  readonly scenarioId?: string | undefined
+  readonly json: boolean
+}): Promise<number> {
+  if (opts.action !== 'run') {
+    const errMsg = `Unknown benchmark action "${opts.action}". Usage: forge benchmark run [scenarioId] [--json]`
+    if (opts.json) console.log(JSON.stringify({ error: errMsg }))
+    else console.error(`${ANSI.red}Error: ${errMsg}${ANSI.reset}`)
+    return 1
+  }
+
+  const allScenarios = createDefaultBenchmarkScenarios()
+  const selectedScenarios = opts.scenarioId
+    ? allScenarios.filter((s) => s.scenarioId === opts.scenarioId)
+    : allScenarios
+
+  if (selectedScenarios.length === 0) {
+    const errMsg = `Unknown benchmark scenario "${opts.scenarioId ?? ''}". Available: ${allScenarios.map((s) => s.scenarioId).join(', ')}`
+    if (opts.json) console.log(JSON.stringify({ error: errMsg }))
+    else console.error(`${ANSI.red}Error: ${errMsg}${ANSI.reset}`)
+    return 1
+  }
+
+  const harness = new EmpiricalBenchmarkHarness({
+    suiteName: 'forge-cli-benchmark',
+    cleanupWorkspaces: true,
+  })
+  const result = await harness.runSuite(selectedScenarios, runDefaultBenchmarkExecutor)
+
+  if (opts.json) {
+    console.log(JSON.stringify(result))
+    return result.overallVerdict === 'PASS' ? 0 : 1
+  }
+
+  console.log(`\n${ANSI.bold}EMPIRICAL BENCHMARK SCORECARD (${result.suiteName})${ANSI.reset}`)
+  console.log(`  Verdict:     ${result.overallVerdict}`)
+  console.log(
+    `  Scenarios:   ${String(result.scorecard.passedScenarios)}/${String(result.scorecard.totalScenarios)} passed (${String(result.scorecard.passRatePercent)}%)`,
+  )
+  console.log(
+    `  Assertions:  ${String(result.scorecard.passedAssertions)}/${String(result.scorecard.totalAssertions)} passed (${String(result.scorecard.assertionFidelityPercent)}%)`,
+  )
+  console.log(`  Duration:    ${String(result.scorecard.totalDurationMs)}ms`)
+  console.log(`  Digest:      ${result.suiteEvidenceDigest}\n`)
+  return result.overallVerdict === 'PASS' ? 0 : 1
 }
 
 async function handleModels(opts: {

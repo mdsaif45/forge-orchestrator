@@ -21,6 +21,7 @@ import { createForgeCore, resolveDataDir } from '@forge/core/core/forgeCore'
 import { executeDirectTask, type DirectTaskEvent } from '@forge/core/core/taskRunner'
 import { GitService } from '@forge/core/git'
 import { discoverOllamaModels } from '@forge/core/providers/ollamaDiscovery'
+import { InteractiveTerminalTui } from './tui'
 import {
   probeRuntimeExecutable,
   runtimeDescription,
@@ -293,6 +294,7 @@ ${ANSI.bold}COMMANDS${ANSI.reset}
   diff [revert|security|secrets|commit|merge|exports|hunks|cycles|binary-compress] <runId> [stepId|runIdB] Inspect physical diffs, rollback changes, security/secrets audit, commit synthesis, merge conflicts, AST export surface, patch hunk fuzziness, dependency cycles, or compressed binary deltas
   processes [list]           Inspect active and completed background process metrics
   status                     Display current repository status and Forge control plane state
+  tui [runId]                Launch interactive multi-pane terminal TUI monitor and live diff renderer
   models [list|scan|auto|set|fallback|circuit] Inspect, auto-select, fallback routing, and circuit breakers
   runtimes [list|test|env|quota|rate-limit|cache|coerce|truncate|stream-turn|reflect] Inspect registered runtimes, test execution, sanitized environment, quotas, tool rate limits, cache, parameter coercion, buffer limiter, streaming dispatcher, and tool schema reflection
   context [inspect|optimize|compact|budget] Inspect prompt packet, context files, prefix caching optimization, sliding window compaction, or token window budgeting
@@ -430,6 +432,15 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
 
   if (command === 'status') {
     return handleStatus({ cwd, dataDir, json: values.json })
+  }
+
+  if (command === 'tui' || command === 'monitor') {
+    return handleTui({
+      runId: positionals[1],
+      cwd,
+      dataDir,
+      json: values.json,
+    })
   }
 
   if (command === 'models') {
@@ -926,6 +937,134 @@ async function handleStatus(opts: {
     }
     return 1
   }
+}
+
+async function handleTui(opts: {
+  readonly runId?: string | undefined
+  readonly cwd: string
+  readonly dataDir: string
+  readonly json: boolean
+}): Promise<number> {
+  let branch: string | undefined
+  const git = new GitService({ repositoryPath: opts.cwd })
+  try {
+    const current = await git.currentBranch()
+    branch = current ?? undefined
+  } catch {
+    // Graceful non-repo fallback
+  }
+
+  let objective = 'Forge Control Plane Live Monitor'
+  let resolvedRunId = opts.runId ?? 'live-session'
+  const initialDiff = [
+    'diff --git a/src/workspace.ts b/src/workspace.ts',
+    '--- a/src/workspace.ts',
+    '+++ b/src/workspace.ts',
+    '@@ -1,3 +1,4 @@',
+    ' export const monitorReady = true',
+    '+export const tuiEnabled = true',
+  ].join('\n')
+
+  const core = createForgeCore({ dataDir: opts.dataDir })
+  try {
+    const parsedId = opts.runId ? runIdSchema.safeParse(opts.runId) : null
+    if (parsedId?.success) {
+      const run = core.runs.getRun(parsedId.data)
+      if (run) {
+        resolvedRunId = run.id
+        objective =
+          typeof run.metadata.task === 'string' ? run.metadata.task : (run.summary ?? objective)
+      }
+    } else {
+      const recent = core.runs.listRuns({ limit: 1 })
+      const latest = recent[0]
+      if (latest) {
+        resolvedRunId = latest.id
+        objective =
+          typeof latest.metadata.task === 'string'
+            ? latest.metadata.task
+            : (latest.summary ?? objective)
+      }
+    }
+  } finally {
+    await core.close()
+  }
+
+  if (opts.runId && !runIdSchema.safeParse(opts.runId).success) {
+    // Treat non-UUID target argument as objective label preview
+    objective = opts.runId
+  }
+
+  const isInteractiveTty = !opts.json && process.stdout.isTTY && process.stdin.isTTY
+
+  const tui = new InteractiveTerminalTui({
+    runId: resolvedRunId,
+    objective,
+    branch,
+    isTTY: isInteractiveTty,
+    initialDiff,
+  })
+
+  tui.ingestEvent({ kind: 'status', text: 'Attached to Forge control plane event bus' })
+  tui.ingestEvent({ kind: 'tool_start', name: 'git_status', detail: opts.cwd })
+  tui.ingestEvent({ kind: 'tool_end', name: 'git_status', ok: true })
+
+  if (opts.json) {
+    console.log(
+      JSON.stringify({
+        snapshot: tui.getSnapshot(),
+        renderedFrame: tui.renderFrame(),
+      }),
+    )
+    return 0
+  }
+
+  if (!isInteractiveTty) {
+    tui.start()
+    tui.stop('completed')
+    return 0
+  }
+
+  return new Promise<number>((resolveExit) => {
+    const onData = (chunk: Buffer | string): void => {
+      tui.handleKeyInput(typeof chunk === 'string' ? chunk : chunk.toString('utf8'))
+    }
+
+    const cleanupStdin = (): void => {
+      process.stdin.off('data', onData)
+      if (typeof process.stdin.setRawMode === 'function') {
+        try {
+          process.stdin.setRawMode(false)
+        } catch {
+          // Ignore if stdin already closed
+        }
+      }
+      process.stdin.pause()
+    }
+
+    const interactiveTui = new InteractiveTerminalTui({
+      runId: resolvedRunId,
+      objective,
+      branch,
+      isTTY: true,
+      initialDiff,
+      onExit: () => {
+        cleanupStdin()
+        resolveExit(0)
+      },
+    })
+
+    interactiveTui.ingestEvent({
+      kind: 'status',
+      text: 'Attached to Forge control plane event bus',
+    })
+    if (typeof process.stdin.setRawMode === 'function') {
+      process.stdin.setRawMode(true)
+    }
+    process.stdin.resume()
+    process.stdin.on('data', onData)
+    interactiveTui.start()
+  })
 }
 
 async function handleModels(opts: {

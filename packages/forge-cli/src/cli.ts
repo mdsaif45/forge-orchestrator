@@ -161,6 +161,7 @@ import {
   WorkflowStepTwoPhaseCommitArbiter,
   WorkflowStepDynamicFanInAggregator,
   WorkflowSpeculativeBranchPruner,
+  WorkflowTransactionalSavepointArbiter,
   type PruningReason,
   type BarrierPolicy,
   type StepDependencyOutcome,
@@ -2185,6 +2186,8 @@ async function handleWorkflows(opts: {
       'fan-in-eval',
       'prune-branches',
       'prune',
+      'savepoint-eval',
+      'savepoint',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -2619,6 +2622,49 @@ async function handleWorkflows(opts: {
         `\nWorkflow Speculative Branch Pruner: Status=${report.status}, Pruned=${String(report.prunedNodeIds.length)}, Aborted=${String(report.activeLeavesAborted.length)}, Reclaimed=${String(report.reclaimedMemoryBytes)}B (${report.reason})\n`,
       )
       return report.status === 'SUCCESS' || report.status === 'NO_OP' ? 0 : 1
+    }
+
+    if (action === 'savepoint-eval' || action === 'savepoint') {
+      const arbiter = new WorkflowTransactionalSavepointArbiter({
+        repositoryPath: opts.cwd,
+      })
+      const wfId = opts.extraParam ?? targetId ?? 'wf-savepoint-eval'
+      const runId = opts.thirdParam ?? 'run-savepoint-eval-1'
+
+      const existing = arbiter.listSavepoints(runId)
+      if (existing.length === 0) {
+        await arbiter.createSavepoint({
+          workflowId: wfId,
+          runId,
+          turnIndex: 1,
+          label: 'Turn 1 initial checkpoint',
+          completedNodeIds: ['node-setup'],
+          nodeSnapshots: [{ nodeId: 'node-setup', status: 'COMPLETED' }],
+          contextVariables: { step: 1, mode: 'analysis' },
+        })
+        await arbiter.createSavepoint({
+          workflowId: wfId,
+          runId,
+          turnIndex: 2,
+          label: 'Turn 2 pre-patch checkpoint',
+          completedNodeIds: ['node-setup', 'node-patch'],
+          nodeSnapshots: [
+            { nodeId: 'node-setup', status: 'COMPLETED' },
+            { nodeId: 'node-patch', status: 'COMPLETED' },
+          ],
+          contextVariables: { step: 2, mode: 'patching' },
+        })
+      }
+
+      const evalResult = await arbiter.evaluateSavepoints(wfId, runId)
+      if (opts.json) {
+        console.log(JSON.stringify(evalResult))
+        return evalResult.canRewind ? 0 : 1
+      }
+      console.log(
+        `\nWorkflow Transactional Savepoints: Total=${String(evalResult.totalSavepoints)}, CanRewind=${String(evalResult.canRewind)}, Latest=${evalResult.latestSavepointId ?? 'None'}\n`,
+      )
+      return evalResult.canRewind ? 0 : 1
     }
 
     if (action === 'retry') {

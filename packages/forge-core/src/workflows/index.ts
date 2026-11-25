@@ -258,4 +258,24 @@ export {
   type PrunerConfig,
   type ResourceReclaimer,
 } from './workflowSpeculativeBranchPruner'
+export {
+  WorkflowTransactionalSavepointArbiter,
+  DefaultGitTreeSnapshotProvider,
+  SavepointNotFoundError,
+  SavepointIntegrityError,
+  SavepointLinearityViolationError,
+  SavepointGitOperationError,
+  computeSavepointChecksum,
+  type NodeExecutionStatus,
+  type CheckpointReference,
+  type NodeExecutionSnapshot,
+  type SavepointManifest,
+  type CreateSavepointOptions,
+  type RewindOptions,
+  type RewindResult,
+  type SavepointSummary,
+  type SavepointEvaluationResult,
+  type GitTreeSnapshotProvider,
+  type ArbiterConfig,
+} from './workflowTransactionalSavepointArbiter'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'

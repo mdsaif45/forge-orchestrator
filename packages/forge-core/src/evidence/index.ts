@@ -286,3 +286,19 @@ export {
   type SynthesizedPatchDetails,
   type VirtualApplyResult,
 } from './changesetReversePatchSynthesizer'
+export {
+  BinaryDiffHunkCompressor,
+  BinaryPatchSignatureError,
+  BinaryPatchCorruptionError,
+  BinaryPatchBaseMismatchError,
+  type CompressionAlgorithm,
+  type BinaryHunkOperation,
+  type BinaryChunkDigest,
+  type PatchSignatureEnvelope,
+  type CompressedPatch,
+  type CompressDiffOptions,
+  type VerifyPatchOptions,
+  type PatchVerificationResult,
+  type DecompressPatchOptions,
+  type DecompressionResult,
+} from './binaryDiffHunkCompressor'

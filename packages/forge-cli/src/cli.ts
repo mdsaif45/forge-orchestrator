@@ -116,6 +116,7 @@ import {
   ChangesetChunkAnsiHighlighter,
   ChangesetThreeWayMergeSynthesizer,
   ChangesetReversePatchSynthesizer,
+  BinaryDiffHunkCompressor,
   type ExportSurfaceReport,
   type FileCoverageData,
   type PatchFuzzReport,
@@ -287,7 +288,7 @@ ${ANSI.bold}COMMANDS${ANSI.reset}
   runs [list|inspect|events|cost] Inspect past runs, steps, token accounting, and event streams
   workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot|dlq|timeout|estimate|eval|checkpoint|simulate|subgraph|retry|semaphore] Inspect, plan, profile, snapshot workflows, manage DLQ, timeouts, cost estimation, expressions, checkpoints, dry-run simulation, subgraph extraction, retry policy, and concurrency semaphore
   artifacts [list|cat|grep|verify|export|merkle] Inspect, view, search, verify, export, and Merkle provenance audit
-  diff [revert|security|secrets|commit|merge|exports|hunks|cycles] <runId> [stepId|runIdB] Inspect physical diffs, rollback changes, security/secrets audit, commit synthesis, merge conflicts, AST export surface, patch hunk fuzziness, or dependency cycles
+  diff [revert|security|secrets|commit|merge|exports|hunks|cycles|binary-compress] <runId> [stepId|runIdB] Inspect physical diffs, rollback changes, security/secrets audit, commit synthesis, merge conflicts, AST export surface, patch hunk fuzziness, dependency cycles, or compressed binary deltas
   processes [list]           Inspect active and completed background process metrics
   status                     Display current repository status and Forge control plane state
   models [list|scan|auto|set|fallback|circuit] Inspect, auto-select, fallback routing, and circuit breakers
@@ -764,6 +765,13 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
         runId: positionals[2],
         stepId: positionals[3],
         dataDir,
+        json: values.json,
+      })
+    }
+    if (positionals[1] === 'binary-compress' || positionals[1] === 'binary-diff') {
+      return handleDiffBinaryCompress({
+        targetArg: positionals[2],
+        cwd,
         json: values.json,
       })
     }
@@ -7592,6 +7600,75 @@ async function handleDiffReversePatch(opts: {
     `\nChangeset Reverse Patch: Valid=${String(report.valid)}, InvertedHunks=${String(report.hunksInverted)}, InvertedAdditions=${String(report.totalAdditionsInverted)}, InvertedDeletions=${String(report.totalDeletionsInverted)}, DryRunSuccess=${String(report.dryRunSuccess)}\n`,
   )
   return report.valid ? 0 : 1
+}
+
+async function handleDiffBinaryCompress(opts: {
+  readonly targetArg?: string | undefined
+  readonly cwd: string
+  readonly json?: boolean | undefined
+}): Promise<number> {
+  const compressor = new BinaryDiffHunkCompressor({ chunkSize: 1024, algorithm: 'gzip' })
+
+  let baseBuffer: Buffer
+  let targetBuffer: Buffer
+  let filePath = 'artifact-delta.bin'
+
+  if (opts.targetArg) {
+    const resolvedTarget = resolve(opts.cwd, opts.targetArg)
+    if (!existsSync(resolvedTarget)) {
+      const errMsg = `Target file not found for binary diff compression: ${opts.targetArg}`
+      if (opts.json) {
+        console.log(JSON.stringify({ valid: false, error: errMsg }))
+      } else {
+        console.error(`${ANSI.red}Error: ${errMsg}${ANSI.reset}`)
+      }
+      return 1
+    }
+    baseBuffer = Buffer.alloc(0)
+    targetBuffer = readFileSync(resolvedTarget)
+    filePath = opts.targetArg
+  } else {
+    baseBuffer = Buffer.concat([Buffer.alloc(1024, 0x41), Buffer.alloc(1024, 0x42)])
+    const mutatedBlock = Buffer.alloc(1024, 0x42)
+    mutatedBlock[16] = 0x99
+    mutatedBlock[512] = 0xaa
+    targetBuffer = Buffer.concat([Buffer.alloc(1024, 0x41), mutatedBlock])
+  }
+
+  const patch = await compressor.compressDiff(baseBuffer, targetBuffer, { filePath })
+  const verification = compressor.verifyPatchSignature(patch)
+  const decompressed = await compressor.decompressPatch(patch, baseBuffer)
+  const valid = verification.valid && decompressed.fidelityVerified
+
+  const report = {
+    valid,
+    patchId: patch.patchId,
+    filePath: patch.filePath,
+    algorithm: patch.algorithm,
+    hunkCount: patch.hunkCount,
+    copiedChunksCount: patch.copiedChunksCount,
+    deltaChunksCount: patch.deltaChunksCount,
+    replacedChunksCount: patch.replacedChunksCount,
+    totalOriginalBytes: patch.totalOriginalBytes,
+    totalCompressedBytes: patch.totalCompressedBytes,
+    compressionRatio: patch.compressionRatio,
+    spaceSavingsPercent: patch.spaceSavingsPercent,
+    signatureAlgorithm: patch.signatureEnvelope.signatureAlgorithm,
+    manifestContentDigest: patch.signatureEnvelope.manifestContentDigest,
+    signatureValid: verification.signatureValid,
+    manifestDigestMatch: verification.manifestDigestMatch,
+    fidelityVerified: decompressed.fidelityVerified,
+  }
+
+  if (opts.json) {
+    console.log(JSON.stringify(report))
+    return valid ? 0 : 1
+  }
+
+  console.log(
+    `\nBinary Diff Hunk Compression (${report.filePath}): Valid=${String(report.valid)}, Hunks=${String(report.hunkCount)} (Copy=${String(report.copiedChunksCount)}, Delta=${String(report.deltaChunksCount)}, Replace=${String(report.replacedChunksCount)}), Bytes=${String(report.totalCompressedBytes)}/${String(report.totalOriginalBytes)}B (${String(report.spaceSavingsPercent)}% savings), Fidelity=${String(report.fidelityVerified)}\n`,
+  )
+  return valid ? 0 : 1
 }
 
 async function handleDiffCycles(opts: {

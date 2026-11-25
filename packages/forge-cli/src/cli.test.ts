@@ -5093,4 +5093,85 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('compresses and signs binary diff hunks with forge diff binary-compress (EVIDENCE-028)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['diff', 'binary-compress', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      valid: boolean
+      filePath: string
+      algorithm: string
+      hunkCount: number
+      copiedChunksCount: number
+      deltaChunksCount: number
+      totalOriginalBytes: number
+      totalCompressedBytes: number
+      spaceSavingsPercent: number
+      signatureAlgorithm: string
+      signatureValid: boolean
+      manifestDigestMatch: boolean
+      fidelityVerified: boolean
+    }
+    expect(parsed.valid).toBe(true)
+    expect(parsed.filePath).toBe('artifact-delta.bin')
+    expect(parsed.algorithm).toBe('gzip')
+    expect(parsed.hunkCount).toBe(2)
+    expect(parsed.copiedChunksCount).toBe(1)
+    expect(parsed.deltaChunksCount).toBe(1)
+    expect(parsed.totalOriginalBytes).toBe(2048)
+    expect(parsed.totalCompressedBytes).toBeLessThan(128)
+    expect(parsed.spaceSavingsPercent).toBeGreaterThan(90)
+    expect(parsed.signatureAlgorithm).toBe('sha256-digest')
+    expect(parsed.signatureValid).toBe(true)
+    expect(parsed.manifestDigestMatch).toBe(true)
+    expect(parsed.fidelityVerified).toBe(true)
+
+    // Verify compressing an explicit file in repoPath
+    const fileLogs: string[] = []
+    logSpy.mockImplementation((msg) => {
+      fileLogs.push(String(msg))
+    })
+    const fileCode = await runCli([
+      'diff',
+      'binary-compress',
+      'README.md',
+      '--cwd',
+      repoPath,
+      '--json',
+    ])
+    expect(fileCode).toBe(0)
+    const fileParsed = JSON.parse(fileLogs[0] ?? '{}') as {
+      valid: boolean
+      filePath: string
+      fidelityVerified: boolean
+    }
+    expect(fileParsed.valid).toBe(true)
+    expect(fileParsed.filePath).toBe('README.md')
+    expect(fileParsed.fidelityVerified).toBe(true)
+
+    // Verify fail-closed on missing target file
+    const missingLogs: string[] = []
+    logSpy.mockImplementation((msg) => {
+      missingLogs.push(String(msg))
+    })
+    const missingCode = await runCli([
+      'diff',
+      'binary-compress',
+      'does-not-exist.bin',
+      '--cwd',
+      repoPath,
+      '--json',
+    ])
+    expect(missingCode).toBe(1)
+    const missingParsed = JSON.parse(missingLogs[0] ?? '{}') as { valid: boolean; error: string }
+    expect(missingParsed.valid).toBe(false)
+    expect(missingParsed.error).toContain('Target file not found')
+
+    logSpy.mockRestore()
+  })
 })

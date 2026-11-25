@@ -5268,4 +5268,63 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('renders interactive terminal TUI snapshot and non-TTY fallback via forge tui (CLI-004)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'tui',
+      'Live Refactoring Session',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      snapshot: {
+        status: {
+          objective: string
+          toolCallsTotal: number
+          toolCallsSucceeded: number
+          branch?: string
+        }
+        timelineCount: number
+        diffStats: { additions: number; deletions: number }
+        ttyMode: boolean
+      }
+      renderedFrame: string
+    }
+    expect(parsed.snapshot.status.objective).toBe('Live Refactoring Session')
+    expect(parsed.snapshot.status.toolCallsTotal).toBe(1)
+    expect(parsed.snapshot.status.toolCallsSucceeded).toBe(1)
+    expect(parsed.snapshot.timelineCount).toBe(3)
+    expect(parsed.snapshot.diffStats.additions).toBe(1)
+    expect(parsed.renderedFrame).toContain('EXECUTION STATUS')
+    expect(parsed.renderedFrame).toContain('LIVE TIMELINE')
+    expect(parsed.renderedFrame).toContain('DIFF INSPECTOR')
+
+    // Also verify non-TTY fallback stdout render returns 0 without ANSI alt-screen escapes
+    const writes: string[] = []
+    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      writes.push(String(chunk))
+      return true
+    })
+    let nonTtyCode: number
+    try {
+      nonTtyCode = await runCli(['tui', '--cwd', repoPath, '--data-dir', dataDir])
+    } finally {
+      writeSpy.mockRestore()
+    }
+    expect(nonTtyCode).toBe(0)
+    const nonTtyOut = writes.join('')
+    expect(nonTtyOut).toContain('Non-TTY Fallback View')
+    expect(nonTtyOut).not.toContain('\x1b[?1049h')
+
+    logSpy.mockRestore()
+  })
 })

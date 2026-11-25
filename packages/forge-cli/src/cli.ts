@@ -250,6 +250,7 @@ import {
   WorkspaceDependencyAuditGate,
   WorkspaceSecurityComplianceMatrix,
   WorkspaceCapabilityRevocationTripwire,
+  WorkspacePolicyAuditReplayDaemon,
   type ConfigPolicyBaseline,
   type ConfigSchema,
   type ConfigPresetName,
@@ -298,7 +299,7 @@ ${ANSI.bold}COMMANDS${ANSI.reset}
   memory [search|index|stats] Search, index, and inspect cross-run solution memory and semantic patterns
   projects [list|prune]      Inspect multi-project workspace registry, health, and prune missing projects
   verify [pipeline|coverage|commit|manifest|report] Execute ordered verification pipeline, audit code coverage, validate commit messages, manifest audit, or JUnit/TAP assertion report
-  config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features|migrate|sync-env|drift|template|boundary] Inspect, profile, doctor, secret vault encryption, workspace bootstrap, policy lock, env interpolation, safe export, feature flags, schema migration, .env synchronization, schema drift, templates, and boundary guard
+  config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features|migrate|sync-env|drift|template|boundary|replay-audit] Inspect, profile, doctor, secret vault encryption, workspace bootstrap, policy lock, env interpolation, safe export, feature flags, schema migration, .env synchronization, schema drift, templates, boundary guard, and audit replay daemon
   db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal|replay|verify-ledger|diff-snapshots|savepoint|search|mmap-read] Inspect SQLite database storage, backup, restore, compaction, integrity/orphan audit, WAL checkpoint, quota monitor, audit journals, time-travel replay, ledger verification, snapshot delta diffing, savepoints, full-text search, and zero-copy mmap page inspection
 
 ${ANSI.bold}OPTIONS${ANSI.reset}
@@ -5490,6 +5491,78 @@ async function handleConfig(opts: {
       `\nWorkspace Capability Revocation Tripwire: State=${status.state}, RevokedLeases=${String(status.revokedLeasesCount)}, Trigger=${auditEntry.trigger.reason} (${auditEntry.trigger.severity})\n`,
     )
     return status.state === 'TRIPPED_GLOBAL' ? 0 : 1
+  }
+
+  if (action === 'replay-audit' || action === 'replay') {
+    const workspaceRoot = opts.cwd
+    const daemon = new WorkspacePolicyAuditReplayDaemon({
+      initialSpec: {
+        specId: 'ws-sandbox-v1',
+        policyRevision: 'rev-1.0',
+        workspaceRoot,
+        toolSandboxPolicy: {
+          defaultAction: 'allow',
+        },
+        batchSize: 2,
+      },
+    })
+
+    daemon.ingestEvents([
+      {
+        eventId: 'evt-hist-1',
+        timestamp: 1000,
+        actorId: 'agent-coder-1',
+        actionKind: 'TOOL_EXEC',
+        binary: 'git',
+        args: ['status'],
+        originalDecision: 'ALLOWED',
+        policyRevision: 'rev-1.0',
+      },
+      {
+        eventId: 'evt-hist-2',
+        timestamp: 2000,
+        actorId: 'agent-coder-1',
+        actionKind: 'FILE_ACCESS',
+        targetPath: 'src/index.ts',
+        originalDecision: 'ALLOWED',
+        policyRevision: 'rev-1.0',
+      },
+      {
+        eventId: 'evt-hist-3',
+        timestamp: 3000,
+        actorId: 'agent-rogue-2',
+        actionKind: 'NETWORK_EGRESS',
+        networkHost: 'exfil.untrusted.io',
+        originalDecision: 'ALLOWED',
+        policyRevision: 'rev-1.0',
+      },
+    ])
+
+    daemon.updatePolicySpec({
+      specId: 'ws-sandbox-v2',
+      policyRevision: 'rev-2.0',
+      workspaceRoot,
+      toolSandboxPolicy: {
+        defaultAction: 'block',
+        allowedBinaries: ['git', 'npm', 'node'],
+      },
+      blockedNetworkHosts: ['*.untrusted.io'],
+      restrictedSecretKeys: ['PROD_DB_KEY'],
+      batchSize: 2,
+    })
+
+    const summary = daemon.replayAll({ fromStart: true, replayRunId: 'cli-replay-eval' })
+    daemon.stop()
+    const status = daemon.getStatusReport()
+
+    if (opts.json) {
+      console.log(JSON.stringify({ summary, status }))
+      return 0
+    }
+    console.log(
+      `\nWorkspace Policy Audit Replay (${summary.policyRevision}): Replayed=${String(summary.totalEventsReplayed)}, Compliant=${String(summary.compliantEventsCount)}, Violations=${String(summary.violationsDetectedCount)}, Regressions=${String(summary.newlyBlockedRegressionsCount)} (${summary.overallStatus})\n`,
+    )
+    return 0
   }
 
   const err = `Unknown config action: ${action}`

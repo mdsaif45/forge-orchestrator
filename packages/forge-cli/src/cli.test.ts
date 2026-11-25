@@ -5221,4 +5221,51 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('replays historical audit events against dynamic workspace sandbox policies with forge config replay-audit (CONFIG-031)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'config',
+      'replay-audit',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      summary: {
+        policyRevision: string
+        totalEventsReplayed: number
+        batchesProcessed: number
+        compliantEventsCount: number
+        violationsDetectedCount: number
+        newlyBlockedRegressionsCount: number
+        overallStatus: string
+        attestationDigest: string
+      }
+      status: {
+        state: string
+        activePolicyRevision: string
+        totalEventsReplayed: number
+      }
+    }
+    expect(parsed.summary.policyRevision).toBe('rev-2.0')
+    expect(parsed.summary.totalEventsReplayed).toBe(3)
+    expect(parsed.summary.batchesProcessed).toBe(2)
+    expect(parsed.summary.compliantEventsCount).toBe(2)
+    expect(parsed.summary.violationsDetectedCount).toBe(1)
+    expect(parsed.summary.newlyBlockedRegressionsCount).toBe(1)
+    expect(parsed.summary.overallStatus).toBe('VIOLATIONS_DETECTED')
+    expect(parsed.summary.attestationDigest).toHaveLength(64)
+    expect(parsed.status.state).toBe('STOPPED')
+    expect(parsed.status.activePolicyRevision).toBe('rev-2.0')
+
+    logSpy.mockRestore()
+  })
 })

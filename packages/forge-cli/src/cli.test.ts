@@ -5327,4 +5327,50 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('executes reproducible synthetic benchmark harness and scorecard with forge benchmark run (BENCH-001)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['benchmark', 'run', '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      suiteName: string
+      overallVerdict: string
+      suiteEvidenceDigest: string
+      scorecard: {
+        totalScenarios: number
+        passedScenarios: number
+        failedScenarios: number
+        passRatePercent: number
+        assertionFidelityPercent: number
+        regressionDetected: boolean
+      }
+      scenarios: { scenarioId: string; passed: boolean; changedFiles: string[] }[]
+    }
+    expect(parsed.suiteName).toBe('forge-cli-benchmark')
+    expect(parsed.overallVerdict).toBe('PASS')
+    expect(parsed.suiteEvidenceDigest).toHaveLength(64)
+    expect(parsed.scorecard.totalScenarios).toBe(2)
+    expect(parsed.scorecard.passedScenarios).toBe(2)
+    expect(parsed.scorecard.failedScenarios).toBe(0)
+    expect(parsed.scorecard.passRatePercent).toBe(100)
+    expect(parsed.scorecard.assertionFidelityPercent).toBe(100)
+    expect(parsed.scorecard.regressionDetected).toBe(false)
+    expect(parsed.scenarios[0]?.changedFiles).toContain('src/math.ts')
+
+    // Fail closed on unknown benchmark scenario ID
+    const errLogs: string[] = []
+    logSpy.mockImplementation((msg) => {
+      errLogs.push(String(msg))
+    })
+    const errCode = await runCli(['benchmark', 'run', 'nonexistent-scenario', '--json'])
+    expect(errCode).toBe(1)
+    const errParsed = JSON.parse(errLogs[0] ?? '{}') as { error: string }
+    expect(errParsed.error).toContain('Unknown benchmark scenario')
+
+    logSpy.mockRestore()
+  })
 })

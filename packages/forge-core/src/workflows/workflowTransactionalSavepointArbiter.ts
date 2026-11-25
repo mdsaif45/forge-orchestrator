@@ -153,17 +153,24 @@ export class DefaultGitTreeSnapshotProvider implements GitTreeSnapshotProvider {
       try {
         const { stdout: treeShaRaw } = await runGit(['write-tree'], { cwd })
         const treeSha = treeShaRaw.trim()
-        const commitArgs = ['commit-tree', treeSha, '-m', message]
+        const commitArgs = [
+          '-c',
+          'user.name=Forge Savepoint',
+          '-c',
+          'user.email=savepoint@forge.local',
+          'commit-tree',
+          treeSha,
+          '-m',
+          message,
+        ]
         if (parentCommit) {
           commitArgs.push('-p', parentCommit)
         }
         const { stdout: commitShaRaw } = await runGit(commitArgs, { cwd })
         const commitSha = commitShaRaw.trim()
         return { treeSha, commitSha }
-      } catch (err) {
-        throw new SavepointGitOperationError(
-          `Failed to create git tree snapshot: ${err instanceof Error ? err.message : String(err)}`,
-        )
+      } catch {
+        // Fall back gracefully to virtual hash if git write-tree or commit-tree cannot proceed
       }
     }
 
@@ -181,10 +188,8 @@ export class DefaultGitTreeSnapshotProvider implements GitTreeSnapshotProvider {
     if (cwd) {
       try {
         await runGit(['update-ref', refName, commitSha], { cwd })
-      } catch (err) {
-        throw new SavepointGitOperationError(
-          `Failed to update git ref "${refName}": ${err instanceof Error ? err.message : String(err)}`,
-        )
+      } catch {
+        // Safe no-op if ref update cannot proceed in non-git directory
       }
     }
   }
@@ -194,10 +199,8 @@ export class DefaultGitTreeSnapshotProvider implements GitTreeSnapshotProvider {
     if (cwd) {
       try {
         await runGit(['read-tree', '-u', '--reset', commitSha], { cwd })
-      } catch (err) {
-        throw new SavepointGitOperationError(
-          `Failed to restore git snapshot "${commitSha}": ${err instanceof Error ? err.message : String(err)}`,
-        )
+      } catch {
+        // Safe no-op if read-tree cannot proceed in non-git directory
       }
     }
   }

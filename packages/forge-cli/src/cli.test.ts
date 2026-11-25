@@ -5061,6 +5061,8 @@ index 1111111..2222222 100644
       'workflows',
       'savepoint-eval',
       'wf-savepoint-eval',
+      '--cwd',
+      repoPath,
       '--data-dir',
       dataDir,
       '--json',

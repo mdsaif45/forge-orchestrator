@@ -5021,4 +5021,33 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('evaluates workspace capability emergency revocation tripwire with forge config tripwire-eval (CONFIG-030)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['config', 'tripwire-eval', '--data-dir', dataDir, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      auditEntry: {
+        newState: string
+        revokedLeasesCount: number
+        trigger: { reason: string; severity: string }
+      }
+      status: {
+        state: string
+        revokedLeasesCount: number
+      }
+    }
+    expect(parsed.auditEntry.newState).toBe('TRIPPED_GLOBAL')
+    expect(parsed.auditEntry.revokedLeasesCount).toBe(2)
+    expect(parsed.auditEntry.trigger.reason).toBe('ESCAPE_SANDBOX_PROBE')
+    expect(parsed.auditEntry.trigger.severity).toBe('CRITICAL')
+    expect(parsed.status.state).toBe('TRIPPED_GLOBAL')
+    expect(parsed.status.revokedLeasesCount).toBe(2)
+
+    logSpy.mockRestore()
+  })
 })

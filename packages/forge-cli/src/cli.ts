@@ -18,6 +18,7 @@ import {
 } from '@shared/domain'
 import type { WorkflowDetailView, WorkflowSummaryView } from '@shared/views'
 import { createForgeCore, resolveDataDir } from '@forge/core/core/forgeCore'
+import { ConcurrencyController } from '@forge/core/core/concurrencyController'
 import { executeDirectTask, type DirectTaskEvent } from '@forge/core/core/taskRunner'
 import { GitService } from '@forge/core/git'
 import { discoverOllamaModels } from '@forge/core/providers/ollamaDiscovery'
@@ -301,6 +302,7 @@ ${ANSI.bold}COMMANDS${ANSI.reset}
   status                     Display current repository status and Forge control plane state
   tui [runId]                Launch interactive multi-pane terminal TUI monitor and live diff renderer
   benchmark [run|latency|stress] [id] Run empirical benchmark harness, stage latency profiler, or concurrency stress suite
+  concurrency [status]       Inspect policy-governed execution concurrency pool and resource budget
   models [list|scan|auto|set|fallback|circuit] Inspect, auto-select, fallback routing, and circuit breakers
   runtimes [list|test|env|quota|rate-limit|cache|coerce|truncate|stream-turn|reflect] Inspect registered runtimes, test execution, sanitized environment, quotas, tool rate limits, cache, parameter coercion, buffer limiter, streaming dispatcher, and tool schema reflection
   context [inspect|optimize|compact|budget] Inspect prompt packet, context files, prefix caching optimization, sliding window compaction, or token window budgeting
@@ -455,6 +457,15 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       scenarioId: positionals[2],
       concurrency: values.concurrency ? parseInt(values.concurrency, 10) : undefined,
       thresholdMs: values.threshold ? parseFloat(values.threshold) : undefined,
+      json: values.json,
+    })
+  }
+
+  if (command === 'concurrency') {
+    return handleConcurrency({
+      action: positionals[1] ?? 'status',
+      concurrency: values.concurrency ? parseInt(values.concurrency, 10) : undefined,
+      tokenRateLimit: values.threshold ? parseInt(values.threshold, 10) : undefined,
       json: values.json,
     })
   }
@@ -1081,6 +1092,60 @@ async function handleTui(opts: {
     process.stdin.on('data', onData)
     interactiveTui.start()
   })
+}
+
+function handleConcurrency(opts: {
+  readonly action: string
+  readonly concurrency?: number | undefined
+  readonly tokenRateLimit?: number | undefined
+  readonly json: boolean
+}): number {
+  if (opts.action !== 'status') {
+    const errMsg = `Unknown concurrency action "${opts.action}". Supported: status`
+    if (opts.json) {
+      console.log(JSON.stringify({ error: errMsg }))
+    } else {
+      console.error(`${ANSI.red}Error: ${errMsg}${ANSI.reset}`)
+    }
+    return 1
+  }
+
+  try {
+    const controller = new ConcurrencyController({
+      policy: {
+        ...(opts.concurrency !== undefined ? { maxConcurrentSlots: opts.concurrency } : {}),
+        ...(opts.tokenRateLimit !== undefined
+          ? { tokenRateLimitPerMinute: opts.tokenRateLimit }
+          : {}),
+      },
+    })
+    const status = controller.getStatus()
+    if (opts.json) {
+      console.log(JSON.stringify(status))
+      return 0
+    }
+
+    const rssMb = (status.resources.memoryRssBytes / (1024 * 1024)).toFixed(1)
+    console.log(`\n${ANSI.bold}CONCURRENCY CONTROLLER STATUS (PAR-001)${ANSI.reset}`)
+    console.log(`  Scaling State: ${status.scalingState}`)
+    console.log(
+      `  Slots:         ${String(status.activeSlotCount)} active / ${String(status.effectiveMaxSlots)} effective max (${String(status.policy.maxConcurrentSlots)} configured)`,
+    )
+    console.log(`  Queued Tasks:  ${String(status.queuedCount)}`)
+    console.log(
+      `  Resources:     CPU Load=${String(status.resources.cpuLoadRatio)} (${String(status.resources.cpuCores)} cores), RSS=${rssMb} MiB, Tokens(60s)=${String(status.resources.tokensConsumedLastMinute)}/${String(status.policy.tokenRateLimitPerMinute)}`,
+    )
+    console.log(`  Digest:        ${status.statusDigest}\n`)
+    return 0
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (opts.json) {
+      console.log(JSON.stringify({ error: msg }))
+    } else {
+      console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+    }
+    return 1
+  }
 }
 
 async function handleBenchmark(opts: {

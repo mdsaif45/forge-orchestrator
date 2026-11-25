@@ -5460,4 +5460,51 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('inspects policy-governed concurrency controller telemetry with forge concurrency status (PAR-001)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'concurrency',
+      'status',
+      '--concurrency',
+      '6',
+      '--threshold',
+      '90000',
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      policy: { maxConcurrentSlots: number; tokenRateLimitPerMinute: number }
+      effectiveMaxSlots: number
+      activeSlotCount: number
+      queuedCount: number
+      scalingState: string
+      resources: { cpuCores: number; memoryRssBytes: number; tokensConsumedLastMinute: number }
+      statusDigest: string
+    }
+    expect(parsed.policy.maxConcurrentSlots).toBe(6)
+    expect(parsed.policy.tokenRateLimitPerMinute).toBe(90_000)
+    expect(parsed.effectiveMaxSlots).toBeGreaterThanOrEqual(1)
+    expect(parsed.activeSlotCount).toBe(0)
+    expect(parsed.queuedCount).toBe(0)
+    expect(parsed.resources.cpuCores).toBeGreaterThanOrEqual(1)
+    expect(parsed.resources.memoryRssBytes).toBeGreaterThan(0)
+    expect(parsed.statusDigest).toHaveLength(64)
+
+    // Unknown action fails closed
+    const errLogs: string[] = []
+    logSpy.mockImplementation((msg) => {
+      errLogs.push(String(msg))
+    })
+    const errCode = await runCli(['concurrency', 'invalid-action', '--json'])
+    expect(errCode).toBe(1)
+    const errParsed = JSON.parse(errLogs[0] ?? '{}') as { error: string }
+    expect(errParsed.error).toContain('Unknown concurrency action')
+
+    logSpy.mockRestore()
+  })
 })

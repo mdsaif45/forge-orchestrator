@@ -20,6 +20,7 @@ import type { WorkflowDetailView, WorkflowSummaryView } from '@shared/views'
 import { createForgeCore, resolveDataDir } from '@forge/core/core/forgeCore'
 import { ConcurrencyController } from '@forge/core/core/concurrencyController'
 import { SubagentCapabilityQuarantineCoordinator } from '@forge/core/core/subagentCapabilityQuarantineCoordinator'
+import { WorkflowDslParser } from '@forge/core/workflows/dslParser'
 import {
   MultiRepoWorkspaceCoordinator,
   type MultiRepoWorkspaceManifestInput,
@@ -300,7 +301,7 @@ ${ANSI.bold}USAGE${ANSI.reset}
 ${ANSI.bold}COMMANDS${ANSI.reset}
   run <task>                 Execute an autonomous coding task against the current repository
   runs [list|inspect|events|cost] Inspect past runs, steps, token accounting, and event streams
-  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot|dlq|timeout|estimate|eval|checkpoint|simulate|subgraph|retry|semaphore] Inspect, plan, profile, snapshot workflows, manage DLQ, timeouts, cost estimation, expressions, checkpoints, dry-run simulation, subgraph extraction, retry policy, and concurrency semaphore
+  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot|dlq|timeout|estimate|eval|checkpoint|simulate|subgraph|retry|semaphore|parse-dsl] Inspect, plan, profile, snapshot workflows, manage DLQ, timeouts, cost estimation, expressions, checkpoints, dry-run simulation, subgraph extraction, retry policy, concurrency semaphore, and declarative DSL parser
   artifacts [list|cat|grep|verify|export|merkle] Inspect, view, search, verify, export, and Merkle provenance audit
   diff [revert|security|secrets|commit|merge|exports|hunks|cycles|binary-compress] <runId> [stepId|runIdB] Inspect physical diffs, rollback changes, security/secrets audit, commit synthesis, merge conflicts, AST export surface, patch hunk fuzziness, dependency cycles, or compressed binary deltas
   processes [list]           Inspect active and completed background process metrics
@@ -2609,6 +2610,8 @@ async function handleWorkflows(opts: {
       'prune',
       'savepoint-eval',
       'savepoint',
+      'parse-dsl',
+      'dsl',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -3086,6 +3089,48 @@ async function handleWorkflows(opts: {
         `\nWorkflow Transactional Savepoints: Total=${String(evalResult.totalSavepoints)}, CanRewind=${String(evalResult.canRewind)}, Latest=${evalResult.latestSavepointId ?? 'None'}\n`,
       )
       return evalResult.canRewind ? 0 : 1
+    }
+
+    if (action === 'parse-dsl' || action === 'dsl') {
+      if (!targetId) {
+        const msg =
+          'No DSL workflow file provided. Usage: forge workflows parse-dsl <file> [--json]'
+        if (opts.json) {
+          console.log(JSON.stringify({ valid: false, error: msg }))
+        } else {
+          console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+        }
+        return 1
+      }
+
+      const dslPath = resolve(opts.cwd, targetId)
+      if (!existsSync(dslPath)) {
+        const msg = `DSL workflow file not found: ${dslPath}`
+        if (opts.json) {
+          console.log(JSON.stringify({ valid: false, error: msg }))
+        } else {
+          console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+        }
+        return 1
+      }
+
+      const rawDsl = readFileSync(dslPath, 'utf8')
+      const params = opts.task ? (JSON.parse(opts.task) as Record<string, unknown>) : undefined
+      const parser = new WorkflowDslParser()
+      const result = parser.parseAndCompile(rawDsl, params !== undefined ? { params } : {})
+      if (opts.json) {
+        console.log(JSON.stringify(result))
+      } else if (result.valid && result.template) {
+        console.log(
+          `\nWorkflow DSL Valid (${result.format.toUpperCase()}): ${result.template.name} [${String(result.template.nodes.length)} nodes, ${String(result.template.edges.length)} edges]\n`,
+        )
+      } else {
+        console.error(`${ANSI.red}Workflow DSL Validation Failed:${ANSI.reset}`)
+        for (const diag of result.diagnostics) {
+          console.error(`  - [${diag.code}] (${diag.path}) ${diag.message}`)
+        }
+      }
+      return result.valid ? 0 : 1
     }
 
     if (action === 'retry') {

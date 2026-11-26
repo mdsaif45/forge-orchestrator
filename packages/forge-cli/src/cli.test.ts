@@ -5617,4 +5617,60 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('parses and validates human-editable YAML workflow DSL files with forge workflows parse-dsl (COMP-001)', async () => {
+    const dslFilePath = join(repoPath, 'pipeline.forge.yaml')
+    writeFileSync(
+      dslFilePath,
+      [
+        'id: cli-dsl-test',
+        'name: CLI DSL Verification',
+        'description: Validate workflow compilation from CLI',
+        'nodes:',
+        '  - id: plan',
+        '    title: Plan Work',
+        '    type: agent',
+        '    runtimeType: forge-native',
+        '  - id: verify',
+        '    title: Run Suite',
+        '    type: verification',
+        '    runtimeType: forge-engine',
+        '    dependsOn: [plan]',
+      ].join('\n'),
+      'utf8',
+    )
+
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'workflows',
+      'parse-dsl',
+      dslFilePath,
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      valid: boolean
+      format: string
+      topologicalOrder: string[]
+      template: { id: string; nodes: unknown[]; edges: unknown[] }
+      digest: string
+    }
+    expect(parsed.valid).toBe(true)
+    expect(parsed.format).toBe('yaml')
+    expect(parsed.topologicalOrder).toEqual(['plan', 'verify'])
+    expect(parsed.template.id).toBe('cli-dsl-test')
+    expect(parsed.template.nodes).toHaveLength(2)
+    expect(parsed.template.edges).toHaveLength(1)
+    expect(parsed.digest).toHaveLength(64)
+
+    logSpy.mockRestore()
+  })
 })

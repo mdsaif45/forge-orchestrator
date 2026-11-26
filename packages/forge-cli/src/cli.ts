@@ -20,6 +20,10 @@ import type { WorkflowDetailView, WorkflowSummaryView } from '@shared/views'
 import { createForgeCore, resolveDataDir } from '@forge/core/core/forgeCore'
 import { ConcurrencyController } from '@forge/core/core/concurrencyController'
 import { SubagentCapabilityQuarantineCoordinator } from '@forge/core/core/subagentCapabilityQuarantineCoordinator'
+import {
+  MultiRepoWorkspaceCoordinator,
+  type MultiRepoWorkspaceManifestInput,
+} from '@forge/core/projects'
 import { executeDirectTask, type DirectTaskEvent } from '@forge/core/core/taskRunner'
 import { GitService, WorktreeIsolationManager } from '@forge/core/git'
 import { discoverOllamaModels } from '@forge/core/providers/ollamaDiscovery'
@@ -309,7 +313,7 @@ ${ANSI.bold}COMMANDS${ANSI.reset}
   runtimes [list|test|env|quota|rate-limit|cache|coerce|truncate|stream-turn|reflect] Inspect registered runtimes, test execution, sanitized environment, quotas, tool rate limits, cache, parameter coercion, buffer limiter, streaming dispatcher, and tool schema reflection
   context [inspect|optimize|compact|budget|quarantine-eval] Inspect prompt packet, context files, prefix caching optimization, sliding window compaction, token window budgeting, or subagent capability quarantine
   memory [search|index|stats] Search, index, and inspect cross-run solution memory and semantic patterns
-  projects [list|prune]      Inspect multi-project workspace registry, health, and prune missing projects
+  projects [list|prune|multi-repo] Inspect multi-project workspace registry, health, prune missing projects, or coordinate multi-repo workspaces
   verify [pipeline|coverage|commit|manifest|report] Execute ordered verification pipeline, audit code coverage, validate commit messages, manifest audit, or JUnit/TAP assertion report
   config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features|migrate|sync-env|drift|template|boundary|replay-audit] Inspect, profile, doctor, secret vault encryption, workspace bootstrap, policy lock, env interpolation, safe export, feature flags, schema migration, .env synchronization, schema drift, templates, boundary guard, and audit replay daemon
   db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal|replay|verify-ledger|diff-snapshots|savepoint|search|mmap-read] Inspect SQLite database storage, backup, restore, compaction, integrity/orphan audit, WAL checkpoint, quota monitor, audit journals, time-travel replay, ledger verification, snapshot delta diffing, savepoints, full-text search, and zero-copy mmap page inspection
@@ -7338,6 +7342,41 @@ async function handleProjects(opts: {
   const core = createForgeCore({ dataDir: opts.dataDir })
   try {
     const projectStore = new ProjectStore(core.db)
+    if (opts.action === 'multi-repo' || opts.action === 'coordinate') {
+      const manifestInput: MultiRepoWorkspaceManifestInput = opts.targetId
+        ? (JSON.parse(
+            readFileSync(resolve(opts.targetId), 'utf8'),
+          ) as MultiRepoWorkspaceManifestInput)
+        : {
+            workspaceId: 'forge-cli-workspace',
+            name: basename(opts.cwd),
+            repos: [{ repoId: 'root', repositoryPath: opts.cwd, role: 'primary' }],
+          }
+
+      const coordinator = new MultiRepoWorkspaceCoordinator(manifestInput)
+      const session = await coordinator.provisionWorkspace('forge-cli', 'verify-multi-repo')
+      try {
+        const report = await coordinator.reconcileSession(session.sessionId)
+        if (opts.json) {
+          console.log(JSON.stringify(report))
+        } else {
+          printBanner()
+          console.log(
+            `\n${ANSI.bold}MULTI-REPO WORKSPACE COORDINATION (${report.workspaceId})${ANSI.reset}`,
+          )
+          console.log(`  Execution Order: ${report.executionOrder.join(' -> ')}`)
+          console.log(
+            `  Repos:           ${String(report.totalRepos)} isolated, ${String(report.modifiedRepoCount)} modified`,
+          )
+          console.log(`  Cross-Contam:    ${report.crossContaminationFree ? 'CLEAN' : 'DETECTED'}`)
+          console.log(`  Digest:          ${report.reconciliationDigest}\n`)
+        }
+        return report.crossContaminationFree ? 0 : 1
+      } finally {
+        await coordinator.disposeSession(session.sessionId)
+      }
+    }
+
     if (opts.action === 'prune') {
       const result = await pruneMissingProjects(projectStore, core.runs)
       if (opts.json) {

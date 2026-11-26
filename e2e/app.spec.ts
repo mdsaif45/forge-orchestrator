@@ -219,7 +219,8 @@ test('a project can be created, and survives a restart', async () => {
   // another route. Navigate explicitly rather than inheriting wherever it stopped.
   await page.getByRole('link', { name: 'Overview' }).click()
 
-  await page.getByRole('button', { name: 'New project' }).click()
+  await page.getByRole('button', { name: 'Active project' }).click()
+  await page.getByRole('menuitem', { name: '+ New project' }).click()
 
   // Forward slashes: git reports POSIX-style paths, and the domain's `repoPath`
   // refuses a backslash for exactly that reason.
@@ -246,7 +247,7 @@ test('a project can be created, and survives a restart', async () => {
 
   // The switcher is the shell's own view of what exists, so seeing the name there
   // means the create round-tripped through main and was re-read.
-  await expect(page.getByRole('combobox', { name: 'Active project' })).toHaveValue(/.+/)
+  await expect(page.getByRole('button', { name: 'Active project' })).toContainText('E2E Project')
   await expect(page.getByRole('heading', { name: 'E2E Project' })).toBeVisible()
   await expect(page.getByText('never modify migrations without approval')).toBeVisible()
 
@@ -342,32 +343,29 @@ test('workflow page renders graph, starts workflow and allows step inspection', 
   await expect(page.getByRole('tab', { name: 'Prompt Packet' })).toBeVisible()
 })
 
-test('question queue displays open questions and allows answering to unblock', async () => {
-  await page.getByRole('link', { name: 'Questions' }).click()
-  await expect(page.getByRole('heading', { name: 'Questions' })).toBeVisible()
-  await expect(page.getByText('One place for every interruption', { exact: false })).toBeVisible()
-})
+test('streamlined navigation omits Questions and Decisions and topbar project menu opens settings', async () => {
+  const nav = page.getByRole('navigation', { name: 'Main' })
+  await expect(nav.getByRole('link', { name: 'Questions' })).toHaveCount(0)
+  await expect(nav.getByRole('link', { name: 'Decisions' })).toHaveCount(0)
 
-test('decisions page allows proposing, viewing and locking architectural decisions', async () => {
-  await page.getByRole('link', { name: 'Decisions' }).click()
-  await expect(page.getByRole('heading', { name: 'Decisions' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '+ Propose Decision' })).toBeVisible()
+  // Legacy deep links redirect cleanly to Workflows
+  await page.evaluate(() => {
+    window.location.hash = '#/questions'
+  })
+  await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible()
 
-  // Open propose dialog
-  await page.getByRole('button', { name: '+ Propose Decision' }).click()
-  await expect(page.getByRole('heading', { name: 'Propose Architectural Decision' })).toBeVisible()
+  await page.evaluate(() => {
+    window.location.hash = '#/decisions'
+  })
+  await expect(page.getByRole('heading', { name: 'Workflows' })).toBeVisible()
 
-  await page.getByLabel('Decision Statement').fill('Use PostgreSQL for multi-tenant data')
-  await page.getByLabel('Rationale & Justification').fill('Row-level security and ACID compliance')
-  await page.getByRole('button', { name: 'Record Proposal' }).click()
-
-  // Appears in list
-  await expect(page.getByText('Use PostgreSQL for multi-tenant data')).toBeVisible()
-  await expect(page.getByText('Proposed', { exact: true })).toBeVisible()
-
-  // Lock decision
-  await page.getByRole('button', { name: 'Lock Decision' }).click()
-  await expect(page.getByText('Locked (Axiom A4)', { exact: true })).toBeVisible()
+  // Topbar unified Project Switcher lists the created project + actions
+  await page.getByRole('button', { name: 'Active project' }).click()
+  await expect(page.getByRole('menuitem', { name: /E2E Project/i })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: '+ New project' })).toBeVisible()
+  await page.getByRole('menuitem', { name: 'Project settings' }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.keyboard.press('Escape')
 })
 
 test('changes review page renders diffs read-only and supports edit mode', async () => {

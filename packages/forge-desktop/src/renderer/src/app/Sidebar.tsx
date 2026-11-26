@@ -77,7 +77,7 @@ export function Sidebar(): React.JSX.Element {
                   route={route}
                   collapsed
                   badge={
-                    route.path === '/questions' && unansweredCount > 0 ? unansweredCount : null
+                    route.path === '/workflows' && unansweredCount > 0 ? unansweredCount : null
                   }
                 />
               </Tooltip>
@@ -85,7 +85,7 @@ export function Sidebar(): React.JSX.Element {
               <NavItem
                 route={route}
                 collapsed={false}
-                badge={route.path === '/questions' && unansweredCount > 0 ? unansweredCount : null}
+                badge={route.path === '/workflows' && unansweredCount > 0 ? unansweredCount : null}
               />
             )}
           </li>

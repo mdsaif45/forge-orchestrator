@@ -1,4 +1,4 @@
-import { createHashRouter, RouterProvider } from 'react-router'
+import { createHashRouter, Navigate, RouterProvider } from 'react-router'
 import { NotFound } from './app/NotFound'
 import { Overview } from './app/Overview'
 import { ROUTES } from './app/routes'
@@ -7,8 +7,6 @@ import { Shell } from './app/Shell'
 import { ToastProvider } from './ui'
 
 import { WorkflowPage } from './app/workflow/WorkflowPage'
-import { QuestionsPage } from './app/QuestionsPage'
-import { DecisionsPage } from './app/DecisionsPage'
 import { ChangesPage } from './app/ChangesPage'
 import { AgentsPage } from './app/AgentsPage'
 import { AskPage } from './app/AskPage'
@@ -31,12 +29,13 @@ const router = createHashRouter([
         if (route.path === '/') return { index: true as const, element: <Overview /> }
         if (route.path === '/ask') return { path: 'ask', element: <AskPage /> }
         if (route.path === '/workflows') return { path: 'workflows', element: <WorkflowPage /> }
-        if (route.path === '/questions') return { path: 'questions', element: <QuestionsPage /> }
-        if (route.path === '/decisions') return { path: 'decisions', element: <DecisionsPage /> }
         if (route.path === '/changes') return { path: 'changes', element: <ChangesPage /> }
         if (route.path === '/agents') return { path: 'agents', element: <AgentsPage /> }
         return { path: 'settings', element: <Settings /> }
       }),
+      // Backward-compatible redirects: human Q&A and decision locks are thread-native inside /workflows
+      { path: 'questions', element: <Navigate to="/workflows" replace /> },
+      { path: 'decisions', element: <Navigate to="/workflows" replace /> },
       { path: '*', element: <NotFound /> },
     ],
   },

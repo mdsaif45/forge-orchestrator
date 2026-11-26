@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { Button, Input, MarkdownRenderer, ScrollArea, useToast } from '../ui'
+import { Button, Icon, Input, MarkdownRenderer, ScrollArea, useToast } from '../ui'
 import { cn } from '../ui'
-import { ThinkingIcon } from './icons'
 import { useProjectStore } from './projectStore'
 import { unwrap } from '@renderer/ipc'
 import { DEFAULT_PROVIDERS, type StoredProviderConfig } from './Settings'
@@ -109,7 +108,8 @@ function ThinkingBlock({
         aria-expanded={open}
         className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-[11px] text-(--color-text-muted) hover:text-(--color-text)"
       >
-        <ThinkingIcon
+        <Icon
+          name="sparkles"
           className={cn(
             'size-3.5 text-(--color-text-muted)',
             streaming && 'animate-pulse text-(--color-accent)',
@@ -202,97 +202,6 @@ function formatRelativeTime(timestamp: string, id?: string): string {
   return `${String(Math.floor(diffDays / 365))}y ago`
 }
 
-function PromptCopyIcon({ className }: { readonly className?: string }): React.JSX.Element {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className ?? 'size-3.5'}
-      aria-hidden="true"
-    >
-      <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
-      <path d="M3.5 10.5h-1a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v1" />
-    </svg>
-  )
-}
-
-function PromptCheckIcon({ className }: { readonly className?: string }): React.JSX.Element {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.75"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className ?? 'size-3.5'}
-      aria-hidden="true"
-    >
-      <path d="M3.5 8.5 6.5 11.5 12.5 4.5" />
-    </svg>
-  )
-}
-
-function PromptRetryIcon({ className }: { readonly className?: string }): React.JSX.Element {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className ?? 'size-3.5'}
-      aria-hidden="true"
-    >
-      <path d="M2.5 3v4h4" />
-      <path d="M3.5 9.5a5 5 0 1 0 1.2-5.3L2.5 7" />
-    </svg>
-  )
-}
-
-function PromptForkIcon({ className }: { readonly className?: string }): React.JSX.Element {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className ?? 'size-3.5'}
-      aria-hidden="true"
-    >
-      <circle cx="4.5" cy="4.5" r="1.75" />
-      <circle cx="4.5" cy="11.5" r="1.75" />
-      <circle cx="11.5" cy="4.5" r="1.75" />
-      <path d="M4.5 6.25v3.5" />
-      <path d="M11.5 6.25a3.5 3.5 0 0 1-3.5 3.5H4.5" />
-    </svg>
-  )
-}
-
-function SendArrowIcon({ className }: { readonly className?: string }): React.JSX.Element {
-  return (
-    <svg
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className ?? 'size-4'}
-      aria-hidden="true"
-    >
-      <path d="M3 8h10M9 4l4 4-4 4" />
-    </svg>
-  )
-}
-
 function EngineSelectDropdown({
   value,
   onChange,
@@ -337,19 +246,13 @@ function EngineSelectDropdown({
         className="flex items-center gap-1.5 rounded-lg border border-(--color-border) bg-(--color-surface-inset) px-2.5 py-1 text-[11.5px] font-medium text-(--color-text-muted) hover:text-(--color-text) hover:border-(--color-border-strong) transition-colors cursor-pointer"
       >
         <span className="truncate max-w-[150px] sm:max-w-[200px]">{selected?.label ?? value}</span>
-        <svg
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
+        <Icon
+          name="chevron-down"
           className={cn(
             'size-3 shrink-0 text-(--color-text-subtle) transition-transform duration-150',
             open ? 'rotate-180' : '',
           )}
-          aria-hidden="true"
-        >
-          <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        />
       </button>
 
       {open && (
@@ -481,19 +384,13 @@ function ModelSelectDropdown({
         <span className="truncate max-w-[130px] sm:max-w-[180px]">
           {(selected?.label ?? value) || 'Select Model'}
         </span>
-        <svg
-          viewBox="0 0 16 16"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
+        <Icon
+          name="chevron-down"
           className={cn(
             'size-3 shrink-0 text-(--color-text-subtle) transition-transform duration-150',
             open ? 'rotate-180' : '',
           )}
-          aria-hidden="true"
-        >
-          <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        />
       </button>
 
       {open && (
@@ -1752,9 +1649,9 @@ ${toolTrail}`
                             className="flex size-5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
                           >
                             {copiedPromptId === msg.id ? (
-                              <PromptCheckIcon className="size-3.5 text-(--color-success)" />
+                              <Icon name="check" className="size-3.5 text-(--color-success)" />
                             ) : (
-                              <PromptCopyIcon className="size-3.5" />
+                              <Icon name="copy" className="size-3.5" />
                             )}
                           </button>
                           <button
@@ -1766,7 +1663,7 @@ ${toolTrail}`
                             aria-label="Edit & retry prompt"
                             className="flex size-5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
                           >
-                            <PromptRetryIcon className="size-3.5" />
+                            <Icon name="refresh" className="size-3.5" />
                           </button>
                           <button
                             type="button"
@@ -1777,7 +1674,7 @@ ${toolTrail}`
                             aria-label="Fork conversation from this prompt"
                             className="flex size-5 items-center justify-center rounded-md text-(--color-text-subtle) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer"
                           >
-                            <PromptForkIcon className="size-3.5" />
+                            <Icon name="git-branch" className="size-3.5" />
                           </button>
                         </div>
 
@@ -1921,7 +1818,7 @@ ${toolTrail}`
                     aria-label="Send message"
                     className="flex size-8 items-center justify-center rounded-full bg-(--color-accent) text-white shadow-xs transition-all hover:bg-(--color-accent-hover) disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer shrink-0"
                   >
-                    <SendArrowIcon className="size-4" />
+                    <Icon name="arrow-right" className="size-4" />
                   </button>
                 </div>
               </div>

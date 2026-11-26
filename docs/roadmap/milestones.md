@@ -3,7 +3,7 @@
 **Status:** ACTIVE
 **Authority:** Planning Truth
 **Last Updated:** 2026-11-26
-**Baseline:** `main` @ `cfb0f4c` (PR #488 merged) | Milestones M0–M16 100% COMPLETE
+**Baseline:** `main` @ `34b85d9` (PR #503 merged) | Milestones M0–M16 100% COMPLETE; M17 Phases 1A–4 DONE, Phase 5 IN-PROGRESS
 **Related Architecture:** [architecture-overview.md](../architecture/architecture-overview.md)
 **Related Progress:** [current-state.md](../project/current-state.md)
 
@@ -162,3 +162,17 @@ Hardened autonomous execution, state, evidence, workflow, config, and interactiv
 | **ARCH-004 / 007** | #453, #462 | P0 | **DONE** | ARCH-003 | Physically migrate headless core subsystems into `@forge/core`. | `packages/forge-core/`. | PR #459, PR #465 |
 | **ARCH-005 / 008** | #454, #463 | P0 | **DONE** | ARCH-004 | Physically migrate standalone CLI executable & subcommands into `@forge/cli`. | `packages/forge-cli/`. | PR #460, PR #466 |
 | **ARCH-006 / 009** | #455, #464 | P0 | **DONE** | ARCH-005 | Physically migrate Electron main, preload bridge & React 19 UI into `@forge/desktop` and retire `src/`. | `packages/forge-desktop/` (`src/` retired). | PR #461, PR #467 (`5ebeaf0`) |
+
+---
+
+## M17: Centralized Design System and Thread-Native Orchestration UI (GitHub Milestone #28 — Active)
+
+| ID | Issue | Priority | Status | Depends On | Description | Target Evidence | Implementation PR |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **M17-P1A** | #491 | P0 | **DONE** | ADR-008 | Extract centralized `@forge/ui` package, semantic tokens (`tokens.css`), CSS layers, spacing/typography scale, and semantic `lucide-react` icon registry. | `packages/forge-ui/src/` + tests. | PR #498 (`c157b58`) |
+| **M17-P1B** | #492 | P0 | **DONE** | M17-P1A | Build accessible `@base-ui/react` headless primitives library (`Button`, `IconButton`, `DropdownMenu`, `ContextMenu`, `Collapsible`, `List`, `Tabs`, `Panel`, `Toolbar`, `Dialog`, `Drawer`, `Toast`). | `packages/forge-ui/src/primitives/` + `primitives.test.tsx`. | PR #499 (`512600a`) |
+| **M17-P2** | #493 | P1 | **DONE** | M17-P1B | Unify topbar Project Switcher (`+ New project` + `Project settings`) inside `StatusStrip` and remove standalone `Questions` & `Decisions` links from `Sidebar`. | `StatusStrip.tsx`, `Sidebar.tsx`, `routes.ts` + tests. | PR #500 (`0599101`) |
+| **M17-P3A** | #494 | P0 | **DONE** | M17-P2 | Build continuous chronological thread timeline uniting planning, tool calls, reasoning blocks, and live execution streams inside `WorkflowPage`. | `packages/forge-desktop/src/renderer/src/app/workflow/thread/` + `threadProjection.test.ts`. | PR #501 (`8d58a13`) |
+| **M17-P3B** | #495 | P0 | **DONE** | M17-P3A | Embed interactive Q&A cards (`AWAITING_USER`), architectural decision lock cards (`Axiom A4`), and plan approval gates inline within the thread. | `ThreadContainer.tsx`, `ThreadContainer.test.tsx`. | PR #502 (`23f5fbd`) |
+| **M17-P4** | #496 | P0 | **DONE** | M17-P3B | Promote global top-right execution drawer (`RightOverviewPanel`, `DrawerPlanView` for `planning.md`, `DrawerGitView` + `git:stage`/`unstage`/`commit`). | `Shell.tsx`, `DrawerPlanView.tsx`, `DrawerGitView.tsx`, `RightOverviewPanel.test.tsx`. | PR #503 (`34b85d9`) |
+| **M17-P5** | #497 | P1 | **IN-PROGRESS** | M17-P4 | Complete desktop page/viewer migration onto `@forge/ui`, extend `check:ui`, expand Playwright E2E (`e2e/app.spec.ts`), and synchronize docs & `ADR-009`. | `Overview.tsx`, `ChangesPage.tsx`, `scripts/ui-check.cjs`, `e2e/app.spec.ts`, `ADR-009`. | Branch `feat/m17-phase-5-migration-verification-docs` |

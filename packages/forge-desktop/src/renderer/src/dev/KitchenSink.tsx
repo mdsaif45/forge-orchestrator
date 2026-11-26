@@ -123,13 +123,13 @@ export function KitchenSink(): React.JSX.Element {
 
           <Section title="Icon buttons">
             <Row>
-              <IconButton label="Refresh" icon={<RefreshIcon />} />
-              <IconButton label="Refresh" variant="secondary" icon={<RefreshIcon />} />
-              <IconButton label="Delete" variant="danger" icon={<RefreshIcon />} />
-              <IconButton label="Small" size="sm" icon={<RefreshIcon />} />
-              <IconButton label="Large" size="lg" icon={<RefreshIcon />} />
+              <IconButton label="Refresh" icon={<Icon name="refresh" />} />
+              <IconButton label="Refresh" variant="secondary" icon={<Icon name="refresh" />} />
+              <IconButton label="Delete" variant="danger" icon={<Icon name="trash" />} />
+              <IconButton label="Small" size="sm" icon={<Icon name="refresh" />} />
+              <IconButton label="Large" size="lg" icon={<Icon name="refresh" />} />
               <Tooltip content="Tooltips appear on hover and on focus">
-                <IconButton label="With tooltip" icon={<RefreshIcon />} />
+                <IconButton label="With tooltip" icon={<Icon name="refresh" />} />
               </Tooltip>
             </Row>
           </Section>
@@ -527,13 +527,4 @@ function Section({
 
 function Row({ children }: { readonly children: React.ReactNode }): React.JSX.Element {
   return <div className="flex flex-wrap items-center gap-2">{children}</div>
-}
-
-function RefreshIcon(): React.JSX.Element {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-      <path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" strokeLinecap="round" />
-      <path d="M13.5 2.5V5H11" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
 }

@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { unwrap } from '../ipc'
+import { Badge, Button, Icon, Input, StatusDot } from '../ui'
 import { useProjectStore } from './projectStore'
 import { useOverviewStore, type WorkspaceTab } from './overviewStore'
-import { CheckIcon, ChevronRightIcon, CopyIcon, TerminalIcon } from './icons'
 
 export interface TerminalTabViewerProps {
   readonly tab: WorkspaceTab
@@ -134,72 +134,62 @@ export function TerminalTabViewer({ tab }: TerminalTabViewerProps): React.JSX.El
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[#0a0d12] text-[#e6edf3]">
+    <div className="flex h-full flex-col overflow-hidden bg-(--color-canvas) text-(--color-text)">
       {/* ── Breadcrumb & Action Bar ── */}
-      <div className="flex h-9 shrink-0 items-center justify-between border-b border-(--color-border)/70 bg-(--color-surface) px-3 select-none text-[12px]">
+      <div className="flex h-9 shrink-0 items-center justify-between border-b border-(--color-edge) bg-(--color-surface) px-3 select-none typography-ui-label">
         {/* Breadcrumb Navigation */}
-        <div className="flex items-center gap-1.5 min-w-0 font-mono text-[11px] text-(--color-text-muted)">
+        <div className="flex min-w-0 items-center gap-1.5 font-mono typography-micro text-(--color-text-muted)">
           <span className="font-semibold text-(--color-text)">{projectName}</span>
-          <ChevronRightIcon className="size-2 text-(--color-text-subtle)" />
+          <Icon name="chevron-right" className="size-3 text-(--color-text-subtle)" />
           <div className="flex items-center gap-1.5 font-semibold text-(--color-text)">
-            <TerminalIcon className="size-3 text-(--color-text-muted)" />
+            <Icon name="terminal" className="size-3 text-(--color-text-muted)" />
             <span>{tab.title}</span>
           </div>
-          <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.2 text-[9.5px] font-sans font-medium bg-emerald-500/10 text-emerald-400 ml-1">
-            <span className="size-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            {isRunning ? 'Running' : 'Ready'}
-          </span>
+          <Badge tone={isRunning ? 'success' : 'neutral'} size="sm" className="ml-1">
+            <StatusDot status={isRunning ? 'running' : 'passed'} pulse={isRunning} />
+            <span>{isRunning ? 'Running' : 'Ready'}</span>
+          </Badge>
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            type="button"
-            title="Clear output"
-            onClick={handleClearOutput}
-            className="rounded px-2 py-0.5 text-[10.5px] text-(--color-text-muted) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer border border-(--color-border)"
-          >
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button size="xs" variant="ghost" title="Clear output" onClick={handleClearOutput}>
             Clear
-          </button>
-          <button
-            type="button"
-            title="Copy terminal buffer"
-            onClick={handleCopyOutput}
-            className="flex items-center gap-1 rounded px-2 py-0.5 text-[10.5px] text-(--color-text-muted) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors cursor-pointer border border-(--color-border)"
-          >
+          </Button>
+          <Button size="xs" variant="ghost" title="Copy terminal buffer" onClick={handleCopyOutput}>
             {copied ? (
-              <CheckIcon className="size-3 text-emerald-400" />
+              <Icon name="check" className="size-3 text-(--color-success)" />
             ) : (
-              <CopyIcon className="size-3" />
+              <Icon name="copy" className="size-3" />
             )}
             <span>{copied ? 'Copied' : 'Copy'}</span>
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* ── Background Tasks Bar (if any active) ── */}
       {(backgroundTasks.length > 0 || terminals.length > 0) && (
-        <div className="flex items-center gap-2 border-b border-[#21262d] bg-[#161b22] px-3 py-1 text-[11px] text-[#8b949e]">
+        <div className="flex items-center gap-2 border-b border-(--color-edge) bg-(--color-surface-raised) px-3 py-1 typography-micro text-(--color-text-muted)">
           <span>Active background processes:</span>
-          <span className="rounded bg-[#30363d] px-1.5 py-0.2 font-mono text-[#58a6ff]">
-            {backgroundTasks.length + terminals.length}
-          </span>
+          <Badge tone="info" size="sm" className="font-mono">
+            {String(backgroundTasks.length + terminals.length)}
+          </Badge>
         </div>
       )}
 
       {/* ── Terminal Output Stream ── */}
-      <div className="flex-1 overflow-y-auto p-3 font-mono text-[12px] leading-relaxed select-text space-y-0.5">
+      <div className="flex-1 space-y-0.5 overflow-y-auto p-3 font-mono typography-code select-text">
         {output.map((line, idx) => (
           <div
             key={String(idx)}
             className={
               line.startsWith('$')
-                ? 'text-[#58a6ff] font-semibold'
+                ? 'font-semibold text-(--color-info)'
                 : line.startsWith('[Error')
-                  ? 'text-rose-400'
+                  ? 'text-(--color-danger)'
                   : line.startsWith('[Terminal')
-                    ? 'text-amber-400'
-                    : 'text-[#c9d1d9]'
+                    ? 'text-(--color-warning)'
+                    : 'text-(--color-text-muted)'
             }
           >
             {line || '\u00A0'}
@@ -211,17 +201,20 @@ export function TerminalTabViewer({ tab }: TerminalTabViewerProps): React.JSX.El
       {/* ── Command Prompt Input ── */}
       <form
         onSubmit={handleSendCommand}
-        className="flex items-center gap-2 border-t border-[#21262d] bg-[#161b22] px-3 py-1.5"
+        className="flex items-center gap-2 border-t border-(--color-edge) bg-(--color-surface) px-3 py-1.5"
       >
-        <span className="font-mono text-[12px] font-bold text-emerald-400 select-none">$</span>
-        <input
-          type="text"
+        <span className="font-mono typography-code font-bold text-(--color-success) select-none">
+          $
+        </span>
+        <Input
+          inputSize="sm"
+          mono
           value={commandInput}
           onChange={(e) => {
             setCommandInput(e.target.value)
           }}
           placeholder="Type command and press Enter..."
-          className="flex-1 bg-transparent font-mono text-[12px] text-[#e6edf3] placeholder:text-[#484f58] focus:outline-none"
+          className="flex-1 border-none bg-transparent px-1 focus-visible:ring-0"
         />
       </form>
     </div>

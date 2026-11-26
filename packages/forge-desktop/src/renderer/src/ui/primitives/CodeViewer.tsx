@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 import type { DiscrepancyView } from '@shared/ipc'
+import { Icon } from '@forge/ui'
 import { Badge } from './Badge'
 import { Button } from './Button'
 import { FileIcon } from './FileIcons'
@@ -238,14 +239,7 @@ export function CodeViewer({
                 )}
                 title="Word wrap"
               >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  className="size-3.5"
-                  aria-hidden="true"
-                >
-                  <path d="M2.5 4h11a.5.5 0 0 1 .5.5v3a2.5 2.5 0 0 1-2.5 2.5H4.707l1.647 1.646a.5.5 0 0 1-.708.708l-2.5-2.5a.5.5 0 0 1 0-.708l2.5-2.5a.5.5 0 1 1 .708.708L4.707 9H11.5a1.5 1.5 0 0 0 1.5-1.5v-2.5H2.5a.5.5 0 0 1 0-1Z" />
-                </svg>
+                <Icon name="arrow-right" className="size-3.5" />
               </button>
 
               {/* Previous Hunk Navigation */}
@@ -257,16 +251,7 @@ export function CodeViewer({
                 className="rounded-(--radius-sm) p-1 text-(--color-text-muted) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors"
                 title="Previous hunk"
               >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.75"
-                  className="size-3.5"
-                  aria-hidden="true"
-                >
-                  <path d="m4 10 4-4 4 4" />
-                </svg>
+                <Icon name="chevron-up" className="size-3.5" />
               </button>
 
               {/* Next Hunk Navigation */}
@@ -278,16 +263,7 @@ export function CodeViewer({
                 className="rounded-(--radius-sm) p-1 text-(--color-text-muted) hover:bg-(--color-surface-raised) hover:text-(--color-text) transition-colors"
                 title="Next hunk"
               >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.75"
-                  className="size-3.5"
-                  aria-hidden="true"
-                >
-                  <path d="m4 6 4 4 4-4" />
-                </svg>
+                <Icon name="chevron-down" className="size-3.5" />
               </button>
 
               {/* Side by side diff toggle */}
@@ -302,14 +278,7 @@ export function CodeViewer({
                 )}
                 title={diffLayout === 'split' ? 'Unified diff' : 'Side by side diff'}
               >
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="currentColor"
-                  className="size-3.5"
-                  aria-hidden="true"
-                >
-                  <path d="M1.5 2.5A1.5 1.5 0 0 1 3 1h10a1.5 1.5 0 0 1 1.5 1.5v11a1.5 1.5 0 0 1-1.5 1.5H3a1.5 1.5 0 0 1-1.5-1.5v-11ZM7.5 2H3a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h4.5V2Zm1 12H13a.5.5 0 0 0 .5-.5v-11a.5.5 0 0 0-.5-.5H8.5v12Z" />
-                </svg>
+                <Icon name="diff" className="size-3.5" />
                 <span>{diffLayout === 'split' ? 'Split' : 'Unified'}</span>
               </button>
             </div>
@@ -380,7 +349,10 @@ export function CodeViewer({
         {isImage ? (
           <div className="flex h-full flex-col items-center justify-center p-8 text-center text-(--color-text-muted)">
             <div className="rounded-(--radius-lg) border border-(--color-border) bg-(--color-surface-raised) p-6 shadow-md">
-              <FileIcon fileName={fileName} className="mx-auto size-16 text-[#d38aea] mb-3" />
+              <FileIcon
+                fileName={fileName}
+                className="mx-auto size-16 text-(--color-accent) mb-3"
+              />
               <p className="font-sans text-(length:--text-sm) font-medium text-(--color-text)">
                 {fileName}
               </p>
@@ -434,13 +406,13 @@ export function CodeViewer({
                   const isNewAdd = newLine?.type === 'add'
 
                   const oldBg = isOldDel
-                    ? 'bg-[#f85149]/15 border-l-2 border-[#f85149]'
+                    ? 'bg-(--color-danger)/15 border-l-2 border-(--color-danger)'
                     : oldLine?.type === 'empty'
                       ? 'bg-(--color-surface-inset)/30 border-l-2 border-transparent'
                       : 'border-l-2 border-transparent hover:bg-(--color-surface-raised)/30'
 
                   const newBg = isNewAdd
-                    ? 'bg-[#2ea043]/15 border-l-2 border-[#2ea043]'
+                    ? 'bg-(--color-success)/15 border-l-2 border-(--color-success)'
                     : newLine?.type === 'empty'
                       ? 'bg-(--color-surface-inset)/30 border-l-2 border-transparent'
                       : 'border-l-2 border-transparent hover:bg-(--color-surface-raised)/30'
@@ -554,9 +526,9 @@ export function CodeViewer({
                   const isDel = diffLine.type === 'del'
 
                   const rowBg = isAdd
-                    ? 'bg-[#2ea043]/20 border-l-2 border-[#2ea043]'
+                    ? 'bg-(--color-success)/15 border-l-2 border-(--color-success)'
                     : isDel
-                      ? 'bg-[#f85149]/20 border-l-2 border-[#f85149]'
+                      ? 'bg-(--color-danger)/15 border-l-2 border-(--color-danger)'
                       : 'border-l-2 border-transparent hover:bg-(--color-surface-raised)/40'
 
                   return (

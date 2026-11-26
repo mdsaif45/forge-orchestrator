@@ -3,7 +3,7 @@
 **Status:** IMPLEMENTED
 **Authority:** Implementation truth (see [documentation-policy.md](../meta/documentation-policy.md))
 **Last Updated:** 2026-11-26
-**Baseline:** `main` @ `cfb0f4c` (PR #488 merged)
+**Baseline:** `main` @ `34b85d9` (PR #503 merged)
 **Verification Baseline:** [verification-baseline.md](verification-baseline.md)
 **Related Roadmap:** [roadmap.md](../roadmap/roadmap.md)
 
@@ -187,9 +187,9 @@ All test counts are per-file assertion counts measured with
 | Visual drag-and-drop workflow canvas | Interactive DAG composition canvas | IMPLEMENTED | VERIFIED | Drag-and-drop visual node/edge authoring bound to DSL compiler | `packages/forge-desktop/src/renderer/src/app/workflow/WorkflowCanvas.tsx` | `WorkflowCanvas.test.tsx`, `npm run test:e2e` | UI-001 (#439) |
 | Terminal TUI for the CLI | Interactive multi-pane terminal TUI | IMPLEMENTED | VERIFIED | Multi-pane TUI monitor & live diff viewer (`forge tui`) | `packages/forge-cli/src/tui/` | `packages/forge-cli/src/cli.test.ts` | CLI-004 (#438) |
 
-> **Package layout note (ADR-008 / M16):** Legacy `src/` has been retired. Modules formerly documented under `src/shared/`, `src/main/runtimes/`, `src/main/`, and `src/preload`+`src/renderer/` now reside physically under `packages/forge-shared/`, `packages/forge-runtimes/`, `packages/forge-core/`, `packages/forge-cli/`, and `packages/forge-desktop/`.
+> **Package layout note (ADR-008 / ADR-009 / M16–M17):** Legacy `src/` has been retired. Modules reside physically under `packages/forge-shared/`, `packages/forge-runtimes/`, `packages/forge-core/`, `packages/forge-cli/`, `packages/forge-ui/`, and `packages/forge-desktop/`.
 
-### 2.7 M12–M16 Platform Hardening, Benchmarking, Isolation, Workflow DSL & Replication
+### 2.7 M12–M17 Platform Hardening, Benchmarking, Isolation, Workflow DSL, Replication & UI Design System
 
 | Capability | Desired State | Implementation State | Verification State | Evidence | Source | Tests | Related Roadmap Item |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -198,6 +198,10 @@ All test counts are per-file assertion counts measured with
 | Multi-repository workspace orchestration | Cross-repo registration & reconciliation | IMPLEMENTED | VERIFIED | Coordinates multi-repository workspaces (`forge projects multi-repo`) | `packages/forge-core/src/workspace/multiRepoManager.ts` | `multiRepoManager.test.ts` | POLISH-001 (#440) |
 | Declarative YAML Workflow DSL & sub-workflow compiler | Human-editable DSL & reusable nested DAG templates | IMPLEMENTED | VERIFIED | Parses/validates YAML workflow graphs (`forge workflows parse-dsl`) and compiles parameterized nested sub-workflows (`forge workflows compile-nested`) | `packages/forge-core/src/workflows/workflowDslParser.ts`, `subworkflowCompiler.ts` | `workflowDslParser.test.ts`, `subworkflowCompiler.test.ts` | COMP-001 (#447), COMP-002 (#448) |
 | Cloud synchronization & state replication backplane | Content-addressed delta reconciliation | IMPLEMENTED | VERIFIED | Syncs local-first snapshots across replication peers (`forge sync reconcile`) | `packages/forge-core/src/sync/cloudReplicationBackplane.ts` | `cloudReplicationBackplane.test.ts` | POLISH-002 (#441) |
+| Centralized `@forge/ui` design system & primitives | Unified theme tokens, semantic icons, and Base UI primitives | IMPLEMENTED | VERIFIED | Exposes dark/light tokens, typography/surface layers, Lucide semantic `<Icon />` registry, and accessible Base UI primitives | `packages/forge-ui/src/` | `packages/forge-ui/src/**/*.test.*` | M17 Phase 1A (#491), Phase 1B (#492) |
+| Unified topbar project switcher & streamlined navigation | Integrated `+ New project` menu and streamlined sidebar | IMPLEMENTED | VERIFIED | `StatusStrip` hosts unified `DropdownMenu` switcher (`+ New project`, `Project settings`); standalone `/questions` & `/decisions` nav links removed with redirects | `packages/forge-desktop/src/renderer/src/app/StatusStrip.tsx`, `Sidebar.tsx`, `routes.ts` | `StatusStrip.test.tsx`, `routes.test.ts` | M17 Phase 2 (#493) |
+| Thread-native execution timeline & inline human gates | Continuous thread with inline Q&A, decision locks & approvals | IMPLEMENTED | VERIFIED | Projects planning, tool calls, reasoning, Q&A cards (`AWAITING_USER`), decision locks (`A4`), and approval gates inline in one chronological thread | `packages/forge-desktop/src/renderer/src/app/workflow/thread/` | `threadProjection.test.ts`, `ThreadContainer.test.tsx` | M17 Phase 3A (#494), Phase 3B (#495) |
+| Global top-right execution drawer (`planning.md`, diffs & git actions) | Toggleable drawer for plans, artifacts, diffs & git commits | IMPLEMENTED | VERIFIED | `Shell.tsx` hosts toggleable `RightOverviewPanel`, `DrawerPlanView`, and `DrawerGitView` backed by `changeSetService` (`git:stage`/`unstage`/`commit`) | `packages/forge-desktop/src/renderer/src/app/RightOverviewPanel.tsx`, `DrawerPlanView.tsx`, `DrawerGitView.tsx` | `RightOverviewPanel.test.tsx`, `npm run check:ui` | M17 Phase 4 (#496) |
 
 ---
 
@@ -205,15 +209,15 @@ All test counts are per-file assertion counts measured with
 
 | PR | Branch | State | Scope |
 | :--- | :--- | :--- | :--- |
-| Current branch | `docs/sync-m12-m16-progress-and-monorepo-truth` | IN PROGRESS | Synchronize markdown progress, roadmap, baseline metrics, and M16 `@forge/*` package paths |
+| Current branch | `feat/m17-phase-5-migration-verification-docs` | IN PROGRESS | Complete M17 Phase 5 (#497): desktop page migration onto `@forge/ui`, extended `check:ui`, expanded `e2e/app.spec.ts`, and ADR-009 docs sync |
 
-Nothing on unmerged branches is counted as implemented in §2. All 17 GitHub milestones (M0–M16) are merged and closed on `main` (`cfb0f4c`).
+Nothing on unmerged branches is counted as implemented in §2. Milestones M0–M16 and M17 Phases 1A–4 (`#491`–`#496`) are merged on `main` (`34b85d9`).
 
 ---
 
 ## 4. Known open issues & resolved tracker items
 
-- Zero open GitHub issues remain across the repository (`M0–M16` all closed).
+- Open GitHub items remaining strictly within **Milestone M17 (`#28`)**: `#497` (Phase 5 — this branch) and parent epic `#490`. All earlier milestones M0–M16 are closed.
 - Previously listed legacy items (`#178` Windows git `EBUSY`, `#180` provider token exhaustion detection, `#183` stale runtime bindings, `VERIFY-003`, and `CLI-004`) have all been implemented, verified, and closed.
 
 ---

@@ -367,6 +367,8 @@ app
          // The whole document repaints from the token set, not just the
          // primitives on screen — this is the assertion a CSS grep cannot make.
          background: getComputedStyle(document.body).backgroundColor,
+         lightTextToken: getComputedStyle(document.documentElement).getPropertyValue('--color-text').trim(),
+         focusToken: getComputedStyle(document.documentElement).getPropertyValue('--color-border-focus').trim(),
        }
 
        const back = [...document.querySelectorAll('button')]
@@ -382,17 +384,22 @@ app
        }
        void document.body.offsetHeight
        out.restored = getComputedStyle(document.body).backgroundColor
+       out.darkTextToken = getComputedStyle(document.documentElement).getPropertyValue('--color-text').trim()
        return JSON.stringify(out)
      })()`,
     )
     const sl = sinkLight === 'no-toggle' ? null : JSON.parse(sinkLight)
     check(
-      'kitchen sink recolours through the theme control',
+      'kitchen sink recolours across dark and [data-theme="light"] with distinct contrast tokens',
       sl !== null &&
         sl.theme === 'light' &&
         sl.tabColour === 'rgb(31, 31, 30)' &&
         sl.background === 'rgb(251, 251, 250)' &&
-        sl.restored === 'rgb(19, 19, 21)',
+        sl.restored === 'rgb(19, 19, 21)' &&
+        sl.lightTextToken.length > 0 &&
+        sl.darkTextToken.length > 0 &&
+        sl.lightTextToken !== sl.darkTextToken &&
+        sl.focusToken.length > 0,
       sinkLight,
     )
 
@@ -496,6 +503,7 @@ app
        const menuItems = menu ? [...menu.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent.trim()) : []
        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
        await settle()
+       const menuClosedOnEscape = document.querySelector('[role="menu"]') === null
 
        window.location.hash = '#/questions'
        await settle()
@@ -512,6 +520,33 @@ app
        const drawerHasPlanTab = drawer?.textContent?.includes('planning.md') ?? false
        const drawerHasGitTab = drawer?.textContent?.includes('Diffs / Git') ?? false
        const drawerWidthOpen = drawer?.getBoundingClientRect().width ?? 0
+
+       // Verify Collapsible section trigger and drawer sub-views work interactively
+       const collapsibleBtn = [...(drawer?.querySelectorAll('button') ?? [])].find((b) =>
+         b.textContent.includes('Artifacts & Plans'),
+       )
+       const collapsibleBefore = collapsibleBtn?.getAttribute('aria-expanded')
+       collapsibleBtn?.click()
+       await settle()
+       const collapsibleAfter = collapsibleBtn?.getAttribute('aria-expanded')
+
+       const planBtn = [...(drawer?.querySelectorAll('button') ?? [])].find(
+         (b) => b.textContent.trim() === 'planning.md',
+       )
+       planBtn?.click()
+       await settle()
+       const planViewRendered = drawer?.textContent?.includes('plan') ?? false
+
+       const gitBtn = [...(drawer?.querySelectorAll('button') ?? [])].find((b) =>
+         b.textContent.includes('Diffs / Git'),
+       )
+       gitBtn?.click()
+       await settle()
+       const gitViewRendered =
+         (drawer?.textContent?.includes('No project active') ||
+           drawer?.textContent?.includes('Working tree is clean')) ??
+         false
+
        document.querySelector('button[aria-label="Collapse right panel"]')?.click()
        await settle()
 
@@ -519,28 +554,37 @@ app
          hasTrigger: true,
          headerHeight,
          hasMenu: menu !== null,
+         menuClosedOnEscape,
          menuItems,
          questionsHeading,
          decisionsHeading,
          drawerHasPlanTab,
          drawerHasGitTab,
          drawerWidthOpen,
+         collapsibleBefore,
+         collapsibleAfter,
+         planViewRendered,
+         gitViewRendered,
          hasContextToggle: document.querySelector('header button[aria-label="Show context panel"]') !== null,
        })
      })()`,
     )
     const tb = JSON.parse(topbarCheck)
     check(
-      'topbar project switcher, execution drawer toggle, and legacy hash redirects work',
+      'topbar project switcher, execution drawer toggle, collapsibles, and legacy hash redirects work',
       tb.hasTrigger === true &&
         tb.headerHeight === 40 &&
         tb.hasMenu === true &&
+        tb.menuClosedOnEscape === true &&
         tb.menuItems.some((item) => item.includes('+ New project')) &&
         tb.menuItems.some((item) => item.includes('Project settings')) &&
         tb.hasContextToggle === true &&
         tb.drawerHasPlanTab === true &&
         tb.drawerHasGitTab === true &&
         tb.drawerWidthOpen > 250 &&
+        tb.collapsibleBefore !== tb.collapsibleAfter &&
+        tb.planViewRendered === true &&
+        tb.gitViewRendered === true &&
         tb.questionsHeading === 'Workflows' &&
         tb.decisionsHeading === 'Workflows',
       topbarCheck,

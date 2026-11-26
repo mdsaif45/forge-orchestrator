@@ -247,7 +247,7 @@ export function DevConsole(): React.JSX.Element | null {
           : { width: `${String(rightWidthPx)}px`, minWidth: '280px', maxWidth: '80vw' }
       }
       className={cn(
-        'z-30 flex flex-col border-(--color-border) bg-[#0e0e11] text-[#e0e0e6] shadow-2xl select-text font-mono text-[11.5px] shrink-0',
+        'z-30 flex flex-col border-(--color-edge) bg-(--color-canvas) text-(--color-text) shadow-2xl select-text font-mono text-[11.5px] shrink-0',
         dockPosition === 'bottom' ? 'w-full border-t relative' : 'h-full border-l relative',
       )}
     >
@@ -255,10 +255,10 @@ export function DevConsole(): React.JSX.Element | null {
       <div
         onMouseDown={handleStartDrag}
         className={cn(
-          'group flex items-center justify-center bg-[#18181d] hover:bg-(--color-accent)/30 transition-colors z-10',
+          'group flex items-center justify-center bg-(--color-surface-raised) hover:bg-(--color-accent)/30 transition-colors z-10',
           dockPosition === 'bottom'
-            ? 'h-2 w-full cursor-row-resize border-b border-white/5'
-            : 'w-2 h-full cursor-col-resize border-r border-white/5 absolute top-0 left-0 bottom-0',
+            ? 'h-2 w-full cursor-row-resize border-b border-(--color-edge-muted)'
+            : 'w-2 h-full cursor-col-resize border-r border-(--color-edge-muted) absolute top-0 left-0 bottom-0',
         )}
       >
         <div
@@ -270,15 +270,17 @@ export function DevConsole(): React.JSX.Element | null {
       </div>
 
       {/* Header bar */}
-      <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/10 bg-[#131317] px-3">
+      <div className="flex h-9 shrink-0 items-center justify-between border-b border-(--color-edge) bg-(--color-surface) px-3">
         {/* Left: title & count */}
         <div className="flex items-center gap-2">
           <span className="flex h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
-          <span className="font-bold tracking-wide text-white text-[12px]">DEV CONSOLE</span>
-          <span className="rounded bg-white/10 px-1.5 py-0.5 text-[9.5px] font-semibold text-neutral-300">
+          <span className="font-bold tracking-wide text-(--color-text) text-[12px]">
+            DEV CONSOLE
+          </span>
+          <span className="rounded bg-(--color-surface-raised) px-1.5 py-0.5 text-[9.5px] font-semibold text-(--color-text-muted)">
             NETWORK TRANSACTIONS
           </span>
-          <span className="text-neutral-400 text-[11px]">({transactions.length})</span>
+          <span className="text-(--color-text-subtle) text-[11px]">({transactions.length})</span>
         </div>
 
         {/* Center: Search / Filter */}
@@ -290,7 +292,7 @@ export function DevConsole(): React.JSX.Element | null {
               setFilterText(e.target.value)
             }}
             placeholder="Filter by endpoint, model, tool, payload..."
-            className="w-full rounded border border-white/10 bg-[#09090c] px-2 py-0.8 text-[11px] text-neutral-200 placeholder:text-neutral-500 focus:border-(--color-accent) focus:outline-none"
+            className="w-full rounded border border-(--color-edge) bg-(--color-surface-inset) px-2 py-0.8 text-[11px] text-(--color-text) placeholder:text-(--color-text-subtle) focus:border-(--color-border-focus) focus:outline-none"
           />
         </div>
 
@@ -376,7 +378,7 @@ export function DevConsole(): React.JSX.Element | null {
         {/* Left Column: Transaction List */}
         <div
           className={cn(
-            'flex flex-col border-r border-white/10 overflow-hidden bg-[#09090c]',
+            'flex flex-col border-r border-(--color-edge) overflow-hidden bg-(--color-surface-inset)',
             dockPosition === 'bottom' ? 'w-80 shrink-0' : 'w-72 shrink-0',
           )}
         >
@@ -475,9 +477,9 @@ export function DevConsole(): React.JSX.Element | null {
 
         {/* Right Column: Transaction Inspector Detail */}
         {selectedTx ? (
-          <div className="flex flex-1 flex-col min-w-0 overflow-hidden bg-[#0d0d11]">
+          <div className="flex flex-1 flex-col min-w-0 overflow-hidden bg-(--color-canvas)">
             {/* Detail Subheader / Tabs */}
-            <div className="flex items-center justify-between border-b border-white/10 bg-[#141419] px-3 py-1">
+            <div className="flex items-center justify-between border-b border-(--color-edge) bg-(--color-surface) px-3 py-1">
               <div className="flex items-center gap-1">
                 {(
                   [
@@ -514,7 +516,7 @@ export function DevConsole(): React.JSX.Element | null {
                   onClick={() => {
                     handleCopy(JSON.stringify(selectedTx, null, 2), 'all')
                   }}
-                  className="rounded border border-white/10 bg-[#09090c] px-2 py-0.5 text-[10px] text-neutral-300 hover:bg-white/10 cursor-pointer"
+                  className="rounded border border-(--color-edge) bg-(--color-surface-inset) px-2 py-0.5 text-[10px] text-(--color-text-muted) hover:bg-(--color-interactive-hover) cursor-pointer"
                 >
                   {copiedId === 'all' ? '✓ Copied Full JSON' : 'Copy Transaction JSON'}
                 </button>
@@ -526,7 +528,7 @@ export function DevConsole(): React.JSX.Element | null {
               {/* Token & Performance Metrics Strip */}
               {selectedTx.response?.usage ? (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-3">
-                  <div className="rounded border border-white/10 bg-[#070709] p-2">
+                  <div className="rounded border border-(--color-edge) bg-(--color-surface-inset) p-2">
                     <div className="text-[9.5px] font-semibold text-neutral-400 uppercase tracking-wider">
                       Input Tokens
                     </div>
@@ -536,7 +538,7 @@ export function DevConsole(): React.JSX.Element | null {
                         : '—'}
                     </div>
                   </div>
-                  <div className="rounded border border-white/10 bg-[#070709] p-2">
+                  <div className="rounded border border-(--color-edge) bg-(--color-surface-inset) p-2">
                     <div className="text-[9.5px] font-semibold text-neutral-400 uppercase tracking-wider">
                       Output Tokens
                     </div>
@@ -546,7 +548,7 @@ export function DevConsole(): React.JSX.Element | null {
                         : '—'}
                     </div>
                   </div>
-                  <div className="rounded border border-white/10 bg-[#070709] p-2">
+                  <div className="rounded border border-(--color-edge) bg-(--color-surface-inset) p-2">
                     <div className="text-[9.5px] font-semibold text-neutral-400 uppercase tracking-wider">
                       Total Tokens
                     </div>
@@ -562,7 +564,7 @@ export function DevConsole(): React.JSX.Element | null {
                           : '—'}
                     </div>
                   </div>
-                  <div className="rounded border border-white/10 bg-[#070709] p-2">
+                  <div className="rounded border border-(--color-edge) bg-(--color-surface-inset) p-2">
                     <div className="text-[9.5px] font-semibold text-neutral-400 uppercase tracking-wider">
                       Generation Speed
                     </div>
@@ -578,7 +580,7 @@ export function DevConsole(): React.JSX.Element | null {
                   </div>
                 </div>
               ) : selectedTx.durationMs ? (
-                <div className="flex items-center gap-3 rounded border border-white/5 bg-[#070709] px-3 py-2 mb-3 text-[11px] text-neutral-400">
+                <div className="flex items-center gap-3 rounded border border-(--color-edge) bg-(--color-surface-inset) px-3 py-2 mb-3 text-[11px] text-neutral-400">
                   <span>
                     ⏱️ Duration:{' '}
                     <strong className="text-neutral-200">{String(selectedTx.durationMs)}ms</strong>
@@ -611,7 +613,7 @@ export function DevConsole(): React.JSX.Element | null {
                   </div>
 
                   {selectedTx.request.systemPrompt && (
-                    <div className="rounded border border-white/10 bg-[#070709] p-2.5">
+                    <div className="rounded border border-(--color-edge) bg-(--color-surface-inset) p-2.5">
                       <div className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider mb-1">
                         System Prompt
                       </div>
@@ -621,7 +623,7 @@ export function DevConsole(): React.JSX.Element | null {
                     </div>
                   )}
 
-                  <div className="rounded border border-white/10 bg-[#070709] p-2.5">
+                  <div className="rounded border border-(--color-edge) bg-(--color-surface-inset) p-2.5">
                     <div className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider mb-1">
                       Full Wire JSON Payload
                     </div>
@@ -680,7 +682,7 @@ export function DevConsole(): React.JSX.Element | null {
                   )}
 
                   {selectedTx.response?.reasoning && (
-                    <div className="rounded border border-amber-500/20 bg-[#16120b] p-2.5">
+                    <div className="rounded border border-(--color-warning)/30 bg-(--color-warning-subtle) p-2.5">
                       <div className="text-[10px] font-semibold text-amber-400 uppercase tracking-wider mb-1">
                         Thinking / Reasoning Output
                       </div>
@@ -691,7 +693,7 @@ export function DevConsole(): React.JSX.Element | null {
                   )}
 
                   {selectedTx.response?.content && (
-                    <div className="rounded border border-white/10 bg-[#070709] p-2.5">
+                    <div className="rounded border border-(--color-edge) bg-(--color-surface-inset) p-2.5">
                       <div className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider mb-1">
                         Final Response Text
                       </div>
@@ -702,7 +704,7 @@ export function DevConsole(): React.JSX.Element | null {
                   )}
 
                   {selectedTx.response?.rawBody !== undefined && (
-                    <div className="rounded border border-white/10 bg-[#070709] p-2.5">
+                    <div className="rounded border border-(--color-edge) bg-(--color-surface-inset) p-2.5">
                       <div className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider mb-1">
                         Raw Provider Wire Response
                       </div>
@@ -732,8 +734,8 @@ export function DevConsole(): React.JSX.Element | null {
                         className={cn(
                           'rounded border p-2.5 transition-colors',
                           tool.ok
-                            ? 'border-emerald-500/20 bg-[#07130c]'
-                            : 'border-red-500/20 bg-[#170a0a]',
+                            ? 'border-(--color-success)/30 bg-(--color-success-subtle)'
+                            : 'border-(--color-danger)/30 bg-(--color-danger-subtle)',
                         )}
                       >
                         <div className="flex items-center justify-between mb-1">
@@ -789,7 +791,7 @@ export function DevConsole(): React.JSX.Element | null {
                     Network & General Details
                   </div>
 
-                  <div className="rounded border border-white/10 bg-[#070709] p-2.5 divide-y divide-white/5 text-[11px]">
+                  <div className="rounded border border-(--color-edge) bg-(--color-surface-inset) p-2.5 divide-y divide-(--color-edge-muted) text-[11px]">
                     <div className="flex py-1.5 justify-between">
                       <span className="text-neutral-400">Request URL:</span>
                       <span className="text-white font-mono">{selectedTx.endpointUrl}</span>
@@ -830,7 +832,7 @@ export function DevConsole(): React.JSX.Element | null {
                     )}
                   </div>
 
-                  <div className="rounded border border-white/10 bg-[#070709] p-2.5">
+                  <div className="rounded border border-(--color-edge) bg-(--color-surface-inset) p-2.5">
                     <div className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider mb-1">
                       Request Headers
                     </div>

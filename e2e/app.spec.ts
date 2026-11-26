@@ -375,3 +375,69 @@ test('changes review page renders diffs read-only and supports edit mode', async
   await expect(page.getByRole('heading', { name: 'Changes' })).toBeVisible()
   await expect(page.getByText('Working tree is clean', { exact: false })).toBeVisible()
 })
+
+test('execution context drawer toggles, switches views, and drives real git diff & commit workflow', async () => {
+  // Set up an isolated temporary git repository with a real uncommitted change
+  const gitRepo = mkdtempSync(join(tmpdir(), 'forge-e2e-git-'))
+  execFileSync('git', ['init', '--quiet', '--initial-branch=main', '.'], { cwd: gitRepo })
+  execFileSync('git', ['config', 'user.email', 'test@forge.local'], { cwd: gitRepo })
+  execFileSync('git', ['config', 'user.name', 'Forge E2E'], { cwd: gitRepo })
+  writeFileSync(join(gitRepo, 'README.md'), '# Forge Drawer Test\n')
+  execFileSync('git', ['add', '-A'], { cwd: gitRepo })
+  execFileSync('git', ['-c', 'commit.gpgsign=false', 'commit', '-m', 'initial commit'], {
+    cwd: gitRepo,
+  })
+
+  try {
+    // Bind repository via topbar unified Project Switcher -> + New project
+    await page.getByRole('button', { name: 'Active project' }).click()
+    await page.getByRole('menuitem', { name: '+ New project' }).click()
+
+    const dialog = page.getByRole('dialog').filter({ hasText: 'New project' })
+    await dialog.getByLabel('Name').fill('E2E Drawer Project')
+    await dialog.getByLabel('Repository').fill(gitRepo.split('\\').join('/'))
+    const createBtn = dialog.getByRole('button', { name: 'Create' })
+    await expect(createBtn).toBeEnabled({ timeout: 15_000 })
+    await createBtn.click()
+    await expect(page.getByRole('button', { name: 'Active project' })).toContainText(
+      'E2E Drawer Project',
+    )
+
+    // Introduce an uncommitted modification on disk
+    writeFileSync(join(gitRepo, 'README.md'), '# Forge Drawer Test\n\nAdded in E2E\n')
+
+    // Verify ChangesPage reflects the diff cleanly
+    await page.getByRole('link', { name: 'Changes' }).click()
+    await page.getByRole('button', { name: 'Refresh Git' }).click()
+    await expect(page.getByText('Added in E2E')).toBeVisible({ timeout: 10_000 })
+
+    // Open top-right Execution Context Drawer globally
+    await page.getByRole('button', { name: 'Show context panel' }).click()
+    const drawer = page.getByRole('complementary', { name: 'Inspection and Overview Panel' })
+    await expect(drawer).toBeVisible()
+
+    // Check Overview -> planning.md -> Diffs / Git tabs
+    await drawer.getByRole('button', { name: 'planning.md', exact: true }).click()
+    await expect(drawer.getByText(/plan/i).first()).toBeVisible()
+
+    await drawer.getByRole('button', { name: /Diffs \/ Git/i }).click()
+    await expect(drawer.getByText('README.md').first()).toBeVisible({ timeout: 10_000 })
+
+    // Synthesize commit message & stage+commit via @forge/core git IPC
+    await drawer.getByRole('button', { name: 'Synthesize message' }).click()
+    await expect(drawer.getByLabel('Commit message')).toHaveValue(/README\.md/)
+
+    await drawer.getByRole('button', { name: 'Stage All & Commit' }).click()
+    await expect(drawer.getByText('Working tree is clean')).toBeVisible({ timeout: 10_000 })
+
+    // Collapse drawer cleanly
+    await drawer.getByRole('button', { name: 'Collapse right panel' }).click()
+    await expect(drawer).toBeHidden()
+  } finally {
+    try {
+      rmSync(gitRepo, { recursive: true, force: true, maxRetries: 10, retryDelay: 150 })
+    } catch {
+      // Transient Windows file-handle lag on git packs does not indicate a test failure
+    }
+  }
+})

@@ -5710,4 +5710,34 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('verifies content-addressed cloud replication convergence with forge sync reconcile (POLISH-002)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['sync', 'reconcile', 'ws-cli-team', '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      action: string
+      workspaceId: string
+      converged: boolean
+      uploadedPackets: number
+      verifiedPackets: number
+      totalEvents: number
+      activePeers: string[]
+      stateDigest: string
+    }
+    expect(parsed.action).toBe('reconcile')
+    expect(parsed.workspaceId).toBe('ws-cli-team')
+    expect(parsed.converged).toBe(true)
+    expect(parsed.uploadedPackets).toBe(2)
+    expect(parsed.verifiedPackets).toBe(2)
+    expect(parsed.totalEvents).toBe(2)
+    expect(parsed.activePeers).toEqual(['peer-alpha', 'peer-beta'])
+    expect(parsed.stateDigest).toHaveLength(64)
+
+    logSpy.mockRestore()
+  })
 })

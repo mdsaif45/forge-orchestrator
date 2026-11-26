@@ -21,6 +21,7 @@ import { createForgeCore, resolveDataDir } from '@forge/core/core/forgeCore'
 import { ConcurrencyController } from '@forge/core/core/concurrencyController'
 import { SubagentCapabilityQuarantineCoordinator } from '@forge/core/core/subagentCapabilityQuarantineCoordinator'
 import { WorkflowDslParser } from '@forge/core/workflows/dslParser'
+import { SubWorkflowCompiler } from '@forge/core/workflows/subWorkflowCompiler'
 import {
   MultiRepoWorkspaceCoordinator,
   type MultiRepoWorkspaceManifestInput,
@@ -301,7 +302,7 @@ ${ANSI.bold}USAGE${ANSI.reset}
 ${ANSI.bold}COMMANDS${ANSI.reset}
   run <task>                 Execute an autonomous coding task against the current repository
   runs [list|inspect|events|cost] Inspect past runs, steps, token accounting, and event streams
-  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot|dlq|timeout|estimate|eval|checkpoint|simulate|subgraph|retry|semaphore|parse-dsl] Inspect, plan, profile, snapshot workflows, manage DLQ, timeouts, cost estimation, expressions, checkpoints, dry-run simulation, subgraph extraction, retry policy, concurrency semaphore, and declarative DSL parser
+  workflows [list|inspect|run|resume|cancel|approve|init|validate|plan|profile|templates|parallel|snapshot|dlq|timeout|estimate|eval|checkpoint|simulate|subgraph|retry|semaphore|parse-dsl|compile-nested] Inspect, plan, profile, snapshot workflows, manage DLQ, timeouts, cost estimation, expressions, checkpoints, dry-run simulation, subgraph extraction, retry policy, concurrency semaphore, declarative DSL parser, and sub-workflow compiler
   artifacts [list|cat|grep|verify|export|merkle] Inspect, view, search, verify, export, and Merkle provenance audit
   diff [revert|security|secrets|commit|merge|exports|hunks|cycles|binary-compress] <runId> [stepId|runIdB] Inspect physical diffs, rollback changes, security/secrets audit, commit synthesis, merge conflicts, AST export surface, patch hunk fuzziness, dependency cycles, or compressed binary deltas
   processes [list]           Inspect active and completed background process metrics
@@ -2612,6 +2613,8 @@ async function handleWorkflows(opts: {
       'savepoint',
       'parse-dsl',
       'dsl',
+      'compile-nested',
+      'subworkflow',
     ] as const
     let action = opts.action ?? 'list'
     let targetId = opts.targetId
@@ -3131,6 +3134,92 @@ async function handleWorkflows(opts: {
         }
       }
       return result.valid ? 0 : 1
+    }
+
+    if (action === 'compile-nested' || action === 'subworkflow') {
+      const now = new Date().toISOString()
+      const parser = new WorkflowDslParser()
+      const parentTemplate = parser.compileStrict(
+        JSON.stringify({
+          id: 'wf-parent-nested',
+          name: 'Parent Orchestration DAG',
+          description: 'Parent pipeline invoking reusable security audit sub-workflow',
+          nodes: [
+            { id: 'prepare', title: 'Prepare Context', type: 'agent', runtimeType: 'forge-native' },
+            {
+              id: 'invoke-security',
+              title: 'Security Audit Sub-Workflow',
+              type: 'agent',
+              runtimeType: 'forge-engine',
+              dependsOn: ['prepare'],
+            },
+            {
+              id: 'finalize',
+              title: 'Publish Evidence',
+              type: 'verification',
+              runtimeType: 'forge-engine',
+              dependsOn: ['invoke-security'],
+            },
+          ],
+        }),
+        { format: 'json', nowIso: now },
+      )
+
+      const childTemplate = parser.compileStrict(
+        JSON.stringify({
+          id: 'subflow-security-audit',
+          name: 'Reusable Security Audit',
+          description: 'Reusable SAST + secrets check sub-workflow',
+          nodes: [
+            {
+              id: 'scan-secrets',
+              title: 'Scan ${{ scope.targetEnv }} Secrets',
+              type: 'verification',
+              runtimeType: 'forge-engine',
+              inputs: [{ name: 'repo_path', kind: 'path', required: true }],
+              outputs: [{ name: 'audit_report', kind: 'report', format: 'json' }],
+            },
+          ],
+        }),
+        { format: 'json', nowIso: now },
+      )
+
+      const compiler = new SubWorkflowCompiler()
+      const compiled = compiler.compile({
+        rootTemplate: parentTemplate,
+        templateRegistry: { [childTemplate.id]: childTemplate },
+        invocations: [
+          {
+            invocationId: 'invoke-security',
+            title: 'Invoke Reusable Security Audit',
+            subWorkflowTemplateId: childTemplate.id,
+            slotMappings: [
+              { parentSlot: 'workspace.root', subWorkflowSlot: 'repo_path', direction: 'input' },
+              {
+                parentSlot: 'security.report',
+                subWorkflowSlot: 'audit_report',
+                direction: 'output',
+              },
+            ],
+            boundary: {
+              boundaryId: 'boundary-security-1',
+              failureIsolation: 'CONTAIN_TO_SUBFLOW',
+              scopedVariables: { targetEnv: targetId ?? 'staging' },
+            },
+          },
+        ],
+        nowIso: now,
+      })
+
+      if (opts.json) {
+        console.log(JSON.stringify(compiled))
+        return 0
+      }
+
+      console.log(
+        `\nSub-Workflow Compiler (COMP-002): Nodes=${String(compiled.totalFlattenedNodes)}, MaxDepth=${String(compiled.maxDepthReached)}, Order=[${compiled.topologicalOrder.join(' -> ')}], Digest=${compiled.compilationDigest}\n`,
+      )
+      return 0
     }
 
     if (action === 'retry') {

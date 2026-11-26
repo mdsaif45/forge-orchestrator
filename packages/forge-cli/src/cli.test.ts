@@ -5673,4 +5673,41 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('compiles nested reusable sub-workflows into flattened executable DAGs with forge workflows compile-nested (COMP-002)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'workflows',
+      'compile-nested',
+      'production',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      totalFlattenedNodes: number
+      maxDepthReached: number
+      topologicalOrder: string[]
+      boundaryContracts: { boundaryId: string; failureIsolation: string }[]
+      compilationDigest: string
+    }
+    expect(parsed.totalFlattenedNodes).toBe(3)
+    expect(parsed.maxDepthReached).toBe(1)
+    expect(parsed.topologicalOrder).toEqual([
+      'prepare',
+      'invoke-security__scan-secrets',
+      'finalize',
+    ])
+    expect(parsed.boundaryContracts[0]?.failureIsolation).toBe('CONTAIN_TO_SUBFLOW')
+    expect(parsed.compilationDigest).toHaveLength(64)
+
+    logSpy.mockRestore()
+  })
 })

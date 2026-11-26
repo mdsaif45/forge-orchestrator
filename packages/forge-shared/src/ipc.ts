@@ -497,6 +497,30 @@ export const IPC_CONTRACT = {
     }),
     response: z.strictObject({ success: z.boolean() }),
   },
+  'git:stage': {
+    request: z.strictObject({
+      projectId: z.string(),
+      paths: z.array(z.string()).readonly(),
+    }),
+    response: z.strictObject({ stagedCount: z.number().int().nonnegative() }),
+  },
+  'git:unstage': {
+    request: z.strictObject({
+      projectId: z.string(),
+      paths: z.array(z.string()).readonly(),
+    }),
+    response: z.strictObject({ success: z.boolean() }),
+  },
+  'git:commit': {
+    request: z.strictObject({
+      projectId: z.string(),
+      message: z.string().min(1),
+    }),
+    response: z.strictObject({
+      sha: z.string(),
+      message: z.string(),
+    }),
+  },
   /**
    * What Forge can establish about an account right now.
    *

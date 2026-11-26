@@ -1,4 +1,4 @@
-export { GitCommandError, type GitExecOptions } from './exec'
+export { GitCommandError, runGit, type GitExecOptions } from './exec'
 export {
   DirtyWorktreeError,
   GitService,

@@ -415,6 +415,12 @@ export function createIpcHandlers({
     'git:writeFile': (request) =>
       changeSets.writeFile(request.projectId, request.path, request.content),
 
+    'git:stage': (request) => changeSets.stageFiles(request.projectId, request.paths),
+
+    'git:unstage': (request) => changeSets.unstageFiles(request.projectId, request.paths),
+
+    'git:commit': (request) => changeSets.commitChanges(request.projectId, request.message),
+
     'account:enrollmentStatus': async ({ accountId, runtimeId }) => {
       const status = await enrollment.status(runtimeId, accountId)
       return {

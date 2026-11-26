@@ -358,6 +358,18 @@ export interface ForgeApi {
       path: string,
       content: string,
     ) => Promise<IpcResult<{ readonly success: boolean }>>
+    stage: (
+      projectId: string,
+      paths: readonly string[],
+    ) => Promise<IpcResult<{ readonly stagedCount: number }>>
+    unstage: (
+      projectId: string,
+      paths: readonly string[],
+    ) => Promise<IpcResult<{ readonly success: boolean }>>
+    commit: (
+      projectId: string,
+      message: string,
+    ) => Promise<IpcResult<{ readonly sha: string; readonly message: string }>>
   }
   readonly template: {
     list: () => Promise<IpcResult<{ readonly templates: readonly WorkflowTemplateView[] }>>

@@ -1,41 +1,113 @@
-import React, { useEffect, useState } from 'react'
-import { cn } from '../ui'
+import React, { useCallback, useEffect, useState } from 'react'
+import type { ArtifactMetadataView, WorkflowDetailView } from '@shared/ipc'
+import { unwrap } from '../ipc'
+import {
+  Badge,
+  Button,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+  Icon,
+  IconButton,
+  List,
+  ListRow,
+  ScrollArea,
+  Separator,
+  Tooltip,
+  cn,
+} from '../ui'
+import { ArtifactTabViewer } from './ArtifactTabViewer'
+import { DrawerGitView } from './DrawerGitView'
+import { DrawerPlanView } from './DrawerPlanView'
+import { FileTabViewer } from './FileTabViewer'
 import { useOverviewStore, type OverviewFileChange, type WorkspaceTab } from './overviewStore'
 import { useProjectStore } from './projectStore'
-import { unwrap } from '../ipc'
-import { FileTabViewer } from './FileTabViewer'
-import { ArtifactTabViewer } from './ArtifactTabViewer'
 import { TerminalTabViewer } from './TerminalTabViewer'
-import {
-  BookIcon,
-  CheckIcon,
-  ChevronDownIcon,
-  ChevronRightIcon,
-  CloseIcon,
-  CodeFileIcon,
-  DocumentIcon,
-  MaximizeSquareIcon,
-  MediaIcon,
-  OverviewPanelIcon,
-  PanelRightIcon,
-  PlusIcon,
-  RefreshIcon,
-  RestoreSquareIcon,
-  ReviewIcon,
-  TerminalIcon,
-  TerminalSquareIcon,
-} from './icons'
 
-export function RightOverviewPanel(): React.JSX.Element {
+function DrawerOverviewSection({
+  title,
+  count,
+  open,
+  onOpenChange,
+  trailing,
+  children,
+}: {
+  readonly title: string
+  readonly count: number
+  readonly open: boolean
+  readonly onOpenChange: (open: boolean) => void
+  readonly trailing?: React.ReactNode | undefined
+  readonly children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <Collapsible open={open} onOpenChange={onOpenChange}>
+      <div className="rounded-(--radius-lg) border border-(--color-edge-muted) bg-(--color-surface-raised)/40">
+        <div className="flex items-center justify-between gap-2 px-3 py-1.5">
+          <CollapsibleTrigger className="flex-1 py-0.5 text-left typography-meta text-(--color-text-muted) hover:text-(--color-text)">
+            <span className="flex items-center gap-2">
+              <span className="font-medium text-(--color-text)">{title}</span>
+              <Badge tone="neutral" size="sm" className="font-mono">
+                {String(count)}
+              </Badge>
+            </span>
+            <Icon
+              name={open ? 'chevron-down' : 'chevron-right'}
+              className="ml-auto size-3.5 text-(--color-text-subtle)"
+            />
+          </CollapsibleTrigger>
+          {trailing !== undefined ? (
+            <div className="flex shrink-0 items-center gap-1">{trailing}</div>
+          ) : null}
+        </div>
+        <CollapsibleContent className="border-t border-(--color-edge-muted) p-2">
+          {children}
+        </CollapsibleContent>
+      </div>
+    </Collapsible>
+  )
+}
+
+function tabIconName(tab: WorkspaceTab): 'terminal' | 'plan' | 'file-code' | 'file' {
+  if (tab.kind === 'terminal') return 'terminal'
+  if (tab.kind === 'artifact') return 'plan'
+  const lower = tab.title.toLowerCase()
+  if (
+    lower.endsWith('.ts') ||
+    lower.endsWith('.tsx') ||
+    lower.endsWith('.js') ||
+    lower.endsWith('.jsx') ||
+    lower.endsWith('.rs') ||
+    lower.endsWith('.py') ||
+    lower.endsWith('.json')
+  ) {
+    return 'file-code'
+  }
+  return 'file'
+}
+
+/**
+ * Global right-hand Execution Context Drawer modeled on OpenChamber's
+ * ContextPanel / PlanView / GitView: hosts Overview, planning.md Plan Viewer,
+ * Diffs & Git Actions, Terminal, and dynamic opened file/artifact tabs.
+ */
+export function RightOverviewPanel(): React.JSX.Element | null {
   const isOpen = useOverviewStore((state) => state.isOpen)
   const toggleOpen = useOverviewStore((state) => state.toggleOpen)
   const isExpanded = useOverviewStore((state) => state.isExpanded)
   const toggleExpanded = useOverviewStore((state) => state.toggleExpanded)
   const panelWidth = useOverviewStore((state) => state.panelWidth)
-  const isDraggingSplitter = useOverviewStore((state) => state.isDraggingSplitter)
 
   const panelMode = useOverviewStore((state) => state.panelMode)
+  const hasUnreadPlan = useOverviewStore((state) => state.hasUnreadPlan)
   const showOverview = useOverviewStore((state) => state.showOverview)
+  const showPlan = useOverviewStore((state) => state.showPlan)
+  const showGit = useOverviewStore((state) => state.showGit)
   const tabs = useOverviewStore((state) => state.tabs)
   const activeTabId = useOverviewStore((state) => state.activeTabId)
   const openTab = useOverviewStore((state) => state.openTab)
@@ -44,11 +116,9 @@ export function RightOverviewPanel(): React.JSX.Element {
 
   const activeFilter = useOverviewStore((state) => state.activeFilter)
   const setActiveFilter = useOverviewStore((state) => state.setActiveFilter)
-  const isFilterDropdownOpen = useOverviewStore((state) => state.isFilterDropdownOpen)
-  const setFilterDropdownOpen = useOverviewStore((state) => state.setFilterDropdownOpen)
 
   const subagents = useOverviewStore((state) => state.subagents)
-  const artifacts = useOverviewStore((state) => state.artifacts)
+  const sessionArtifacts = useOverviewStore((state) => state.artifacts)
   const uploads = useOverviewStore((state) => state.uploads)
   const backgroundTasks = useOverviewStore((state) => state.backgroundTasks)
   const terminals = useOverviewStore((state) => state.terminals)
@@ -57,28 +127,28 @@ export function RightOverviewPanel(): React.JSX.Element {
   const agentEditedFiles = useOverviewStore((state) => state.agentEditedFiles)
 
   const detail = useProjectStore((state) => state.detail)
+  const project = detail?.project ?? null
 
-  // Expandable section states (matching Antigravity Images 2, 3, 5)
   const [expandedSubagents, setExpandedSubagents] = useState(false)
   const [expandedFilesChanged, setExpandedFilesChanged] = useState(true)
-  const [expandedArtifacts, setExpandedArtifacts] = useState(false)
+  const [expandedArtifacts, setExpandedArtifacts] = useState(true)
   const [expandedUploads, setExpandedUploads] = useState(false)
   const [expandedBgTasks, setExpandedBgTasks] = useState(false)
   const [expandedTerminals, setExpandedTerminals] = useState(false)
 
   const [showAllFiles, setShowAllFiles] = useState(false)
-  const [showAllArtifacts, setShowAllArtifacts] = useState(false)
-  const [showAllUploads, setShowAllUploads] = useState(false)
   const [loadingGit, setLoadingGit] = useState(false)
+  const [activeWorkflow, setActiveWorkflow] = useState<WorkflowDetailView | null>(null)
+  const [runArtifacts, setRunArtifacts] = useState<readonly ArtifactMetadataView[]>([])
 
-  // Live git probe for working tree changes
-  const refreshGitStatus = async () => {
-    const repoPath = detail?.project.repository.absolutePath
-    if (!repoPath) return
-
+  const refreshContext = useCallback(async (): Promise<void> => {
+    if (!isOpen || project === null) return
     setLoadingGit(true)
     try {
-      const probe = await window.forge.project.probeRepository(repoPath).then(unwrap)
+      const [probe, wf] = await Promise.all([
+        window.forge.project.probeRepository(project.repository.absolutePath).then(unwrap),
+        window.forge.workflow.getActive(project.id).then(unwrap),
+      ])
       const mapped: OverviewFileChange[] = probe.dirtyPaths.map((fullPath) => {
         const normalized = fullPath.replace(/\\/g, '/')
         const parts = normalized.split('/')
@@ -92,130 +162,89 @@ export function RightOverviewPanel(): React.JSX.Element {
         }
       })
       setFilesChanged(mapped)
+      setActiveWorkflow(wf)
+      if (wf !== null) {
+        const artsRes = await window.forge.artifacts.listForRun(wf.id).then(unwrap)
+        setRunArtifacts(artsRes.artifacts)
+      } else {
+        setRunArtifacts([])
+      }
     } catch {
-      // ignore
+      // Non-fatal in stubbed or offline modes
     } finally {
       setLoadingGit(false)
     }
-  }
+  }, [isOpen, project, setFilesChanged])
 
   useEffect(() => {
-    let cancelled = false
-    const repoPath = detail?.project.repository.absolutePath
-    if (!repoPath) return
-
-    window.forge.project
-      .probeRepository(repoPath)
-      .then((res) => {
-        if (cancelled) return
-        const probe = unwrap(res)
-        const mapped: OverviewFileChange[] = probe.dirtyPaths.map((fullPath) => {
-          const normalized = fullPath.replace(/\\/g, '/')
-          const parts = normalized.split('/')
-          const fileName = parts.pop() ?? fullPath
-          const dir = parts.length > 0 ? parts.join('/') : '.'
-          return {
-            path: fileName,
-            directory: dir,
-            fullPath: normalized,
-            status: 'M+',
-          }
-        })
-        setFilesChanged(mapped)
-      })
-      .catch(() => {
-        // ignore
-      })
-
+    let active = true
+    queueMicrotask(() => {
+      if (active) void refreshContext()
+    })
+    const unsub = window.forge.onWorkflowEvent(() => {
+      if (active) void refreshContext()
+    })
     return () => {
-      cancelled = true
+      active = false
+      unsub()
     }
-  }, [detail?.project.repository.absolutePath, setFilesChanged])
+  }, [refreshContext])
 
   const panelStyle = React.useMemo<React.CSSProperties>(() => {
-    if (!isOpen) {
-      return { width: 0 }
-    }
-    if (isExpanded) {
-      return { width: '100%' }
-    }
+    if (!isOpen) return { width: 0 }
+    if (isExpanded) return { width: '100%' }
     return { width: `${String(panelWidth)}px` }
   }, [isOpen, isExpanded, panelWidth])
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? null
 
-  // Filter files changed based on active filter
   const displayedSourceFiles =
     activeFilter === 'agent_edits'
       ? filesChanged.filter((f) => agentEditedFiles.includes(f.fullPath ?? f.path))
       : filesChanged
+  const displayedFiles = showAllFiles ? displayedSourceFiles : displayedSourceFiles.slice(0, 6)
 
-  const displayedFiles = showAllFiles ? displayedSourceFiles : displayedSourceFiles.slice(0, 5)
-  const displayedArtifacts = showAllArtifacts ? artifacts : artifacts.slice(0, 5)
-  const displayedUploads = showAllUploads ? uploads : uploads.slice(0, 5)
+  const currentBranch = detail?.probe?.branch ?? project?.repository.defaultBranch ?? 'main'
+  const totalArtifactsCount = runArtifacts.length + sessionArtifacts.length
+  const combinedSubagentsCount =
+    subagents.length +
+    (activeWorkflow?.steps.filter((s) => s.state !== 'pending' && s.role !== 'user').length ?? 0)
 
-  const currentBranch = detail?.project.repository.defaultBranch ?? 'main'
-
-  const renderFileIcon = (fileName: string): React.JSX.Element => {
-    const lower = fileName.toLowerCase()
-    if (lower.endsWith('.md') || lower.endsWith('.txt') || lower.endsWith('.doc')) {
-      return <DocumentIcon className="size-3.5 text-(--color-text-muted) shrink-0" />
+  const handleOpenWorkflowArtifact = async (meta: ArtifactMetadataView): Promise<void> => {
+    if (meta.kind === 'plan' || meta.name.toLowerCase().includes('planning')) {
+      showPlan()
+      return
     }
-    return <CodeFileIcon className="size-3.5 text-(--color-text-muted) shrink-0" />
+    try {
+      const win = await window.forge.artifacts
+        .readWindow({
+          artifactId: meta.id,
+          offsetBytes: 0,
+          lengthBytes: Math.min(Math.max(meta.sizeBytes, 1), 262_144),
+        })
+        .then(unwrap)
+      const bytes = Uint8Array.from(atob(win.data), (c) => c.charCodeAt(0))
+      const decoded = new TextDecoder().decode(bytes)
+      openTab({
+        id: `artifact:${meta.id}`,
+        kind: 'artifact',
+        title: meta.name,
+        artifactId: meta.id,
+        content: decoded,
+      })
+    } catch {
+      openTab({
+        id: `artifact:${meta.id}`,
+        kind: 'artifact',
+        title: meta.name,
+        artifactId: meta.id,
+        content: '',
+      })
+    }
   }
 
-  const renderTabIcon = (tab: WorkspaceTab): React.JSX.Element => {
-    if (tab.kind === 'terminal') {
-      return <TerminalIcon className="size-3.5 shrink-0 text-emerald-400" />
-    }
-    if (tab.kind === 'artifact') {
-      const lower = tab.title.toLowerCase()
-      if (lower.includes('walkthrough')) {
-        return <BookIcon className="size-3.5 shrink-0 text-(--color-text-muted)" />
-      }
-      return <DocumentIcon className="size-3.5 shrink-0 text-(--color-text-muted)" />
-    }
-
-    const name = tab.title.toLowerCase()
-    if (name.endsWith('.ts') || name.endsWith('.tsx')) {
-      return (
-        <span className="text-[10px] font-bold text-sky-400 font-mono shrink-0 select-none">
-          TS
-        </span>
-      )
-    }
-    if (name.endsWith('.js') || name.endsWith('.jsx')) {
-      return (
-        <span className="text-[10px] font-bold text-yellow-400 font-mono shrink-0 select-none">
-          JS
-        </span>
-      )
-    }
-    if (name.endsWith('.rs') || name === 'cargo.toml' || name === 'cargo.lock') {
-      return (
-        <span className="text-[10px] font-bold text-amber-500 font-mono shrink-0 select-none">
-          RS
-        </span>
-      )
-    }
-    if (name.endsWith('.py')) {
-      return (
-        <span className="text-[10px] font-bold text-blue-400 font-mono shrink-0 select-none">
-          PY
-        </span>
-      )
-    }
-    if (name.endsWith('.json')) {
-      return (
-        <span className="text-[10px] font-bold text-amber-400 font-mono shrink-0 select-none">
-          JSON
-        </span>
-      )
-    }
-    if (name.endsWith('.md') || name.endsWith('.txt')) {
-      return <DocumentIcon className="size-3.5 shrink-0 text-(--color-text-muted)" />
-    }
-    return <CodeFileIcon className="size-3.5 text-(--color-text-muted)" />
+  if (!isOpen) {
+    return null
   }
 
   return (
@@ -223,84 +252,61 @@ export function RightOverviewPanel(): React.JSX.Element {
       aria-label="Inspection and Overview Panel"
       style={panelStyle}
       className={cn(
-        'relative flex flex-col bg-(--color-surface) text-(--color-text) overflow-hidden select-none z-10',
-        !isOpen && 'w-0 opacity-0 pointer-events-none border-l-0 shrink-0',
-        isOpen && !isExpanded && 'shrink-0 border-l border-(--color-border) opacity-100',
-        isOpen && isExpanded && 'flex-1 border-l-0 opacity-100',
-        isDraggingSplitter
-          ? 'transition-none'
-          : 'transition-[width,opacity] duration-300 ease-in-out',
+        'relative z-10 flex flex-col overflow-hidden bg-(--color-surface) text-(--color-text) select-none',
+        !isExpanded && 'shrink-0 border-l border-(--color-edge)',
+        isExpanded && 'flex-1 border-l-0',
       )}
     >
-      <div className="flex flex-col h-full w-full min-w-[320px]">
-        {/* ── Top Header Bar with Tabs (Strictly matching Antigravity Image 3) ── */}
-        <div className="flex h-9 shrink-0 items-center justify-between border-b border-(--color-border)/70 bg-(--color-surface) px-2 select-none text-[12px]">
-          {/* Left Quick-Switch Icons & Opened Tabs */}
-          <div className="flex h-full items-center gap-1 overflow-x-auto no-scrollbar min-w-0 pr-2">
-            {/* Quick Icon Group (Overview, Review, Terminal) */}
-            <div className="flex items-center gap-0.5 shrink-0">
-              {/* Icon 1: Overview */}
-              <button
-                type="button"
-                title="Overview"
-                aria-label="Overview"
-                onClick={() => {
-                  showOverview()
-                }}
-                className={cn(
-                  'flex size-6 items-center justify-center rounded transition-colors cursor-pointer',
-                  panelMode === 'overview'
-                    ? 'text-(--color-text) bg-(--color-surface-raised)/80'
-                    : 'text-(--color-text-subtle) hover:text-(--color-text) hover:bg-(--color-surface-raised)/50',
-                )}
-              >
-                <OverviewPanelIcon className="size-3.5" />
-              </button>
+      <div className="flex h-full w-full min-w-[320px] flex-col">
+        {/* Top Execution Drawer Navigation Strip */}
+        <div className="flex h-9 shrink-0 items-center justify-between border-b border-(--color-edge) bg-(--color-surface) px-2">
+          <div className="no-scrollbar flex min-w-0 items-center gap-1 overflow-x-auto pr-2">
+            <Button
+              size="xs"
+              variant={panelMode === 'overview' ? 'secondary' : 'ghost'}
+              onClick={showOverview}
+            >
+              <Icon name="overview" className="size-3.5" />
+              <span>Overview</span>
+            </Button>
 
-              {/* Icon 2: Review */}
-              <button
-                type="button"
-                title="Review"
-                aria-label="Review"
-                onClick={() => {
-                  const existingFileTab = tabs.find((t) => t.kind === 'file')
-                  if (existingFileTab) {
-                    setActiveTab(existingFileTab.id)
-                    return
-                  }
-                  const firstDirty = filesChanged[0]
-                  if (firstDirty) {
-                    openTab({
-                      id: `file:${firstDirty.fullPath ?? firstDirty.path}`,
-                      kind: 'file',
-                      title: firstDirty.path,
-                      subtitle: '(review)',
-                      filePath: firstDirty.fullPath ?? firstDirty.path,
-                      directory: firstDirty.directory,
-                    })
-                  } else {
-                    showOverview()
-                    setExpandedFilesChanged(true)
-                  }
-                }}
-                className={cn(
-                  'flex size-6 items-center justify-center rounded transition-colors cursor-pointer',
-                  panelMode === 'tab' && activeTab?.kind === 'file'
-                    ? 'text-(--color-text) bg-(--color-surface-raised)/80'
-                    : 'text-(--color-text-subtle) hover:text-(--color-text) hover:bg-(--color-surface-raised)/50',
-                )}
-              >
-                <ReviewIcon className="size-3.5" />
-              </button>
+            <Button
+              size="xs"
+              variant={panelMode === 'plan' ? 'secondary' : 'ghost'}
+              onClick={showPlan}
+            >
+              <Icon name="plan" className="size-3.5 text-(--color-accent)" />
+              <span>planning.md</span>
+              {hasUnreadPlan ? (
+                <span className="size-1.5 rounded-(--radius-full) bg-(--color-accent)" />
+              ) : null}
+            </Button>
 
-              {/* Icon 3: Terminal */}
-              <button
-                type="button"
-                title="Terminal"
-                aria-label="Terminal"
+            <Button
+              size="xs"
+              variant={panelMode === 'git' ? 'secondary' : 'ghost'}
+              onClick={showGit}
+            >
+              <Icon name="git-branch" className="size-3.5 text-(--color-info)" />
+              <span>Diffs / Git</span>
+              {filesChanged.length > 0 ? (
+                <Badge tone="warning" size="sm" className="px-1 py-0 typography-micro">
+                  {String(filesChanged.length)}
+                </Badge>
+              ) : null}
+            </Button>
+
+            <Tooltip content="Open Drawer Terminal" side="bottom">
+              <IconButton
+                size="xs"
+                variant={
+                  panelMode === 'tab' && activeTab?.kind === 'terminal' ? 'secondary' : 'ghost'
+                }
+                label="Terminal"
+                icon={<Icon name="terminal" />}
                 onClick={() => {
                   const existingTerm = tabs.find((t) => t.id === 'tab:terminal')
-                  if (existingTerm) {
+                  if (existingTerm !== undefined) {
                     setActiveTab('tab:terminal')
                   } else {
                     openTab({
@@ -311,21 +317,11 @@ export function RightOverviewPanel(): React.JSX.Element {
                     })
                   }
                 }}
-                className={cn(
-                  'flex size-6 items-center justify-center rounded transition-colors cursor-pointer',
-                  panelMode === 'tab' && activeTab?.kind === 'terminal'
-                    ? 'text-(--color-text) bg-(--color-surface-raised)/80'
-                    : 'text-(--color-text-subtle) hover:text-(--color-text) hover:bg-(--color-surface-raised)/50',
-                )}
-              >
-                <TerminalIcon className="size-3.5" />
-              </button>
-            </div>
+              />
+            </Tooltip>
 
-            {/* Hairline Divider between Quick Icons and Tabs */}
-            <div className="h-3.5 w-px bg-(--color-border)/70 mx-1 shrink-0" />
+            {tabs.length > 0 ? <Separator orientation="vertical" className="mx-1 h-3.5" /> : null}
 
-            {/* Dynamic Tabs Opened in Right Panel */}
             {tabs.map((tab) => {
               const isTabActive = panelMode === 'tab' && tab.id === activeTabId
               return (
@@ -343,80 +339,62 @@ export function RightOverviewPanel(): React.JSX.Element {
                     }
                   }}
                   className={cn(
-                    'group flex h-6.5 items-center gap-1.5 rounded-md px-2 transition-all cursor-pointer shrink-0 max-w-[280px]',
+                    'group flex h-6 max-w-[200px] shrink-0 cursor-pointer items-center gap-1.5 rounded-(--radius-md) px-2 transition-colors',
                     isTabActive
-                      ? 'bg-(--color-surface-raised) text-(--color-text) font-medium shadow-xs'
-                      : 'bg-transparent text-(--color-text-muted) hover:text-(--color-text) hover:bg-(--color-surface-raised)/40',
+                      ? 'bg-(--color-surface-raised) font-medium text-(--color-text)'
+                      : 'text-(--color-text-muted) hover:bg-(--color-interactive-hover) hover:text-(--color-text)',
                   )}
                 >
-                  {renderTabIcon(tab)}
-                  <span className="truncate text-[12px]">{tab.title}</span>
-                  {tab.subtitle && (
-                    <span className="text-[10px] text-(--color-text-subtle) font-normal shrink-0 italic">
-                      {tab.subtitle}
-                    </span>
-                  )}
+                  <Icon name={tabIconName(tab)} className="size-3.5 shrink-0" />
+                  <span className="truncate typography-meta">{tab.title}</span>
                   <button
                     type="button"
-                    title="Close tab"
+                    aria-label={`Close ${tab.title}`}
                     onClick={(e) => {
                       e.stopPropagation()
                       closeTab(tab.id)
                     }}
-                    className="opacity-0 group-hover:opacity-100 flex size-4 items-center justify-center rounded hover:bg-(--color-surface-inset) text-(--color-text-subtle) hover:text-(--color-text) transition-opacity ml-0.5 cursor-pointer"
+                    className="ml-0.5 flex size-4 items-center justify-center rounded text-(--color-text-subtle) opacity-0 transition-opacity hover:bg-(--color-surface-inset) hover:text-(--color-text) group-hover:opacity-100"
                   >
-                    <CloseIcon className="size-2.5" />
+                    <Icon name="close" className="size-3" />
                   </button>
                 </div>
               )
             })}
-
-            {/* Plus Button: Return to Overview */}
-            <button
-              type="button"
-              title="Overview"
-              onClick={() => {
-                showOverview()
-              }}
-              className="flex size-6 items-center justify-center rounded hover:bg-(--color-surface-raised) text-(--color-text-subtle) hover:text-(--color-text) transition-colors cursor-pointer shrink-0 ml-0.5"
-            >
-              <PlusIcon className="size-3.5" />
-            </button>
           </div>
 
-          {/* Right Window Controls (Matching Antigravity Image 3) */}
-          <div className="flex items-center gap-1 shrink-0 pl-1.5">
-            {/* Maximize / Expand Toggle */}
-            <button
-              type="button"
-              title={isExpanded ? 'Restore panel size' : 'Expand panel size'}
-              onClick={() => {
-                toggleExpanded()
-              }}
-              className="flex size-6 items-center justify-center rounded hover:bg-(--color-surface-raised) text-(--color-text-subtle) hover:text-(--color-text) cursor-pointer"
+          <div className="flex shrink-0 items-center gap-0.5 pl-1">
+            <Tooltip
+              content={isExpanded ? 'Restore panel size' : 'Expand panel size'}
+              side="bottom"
             >
-              {isExpanded ? (
-                <RestoreSquareIcon className="size-3.5" />
-              ) : (
-                <MaximizeSquareIcon className="size-3.5" />
-              )}
-            </button>
+              <IconButton
+                size="xs"
+                variant="ghost"
+                label={isExpanded ? 'Restore panel size' : 'Expand panel size'}
+                icon={<Icon name={isExpanded ? 'minimize' : 'maximize'} />}
+                onClick={toggleExpanded}
+              />
+            </Tooltip>
 
-            {/* Collapse Right Panel Button (Image 3 style) */}
-            <button
-              type="button"
-              title="Collapse right panel"
-              aria-label="Collapse right panel"
-              onClick={toggleOpen}
-              className="flex size-6 items-center justify-center rounded hover:bg-(--color-surface-raised) text-(--color-text-subtle) hover:text-(--color-text) cursor-pointer"
-            >
-              <PanelRightIcon className="size-3.5" />
-            </button>
+            <Tooltip content="Collapse right panel" side="bottom">
+              <IconButton
+                size="xs"
+                variant="ghost"
+                label="Collapse right panel"
+                icon={<Icon name="panel-right" />}
+                onClick={toggleOpen}
+              />
+            </Tooltip>
           </div>
         </div>
 
-        {/* ── Main Right Panel Body: Tab View OR Overview View ── */}
-        {panelMode === 'tab' && activeTab !== null ? (
+        {/* Drawer Body */}
+        {panelMode === 'plan' ? (
+          <DrawerPlanView />
+        ) : panelMode === 'git' ? (
+          <DrawerGitView />
+        ) : panelMode === 'tab' && activeTab !== null ? (
           <div className="flex-1 overflow-hidden">
             {activeTab.kind === 'file' ? (
               <FileTabViewer tab={activeTab} />
@@ -427,449 +405,325 @@ export function RightOverviewPanel(): React.JSX.Element {
             )}
           </div>
         ) : (
-          /* ── Dynamic Session Overview (Images 2 & 5) ── */
-          <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3.5 text-[12px]">
-            {/* ── 1. SUBAGENTS SECTION (Dynamic: 0 by default) ── */}
-            <div>
-              <button
-                type="button"
-                onClick={() => {
-                  setExpandedSubagents((prev) => !prev)
-                }}
-                className="flex w-full items-center justify-between py-1 text-left hover:text-(--color-text) cursor-pointer group"
+          <ScrollArea className="flex-1 p-3">
+            <div className="flex flex-col gap-2.5">
+              {/* 1. Artifacts & Generated Plans (planning.md surfaced first) */}
+              <DrawerOverviewSection
+                title="Artifacts & Plans"
+                count={totalArtifactsCount}
+                open={expandedArtifacts}
+                onOpenChange={setExpandedArtifacts}
+                trailing={
+                  <Button size="xs" variant="ghost" onClick={showPlan}>
+                    Open planning.md
+                  </Button>
+                }
               >
-                <div className="flex items-center gap-2">
-                  <span className="text-(--color-text-muted) group-hover:text-(--color-text) transition-colors font-medium">
-                    Subagents
-                  </span>
-                  <span className="text-[11px] text-(--color-text-subtle)">{subagents.length}</span>
-                </div>
-                <ChevronRightIcon
-                  className={cn(
-                    'size-3 text-(--color-text-subtle) transition-transform',
-                    expandedSubagents && 'rotate-90',
-                  )}
-                />
-              </button>
+                {totalArtifactsCount === 0 ? (
+                  <p className="px-1.5 py-2 typography-meta text-(--color-text-subtle)">
+                    No generated plans or artifacts yet.
+                  </p>
+                ) : (
+                  <List>
+                    {runArtifacts.map((art) => (
+                      <ListRow
+                        key={art.id}
+                        leading={<Icon name="plan" className="size-3.5 text-(--color-accent)" />}
+                        title={art.name}
+                        subtitle={art.kind}
+                        onSelect={() => {
+                          void handleOpenWorkflowArtifact(art)
+                        }}
+                      />
+                    ))}
+                    {sessionArtifacts.map((art) => (
+                      <ListRow
+                        key={art.id}
+                        leading={
+                          <Icon name="file" className="size-3.5 text-(--color-text-muted)" />
+                        }
+                        title={art.name}
+                        subtitle={art.type ?? 'artifact'}
+                        onSelect={() => {
+                          openTab({
+                            id: `artifact:${art.id}`,
+                            kind: 'artifact',
+                            title: art.name,
+                            artifactId: art.id,
+                            content: art.content,
+                          })
+                        }}
+                      />
+                    ))}
+                  </List>
+                )}
+              </DrawerOverviewSection>
 
-              {expandedSubagents && (
-                <div className="mt-1 pl-2 space-y-1.5 border-l border-(--color-border)/50">
-                  {subagents.length === 0 ? (
-                    <div className="text-[11px] text-(--color-text-subtle) italic py-1">
-                      No subagents active in this session.
-                    </div>
-                  ) : (
-                    subagents.map((sub) => (
-                      <div
-                        key={sub.id}
-                        className="p-1.5 rounded hover:bg-(--color-surface-raised) text-[11px]"
-                      >
-                        <div className="flex items-center justify-between font-medium">
-                          <span>{sub.role}</span>
-                          <span className="text-[9.5px] uppercase font-bold text-amber-400">
-                            {sub.status}
-                          </span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* ── 2. FILES CHANGED SECTION (Images 2 & 3) ── */}
-            <div className="relative">
-              <div className="flex items-center justify-between py-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setExpandedFilesChanged((prev) => !prev)
-                  }}
-                  className="flex items-center gap-2 text-left hover:text-(--color-text) cursor-pointer group"
-                >
-                  <span className="text-(--color-text-muted) group-hover:text-(--color-text) transition-colors font-medium">
-                    Files Changed
-                  </span>
-                  <span className="text-[11px] text-(--color-text-subtle)">
-                    {displayedSourceFiles.length}
-                  </span>
-                  <ChevronRightIcon
-                    className={cn(
-                      'size-3 text-(--color-text-subtle) transition-transform',
-                      expandedFilesChanged && 'rotate-90',
-                    )}
-                  />
-                </button>
-
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    title="Refresh git status"
-                    onClick={() => {
-                      void refreshGitStatus()
-                    }}
-                    className="flex size-5 items-center justify-center rounded text-(--color-text-subtle) hover:text-(--color-text) hover:bg-(--color-surface-raised) transition-colors cursor-pointer"
-                  >
-                    <RefreshIcon className={cn('size-3', loadingGit && 'animate-spin')} />
-                  </button>
-
-                  {/* Filter Dropdown Pill Button (Matching Antigravity Image 2) */}
-                  <div className="relative">
-                    <button
-                      type="button"
+              {/* 2. Files Changed */}
+              <DrawerOverviewSection
+                title="Files Changed"
+                count={displayedSourceFiles.length}
+                open={expandedFilesChanged}
+                onOpenChange={setExpandedFilesChanged}
+                trailing={
+                  <>
+                    <IconButton
+                      size="xs"
+                      variant="ghost"
+                      label="Refresh git status"
+                      icon={<Icon name="refresh" spin={loadingGit} />}
                       onClick={() => {
-                        setFilterDropdownOpen(!isFilterDropdownOpen)
+                        void refreshContext()
                       }}
-                      className="flex items-center gap-1 rounded border border-(--color-border) bg-(--color-surface-raised)/80 px-2 py-0.5 text-[11px] font-medium text-(--color-text) hover:bg-(--color-surface-raised) cursor-pointer shadow-2xs"
-                    >
-                      <span>
-                        {activeFilter === 'uncommitted'
-                          ? 'Uncommitted'
-                          : activeFilter === 'branch'
-                            ? 'Branch'
-                            : 'Agent Edits'}
-                      </span>
-                      <ChevronDownIcon className="size-2.5 text-(--color-text-subtle)" />
-                    </button>
-
-                    {/* Dropdown Menu (Image 2) */}
-                    {isFilterDropdownOpen && (
-                      <div className="absolute right-0 top-full mt-1.5 w-64 rounded-lg border border-(--color-border) bg-(--color-surface) p-1.5 shadow-xl z-50 text-[11.5px] space-y-1">
-                        {/* Option 1: Uncommitted */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveFilter('uncommitted')
-                          }}
-                          className="flex w-full items-start justify-between rounded p-2 text-left hover:bg-(--color-surface-raised) transition-colors cursor-pointer"
-                        >
-                          <div>
-                            <div className="font-semibold text-(--color-text)">Uncommitted</div>
-                            <div className="text-[10.5px] text-(--color-text-subtle) leading-snug">
-                              Staged index changes and working tree changes
-                            </div>
-                          </div>
-                          {activeFilter === 'uncommitted' && (
-                            <CheckIcon className="size-3.5 text-(--color-accent) shrink-0 pl-1" />
-                          )}
-                        </button>
-
-                        {/* Option 2: Branch */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveFilter('branch')
-                          }}
-                          className="flex w-full items-start justify-between rounded p-2 text-left hover:bg-(--color-surface-raised) transition-colors cursor-pointer"
-                        >
-                          <div>
-                            <div className="flex items-center gap-1 font-semibold text-(--color-text)">
-                              <span>Branch</span>
-                              <span className="font-mono text-[10px] text-(--color-text-muted)">
-                                {currentBranch}
-                              </span>
-                            </div>
-                            <div className="text-[10.5px] text-(--color-text-subtle) leading-snug">
-                              All changes since origin/main
-                            </div>
-                          </div>
-                          {activeFilter === 'branch' && (
-                            <CheckIcon className="size-3.5 text-(--color-accent) shrink-0 pl-1" />
-                          )}
-                        </button>
-
-                        {/* Option 3: Agent Edits */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActiveFilter('agent_edits')
-                          }}
-                          className="flex w-full items-start justify-between rounded p-2 text-left hover:bg-(--color-surface-raised) transition-colors cursor-pointer"
-                        >
-                          <div>
-                            <div className="font-semibold text-(--color-text)">Agent Edits</div>
-                            <div className="text-[10.5px] text-(--color-text-subtle) leading-snug">
-                              Files modified by the agent in this conversation
-                            </div>
-                          </div>
-                          {activeFilter === 'agent_edits' && (
-                            <CheckIcon className="size-3.5 text-(--color-accent) shrink-0 pl-1" />
-                          )}
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Files List (Image 3) */}
-              {expandedFilesChanged && (
-                <div className="mt-1 space-y-0.5">
-                  {displayedSourceFiles.length === 0 ? (
-                    <div className="py-2 text-[11px] text-(--color-text-subtle) italic">
-                      Clean working tree · No changes detected
-                    </div>
-                  ) : (
-                    <>
+                    />
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="xs" variant="outline" className="gap-1">
+                          <span>
+                            {activeFilter === 'uncommitted'
+                              ? 'Uncommitted'
+                              : activeFilter === 'branch'
+                                ? 'Branch'
+                                : 'Agent Edits'}
+                          </span>
+                          <Icon name="chevron-down" className="size-3" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-60">
+                        <DropdownMenuGroup>
+                          <DropdownMenuLabel>Scope Filter</DropdownMenuLabel>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setActiveFilter('uncommitted')
+                            }}
+                            className="justify-between"
+                          >
+                            <span>Uncommitted Changes</span>
+                            {activeFilter === 'uncommitted' ? (
+                              <Icon name="check" className="size-3.5 text-(--color-accent)" />
+                            ) : null}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setActiveFilter('branch')
+                            }}
+                            className="justify-between"
+                          >
+                            <span>Branch ({currentBranch})</span>
+                            {activeFilter === 'branch' ? (
+                              <Icon name="check" className="size-3.5 text-(--color-accent)" />
+                            ) : null}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setActiveFilter('agent_edits')
+                            }}
+                            className="justify-between"
+                          >
+                            <span>Agent Edits Only</span>
+                            {activeFilter === 'agent_edits' ? (
+                              <Icon name="check" className="size-3.5 text-(--color-accent)" />
+                            ) : null}
+                          </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </>
+                }
+              >
+                {displayedSourceFiles.length === 0 ? (
+                  <p className="px-1.5 py-2 typography-meta text-(--color-text-subtle)">
+                    Clean working tree. No modified files detected.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    <List>
                       {displayedFiles.map((file, idx) => {
                         const fullRelPath = file.fullPath ?? `${file.directory}/${file.path}`
                         return (
-                          <button
+                          <ListRow
                             key={`${file.path}-${String(idx)}`}
-                            type="button"
-                            onClick={() => {
+                            leading={
+                              <Icon
+                                name="file-code"
+                                className="size-3.5 text-(--color-text-muted)"
+                              />
+                            }
+                            title={file.path}
+                            subtitle={file.directory}
+                            trailing={
+                              <Badge tone="warning" size="sm" className="font-mono">
+                                {file.status}
+                              </Badge>
+                            }
+                            onSelect={() => {
                               openTab({
                                 id: `file:${fullRelPath}`,
                                 kind: 'file',
                                 title: file.path,
-                                subtitle: '(uncommitted)',
+                                subtitle: '(diff)',
                                 filePath: fullRelPath,
                                 directory: file.directory,
                               })
                             }}
-                            className="flex w-full items-center justify-between rounded px-1.5 py-1.5 text-left hover:bg-(--color-surface-raised) transition-colors cursor-pointer group"
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              {renderFileIcon(file.path)}
-                              <span className="truncate text-[12px] font-medium text-(--color-text) group-hover:text-(--color-accent)">
-                                {file.path}
-                              </span>
-                            </div>
-                            <span className="truncate pl-2 text-[10.5px] text-(--color-text-subtle) font-mono max-w-[120px] text-right">
-                              {file.directory}
-                            </span>
-                          </button>
+                          />
                         )
                       })}
+                    </List>
 
-                      {displayedSourceFiles.length > 5 && (
-                        <button
-                          type="button"
+                    <div className="flex items-center justify-between px-1">
+                      {displayedSourceFiles.length > 6 ? (
+                        <Button
+                          size="xs"
+                          variant="ghost"
                           onClick={() => {
                             setShowAllFiles((prev) => !prev)
                           }}
-                          className="pt-1 text-[11px] text-(--color-text-subtle) hover:text-(--color-text) cursor-pointer"
                         >
                           {showAllFiles
                             ? 'Show less'
                             : `See all (${String(displayedSourceFiles.length)})`}
-                        </button>
+                        </Button>
+                      ) : (
+                        <span />
                       )}
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* ── 3. ARTIFACTS SECTION (Dynamic: 0 by default) ── */}
-            <div>
-              <button
-                type="button"
-                onClick={() => {
-                  setExpandedArtifacts((prev) => !prev)
-                }}
-                className="flex w-full items-center justify-between py-1 text-left hover:text-(--color-text) cursor-pointer group"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-(--color-text-muted) group-hover:text-(--color-text) transition-colors font-medium">
-                    Artifacts
-                  </span>
-                  <span className="text-[11px] text-(--color-text-subtle)">{artifacts.length}</span>
-                </div>
-                <ChevronRightIcon
-                  className={cn(
-                    'size-3 text-(--color-text-subtle) transition-transform',
-                    expandedArtifacts && 'rotate-90',
-                  )}
-                />
-              </button>
-
-              {/* Artifacts List */}
-              {expandedArtifacts && (
-                <div className="mt-1 space-y-0.5">
-                  {artifacts.length === 0 ? (
-                    <div className="py-2 text-[11px] text-(--color-text-subtle) italic">
-                      No artifacts generated in this conversation yet.
+                      <Button size="xs" variant="outline" onClick={showGit}>
+                        <Icon name="git-commit" className="size-3" />
+                        <span>Git Actions</span>
+                      </Button>
                     </div>
-                  ) : (
-                    <>
-                      {displayedArtifacts.map((art) => (
-                        <button
-                          key={art.id}
-                          type="button"
-                          onClick={() => {
-                            openTab({
-                              id: `artifact:${art.id}`,
-                              kind: 'artifact',
-                              title: art.name,
-                              artifactId: art.id,
-                              content: art.content,
-                            })
-                          }}
-                          className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-left hover:bg-(--color-surface-raised) transition-colors cursor-pointer group"
-                        >
-                          <DocumentIcon className="size-3.5 text-(--color-text-muted) group-hover:text-(--color-accent) shrink-0" />
-                          <span className="truncate text-[12px] text-(--color-text) group-hover:text-(--color-accent)">
-                            {art.name}
-                          </span>
-                        </button>
+                  </div>
+                )}
+              </DrawerOverviewSection>
+
+              {/* 3. Subagents & Workflow Turns */}
+              <DrawerOverviewSection
+                title="Subagents & Stages"
+                count={combinedSubagentsCount}
+                open={expandedSubagents}
+                onOpenChange={setExpandedSubagents}
+              >
+                {combinedSubagentsCount === 0 ? (
+                  <p className="px-1.5 py-2 typography-meta text-(--color-text-subtle)">
+                    No active subagent turns.
+                  </p>
+                ) : (
+                  <List>
+                    {activeWorkflow?.steps
+                      .filter((s) => s.state !== 'pending' && s.role !== 'user')
+                      .map((step) => (
+                        <ListRow
+                          key={step.id}
+                          leading={
+                            <Icon name="subagent" className="size-3.5 text-(--color-accent)" />
+                          }
+                          title={`Stage ${String(step.index + 1)}: ${step.role}`}
+                          subtitle={step.runtimeId ?? 'system'}
+                          trailing={
+                            <Badge tone={step.state === 'running' ? 'accent' : 'neutral'} size="sm">
+                              {step.state}
+                            </Badge>
+                          }
+                        />
                       ))}
+                    {subagents.map((sub) => (
+                      <ListRow
+                        key={sub.id}
+                        leading={<Icon name="subagent" className="size-3.5 text-(--color-info)" />}
+                        title={sub.role}
+                        subtitle={sub.prompt}
+                        trailing={
+                          <Badge tone="neutral" size="sm">
+                            {sub.status}
+                          </Badge>
+                        }
+                      />
+                    ))}
+                  </List>
+                )}
+              </DrawerOverviewSection>
 
-                      {artifacts.length > 5 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowAllArtifacts((prev) => !prev)
-                          }}
-                          className="pt-1 text-[11px] text-(--color-text-subtle) hover:text-(--color-text) cursor-pointer"
-                        >
-                          {showAllArtifacts ? 'Show less' : `See all (${String(artifacts.length)})`}
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* ── 4. UPLOADS SECTION (Dynamic: 0 by default) ── */}
-            <div>
-              <button
-                type="button"
-                onClick={() => {
-                  setExpandedUploads((prev) => !prev)
-                }}
-                className="flex w-full items-center justify-between py-1 text-left hover:text-(--color-text) cursor-pointer group"
+              {/* 4. Uploads, Background Tasks, Terminals */}
+              <DrawerOverviewSection
+                title="Uploads"
+                count={uploads.length}
+                open={expandedUploads}
+                onOpenChange={setExpandedUploads}
               >
-                <div className="flex items-center gap-2">
-                  <span className="text-(--color-text-muted) group-hover:text-(--color-text) transition-colors font-medium">
-                    Uploads
-                  </span>
-                  <span className="text-[11px] text-(--color-text-subtle)">{uploads.length}</span>
-                </div>
-                <ChevronRightIcon
-                  className={cn(
-                    'size-3 text-(--color-text-subtle) transition-transform',
-                    expandedUploads && 'rotate-90',
-                  )}
-                />
-              </button>
+                {uploads.length === 0 ? (
+                  <p className="px-1.5 py-1.5 typography-meta text-(--color-text-subtle)">
+                    No session uploads.
+                  </p>
+                ) : (
+                  <List>
+                    {uploads.map((up) => (
+                      <ListRow
+                        key={up.id}
+                        leading={<Icon name="file" className="size-3.5" />}
+                        title={up.name}
+                      />
+                    ))}
+                  </List>
+                )}
+              </DrawerOverviewSection>
 
-              {/* Uploads List */}
-              {expandedUploads && (
-                <div className="mt-1 space-y-0.5">
-                  {uploads.length === 0 ? (
-                    <div className="py-2 text-[11px] text-(--color-text-subtle) italic">
-                      No media or files uploaded in this conversation.
-                    </div>
-                  ) : (
-                    <>
-                      {displayedUploads.map((up) => (
-                        <div
-                          key={up.id}
-                          className="flex w-full items-center gap-2 rounded px-1.5 py-1.5 text-[12px] text-(--color-text) hover:bg-(--color-surface-raised) transition-colors"
-                        >
-                          <MediaIcon className="size-3.5 text-(--color-text-muted) shrink-0" />
-                          <span className="truncate">{up.name}</span>
-                        </div>
-                      ))}
-
-                      {uploads.length > 5 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowAllUploads((prev) => !prev)
-                          }}
-                          className="pt-1 text-[11px] text-(--color-text-subtle) hover:text-(--color-text) cursor-pointer"
-                        >
-                          {showAllUploads ? 'Show less' : `See all (${String(uploads.length)})`}
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* ── 5. BACKGROUND TASKS SECTION (Dynamic: 0 by default) ── */}
-            <div>
-              <button
-                type="button"
-                onClick={() => {
-                  setExpandedBgTasks((prev) => !prev)
-                }}
-                className="flex w-full items-center justify-between py-1 text-left hover:text-(--color-text) cursor-pointer group"
+              <DrawerOverviewSection
+                title="Background Tasks"
+                count={backgroundTasks.length}
+                open={expandedBgTasks}
+                onOpenChange={setExpandedBgTasks}
               >
-                <div className="flex items-center gap-2">
-                  <span className="text-(--color-text-muted) group-hover:text-(--color-text) transition-colors font-medium">
-                    Background Tasks
-                  </span>
-                  <span className="text-[11px] text-(--color-text-subtle)">
-                    {backgroundTasks.length}
-                  </span>
-                </div>
-                <ChevronRightIcon
-                  className={cn(
-                    'size-3 text-(--color-text-subtle) transition-transform',
-                    expandedBgTasks && 'rotate-90',
-                  )}
-                />
-              </button>
+                {backgroundTasks.length === 0 ? (
+                  <p className="px-1.5 py-1.5 typography-meta text-(--color-text-subtle)">
+                    No background tasks running.
+                  </p>
+                ) : (
+                  <List>
+                    {backgroundTasks.map((task) => (
+                      <ListRow
+                        key={task.id}
+                        leading={<Icon name="clock" className="size-3.5" />}
+                        title={task.command}
+                        trailing={
+                          <Badge tone="neutral" size="sm">
+                            {task.status}
+                          </Badge>
+                        }
+                      />
+                    ))}
+                  </List>
+                )}
+              </DrawerOverviewSection>
 
-              {expandedBgTasks && (
-                <div className="mt-1 pl-2 space-y-1 text-[11px] text-(--color-text-subtle) italic">
-                  {backgroundTasks.length === 0 ? (
-                    <div>No background tasks running.</div>
-                  ) : (
-                    backgroundTasks.map((t) => (
-                      <div key={t.id} className="font-mono text-(--color-text)">
-                        {t.command}
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* ── 6. TERMINALS SECTION (Dynamic: 0 by default) ── */}
-            <div>
-              <button
-                type="button"
-                onClick={() => {
-                  setExpandedTerminals((prev) => !prev)
-                }}
-                className="flex w-full items-center justify-between py-1 text-left hover:text-(--color-text) cursor-pointer group"
+              <DrawerOverviewSection
+                title="Terminals"
+                count={terminals.length}
+                open={expandedTerminals}
+                onOpenChange={setExpandedTerminals}
               >
-                <div className="flex items-center gap-2">
-                  <span className="text-(--color-text-muted) group-hover:text-(--color-text) transition-colors font-medium">
-                    Terminals
-                  </span>
-                  <span className="text-[11px] text-(--color-text-subtle)">{terminals.length}</span>
-                </div>
-                <ChevronRightIcon
-                  className={cn(
-                    'size-3 text-(--color-text-subtle) transition-transform',
-                    expandedTerminals && 'rotate-90',
-                  )}
-                />
-              </button>
-
-              {expandedTerminals && (
-                <div className="mt-1 pl-2 space-y-1 text-[11px]">
-                  {terminals.length === 0 ? (
-                    <div className="text-(--color-text-subtle) italic">No active terminals.</div>
-                  ) : (
-                    terminals.map((t) => (
-                      <div key={t.id} className="flex items-center gap-1.5 text-(--color-text)">
-                        <TerminalSquareIcon className="size-3.5 text-(--color-text-muted) shrink-0" />
-                        <span>{t.name}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
+                {terminals.length === 0 ? (
+                  <p className="px-1.5 py-1.5 typography-meta text-(--color-text-subtle)">
+                    No active terminals.
+                  </p>
+                ) : (
+                  <List>
+                    {terminals.map((term) => (
+                      <ListRow
+                        key={term.id}
+                        leading={<Icon name="terminal" className="size-3.5" />}
+                        title={term.name}
+                        trailing={
+                          <Badge tone={term.active ? 'success' : 'neutral'} size="sm">
+                            {term.active ? 'active' : 'idle'}
+                          </Badge>
+                        }
+                      />
+                    ))}
+                  </List>
+                )}
+              </DrawerOverviewSection>
             </div>
-          </div>
+          </ScrollArea>
         )}
       </div>
     </aside>

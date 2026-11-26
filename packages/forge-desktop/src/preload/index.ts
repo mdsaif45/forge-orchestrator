@@ -116,6 +116,9 @@ const api: ForgeApi = {
     listFiles: (projectId) => call('git:listFiles', { projectId }),
     readFile: (projectId, path) => call('git:readFile', { projectId, path }),
     writeFile: (projectId, path, content) => call('git:writeFile', { projectId, path, content }),
+    stage: (projectId, paths) => call('git:stage', { projectId, paths }),
+    unstage: (projectId, paths) => call('git:unstage', { projectId, paths }),
+    commit: (projectId, message) => call('git:commit', { projectId, message }),
   },
   template: {
     list: () => call('template:list', {}),

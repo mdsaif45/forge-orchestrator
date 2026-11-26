@@ -19,6 +19,7 @@ import {
 import type { WorkflowDetailView, WorkflowSummaryView } from '@shared/views'
 import { createForgeCore, resolveDataDir } from '@forge/core/core/forgeCore'
 import { ConcurrencyController } from '@forge/core/core/concurrencyController'
+import { SubagentCapabilityQuarantineCoordinator } from '@forge/core/core/subagentCapabilityQuarantineCoordinator'
 import { executeDirectTask, type DirectTaskEvent } from '@forge/core/core/taskRunner'
 import { GitService, WorktreeIsolationManager } from '@forge/core/git'
 import { discoverOllamaModels } from '@forge/core/providers/ollamaDiscovery'
@@ -306,7 +307,7 @@ ${ANSI.bold}COMMANDS${ANSI.reset}
   worktree [list]            Inspect isolated multi-agent git worktrees and active sandbox leases
   models [list|scan|auto|set|fallback|circuit] Inspect, auto-select, fallback routing, and circuit breakers
   runtimes [list|test|env|quota|rate-limit|cache|coerce|truncate|stream-turn|reflect] Inspect registered runtimes, test execution, sanitized environment, quotas, tool rate limits, cache, parameter coercion, buffer limiter, streaming dispatcher, and tool schema reflection
-  context [inspect|optimize|compact|budget] Inspect prompt packet, context files, prefix caching optimization, sliding window compaction, or token window budgeting
+  context [inspect|optimize|compact|budget|quarantine-eval] Inspect prompt packet, context files, prefix caching optimization, sliding window compaction, token window budgeting, or subagent capability quarantine
   memory [search|index|stats] Search, index, and inspect cross-run solution memory and semantic patterns
   projects [list|prune]      Inspect multi-project workspace registry, health, and prune missing projects
   verify [pipeline|coverage|commit|manifest|report] Execute ordered verification pipeline, audit code coverage, validate commit messages, manifest audit, or JUnit/TAP assertion report
@@ -4748,6 +4749,59 @@ async function handleContext(opts: {
         `\nAgent Tool Streaming Chunk Pipeline: Chunks=${String(evalReport.chunksEmitted)}, TotalBytes=${String(evalReport.totalBytesStreamed)}, Stdout=${String(evalReport.stdoutBytes)}B, Stderr=${String(evalReport.stderrBytes)}B, Pauses=${String(evalReport.backpressurePauses)}\n`,
       )
       return 0
+    }
+
+    if (action === 'quarantine-eval' || action === 'quarantine') {
+      const subagentId = opts.runId ?? 'subagent-sandbox-1'
+      const coordinator = new SubagentCapabilityQuarantineCoordinator({
+        policy: { defaultLeaseTtlMs: 15_000, maxRenewals: 3, enableExpirationTimers: false },
+      })
+      const lease = coordinator.issueLease({
+        subagentId,
+        zone: 'SANDBOXED',
+        requestedCapabilities: ['FILE_READ', 'FILE_WRITE', 'NETWORK_EGRESS'],
+      })
+      const readAccess = coordinator.evaluateAccess(lease.leaseId, 'FILE_READ')
+      const networkAccess = coordinator.evaluateAccess(lease.leaseId, 'NETWORK_EGRESS')
+      const renewal = coordinator.renewLease(lease.leaseId, {
+        progressScore: 0.45,
+        summary: 'Completed module AST verification',
+        evidenceDigest: 'sha256:9f86d081884c7d65',
+      })
+      const snapshot = coordinator.getSnapshot()
+      coordinator.dispose()
+
+      const evalReport = {
+        leaseId: lease.leaseId,
+        subagentId: lease.subagentId,
+        zone: lease.zone,
+        grantedCapabilities: lease.grantedCapabilities,
+        deniedCapabilities: lease.deniedCapabilities,
+        readAccessAllowed: readAccess.allowed,
+        networkAccessAllowed: networkAccess.allowed,
+        renewalApproved: renewal.approved,
+        renewalStatus: renewal.status,
+        renewalCount: renewal.renewalCount,
+        snapshotDigest: snapshot.snapshotDigest,
+        metrics: snapshot.metrics,
+      }
+
+      if (opts.json) {
+        console.log(JSON.stringify(evalReport))
+        return evalReport.readAccessAllowed &&
+          !evalReport.networkAccessAllowed &&
+          evalReport.renewalApproved
+          ? 0
+          : 1
+      }
+      console.log(
+        `\nSubagent Capability Quarantine (AGENT-033): Subagent=${evalReport.subagentId}, Zone=${evalReport.zone}, Granted=[${evalReport.grantedCapabilities.join(', ')}], NetworkBlocked=${String(!evalReport.networkAccessAllowed)}, Renewal=${evalReport.renewalStatus}\n`,
+      )
+      return evalReport.readAccessAllowed &&
+        !evalReport.networkAccessAllowed &&
+        evalReport.renewalApproved
+        ? 0
+        : 1
     }
 
     if (action === 'budget') {

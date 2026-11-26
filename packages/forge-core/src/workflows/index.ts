@@ -279,3 +279,32 @@ export {
   type ArbiterConfig,
 } from './workflowTransactionalSavepointArbiter'
 export { AmbiguousRoleBindingError, UnboundRoleError } from '../runtimes/bindings'
+export {
+  dslParameterTypeSchema,
+  dslParameterSpecSchema,
+  dslSlotSchema,
+  dslOutputSchema,
+  dslNodeConfigSchema,
+  dslNodeSchema,
+  dslEdgeSchema,
+  workflowDslDocumentSchema,
+  type DslParameterType,
+  type DslParameterSpec,
+  type DslSlotAst,
+  type DslOutputAst,
+  type DslNodeConfigAst,
+  type DslNodeAst,
+  type DslEdgeAst,
+  type WorkflowDslDocument,
+  type WorkflowDslDocumentInput,
+} from './workflow.dsl'
+export {
+  WorkflowDslParser,
+  parseYamlToUnknown,
+  DslSyntaxError,
+  WorkflowDslCompilationError,
+  type DslDiagnosticCode,
+  type DslDiagnostic,
+  type DslCompilationResult,
+  type DslParseOptions,
+} from './dslParser'

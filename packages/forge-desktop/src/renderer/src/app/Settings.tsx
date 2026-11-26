@@ -16,6 +16,7 @@ import {
   Dialog,
   EmptyState,
   Field,
+  Icon,
   IconButton,
   Input,
   type McpServerConfig,
@@ -32,7 +33,6 @@ import {
 import { unwrap } from '@renderer/ipc'
 import { DeleteProjectDialog } from './DeleteProjectDialog'
 import { EditProjectDialog } from './EditProjectDialog'
-import { CloseIcon } from './icons'
 import { useProjectStore } from './projectStore'
 import { useUiStore } from './uiStore'
 
@@ -794,7 +794,12 @@ export function SettingsDialog({
           <div className="flex items-center gap-2">
             <span className="text-[14px] font-semibold text-(--color-text)">Settings</span>
           </div>
-          <IconButton size="sm" label="Close settings" icon={<CloseIcon />} onClick={onClose} />
+          <IconButton
+            size="sm"
+            label="Close settings"
+            icon={<Icon name="close" />}
+            onClick={onClose}
+          />
         </div>
 
         {/* Modal 2-Level Settings Body */}
@@ -1646,16 +1651,16 @@ function CliAgentsGlobalSettings(): React.JSX.Element {
                       )}
 
                       {cli.isCustom && (
-                        <button
-                          type="button"
-                          aria-label={`Remove ${cli.name}`}
+                        <IconButton
+                          size="xs"
+                          variant="ghost"
+                          label={`Remove ${cli.name}`}
+                          icon={<Icon name="close" />}
                           onClick={() => {
                             void handleRemoveCustomCli(cli.id, cli.name)
                           }}
-                          className="p-1 text-(--color-text-muted) hover:text-(--color-danger) cursor-pointer"
-                        >
-                          <CloseIcon />
-                        </button>
+                          className="hover:text-(--color-danger)"
+                        />
                       )}
                     </div>
                   </div>

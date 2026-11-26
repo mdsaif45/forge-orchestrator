@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { NavLink } from 'react-router'
 import { unwrap } from '../ipc'
-import { Badge, IconButton, Separator, Tooltip } from '../ui'
-import { cn } from '../ui'
-import { CollapseIcon, ExpandIcon } from './icons'
+import { Badge, cn, Icon, IconButton, Separator, Tooltip } from '../ui'
 import { useProjectStore } from './projectStore'
 import { ROUTES } from './routes'
 import { useUiStore } from './uiStore'
@@ -112,7 +110,7 @@ export function Sidebar(): React.JSX.Element {
           size="sm"
           label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           onClick={toggleSidebar}
-          icon={collapsed ? <ExpandIcon /> : <CollapseIcon />}
+          icon={collapsed ? <Icon name="chevron-right" /> : <Icon name="chevron-left" />}
           className="rounded-lg text-(--color-text-muted) hover:text-(--color-text)"
         />
       </div>

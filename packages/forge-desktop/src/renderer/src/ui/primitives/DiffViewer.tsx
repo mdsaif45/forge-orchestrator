@@ -198,9 +198,9 @@ export function DiffViewer({
                 const isDel = diffLine.type === 'del'
 
                 const rowBg = isAdd
-                  ? 'bg-[#2ea043]/20 border-l-2 border-[#2ea043]'
+                  ? 'bg-(--color-success)/15 border-l-2 border-(--color-success)'
                   : isDel
-                    ? 'bg-[#f85149]/20 border-l-2 border-[#f85149]'
+                    ? 'bg-(--color-danger)/15 border-l-2 border-(--color-danger)'
                     : 'border-l-2 border-transparent hover:bg-(--color-surface-raised)/40'
 
                 return (

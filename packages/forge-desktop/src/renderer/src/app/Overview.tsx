@@ -9,6 +9,7 @@ import {
   CardHeader,
   CardTitle,
   Code,
+  Icon,
   ScrollArea,
   Separator,
   Spinner,
@@ -66,8 +67,8 @@ function WelcomeWorkspace(): React.JSX.Element {
     <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-8 px-6 py-12 text-center animate-in fade-in duration-200">
       {/* Hero Welcome Banner */}
       <div className="flex flex-col items-center gap-3">
-        <div className="flex size-12 items-center justify-center rounded-2xl bg-(--color-accent)/15 text-(--color-accent) text-2xl font-bold shadow-sm ring-1 ring-(--color-accent)/30">
-          ⚡
+        <div className="flex size-12 items-center justify-center rounded-2xl bg-(--color-accent)/15 text-(--color-accent) shadow-sm ring-1 ring-(--color-accent)/30">
+          <Icon name="sparkles" className="size-6" />
         </div>
         <h2 className="text-[22px] font-bold tracking-tight text-(--color-text)">
           Welcome to Forge
@@ -86,44 +87,48 @@ function WelcomeWorkspace(): React.JSX.Element {
           onClick={openCreateProject}
           className="rounded-xl px-6 py-2.5 text-[13px] font-semibold shadow-md"
         >
-          <span className="mr-1.5 text-base font-bold">+</span> Open Project
+          <Icon name="plus" className="size-4" />
+          <span>Open Project</span>
         </Button>
-        <span className="text-[11px] text-(--color-text-subtle)">
+        <span className="typography-micro text-(--color-text-subtle)">
           Bind any local folder to start orchestrating workflows
         </span>
       </div>
 
       {/* Feature Highlights Grid */}
       <div className="grid w-full grid-cols-1 gap-4 text-left md:grid-cols-3">
-        <div className="flex flex-col gap-1.5 rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-4 shadow-xs">
-          <div className="flex items-center gap-2 font-semibold text-(--color-text) text-[13px]">
-            <span>📁</span> Codebase Integration
+        <Card tone="raised" className="flex flex-col gap-1.5 p-4">
+          <div className="flex items-center gap-2 typography-ui-label font-semibold text-(--color-text)">
+            <Icon name="folder" className="size-4 text-(--color-accent)" />
+            <span>Codebase Integration</span>
           </div>
-          <p className="text-[12px] text-(--color-text-muted) leading-relaxed">
+          <p className="typography-meta leading-relaxed text-(--color-text-muted)">
             Live branch detection, dirty file tracking, and automatic tech stack analysis from git
             metadata.
           </p>
-        </div>
+        </Card>
 
-        <div className="flex flex-col gap-1.5 rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-4 shadow-xs">
-          <div className="flex items-center gap-2 font-semibold text-(--color-text) text-[13px]">
-            <span>🔒</span> Decision Locking
+        <Card tone="raised" className="flex flex-col gap-1.5 p-4">
+          <div className="flex items-center gap-2 typography-ui-label font-semibold text-(--color-text)">
+            <Icon name="lock" className="size-4 text-(--color-accent)" />
+            <span>Decision Locking</span>
           </div>
-          <p className="text-[12px] text-(--color-text-muted) leading-relaxed">
+          <p className="typography-meta leading-relaxed text-(--color-text-muted)">
             Every architectural decision must be explicitly approved and locked before agents can
             write code.
           </p>
-        </div>
+        </Card>
 
-        <div className="flex flex-col gap-1.5 rounded-xl border border-(--color-border) bg-(--color-surface-raised) p-4 shadow-xs">
-          <div className="flex items-center gap-2 font-semibold text-(--color-text) text-[13px]">
-            <span>🌳</span> Worktree Isolation
+        <Card tone="raised" className="flex flex-col gap-1.5 p-4">
+          <div className="flex items-center gap-2 typography-ui-label font-semibold text-(--color-text)">
+            <Icon name="git-branch" className="size-4 text-(--color-accent)" />
+            <span>Worktree Isolation</span>
           </div>
-          <p className="text-[12px] text-(--color-text-muted) leading-relaxed">
+          <p className="typography-meta leading-relaxed text-(--color-text-muted)">
             Multi-agent execution runs in dedicated worktrees, protecting your active working tree
             and branch.
           </p>
-        </div>
+        </Card>
       </div>
 
       {/* Streamlined System Telemetry & Environment Bar */}

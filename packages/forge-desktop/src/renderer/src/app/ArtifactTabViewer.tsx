@@ -1,8 +1,7 @@
 import React, { useState } from 'react'
-import { MarkdownRenderer } from '../ui/primitives/MarkdownRenderer'
+import { Button, Icon, MarkdownRenderer } from '../ui'
 import { useProjectStore } from './projectStore'
 import type { WorkspaceTab } from './overviewStore'
-import { CheckIcon, ChevronRightIcon, CopyIcon, DocumentIcon } from './icons'
 
 export interface ArtifactTabViewerProps {
   readonly tab: WorkspaceTab
@@ -34,32 +33,27 @@ export function ArtifactTabViewer({ tab }: ArtifactTabViewerProps): React.JSX.El
       {/* ── Breadcrumb & Action Bar (Matching Antigravity Image 5) ── */}
       <div className="flex h-10 shrink-0 items-center justify-between border-b border-(--color-border) bg-(--color-surface-raised)/30 px-4 select-none text-[12px]">
         {/* Breadcrumb Navigation */}
-        <div className="flex items-center gap-1.5 min-w-0 font-mono text-[11.5px] text-(--color-text-muted)">
+        <div className="flex min-w-0 items-center gap-1.5 font-mono typography-micro text-(--color-text-muted)">
           <span className="font-semibold text-(--color-text)">{projectName}</span>
-          <ChevronRightIcon className="size-2.5 text-(--color-text-subtle)" />
+          <Icon name="chevron-right" className="size-3 text-(--color-text-subtle)" />
           <span>Artifacts</span>
-          <ChevronRightIcon className="size-2.5 text-(--color-text-subtle)" />
+          <Icon name="chevron-right" className="size-3 text-(--color-text-subtle)" />
           <div className="flex items-center gap-1.5 font-semibold text-(--color-text)">
-            <DocumentIcon className="size-3.5 text-(--color-text-muted)" />
+            <Icon name="file" className="size-3.5 text-(--color-text-muted)" />
             <span>{tab.title}</span>
           </div>
         </div>
 
         {/* Right Tools: Copy Raw */}
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            title="Copy raw markdown"
-            onClick={handleCopyRaw}
-            className="flex items-center gap-1.5 rounded px-2.5 py-1 text-[11px] text-(--color-text-muted) hover:bg-(--color-surface-inset) hover:text-(--color-text) transition-colors cursor-pointer border border-(--color-border)"
-          >
+        <div className="flex shrink-0 items-center gap-2">
+          <Button size="xs" variant="outline" title="Copy raw markdown" onClick={handleCopyRaw}>
             {copied ? (
-              <CheckIcon className="size-3 text-emerald-400" />
+              <Icon name="check" className="size-3 text-(--color-success)" />
             ) : (
-              <CopyIcon className="size-3" />
+              <Icon name="copy" className="size-3" />
             )}
             <span>{copied ? 'Copied' : 'Copy Raw'}</span>
-          </button>
+          </Button>
         </div>
       </div>
 

@@ -1,9 +1,8 @@
 import React, { useEffect, useState } from 'react'
-import { CodeViewer } from '../ui/primitives/CodeViewer'
+import { Badge, Button, CodeViewer, Icon, Spinner } from '../ui'
 import { useProjectStore } from './projectStore'
 import { unwrap } from '../ipc'
 import type { WorkspaceTab } from './overviewStore'
-import { CheckIcon, ChevronRightIcon, CodeFileIcon, CopyIcon, DocumentIcon } from './icons'
 
 export interface FileTabViewerProps {
   readonly tab: WorkspaceTab
@@ -94,60 +93,55 @@ export function FileTabViewer({ tab }: FileTabViewerProps): React.JSX.Element {
   const renderBadge = () => {
     const lower = fileName.toLowerCase()
     if (lower.endsWith('.md') || lower.endsWith('.txt')) {
-      return <DocumentIcon className="size-3.5 text-(--color-text-muted) shrink-0" />
+      return <Icon name="file" className="size-3.5 shrink-0 text-(--color-text-muted)" />
     }
-    return <CodeFileIcon className="size-3.5 text-(--color-text-muted) shrink-0" />
+    return <Icon name="file-code" className="size-3.5 shrink-0 text-(--color-text-muted)" />
   }
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-(--color-canvas)">
-      {/* ── Breadcrumb & Action Bar (Matching Antigravity Image 4) ── */}
-      <div className="flex h-10 shrink-0 items-center justify-between border-b border-(--color-border) bg-(--color-surface-raised)/30 px-4 select-none text-[12px]">
+      {/* ── Breadcrumb & Action Bar ── */}
+      <div className="flex h-10 shrink-0 items-center justify-between border-b border-(--color-border) bg-(--color-surface-raised)/30 px-4 select-none typography-ui-label">
         {/* Breadcrumb Navigation */}
-        <div className="flex items-center gap-1.5 min-w-0 overflow-x-auto no-scrollbar font-mono text-[11.5px] text-(--color-text-muted)">
+        <div className="no-scrollbar flex min-w-0 items-center gap-1.5 overflow-x-auto font-mono typography-micro text-(--color-text-muted)">
           <span className="font-semibold text-(--color-text)">{projectName}</span>
           {pathSegments.map((segment, idx) => (
             <React.Fragment key={`${segment}-${String(idx)}`}>
-              <ChevronRightIcon className="size-2.5 text-(--color-text-subtle)" />
-              <span className="hover:text-(--color-text) cursor-default">{segment}</span>
+              <Icon name="chevron-right" className="size-3 text-(--color-text-subtle)" />
+              <span className="cursor-default hover:text-(--color-text)">{segment}</span>
             </React.Fragment>
           ))}
-          <ChevronRightIcon className="size-2.5 text-(--color-text-subtle)" />
-          <div className="flex items-center gap-1.5 font-semibold text-(--color-text) shrink-0">
+          <Icon name="chevron-right" className="size-3 text-(--color-text-subtle)" />
+          <div className="flex shrink-0 items-center gap-1.5 font-semibold text-(--color-text)">
             {renderBadge()}
             <span>{fileName}</span>
           </div>
 
           {tab.subtitle && (
-            <span className="ml-1 rounded bg-(--color-surface-inset) px-1.5 py-0.2 text-[10px] text-(--color-text-subtle) font-sans">
+            <Badge tone="neutral" size="sm" className="ml-1 font-sans">
               {tab.subtitle}
-            </span>
+            </Badge>
           )}
         </div>
 
         {/* Right Tools: Copy Path / Content */}
-        <div className="flex items-center gap-2 shrink-0">
-          <button
-            type="button"
-            title="Copy relative path"
-            onClick={handleCopyPath}
-            className="flex items-center gap-1.5 rounded px-2 py-1 text-[11px] text-(--color-text-muted) hover:bg-(--color-surface-inset) hover:text-(--color-text) transition-colors cursor-pointer"
-          >
+        <div className="flex shrink-0 items-center gap-2">
+          <Button size="xs" variant="ghost" title="Copy relative path" onClick={handleCopyPath}>
             {copied ? (
-              <CheckIcon className="size-3 text-emerald-400" />
+              <Icon name="check" className="size-3 text-(--color-success)" />
             ) : (
-              <CopyIcon className="size-3" />
+              <Icon name="copy" className="size-3" />
             )}
             <span>{copied ? 'Copied' : 'Copy Path'}</span>
-          </button>
+          </Button>
         </div>
       </div>
 
       {/* ── Code / Diff Viewer Body ── */}
       <div className="flex-1 overflow-hidden">
         {loading && !content ? (
-          <div className="flex h-full items-center justify-center text-[12px] text-(--color-text-muted)">
-            <span className="animate-spin mr-2">↻</span> Loading {fileName}...
+          <div className="flex h-full items-center justify-center">
+            <Spinner label={`Loading ${fileName}...`} />
           </div>
         ) : (
           <CodeViewer

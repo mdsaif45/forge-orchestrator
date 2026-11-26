@@ -5,7 +5,7 @@ import type {
   WorkflowNodeView,
   WorkflowTemplateV2View,
 } from '@shared/ipc'
-import { Badge, Button, useToast } from '@renderer/ui'
+import { Badge, Button, Select, useToast } from '@renderer/ui'
 import {
   hasDuplicateEdge,
   serializeCanvasToWorkflowSchema,
@@ -936,20 +936,21 @@ export function WorkflowCanvas({
                 <label className="block text-[11px] font-medium text-(--color-text-muted) mb-1">
                   Node Type
                 </label>
-                <select
+                <Select
+                  aria-label="Node Type"
                   value={selectedNode.type}
                   onChange={(e) => {
                     updateSelectedNode({
                       type: e.target.value as WorkflowNodeView['type'],
                     })
                   }}
-                  className="w-full rounded border border-(--color-border) bg-(--color-surface) px-2.5 py-1.5 text-(--color-text) focus:border-(--color-accent) focus:outline-none"
-                >
-                  <option value="agent">Agent (Autonomous reasoning & coding)</option>
-                  <option value="user_gate">User Gate (Human review & approval)</option>
-                  <option value="verification">Verification (Axiom A3 build & test)</option>
-                  <option value="router">Router (Conditional branching)</option>
-                </select>
+                  options={[
+                    { value: 'agent', label: 'Agent (Autonomous reasoning & coding)' },
+                    { value: 'user_gate', label: 'User Gate (Human review & approval)' },
+                    { value: 'verification', label: 'Verification (Axiom A3 build & test)' },
+                    { value: 'router', label: 'Router (Conditional branching)' },
+                  ]}
+                />
               </div>
 
               {/* Runtime Type */}
@@ -957,20 +958,21 @@ export function WorkflowCanvas({
                 <label className="block text-[11px] font-medium text-(--color-text-muted) mb-1">
                   Runtime Harness
                 </label>
-                <select
+                <Select
+                  aria-label="Runtime Harness"
                   value={selectedNode.runtimeType}
                   onChange={(e) => {
                     updateSelectedNode({
                       runtimeType: e.target.value as WorkflowNodeView['runtimeType'],
                     })
                   }}
-                  className="w-full rounded border border-(--color-border) bg-(--color-surface) px-2.5 py-1.5 text-(--color-text) focus:border-(--color-accent) focus:outline-none"
-                >
-                  <option value="forge-native">Forge Agent (Built-in tool loop)</option>
-                  <option value="cli-agent">Bring-Your-Own System CLI</option>
-                  <option value="human">Human Reviewer</option>
-                  <option value="forge-engine">Forge Engine (Tests & builds)</option>
-                </select>
+                  options={[
+                    { value: 'forge-native', label: 'Forge Agent (Built-in tool loop)' },
+                    { value: 'cli-agent', label: 'Bring-Your-Own System CLI' },
+                    { value: 'human', label: 'Human Reviewer' },
+                    { value: 'forge-engine', label: 'Forge Engine (Tests & builds)' },
+                  ]}
+                />
               </div>
 
               {/* CLI Executable if cli-agent */}
@@ -980,7 +982,8 @@ export function WorkflowCanvas({
                     CLI Executable
                   </label>
                   <div className="space-y-1">
-                    <select
+                    <Select
+                      aria-label="CLI Executable"
                       value={
                         selectedNode.config.agentExecutable ?? installedClis[0]?.executable ?? ''
                       }
@@ -989,14 +992,11 @@ export function WorkflowCanvas({
                           config: { ...selectedNode.config, agentExecutable: e.target.value },
                         })
                       }}
-                      className="w-full rounded border border-(--color-border) bg-(--color-surface) px-2.5 py-1.5 text-(--color-text) focus:border-(--color-accent) focus:outline-none"
-                    >
-                      {installedClis.map((cli) => (
-                        <option key={cli.id} value={cli.executable}>
-                          {cli.name} {cli.available ? '(ready)' : '(not found)'}
-                        </option>
-                      ))}
-                    </select>
+                      options={installedClis.map((cli) => ({
+                        value: cli.executable,
+                        label: `${cli.name} ${cli.available ? '(ready)' : '(not found)'}`,
+                      }))}
+                    />
 
                     {/* Show detected status badge */}
                     <div className="flex flex-wrap gap-1 pt-1">
@@ -1178,7 +1178,8 @@ export function WorkflowCanvas({
                         placeholder="kind"
                         className="w-20 rounded border border-(--color-border) px-1.5 py-0.5 text-[11px]"
                       />
-                      <select
+                      <Select
+                        aria-label="Output format"
                         value={out.format}
                         onChange={(e) => {
                           const updated = [...selectedNode.outputs]
@@ -1188,13 +1189,14 @@ export function WorkflowCanvas({
                           }
                           updateSelectedNode({ outputs: updated })
                         }}
-                        className="rounded border border-(--color-border) px-1 py-0.5 text-[10px]"
-                      >
-                        <option value="markdown">md</option>
-                        <option value="diff">diff</option>
-                        <option value="json">json</option>
-                        <option value="text">text</option>
-                      </select>
+                        className="h-6 pl-2 pr-6 text-[10px]"
+                        options={[
+                          { value: 'markdown', label: 'md' },
+                          { value: 'diff', label: 'diff' },
+                          { value: 'json', label: 'json' },
+                          { value: 'text', label: 'text' },
+                        ]}
+                      />
                       <button
                         type="button"
                         onClick={() => {

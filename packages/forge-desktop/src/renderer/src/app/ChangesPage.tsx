@@ -1,8 +1,17 @@
 import { useEffect, useState } from 'react'
 import type { ChangedFileView, ChangeSetView, DiscrepancyView } from '@shared/ipc'
 import { unwrap } from '../ipc'
-import { Badge, Button, CodeViewer, EmptyState, FileTree, useToast } from '../ui'
-import { ChangesIcon } from './icons'
+import {
+  Badge,
+  Button,
+  CodeViewer,
+  EmptyState,
+  FileTree,
+  Icon,
+  Select,
+  Tabs,
+  useToast,
+} from '../ui'
 import { useProjectStore } from './projectStore'
 
 export function ChangesPage(): React.JSX.Element {
@@ -180,7 +189,7 @@ export function ChangesPage(): React.JSX.Element {
       {currentFiles.length === 0 && changeSets.length === 0 && allFiles.length === 0 ? (
         <div className="flex-1 p-6">
           <EmptyState
-            icon={<ChangesIcon />}
+            icon={<Icon name="changes" className="size-6 text-(--color-text-subtle)" />}
             title="Working tree is clean"
             description="No modified, added, or deleted files in the repository. When agents perform steps or you make changes, they appear here."
           />
@@ -190,52 +199,39 @@ export function ChangesPage(): React.JSX.Element {
           {/* Left Sidebar: Source Selector & FileTree */}
           <div className="flex w-80 shrink-0 flex-col border-r border-(--color-border) bg-(--color-surface)">
             {/* View switcher: the diff, or the whole tree for context (#107). */}
-            <div
-              role="tablist"
+            <Tabs
               aria-label="File source"
-              className="flex border-b border-(--color-border)"
-            >
-              {(['changes', 'explorer'] as const).map((candidate) => (
-                <button
-                  key={candidate}
-                  type="button"
-                  role="tab"
-                  aria-selected={view === candidate}
-                  onClick={() => {
-                    setView(candidate)
-                  }}
-                  className={
-                    view === candidate
-                      ? 'flex-1 border-b-2 border-(--color-accent) px-3 py-2 text-(length:--text-xs) font-semibold text-(--color-text)'
-                      : 'flex-1 px-3 py-2 text-(length:--text-xs) text-(--color-text-muted) hover:text-(--color-text)'
-                  }
-                >
-                  {candidate === 'changes' ? 'Changes' : 'Explorer'}
-                </button>
-              ))}
-            </div>
+              value={view}
+              onChange={setView}
+              className="grid grid-cols-2"
+              items={[
+                { value: 'changes', label: 'Changes' },
+                { value: 'explorer', label: 'Explorer' },
+              ]}
+            />
 
             {/* Source Switcher */}
             <div className={view === 'changes' ? 'border-b border-(--color-border) p-3' : 'hidden'}>
-              <label className="mb-1.5 block text-(length:--text-2xs) font-semibold uppercase tracking-wider text-(--color-text-muted)">
+              <label className="mb-1.5 block typography-micro font-semibold tracking-wider text-(--color-text-muted) uppercase">
                 Changeset / Source
               </label>
-              <select
-                className="w-full rounded-(--radius-md) border border-(--color-border) bg-(--color-surface-raised) px-2.5 py-1.5 text-(length:--text-xs) text-(--color-text)"
+              <Select
+                aria-label="Changeset or source"
                 value={selectedSource}
                 onChange={(e) => {
                   setSelectedSource(e.target.value)
                 }}
-              >
-                <option value="working">
-                  Working Tree (Uncommitted) ({workingFiles.length} files)
-                </option>
-                {changeSets.map((cs, idx) => (
-                  <option key={cs.id} value={cs.id}>
-                    Changeset #{String(idx + 1)} · {cs.authorActor} ({cs.files.length} files)
-                  </option>
-                ))}
-              </select>
+                options={[
+                  {
+                    value: 'working',
+                    label: `Working Tree (Uncommitted) (${String(workingFiles.length)} files)`,
+                  },
+                  ...changeSets.map((cs, idx) => ({
+                    value: cs.id,
+                    label: `Changeset #${String(idx + 1)} · ${cs.authorActor} (${String(cs.files.length)} files)`,
+                  })),
+                ]}
+              />
 
               {!isWorking && selectedChangeSet !== undefined && (
                 <div className="mt-2 flex flex-wrap items-center gap-1.5 text-(length:--text-2xs)">

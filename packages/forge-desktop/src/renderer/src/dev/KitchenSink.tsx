@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import {
+  ActionToolbar,
+  AlertBanner,
   Badge,
   Button,
   Card,
@@ -9,18 +11,35 @@ import {
   Checkbox,
   Code,
   CodeBlock,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
   Dialog,
   Drawer,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   EmptyState,
   Field,
+  Icon,
   IconButton,
   Input,
+  List,
+  ListRow,
+  ListSection,
   MarkdownRenderer,
+  Panel,
+  PanelBody,
+  PanelHeader,
+  RadioGroup,
   ScrollArea,
   Select,
   Separator,
   Spinner,
   StatusDot,
+  Switch,
   TabPanel,
   Tabs,
   Textarea,
@@ -296,6 +315,92 @@ export function KitchenSink(): React.JSX.Element {
                 Open drawer
               </Button>
             </Row>
+          </Section>
+
+          <Section title="@forge/ui Compound Primitives">
+            <div className="flex flex-col gap-3">
+              <AlertBanner
+                tone="info"
+                title="Thread-native design kit"
+                description="DropdownMenu, Collapsible, List, Panel, Switch, RadioGroup, and ActionToolbar backed by @base-ui/react."
+              />
+
+              <Row>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" variant="secondary">
+                      <Icon name="project" className="size-3.5" />
+                      Project menu
+                      <Icon name="chevron-down" className="size-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent>
+                    <DropdownMenuItem>forge-orchestrator</DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem>
+                      <Icon name="plus" className="size-3.5" />+ New project
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <Switch label="Auto-verify" defaultChecked />
+
+                <RadioGroup
+                  aria-label="Mode selector"
+                  orientation="horizontal"
+                  defaultValue="plan"
+                  options={[
+                    { value: 'plan', label: 'Plan' },
+                    { value: 'implement', label: 'Implement' },
+                  ]}
+                />
+              </Row>
+
+              <Panel tone="raised">
+                <PanelHeader
+                  title="planning.md"
+                  actions={
+                    <ActionToolbar
+                      actions={[
+                        {
+                          id: 'copy',
+                          label: 'Copy',
+                          icon: 'copy',
+                          onSelect: () => {
+                            show({ title: 'Copied plan excerpt', tone: 'neutral' })
+                          },
+                        },
+                        {
+                          id: 'export',
+                          label: 'Export',
+                          icon: 'download',
+                          overflowOnly: true,
+                          onSelect: () => {
+                            show({ title: 'Exported plan markdown', tone: 'success' })
+                          },
+                        },
+                      ]}
+                    />
+                  }
+                />
+                <PanelBody>
+                  <Collapsible defaultOpen>
+                    <CollapsibleTrigger>Changed files</CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <List>
+                        <ListSection count={1}>
+                          <ListRow
+                            leading={<Icon name="file-code" className="size-3.5" />}
+                            title="Button.tsx"
+                            subtitle="packages/forge-ui/src/primitives"
+                          />
+                        </ListSection>
+                      </List>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </PanelBody>
+              </Panel>
+            </div>
           </Section>
 
           <Section title="Separators">

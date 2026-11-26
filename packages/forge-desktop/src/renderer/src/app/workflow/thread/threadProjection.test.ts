@@ -2,11 +2,13 @@ import type { ToolCallEntry } from '@shared/domain'
 import type {
   ArtifactMetadataView,
   ChangeSetView,
+  DecisionView,
+  OpenQuestionView,
   WorkflowDetailView,
   WorkflowStepView,
 } from '@shared/ipc'
 import { describe, expect, it } from 'vitest'
-import { buildThreadEntries } from './threadProjection'
+import { buildThreadEntries, findPrimaryWaitingEntry } from './threadProjection'
 
 const BASE_WORKFLOW: WorkflowDetailView = {
   id: 'wf-1',
@@ -205,5 +207,89 @@ describe('buildThreadEntries', () => {
       expect(tail.tone).toBe('danger')
       expect(tail.detail).toBe('Out of scope write blocked')
     }
+  })
+
+  it('projects inline questions, Axiom A4 decisions, and approval gates chronologically and resolves waiting target priority', () => {
+    const question: OpenQuestionView = {
+      id: 'q-1',
+      question: 'Use Base UI Dialog or native HTML dialog?',
+      whyUndetermined: 'Both adapters exist in workspace',
+      evidence: [],
+      options: ['Base UI Dialog', 'HTML Dialog'],
+      recommendation: 'Base UI Dialog',
+      askedBy: 'agent:planner',
+      askedAt: '2026-11-26T10:00:02.000Z',
+      answer: null,
+      answeredAt: null,
+      answeredBy: null,
+    }
+
+    const decision: DecisionView = {
+      id: 'dec-1',
+      statement: 'Standardize overlays on Base UI primitives',
+      rationale: 'Consistent focus trap and SSR support',
+      status: 'proposed',
+      proposedBy: 'agent:planner',
+      proposedAt: '2026-11-26T10:00:03.000Z',
+      lockedAt: null,
+      lockedBy: null,
+      supersededBy: null,
+      originQuestionId: 'q-1',
+      workflowId: 'wf-1',
+    }
+
+    const pausedEntries = buildThreadEntries({
+      workflow: {
+        ...BASE_WORKFLOW,
+        state: 'AWAITING_USER',
+        blockedByQuestionId: 'q-1',
+      },
+      stageSteps: BASE_WORKFLOW.steps,
+      taskTitle: 'Gate test',
+      promptObjective: 'Test inline gates',
+      toolTimeline: [],
+      stepStreams: {},
+      artifacts: [],
+      changeSets: [],
+      logs: [],
+      interjections: [],
+      questions: [question],
+      decisions: [decision],
+    })
+
+    expect(pausedEntries.some((e) => e.kind === 'question_gate' && e.blocking)).toBe(true)
+    expect(pausedEntries.some((e) => e.kind === 'decision_gate')).toBe(true)
+    expect(findPrimaryWaitingEntry(pausedEntries)?.kind).toBe('question')
+
+    const approvalEntries = buildThreadEntries({
+      workflow: {
+        ...BASE_WORKFLOW,
+        state: 'PLAN_READY',
+        blockedByQuestionId: null,
+      },
+      stageSteps: BASE_WORKFLOW.steps,
+      taskTitle: 'Gate test',
+      promptObjective: 'Test inline gates',
+      toolTimeline: [],
+      stepStreams: {},
+      artifacts: [],
+      changeSets: [],
+      logs: [],
+      interjections: [],
+      questions: [
+        {
+          ...question,
+          answer: 'Base UI Dialog',
+          answeredAt: '2026-11-26T10:00:04.000Z',
+          answeredBy: 'user',
+        },
+      ],
+      decisions: [
+        { ...decision, status: 'locked', lockedAt: '2026-11-26T10:00:05.000Z', lockedBy: 'user' },
+      ],
+    })
+
+    expect(approvalEntries.some((e) => e.kind === 'approval_gate')).toBe(true)
+    expect(findPrimaryWaitingEntry(approvalEntries)?.kind).toBe('approval')
   })
 })

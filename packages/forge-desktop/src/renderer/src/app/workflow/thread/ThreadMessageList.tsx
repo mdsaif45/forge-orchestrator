@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { ArtifactMetadataView, WorkflowStepView } from '@shared/ipc'
 import { AlertBanner, Badge, Button, Card, Icon, cn } from '@renderer/ui'
 import { AgentTurnRow } from './AgentTurnRow'
+import { ThreadApprovalCard, ThreadDecisionCard, ThreadQuestionCard } from './ThreadGateCards'
 import type { ThreadEntry } from './threadProjection'
 
 export interface ThreadMessageListProps {
@@ -10,13 +11,34 @@ export interface ThreadMessageListProps {
   readonly workflowId: string
   readonly repositoryPath: string
   readonly fullWidth: boolean
+  readonly scrollRef?: React.RefObject<HTMLDivElement | null> | undefined
+  readonly waitingTargetId?: string | null | undefined
+  readonly submittingQuestionId?: string | null | undefined
+  readonly actionInProgress?: boolean | undefined
+  readonly onWaitingVisibilityChange?: ((visible: boolean) => void) | undefined
   readonly onInspectStep: (step: WorkflowStepView) => void
   readonly onOpenArtifact: (artifact: ArtifactMetadataView) => void
+  readonly onAnswerQuestion?:
+    ((questionId: string, answer: string, lockAsDecision: boolean) => Promise<void>) | undefined
+  readonly onApproveDecision?: ((decisionId: string) => Promise<void>) | undefined
+  readonly onLockDecision?: ((decisionId: string) => Promise<void>) | undefined
+  readonly onSupersedeDecision?:
+    | ((
+        decisionId: string,
+        replacementStatement: string,
+        replacementRationale: string,
+      ) => Promise<void>)
+    | undefined
+  readonly onProposeDecision?:
+    ((statement: string, rationale: string, lockImmediately: boolean) => Promise<void>) | undefined
+  readonly onApproveAndImplement?: (() => Promise<void>) | undefined
 }
+
+const NOOP_PROMISE = (): Promise<void> => Promise.resolve()
 
 /**
  * Chronological continuous scroll stream uniting user prompts, active and
- * completed agent turns, interjections, and system transitions inside one column.
+ * completed agent turns, inline Q&A/decision gates, interjections, and system transitions.
  */
 export function ThreadMessageList({
   entries,
@@ -24,10 +46,22 @@ export function ThreadMessageList({
   workflowId,
   repositoryPath,
   fullWidth,
+  scrollRef: externalScrollRef,
+  waitingTargetId = null,
+  submittingQuestionId = null,
+  actionInProgress = false,
+  onWaitingVisibilityChange,
   onInspectStep,
   onOpenArtifact,
+  onAnswerQuestion,
+  onApproveDecision,
+  onLockDecision,
+  onSupersedeDecision,
+  onProposeDecision,
+  onApproveAndImplement,
 }: ThreadMessageListProps): React.JSX.Element {
-  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const internalScrollRef = useRef<HTMLDivElement | null>(null)
+  const scrollRef = externalScrollRef ?? internalScrollRef
   const [pinnedToBottom, setPinnedToBottom] = useState(true)
 
   useEffect(() => {
@@ -35,7 +69,38 @@ export function ThreadMessageList({
     if (el !== null && pinnedToBottom) {
       el.scrollTop = el.scrollHeight
     }
-  }, [entries, pinnedToBottom])
+  }, [entries, pinnedToBottom, scrollRef])
+
+  useEffect(() => {
+    if (onWaitingVisibilityChange === undefined) return
+    if (waitingTargetId === null) {
+      onWaitingVisibilityChange(true)
+      return
+    }
+    const container = scrollRef.current
+    if (container === null) return
+    const targetEl = container.querySelector<HTMLElement>(`[data-waiting-id="${waitingTargetId}"]`)
+    if (targetEl === null) return
+
+    if (typeof IntersectionObserver === 'undefined') {
+      onWaitingVisibilityChange(pinnedToBottom)
+      return
+    }
+
+    const observer = new IntersectionObserver(
+      (records) => {
+        const entry = records[0]
+        if (entry !== undefined) {
+          onWaitingVisibilityChange(entry.isIntersecting)
+        }
+      },
+      { root: container, threshold: 0.15 },
+    )
+    observer.observe(targetEl)
+    return () => {
+      observer.disconnect()
+    }
+  }, [waitingTargetId, pinnedToBottom, onWaitingVisibilityChange, scrollRef])
 
   const handleScroll = (): void => {
     const el = scrollRef.current
@@ -98,6 +163,50 @@ export function ThreadMessageList({
                     {entry.body}
                   </p>
                 </Card>
+              )
+            }
+
+            if (entry.kind === 'question_gate') {
+              return (
+                <ThreadQuestionCard
+                  key={entry.id}
+                  waitingId={entry.id}
+                  question={entry.question}
+                  blocking={entry.blocking}
+                  isSubmitting={submittingQuestionId === entry.question.id}
+                  onAnswer={onAnswerQuestion ?? NOOP_PROMISE}
+                />
+              )
+            }
+
+            if (entry.kind === 'decision_gate') {
+              return (
+                <ThreadDecisionCard
+                  key={entry.id}
+                  waitingId={entry.id}
+                  decision={entry.decision}
+                  isSubmitting={actionInProgress}
+                  onApprove={onApproveDecision ?? NOOP_PROMISE}
+                  onLock={onLockDecision ?? NOOP_PROMISE}
+                  onSupersede={onSupersedeDecision ?? NOOP_PROMISE}
+                />
+              )
+            }
+
+            if (entry.kind === 'approval_gate') {
+              return (
+                <ThreadApprovalCard
+                  key={entry.id}
+                  waitingId={entry.id}
+                  planBlueprint={entry.planBlueprint}
+                  planArtifact={entry.planArtifact}
+                  hasLockedDecision={entry.hasLockedDecision}
+                  openQuestionCount={entry.openQuestionCount}
+                  actionInProgress={actionInProgress}
+                  onOpenArtifact={onOpenArtifact}
+                  onApproveAndImplement={onApproveAndImplement ?? NOOP_PROMISE}
+                  onProposeDecision={onProposeDecision ?? NOOP_PROMISE}
+                />
               )
             }
 

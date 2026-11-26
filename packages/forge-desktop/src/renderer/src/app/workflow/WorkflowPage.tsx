@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react'
 import type {
   ArtifactMetadataView,
   ChangeSetView,
+  DecisionView,
+  OpenQuestionView,
   RoleBindingsView,
   WorkflowArtifactView,
   WorkflowDetailView,
@@ -74,6 +76,9 @@ export function WorkflowPage(): React.JSX.Element {
   const [activePromptObjective, setActivePromptObjective] = useState<string | null>(null)
   const [artifacts, setArtifacts] = useState<readonly ArtifactMetadataView[]>([])
   const [changeSets, setChangeSets] = useState<readonly ChangeSetView[]>([])
+  const [questions, setQuestions] = useState<readonly OpenQuestionView[]>([])
+  const [decisions, setDecisions] = useState<readonly DecisionView[]>([])
+  const [submittingQuestionId, setSubmittingQuestionId] = useState<string | null>(null)
   const [interjections, setInterjections] = useState<readonly ThreadUserInterjection[]>([])
   const [inspectorOpen, setInspectorOpen] = useState<boolean>(false)
   const [baseTemplates, setBaseTemplates] = useState<readonly WorkflowTemplateView[]>([])
@@ -414,7 +419,24 @@ export function WorkflowPage(): React.JSX.Element {
       })
   }, [project])
 
-  // Sync workflow artifacts & repository changesets for inline thread blocks
+  // Sync workflow artifacts, repository changesets, inline Q&A, and architectural decisions
+  const refreshThreadContext = useCallback(async (projId: string, wfId: string): Promise<void> => {
+    const [arts, css, qs, ds, latestWf] = await Promise.all([
+      window.forge.artifacts.listForRun(wfId).then((res) => (res.ok ? res.value.artifacts : [])),
+      window.forge.changeset.list(projId).then((res) => (res.ok ? res.value.changeSets : [])),
+      window.forge.question.list(projId, false).then((res) => (res.ok ? res.value.questions : [])),
+      window.forge.decision.list(projId).then((res) => (res.ok ? res.value.decisions : [])),
+      window.forge.workflow.get(wfId).then((res) => (res.ok ? res.value : null)),
+    ])
+    setArtifacts(arts)
+    setChangeSets(css)
+    setQuestions(qs)
+    setDecisions(ds)
+    if (latestWf !== null) {
+      setWorkflow(latestWf)
+    }
+  }, [])
+
   useEffect(() => {
     if (project === null || workflow === null) {
       return
@@ -426,11 +448,15 @@ export function WorkflowPage(): React.JSX.Element {
     Promise.all([
       window.forge.artifacts.listForRun(wfId).then((res) => (res.ok ? res.value.artifacts : [])),
       window.forge.changeset.list(projId).then((res) => (res.ok ? res.value.changeSets : [])),
+      window.forge.question.list(projId, false).then((res) => (res.ok ? res.value.questions : [])),
+      window.forge.decision.list(projId).then((res) => (res.ok ? res.value.decisions : [])),
     ])
-      .then(([arts, css]) => {
+      .then(([arts, css, qs, ds]) => {
         if (!cancelled) {
           setArtifacts(arts)
           setChangeSets(css)
+          setQuestions(qs)
+          setDecisions(ds)
         }
       })
       .catch(() => {
@@ -587,6 +613,136 @@ export function WorkflowPage(): React.JSX.Element {
         title: 'Could Not Update Binding',
         description: err instanceof Error ? err.message : 'Unknown error',
       })
+    }
+  }
+
+  const handleAnswerQuestion = async (
+    questionId: string,
+    answer: string,
+    lockAsDecision: boolean,
+  ): Promise<void> => {
+    if (project === null || workflow === null) return
+    setSubmittingQuestionId(questionId)
+    try {
+      await window.forge.question.answer(questionId, answer, lockAsDecision).then(unwrap)
+      await refreshThreadContext(project.id, workflow.id)
+      show({
+        tone: 'success',
+        title: lockAsDecision ? 'Answered & Locked as Decision' : 'Answer Recorded',
+        description: 'Thread updated and workflow unblocked.',
+      })
+    } catch (err: unknown) {
+      show({
+        tone: 'danger',
+        title: 'Failed to record answer',
+        description: err instanceof Error ? err.message : 'Unknown error',
+      })
+    } finally {
+      setSubmittingQuestionId(null)
+    }
+  }
+
+  const handleApproveDecision = async (decisionId: string): Promise<void> => {
+    if (project === null || workflow === null) return
+    setActionInProgress(true)
+    try {
+      await window.forge.decision.approve(decisionId).then(unwrap)
+      await refreshThreadContext(project.id, workflow.id)
+      show({
+        tone: 'success',
+        title: 'Decision Approved',
+        description: 'Ready to lock per Axiom A4.',
+      })
+    } catch (err: unknown) {
+      show({
+        tone: 'danger',
+        title: 'Failed to approve decision',
+        description: err instanceof Error ? err.message : 'Unknown error',
+      })
+    } finally {
+      setActionInProgress(false)
+    }
+  }
+
+  const handleLockDecision = async (decisionId: string): Promise<void> => {
+    if (project === null || workflow === null) return
+    setActionInProgress(true)
+    try {
+      await window.forge.decision.lock(decisionId).then(unwrap)
+      await refreshThreadContext(project.id, workflow.id)
+      show({
+        tone: 'success',
+        title: 'Decision Locked (Axiom A4)',
+        description: 'Binding across all subsequent workflow stages.',
+      })
+    } catch (err: unknown) {
+      show({
+        tone: 'danger',
+        title: 'Failed to lock decision',
+        description: err instanceof Error ? err.message : 'Unknown error',
+      })
+    } finally {
+      setActionInProgress(false)
+    }
+  }
+
+  const handleSupersedeDecision = async (
+    decisionId: string,
+    replacementStatement: string,
+    replacementRationale: string,
+  ): Promise<void> => {
+    if (project === null || workflow === null) return
+    setActionInProgress(true)
+    try {
+      await window.forge.decision
+        .supersede({ decisionId, replacementStatement, replacementRationale })
+        .then(unwrap)
+      await refreshThreadContext(project.id, workflow.id)
+      show({
+        tone: 'success',
+        title: 'Decision Superseded',
+        description: 'Replacement architectural decision is now locked.',
+      })
+    } catch (err: unknown) {
+      show({
+        tone: 'danger',
+        title: 'Failed to supersede decision',
+        description: err instanceof Error ? err.message : 'Unknown error',
+      })
+    } finally {
+      setActionInProgress(false)
+    }
+  }
+
+  const handleProposeDecision = async (
+    statement: string,
+    rationale: string,
+    lockImmediately: boolean,
+  ): Promise<void> => {
+    if (project === null || workflow === null) return
+    setActionInProgress(true)
+    try {
+      const proposed = await window.forge.decision
+        .propose({ projectId: project.id, statement, rationale })
+        .then(unwrap)
+      if (lockImmediately) {
+        await window.forge.decision.approve(proposed.id).then(unwrap)
+        await window.forge.decision.lock(proposed.id).then(unwrap)
+      }
+      await refreshThreadContext(project.id, workflow.id)
+      show({
+        tone: 'success',
+        title: lockImmediately ? 'Decision Proposed & Locked (Axiom A4)' : 'Decision Proposed',
+        description: statement,
+      })
+    } catch (err: unknown) {
+      show({
+        tone: 'danger',
+        title: 'Failed to propose decision',
+        description: err instanceof Error ? err.message : 'Unknown error',
+      })
+    } finally {
+      setActionInProgress(false)
     }
   }
 
@@ -1034,9 +1190,12 @@ export function WorkflowPage(): React.JSX.Element {
             changeSets,
             logs,
             interjections,
+            questions,
+            decisions,
           })}
           bindings={bindings}
           actionInProgress={actionInProgress}
+          submittingQuestionId={submittingQuestionId}
           onSelectStep={(step) => {
             setSelectedStep(step)
             setInspectorOpen(true)
@@ -1048,6 +1207,11 @@ export function WorkflowPage(): React.JSX.Element {
           onStartNextCycle={handleStartNextCycle}
           onSwitchRoleRuntime={handleSwitchRoleRuntime}
           onApproveAndImplement={handleApproveAndImplement}
+          onAnswerQuestion={handleAnswerQuestion}
+          onApproveDecision={handleApproveDecision}
+          onLockDecision={handleLockDecision}
+          onSupersedeDecision={handleSupersedeDecision}
+          onProposeDecision={handleProposeDecision}
         />
 
         {inspectorOpen && effectiveSelectedStep !== null ? (

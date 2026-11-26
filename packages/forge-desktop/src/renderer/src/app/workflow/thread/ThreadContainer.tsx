@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
 import type { ArtifactMetadataView, RoleBindingsView, WorkflowStepView } from '@shared/ipc'
 import {
   Badge,
@@ -13,9 +13,10 @@ import {
   WorkflowEdge,
   WorkflowNode,
 } from '@renderer/ui'
-import { getPersonaMeta, type ThreadEntry } from './threadProjection'
+import { findPrimaryWaitingEntry, getPersonaMeta, type ThreadEntry } from './threadProjection'
 import { ThreadComposer } from './ThreadComposer'
 import { ThreadMessageList } from './ThreadMessageList'
+import { ThreadWaitingDock } from './ThreadWaitingDock'
 
 export interface ThreadContainerProps {
   readonly projectId: string
@@ -34,18 +35,32 @@ export interface ThreadContainerProps {
   readonly entries: readonly ThreadEntry[]
   readonly bindings: RoleBindingsView | null
   readonly actionInProgress: boolean
+  readonly submittingQuestionId?: string | null | undefined
   readonly onSelectStep: (step: WorkflowStepView) => void
   readonly onOpenArtifact: (artifact: ArtifactMetadataView) => void
   readonly onInterject: (stepIndex: number, text: string) => Promise<void>
   readonly onStartNextCycle: (objective: string) => Promise<void>
   readonly onSwitchRoleRuntime: (role: string, runtimeId: string) => Promise<void>
   readonly onApproveAndImplement: () => Promise<void>
+  readonly onAnswerQuestion?:
+    ((questionId: string, answer: string, lockAsDecision: boolean) => Promise<void>) | undefined
+  readonly onApproveDecision?: ((decisionId: string) => Promise<void>) | undefined
+  readonly onLockDecision?: ((decisionId: string) => Promise<void>) | undefined
+  readonly onSupersedeDecision?:
+    | ((
+        decisionId: string,
+        replacementStatement: string,
+        replacementRationale: string,
+      ) => Promise<void>)
+    | undefined
+  readonly onProposeDecision?:
+    ((statement: string, rationale: string, lockImmediately: boolean) => Promise<void>) | undefined
 }
 
 /**
  * Primary thread-native execution workspace combining the stage status strip,
- * interactive collapsible pipeline graph, chronological agent/tool stream, and
- * continuous development loop composer.
+ * interactive collapsible pipeline graph, chronological agent/tool/gate stream,
+ * sticky off-screen waiting dock, and continuous development loop composer.
  */
 export function ThreadContainer({
   projectId,
@@ -64,15 +79,32 @@ export function ThreadContainer({
   entries,
   bindings,
   actionInProgress,
+  submittingQuestionId = null,
   onSelectStep,
   onOpenArtifact,
   onInterject,
   onStartNextCycle,
   onSwitchRoleRuntime,
   onApproveAndImplement,
+  onAnswerQuestion,
+  onApproveDecision,
+  onLockDecision,
+  onSupersedeDecision,
+  onProposeDecision,
 }: ThreadContainerProps): React.JSX.Element {
   const [fullWidth, setFullWidth] = useState(false)
   const [pipelineExpanded, setPipelineExpanded] = useState(true)
+  const [waitingVisible, setWaitingVisible] = useState(true)
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+
+  const waitingTarget = findPrimaryWaitingEntry(entries)
+
+  const jumpToWaitingCard = (waitingId: string): void => {
+    const target = scrollContainerRef.current?.querySelector<HTMLElement>(
+      `[data-waiting-id="${waitingId}"]`,
+    )
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
 
   const activeStepIndex =
     stageSteps.find((s) => s.state === 'running')?.index ??
@@ -193,8 +225,26 @@ export function ThreadContainer({
         workflowId={workflowId}
         repositoryPath={repositoryPath}
         fullWidth={fullWidth}
+        scrollRef={scrollContainerRef}
+        waitingTargetId={waitingTarget?.id ?? null}
+        submittingQuestionId={submittingQuestionId}
+        actionInProgress={actionInProgress}
+        onWaitingVisibilityChange={setWaitingVisible}
         onInspectStep={onSelectStep}
         onOpenArtifact={onOpenArtifact}
+        onAnswerQuestion={onAnswerQuestion}
+        onApproveDecision={onApproveDecision}
+        onLockDecision={onLockDecision}
+        onSupersedeDecision={onSupersedeDecision}
+        onProposeDecision={onProposeDecision}
+        onApproveAndImplement={onApproveAndImplement}
+      />
+
+      {/* Docked Off-Screen Waiting Gate Prompt */}
+      <ThreadWaitingDock
+        target={waitingTarget}
+        isTargetVisible={waitingVisible}
+        onJumpToTarget={jumpToWaitingCard}
       />
 
       {/* Continuous Loop Composer */}

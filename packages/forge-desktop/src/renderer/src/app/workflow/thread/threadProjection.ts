@@ -3,6 +3,8 @@ import { filterToolTimelineByStep } from '@shared/domain'
 import type {
   ArtifactMetadataView,
   ChangeSetView,
+  DecisionView,
+  OpenQuestionView,
   WorkflowDetailView,
   WorkflowStepView,
 } from '@shared/ipc'
@@ -126,6 +128,27 @@ export type ThreadEntry =
       readonly timestamp: string
     }
   | {
+      readonly kind: 'question_gate'
+      readonly id: string
+      readonly question: OpenQuestionView
+      readonly blocking: boolean
+    }
+  | {
+      readonly kind: 'decision_gate'
+      readonly id: string
+      readonly decision: DecisionView
+      readonly workflowScoped: boolean
+    }
+  | {
+      readonly kind: 'approval_gate'
+      readonly id: string
+      readonly state: string
+      readonly planBlueprint: string | null
+      readonly planArtifact: ArtifactMetadataView | null
+      readonly hasLockedDecision: boolean
+      readonly openQuestionCount: number
+    }
+  | {
       readonly kind: 'system_event'
       readonly id: string
       readonly tone: 'info' | 'warning' | 'success' | 'danger'
@@ -133,6 +156,13 @@ export type ThreadEntry =
       readonly detail: string
       readonly timestamp: string | null
     }
+
+export interface WaitingGateTarget {
+  readonly id: string
+  readonly kind: 'question' | 'decision' | 'approval'
+  readonly label: string
+  readonly summary: string
+}
 
 export interface BuildThreadEntriesInput {
   readonly workflow: WorkflowDetailView
@@ -145,6 +175,8 @@ export interface BuildThreadEntriesInput {
   readonly changeSets: readonly ChangeSetView[]
   readonly logs: readonly ThreadLogLine[]
   readonly interjections: readonly ThreadUserInterjection[]
+  readonly questions?: readonly OpenQuestionView[] | undefined
+  readonly decisions?: readonly DecisionView[] | undefined
 }
 
 function logsForStep(logs: readonly ThreadLogLine[], stepIndex: number): readonly ThreadLogLine[] {
@@ -189,6 +221,8 @@ export function buildThreadEntries(input: BuildThreadEntriesInput): readonly Thr
     changeSets,
     logs,
     interjections,
+    questions = [],
+    decisions = [],
   } = input
 
   const entries: ThreadEntry[] = []
@@ -205,7 +239,80 @@ export function buildThreadEntries(input: BuildThreadEntriesInput): readonly Thr
     iteration: workflow.iteration,
   })
 
+  const isTerminal =
+    workflow.finishedAt !== null ||
+    workflow.state === 'DONE' ||
+    workflow.state === 'CANCELLED' ||
+    workflow.state.startsWith('HALTED')
+
+  const awaitingApproval =
+    !isTerminal &&
+    (workflow.state === 'PLAN_READY' ||
+      workflow.state === 'AWAITING_APPROVAL' ||
+      workflow.state === 'AWAITING_USER')
+
+  const openQuestions = questions.filter((q) => q.answer === null)
+  const relevantDecisions = decisions.filter(
+    (d) =>
+      d.workflowId === workflow.id ||
+      d.status === 'proposed' ||
+      d.status === 'approved' ||
+      d.status === 'locked',
+  )
+  const hasLockedDecision = relevantDecisions.some(
+    (d) => d.status === 'locked' || d.status === 'approved',
+  )
+  const plannerArtifact =
+    artifacts.find((a) => a.kind === 'plan' || a.name.toLowerCase().includes('planning')) ?? null
+  const plannerReport =
+    stageSteps.find((s) => s.role === 'planner')?.reportStatus ??
+    workflow.steps.find((s) => s.role === 'planner')?.reportStatus ??
+    null
+
+  let insertedGateSection = false
+  const emitPlanningGates = (): void => {
+    if (insertedGateSection) return
+    insertedGateSection = true
+
+    for (const q of questions) {
+      const blocking =
+        q.answer === null &&
+        (workflow.blockedByQuestionId === q.id || workflow.state === 'AWAITING_USER')
+      entries.push({
+        kind: 'question_gate',
+        id: `gate-question-${q.id}`,
+        question: q,
+        blocking,
+      })
+    }
+
+    for (const d of relevantDecisions) {
+      entries.push({
+        kind: 'decision_gate',
+        id: `gate-decision-${d.id}`,
+        decision: d,
+        workflowScoped: d.workflowId === workflow.id,
+      })
+    }
+
+    if (awaitingApproval && workflow.blockedByQuestionId === null) {
+      entries.push({
+        kind: 'approval_gate',
+        id: `gate-approval-${workflow.id}-${workflow.state}`,
+        state: workflow.state,
+        planBlueprint: plannerReport,
+        planArtifact: plannerArtifact,
+        hasLockedDecision,
+        openQuestionCount: openQuestions.length,
+      })
+    }
+  }
+
   for (const step of stageSteps) {
+    if (step.role === 'user') {
+      emitPlanningGates()
+    }
+
     const meta = getPersonaMeta(step.role)
     const stream = stepStreams[step.index]
     const tools = filterToolTimelineByStep(toolTimeline, step.index)
@@ -256,7 +363,13 @@ export function buildThreadEntries(input: BuildThreadEntriesInput): readonly Thr
         })
       }
     }
+
+    if (step.role === 'planner') {
+      emitPlanningGates()
+    }
   }
+
+  emitPlanningGates()
 
   if (workflow.state === 'DONE') {
     entries.push({
@@ -288,4 +401,45 @@ export function buildThreadEntries(input: BuildThreadEntriesInput): readonly Thr
   }
 
   return entries
+}
+
+/**
+ * Returns the primary blocking gate in the thread so the docked banner above the
+ * composer can keep human-in-the-loop actions one click away when scrolled.
+ */
+export function findPrimaryWaitingEntry(entries: readonly ThreadEntry[]): WaitingGateTarget | null {
+  for (const entry of entries) {
+    if (entry.kind === 'question_gate' && entry.question.answer === null) {
+      return {
+        id: entry.id,
+        kind: 'question',
+        label: entry.blocking ? 'Workflow paused on open question' : 'Open question waiting',
+        summary: entry.question.question,
+      }
+    }
+  }
+  for (const entry of entries) {
+    if (entry.kind === 'approval_gate') {
+      return {
+        id: entry.id,
+        kind: 'approval',
+        label: 'Plan ready for approval',
+        summary: 'Review proposed blueprint and approve to authorize implementation.',
+      }
+    }
+  }
+  for (const entry of entries) {
+    if (
+      entry.kind === 'decision_gate' &&
+      (entry.decision.status === 'proposed' || entry.decision.status === 'approved')
+    ) {
+      return {
+        id: entry.id,
+        kind: 'decision',
+        label: 'Decision awaiting Axiom A4 lock',
+        summary: entry.decision.statement,
+      }
+    }
+  }
+  return null
 }

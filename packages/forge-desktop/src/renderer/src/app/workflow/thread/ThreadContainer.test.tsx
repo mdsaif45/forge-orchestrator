@@ -1,7 +1,13 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import type { ArtifactMetadataView, RoleBindingsView, WorkflowStepView } from '@shared/ipc'
+import type {
+  ArtifactMetadataView,
+  DecisionView,
+  OpenQuestionView,
+  RoleBindingsView,
+  WorkflowStepView,
+} from '@shared/ipc'
 import { ThreadContainer } from './ThreadContainer'
 import { buildThreadEntries } from './threadProjection'
 
@@ -152,8 +158,8 @@ describe('ThreadContainer', () => {
     expect(screen.getByText('Agent Claim')).toBeInTheDocument()
     expect(screen.getByText('README.md')).toBeInTheDocument()
 
-    // Artifact chip opens viewer
-    await user.click(screen.getByRole('button', { name: /planning\.md/i }))
+    // Artifact chip opens viewer (both turn chip and approval gate quick button work)
+    await user.click(screen.getByRole('button', { name: /^planning\.md/i }))
     expect(onOpenArtifact).toHaveBeenCalledWith(ARTIFACT)
 
     // Readable/Full-width toggle
@@ -170,5 +176,127 @@ describe('ThreadContainer', () => {
     await user.click(screen.getByRole('button', { name: /Switch role runtime/i }))
     await user.click(await screen.findByRole('menuitem', { name: /agy/i }))
     expect(onSwitchRoleRuntime).toHaveBeenCalledWith('planner', 'agy')
+  })
+
+  it('wires inline QuestionCard, DecisionCard, and ApprovalGate actions cleanly in-thread', async () => {
+    const user = userEvent.setup()
+    const onAnswerQuestion = vi.fn().mockResolvedValue(undefined)
+    const onLockDecision = vi.fn().mockResolvedValue(undefined)
+    const onProposeDecision = vi.fn().mockResolvedValue(undefined)
+    const onApproveAndImplement = vi.fn().mockResolvedValue(undefined)
+
+    const question: OpenQuestionView = {
+      id: 'q-inline',
+      question: 'Prefer SQLite WAL mode?',
+      whyUndetermined: 'Config file absent',
+      evidence: [],
+      options: ['Enable WAL', 'Keep default'],
+      recommendation: 'Enable WAL',
+      askedBy: 'agent:planner',
+      askedAt: '2026-11-26T10:00:01.000Z',
+      answer: null,
+      answeredAt: null,
+      answeredBy: null,
+    }
+
+    const decision: DecisionView = {
+      id: 'dec-inline',
+      statement: 'All workflow events remain append-only',
+      rationale: 'Preserves Axiom A1 audit replay',
+      status: 'approved',
+      proposedBy: 'agent:planner',
+      proposedAt: '2026-11-26T10:00:02.000Z',
+      lockedAt: null,
+      lockedBy: null,
+      supersededBy: null,
+      originQuestionId: null,
+      workflowId: 'wf-1',
+    }
+
+    const entries = buildThreadEntries({
+      workflow: {
+        id: 'wf-1',
+        taskId: 'task-1',
+        templateId: 'feature',
+        state: 'PLAN_READY',
+        iteration: 0,
+        limits: {
+          maxIterations: 3,
+          stepTimeoutMs: 60_000,
+          idleTimeoutMs: 30_000,
+          totalTimeoutMs: 300_000,
+        },
+        steps: STEPS,
+        checkpoint: null,
+        resumeState: null,
+        blockedByQuestionId: null,
+        haltReason: null,
+        startedAt: '2026-11-26T10:00:00.000Z',
+        finishedAt: null,
+      },
+      stageSteps: STEPS,
+      taskTitle: 'Inline Gate Loop',
+      promptObjective: 'Test in-thread gates.',
+      toolTimeline: [],
+      stepStreams: {},
+      artifacts: [ARTIFACT],
+      changeSets: [],
+      logs: [],
+      interjections: [],
+      questions: [question],
+      decisions: [decision],
+    })
+
+    render(
+      <ThreadContainer
+        projectId="proj-1"
+        repositoryPath="d:/repos/Forge"
+        workflowId="wf-1"
+        templateId="feature"
+        iteration={0}
+        maxIterations={3}
+        status="waiting"
+        statusLabel="Plan ready"
+        isDiscussionMode
+        isTerminal={false}
+        isAwaitingApproval
+        stageSteps={STEPS}
+        selectedStep={STEPS[0] ?? null}
+        entries={entries}
+        bindings={BINDINGS}
+        actionInProgress={false}
+        onSelectStep={vi.fn()}
+        onOpenArtifact={vi.fn()}
+        onInterject={vi.fn().mockResolvedValue(undefined)}
+        onStartNextCycle={vi.fn().mockResolvedValue(undefined)}
+        onSwitchRoleRuntime={vi.fn().mockResolvedValue(undefined)}
+        onApproveAndImplement={onApproveAndImplement}
+        onAnswerQuestion={onAnswerQuestion}
+        onLockDecision={onLockDecision}
+        onProposeDecision={onProposeDecision}
+      />,
+    )
+
+    // Answer inline question
+    await user.click(screen.getByRole('button', { name: 'Answer' }))
+    expect(onAnswerQuestion).toHaveBeenCalledWith('q-inline', 'Enable WAL', false)
+
+    // Lock approved architectural decision
+    await user.click(screen.getByRole('button', { name: 'Lock Decision' }))
+    expect(onLockDecision).toHaveBeenCalledWith('dec-inline')
+
+    // Propose & lock inline decision from Approval Gate card
+    await user.click(screen.getByRole('button', { name: 'Propose Decision' }))
+    await user.type(
+      screen.getByLabelText(/Architectural Decision Statement/i),
+      'Keep Q&A inside thread',
+    )
+    await user.type(screen.getByLabelText(/Rationale/i), 'No context switching')
+    await user.click(screen.getByRole('button', { name: 'Propose & Lock (Axiom A4)' }))
+    expect(onProposeDecision).toHaveBeenCalledWith(
+      'Keep Q&A inside thread',
+      'No context switching',
+      true,
+    )
   })
 })

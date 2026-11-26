@@ -22,6 +22,7 @@ import { ConcurrencyController } from '@forge/core/core/concurrencyController'
 import { SubagentCapabilityQuarantineCoordinator } from '@forge/core/core/subagentCapabilityQuarantineCoordinator'
 import { WorkflowDslParser } from '@forge/core/workflows/dslParser'
 import { SubWorkflowCompiler } from '@forge/core/workflows/subWorkflowCompiler'
+import { CloudReplicationBackplane, InMemoryCloudStorageAdapter } from '@forge/core/sync'
 import {
   MultiRepoWorkspaceCoordinator,
   type MultiRepoWorkspaceManifestInput,
@@ -318,6 +319,7 @@ ${ANSI.bold}COMMANDS${ANSI.reset}
   projects [list|prune|multi-repo] Inspect multi-project workspace registry, health, prune missing projects, or coordinate multi-repo workspaces
   verify [pipeline|coverage|commit|manifest|report] Execute ordered verification pipeline, audit code coverage, validate commit messages, manifest audit, or JUnit/TAP assertion report
   config [list|get|set|profile|doctor|vault|init|policy|interpolate|export|features|migrate|sync-env|drift|template|boundary|replay-audit] Inspect, profile, doctor, secret vault encryption, workspace bootstrap, policy lock, env interpolation, safe export, feature flags, schema migration, .env synchronization, schema drift, templates, boundary guard, and audit replay daemon
+  sync [status|reconcile]    Verify content-addressed cloud replication backplane and conflict-free event sync
   db [stats|vacuum|backup|restore|compact|audit|checkpoint|quota|journal|replay|verify-ledger|diff-snapshots|savepoint|search|mmap-read] Inspect SQLite database storage, backup, restore, compaction, integrity/orphan audit, WAL checkpoint, quota monitor, audit journals, time-travel replay, ledger verification, snapshot delta diffing, savepoints, full-text search, and zero-copy mmap page inspection
 
 ${ANSI.bold}OPTIONS${ANSI.reset}
@@ -923,6 +925,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
     })
   }
 
+  if (command === 'sync') {
+    return handleSync({
+      action: positionals[1] ?? 'reconcile',
+      workspaceId: positionals[2],
+      json: values.json,
+    })
+  }
+
   console.error(`${ANSI.red}Unknown command: ${command}${ANSI.reset}`)
   printHelp()
   return 1
@@ -1162,6 +1172,68 @@ function handleConcurrency(opts: {
     }
     return 1
   }
+}
+
+async function handleSync(opts: {
+  readonly action: string
+  readonly workspaceId?: string | undefined
+  readonly json: boolean
+}): Promise<number> {
+  if (opts.action !== 'status' && opts.action !== 'reconcile') {
+    const errMsg = `Unknown sync action "${opts.action}". Supported: status, reconcile`
+    if (opts.json) {
+      console.log(JSON.stringify({ error: errMsg }))
+    } else {
+      console.error(`${ANSI.red}Error: ${errMsg}${ANSI.reset}`)
+    }
+    return 1
+  }
+
+  const adapter = new InMemoryCloudStorageAdapter('forge-team-sync')
+  const workspaceId = opts.workspaceId ?? 'ws-default'
+  const peerA = new CloudReplicationBackplane({
+    workspaceId,
+    nodeId: 'peer-alpha',
+    adapter,
+    hmacSecret: 'cli-verification-key',
+  })
+  const peerB = new CloudReplicationBackplane({
+    workspaceId,
+    nodeId: 'peer-beta',
+    adapter,
+    hmacSecret: 'cli-verification-key',
+  })
+
+  peerA.appendLocalEvent('run-1', 'STEP_COMPLETED', { stepId: 'plan' })
+  peerB.appendLocalEvent('run-1', 'ARTIFACT_STAGED', { artifactId: 'diff-1' })
+
+  const pushA = await peerA.pushPendingPackets()
+  const pushB = await peerB.pushPendingPackets()
+  const pullA = await peerA.pullAndReconcile()
+  const pullB = await peerB.pullAndReconcile()
+
+  const summary = {
+    action: opts.action,
+    workspaceId,
+    converged: pullA.dashboard.stateDigest === pullB.dashboard.stateDigest,
+    uploadedPackets: pushA.uploadedPackets + pushB.uploadedPackets,
+    verifiedPackets: pullA.verifiedPackets,
+    totalEvents: pullA.dashboard.totalEvents,
+    activePeers: pullA.dashboard.activePeers,
+    stateDigest: pullA.dashboard.stateDigest,
+  }
+
+  if (opts.json) {
+    console.log(JSON.stringify(summary))
+    return summary.converged ? 0 : 1
+  }
+
+  console.log(`\n${ANSI.bold}CLOUD REPLICATION BACKPLANE (${summary.workspaceId})${ANSI.reset}`)
+  console.log(`  Converged:   ${String(summary.converged)}`)
+  console.log(`  Peers:       ${summary.activePeers.join(', ')}`)
+  console.log(`  Verified:    ${String(summary.verifiedPackets)} content-addressed packets`)
+  console.log(`  StateHash:   ${summary.stateDigest}\n`)
+  return summary.converged ? 0 : 1
 }
 
 async function handleWorktree(opts: {

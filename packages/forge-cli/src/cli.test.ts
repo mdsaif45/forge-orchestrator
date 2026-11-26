@@ -5582,4 +5582,39 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('orchestrates multi-repository workspace reconciliation with forge projects multi-repo (POLISH-001)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'projects',
+      'multi-repo',
+      '--cwd',
+      repoPath,
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      workspaceId: string
+      executionOrder: string[]
+      totalRepos: number
+      crossContaminationFree: boolean
+      reconciliations: { repoId: string; clean: boolean; changesetDigest: string }[]
+      reconciliationDigest: string
+    }
+    expect(parsed.workspaceId).toBe('forge-cli-workspace')
+    expect(parsed.executionOrder).toEqual(['root'])
+    expect(parsed.totalRepos).toBe(1)
+    expect(parsed.crossContaminationFree).toBe(true)
+    expect(parsed.reconciliations[0]?.repoId).toBe('root')
+    expect(parsed.reconciliations[0]?.changesetDigest).toHaveLength(64)
+    expect(parsed.reconciliationDigest).toHaveLength(64)
+
+    logSpy.mockRestore()
+  })
 })

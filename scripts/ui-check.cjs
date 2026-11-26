@@ -120,6 +120,15 @@ app
     ipcMain.handle('terminal:buffer', () => ({ ok: true, value: { buffer: '' } }))
     ipcMain.handle('provider:scanModels', () => ({ ok: true, value: [] }))
     ipcMain.handle('provider:setActiveModel', () => ({ ok: true, value: {} }))
+    ipcMain.handle('artifacts:listForRun', () => ({ ok: true, value: { artifacts: [] } }))
+    ipcMain.handle('changeset:list', () => ({ ok: true, value: { changeSets: [] } }))
+    ipcMain.handle('git:getWorkingDiff', () => ({ ok: true, value: { files: [], patch: '' } }))
+    ipcMain.handle('git:stage', () => ({ ok: true, value: { stagedCount: 0 } }))
+    ipcMain.handle('git:unstage', () => ({ ok: true, value: { success: true } }))
+    ipcMain.handle('git:commit', () => ({
+      ok: true,
+      value: { sha: '0000000', message: 'stub' },
+    }))
 
     // The development-mode bundle, not `out/renderer`: these checks exercise the kitchen
     // sink, which is a development tool and is eliminated from a release build (#103).
@@ -497,6 +506,15 @@ app
        window.location.hash = '#/'
        await settle()
 
+       document.querySelector('button[aria-label="Show context panel"]')?.click()
+       await settle()
+       const drawer = document.querySelector('aside[aria-label="Inspection and Overview Panel"]')
+       const drawerHasPlanTab = drawer?.textContent?.includes('planning.md') ?? false
+       const drawerHasGitTab = drawer?.textContent?.includes('Diffs / Git') ?? false
+       const drawerWidthOpen = drawer?.getBoundingClientRect().width ?? 0
+       document.querySelector('button[aria-label="Collapse right panel"]')?.click()
+       await settle()
+
        return JSON.stringify({
          hasTrigger: true,
          headerHeight,
@@ -504,19 +522,25 @@ app
          menuItems,
          questionsHeading,
          decisionsHeading,
+         drawerHasPlanTab,
+         drawerHasGitTab,
+         drawerWidthOpen,
          hasContextToggle: document.querySelector('header button[aria-label="Show context panel"]') !== null,
        })
      })()`,
     )
     const tb = JSON.parse(topbarCheck)
     check(
-      'topbar project switcher menu and legacy hash redirects work',
+      'topbar project switcher, execution drawer toggle, and legacy hash redirects work',
       tb.hasTrigger === true &&
         tb.headerHeight === 40 &&
         tb.hasMenu === true &&
         tb.menuItems.some((item) => item.includes('+ New project')) &&
         tb.menuItems.some((item) => item.includes('Project settings')) &&
         tb.hasContextToggle === true &&
+        tb.drawerHasPlanTab === true &&
+        tb.drawerHasGitTab === true &&
+        tb.drawerWidthOpen > 250 &&
         tb.questionsHeading === 'Workflows' &&
         tb.decisionsHeading === 'Workflows',
       topbarCheck,

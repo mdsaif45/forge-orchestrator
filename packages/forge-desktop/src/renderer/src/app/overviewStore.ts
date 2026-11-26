@@ -63,7 +63,8 @@ interface OverviewState {
   readonly isOpen: boolean
   readonly isExpanded: boolean
   readonly isDraggingSplitter: boolean
-  readonly panelMode: 'overview' | 'tab'
+  readonly panelMode: 'overview' | 'plan' | 'git' | 'tab'
+  readonly hasUnreadPlan: boolean
   readonly activeFilter: 'uncommitted' | 'branch' | 'agent_edits'
   readonly isFilterDropdownOpen: boolean
 
@@ -88,6 +89,9 @@ interface OverviewState {
   readonly setOpen: (open: boolean) => void
   readonly toggleExpanded: () => void
   readonly showOverview: () => void
+  readonly showPlan: () => void
+  readonly showGit: () => void
+  readonly setHasUnreadPlan: (unread: boolean) => void
   readonly setActiveFilter: (filter: 'uncommitted' | 'branch' | 'agent_edits') => void
   readonly setFilterDropdownOpen: (open: boolean) => void
   readonly openTab: (tab: WorkspaceTab) => void
@@ -114,7 +118,7 @@ function loadSavedPanelOpen(): boolean {
   } catch {
     // ignore
   }
-  return true
+  return false
 }
 
 function loadSavedPanelWidth(): number {
@@ -138,6 +142,7 @@ export const useOverviewStore = create<OverviewState>((set) => ({
   isDraggingSplitter: false,
   panelWidth: loadSavedPanelWidth(),
   panelMode: 'overview',
+  hasUnreadPlan: false,
   activeFilter: 'uncommitted',
   isFilterDropdownOpen: false,
 
@@ -200,6 +205,18 @@ export const useOverviewStore = create<OverviewState>((set) => ({
 
   showOverview: () => {
     set({ panelMode: 'overview' })
+  },
+
+  showPlan: () => {
+    set({ panelMode: 'plan', hasUnreadPlan: false })
+  },
+
+  showGit: () => {
+    set({ panelMode: 'git' })
+  },
+
+  setHasUnreadPlan: (hasUnreadPlan) => {
+    set({ hasUnreadPlan })
   },
 
   setActiveFilter: (filter) => {

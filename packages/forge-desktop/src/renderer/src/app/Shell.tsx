@@ -1,11 +1,13 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Outlet } from 'react-router'
-import { Dialog } from '../ui'
+import { cn, Dialog } from '../ui'
 import { CreateProjectDialog } from './CreateProjectDialog'
 import { useProjectStore } from './projectStore'
+import { RightOverviewPanel } from './RightOverviewPanel'
 import { SettingsDialog } from './Settings'
 import { Sidebar } from './Sidebar'
 import { StatusStrip, type WorkflowStatePlaceholder } from './StatusStrip'
+import { useOverviewStore } from './overviewStore'
 import { useUiStore } from './uiStore'
 import { useDevConsoleStore } from './devConsoleStore'
 
@@ -33,8 +35,40 @@ export function Shell(): React.JSX.Element {
   const closeSettings = useUiStore((state) => state.closeSettings)
   const toggleSettings = useUiStore((state) => state.toggleSettings)
 
-  const contextPanelOpen = useUiStore((state) => state.contextPanelOpen)
-  const toggleContextPanel = useUiStore((state) => state.toggleContextPanel)
+  const isOverviewOpen = useOverviewStore((state) => state.isOpen)
+  const isOverviewExpanded = useOverviewStore((state) => state.isExpanded)
+  const toggleOverviewOpen = useOverviewStore((state) => state.toggleOpen)
+  const panelWidth = useOverviewStore((state) => state.panelWidth)
+  const setPanelWidth = useOverviewStore((state) => state.setPanelWidth)
+  const isDraggingSplitter = useOverviewStore((state) => state.isDraggingSplitter)
+  const setIsDraggingSplitter = useOverviewStore((state) => state.setIsDraggingSplitter)
+  const hasUnreadPlan = useOverviewStore((state) => state.hasUnreadPlan)
+  const setHasUnreadPlan = useOverviewStore((state) => state.setHasUnreadPlan)
+  const filesChangedCount = useOverviewStore((state) => state.filesChanged.length)
+
+  const dragStartX = useRef(0)
+  const dragStartWidth = useRef(0)
+
+  useEffect(() => {
+    if (!isDraggingSplitter) return undefined
+    const handleMouseMove = (e: MouseEvent): void => {
+      const deltaX = dragStartX.current - e.clientX
+      const newWidth = Math.max(
+        280,
+        Math.min(window.innerWidth - 450, dragStartWidth.current + deltaX),
+      )
+      setPanelWidth(newWidth)
+    }
+    const handleMouseUp = (): void => {
+      setIsDraggingSplitter(false)
+    }
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mouseup', handleMouseUp)
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isDraggingSplitter, setIsDraggingSplitter, setPanelWidth])
 
   const createProjectOpen = useUiStore((state) => state.createProjectOpen)
   const openCreateProject = useUiStore((state) => state.openCreateProject)
@@ -85,6 +119,9 @@ export function Shell(): React.JSX.Element {
           } else if (wf.state === 'AWAITING_USER') {
             setActiveWorkflowState('waiting')
           } else {
+            if (wf.state === 'PLAN_READY' || wf.state === 'AWAITING_APPROVAL') {
+              setHasUnreadPlan(true)
+            }
             setActiveWorkflowState('running')
           }
         })
@@ -100,13 +137,17 @@ export function Shell(): React.JSX.Element {
     return () => {
       unsub()
     }
-  }, [selectedProjectId])
+  }, [selectedProjectId, setHasUnreadPlan])
 
   const workflowState: WorkflowStatePlaceholder =
     selectedProjectId === null ? 'idle' : activeWorkflowState
 
   return (
     <div className="flex h-full flex-col bg-(--color-canvas)">
+      {isDraggingSplitter ? (
+        <div className="fixed inset-0 z-50 cursor-col-resize select-none" />
+      ) : null}
+
       <StatusStrip
         projects={projects}
         selectedProjectId={selectedProjectId}
@@ -116,18 +157,58 @@ export function Shell(): React.JSX.Element {
         onNewProject={openCreateProject}
         onProjectSettings={openSettings}
         workflowState={workflowState}
-        contextPanelOpen={contextPanelOpen}
-        onToggleContextPanel={toggleContextPanel}
+        contextPanelOpen={isOverviewOpen}
+        hasUnreadPlan={hasUnreadPlan}
+        drawerBadgeCount={filesChangedCount}
+        onToggleContextPanel={toggleOverviewOpen}
         onOpenKitchenSink={() => {
           setSinkOpen(true)
         }}
       />
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         <Sidebar />
-        <main className="min-h-0 min-w-0 flex-1">
+        <main
+          className={cn(
+            'min-h-0 min-w-0',
+            isOverviewOpen && isOverviewExpanded
+              ? 'pointer-events-none w-0 flex-none overflow-hidden opacity-0'
+              : 'flex-1 opacity-100',
+          )}
+        >
           <Outlet />
         </main>
+
+        {isOverviewOpen && !isOverviewExpanded ? (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize right panel"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              setIsDraggingSplitter(true)
+              dragStartX.current = e.clientX
+              dragStartWidth.current = panelWidth
+            }}
+            onDoubleClick={() => {
+              setPanelWidth(440)
+            }}
+            title="Drag to resize panel, double-click to reset"
+            className="group relative z-20 -mr-1 flex w-1.5 shrink-0 cursor-col-resize items-center justify-center select-none"
+          >
+            <div
+              className={cn(
+                'h-full w-0.5 transition-colors duration-(--duration-fast)',
+                isDraggingSplitter
+                  ? 'bg-(--color-accent)'
+                  : 'bg-transparent group-hover:bg-(--color-accent)',
+              )}
+            />
+          </div>
+        ) : null}
+
+        <RightOverviewPanel />
+
         {isDevConsoleOpen && devConsoleDock === 'right' && DevConsole !== null && (
           <Suspense fallback={null}>
             <DevConsole />

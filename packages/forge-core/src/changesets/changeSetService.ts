@@ -1,7 +1,7 @@
-import { changeSetIdSchema, projectIdSchema, type ChangeSet } from '@shared/domain'
+import { changeSetIdSchema, projectIdSchema, repoPathSchema, type ChangeSet } from '@shared/domain'
 import type { ChangedFileView, ChangeSetView } from '@shared/views'
 import type { ChangeSetStore } from '../db/changeSetStore'
-import { GitService } from '../git'
+import { GitService, runGit } from '../git'
 import type { ProjectService } from '../projects/projectService'
 
 export interface ChangeSetServiceOptions {
@@ -66,13 +66,63 @@ export class ChangeSetService {
     return { success: true }
   }
 
-  private async getGitService(projectId: string): Promise<GitService> {
+  /**
+   * Explicitly stages operator-selected paths (or all working tree changes when paths is empty).
+   */
+  async stageFiles(
+    projectId: string,
+    paths: readonly string[],
+  ): Promise<{ readonly stagedCount: number }> {
+    const repoPath = await this.resolveRepoPath(projectId)
+    const validatedPaths = paths.map((p) => repoPathSchema.parse(p))
+    const args = validatedPaths.length === 0 ? ['add', '-A'] : ['add', '--', ...validatedPaths]
+    await runGit(args, { cwd: repoPath })
+    return { stagedCount: validatedPaths.length }
+  }
+
+  /**
+   * Explicitly unstages operator-selected paths (or resets index when paths is empty).
+   */
+  async unstageFiles(
+    projectId: string,
+    paths: readonly string[],
+  ): Promise<{ readonly success: boolean }> {
+    const repoPath = await this.resolveRepoPath(projectId)
+    const validatedPaths = paths.map((p) => repoPathSchema.parse(p))
+    const args =
+      validatedPaths.length === 0 ? ['reset', 'HEAD'] : ['reset', 'HEAD', '--', ...validatedPaths]
+    await runGit(args, { cwd: repoPath })
+    return { success: true }
+  }
+
+  /**
+   * Commits currently staged changes on behalf of the operator.
+   */
+  async commitChanges(
+    projectId: string,
+    message: string,
+  ): Promise<{ readonly sha: string; readonly message: string }> {
+    const trimmed = message.trim()
+    if (trimmed.length === 0) {
+      throw new Error('Commit message must not be empty')
+    }
+    const repoPath = await this.resolveRepoPath(projectId)
+    await runGit(['commit', '-m', trimmed], { cwd: repoPath })
+    const head = (await runGit(['rev-parse', 'HEAD'], { cwd: repoPath })).stdout.trim()
+    return { sha: head, message: trimmed }
+  }
+
+  private async resolveRepoPath(projectId: string): Promise<string> {
     const pId = projectIdSchema.parse(projectId)
     const projectDetail = await this.options.projects.get(pId)
     if (projectDetail === null) {
       throw new Error(`Project ${projectId} not found`)
     }
-    return new GitService({ repositoryPath: projectDetail.project.repository.absolutePath })
+    return projectDetail.project.repository.absolutePath
+  }
+
+  private async getGitService(projectId: string): Promise<GitService> {
+    return new GitService({ repositoryPath: await this.resolveRepoPath(projectId) })
   }
 }
 

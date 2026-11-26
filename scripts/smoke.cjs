@@ -106,6 +106,9 @@ app.whenReady().then(async () => {
   ipcMain.handle('git:getWorkingDiff', () => ({ ok: true, value: { files: [], patch: '' } }))
   ipcMain.handle('git:readFile', () => ({ ok: true, value: { content: '' } }))
   ipcMain.handle('git:writeFile', () => ({ ok: true, value: { success: true } }))
+  ipcMain.handle('git:stage', () => ({ ok: true, value: { stagedCount: 0 } }))
+  ipcMain.handle('git:unstage', () => ({ ok: true, value: { success: true } }))
+  ipcMain.handle('git:commit', () => ({ ok: true, value: { sha: '0000000', message: 'stub' } }))
   ipcMain.handle('provider:scanModels', () => ({
     ok: true,
     value: { ok: true, models: [], error: null },

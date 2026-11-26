@@ -30,6 +30,8 @@ export interface StatusStripProps {
   readonly onProjectSettings?: () => void
   readonly workflowState?: WorkflowStatePlaceholder | undefined
   readonly contextPanelOpen?: boolean | undefined
+  readonly hasUnreadPlan?: boolean | undefined
+  readonly drawerBadgeCount?: number | undefined
   readonly onToggleContextPanel?: () => void
   readonly onOpenKitchenSink: () => void
 }
@@ -51,6 +53,8 @@ export function StatusStrip({
   onProjectSettings,
   workflowState = 'idle',
   contextPanelOpen = false,
+  hasUnreadPlan = false,
+  drawerBadgeCount = 0,
   onToggleContextPanel,
   onOpenKitchenSink,
 }: StatusStripProps): React.JSX.Element {
@@ -180,14 +184,22 @@ export function StatusStrip({
             content={contextPanelOpen ? 'Hide context panel' : 'Show context panel'}
             side="bottom"
           >
-            <IconButton
-              size="sm"
-              variant={contextPanelOpen ? 'secondary' : 'ghost'}
-              label={contextPanelOpen ? 'Hide context panel' : 'Show context panel'}
-              aria-pressed={contextPanelOpen}
-              icon={<Icon name="panel-right" />}
-              onClick={onToggleContextPanel}
-            />
+            <div className="relative inline-flex items-center">
+              <IconButton
+                size="sm"
+                variant={contextPanelOpen ? 'secondary' : 'ghost'}
+                label={contextPanelOpen ? 'Hide context panel' : 'Show context panel'}
+                aria-pressed={contextPanelOpen}
+                icon={<Icon name="panel-right" />}
+                onClick={onToggleContextPanel}
+              />
+              {!contextPanelOpen && (hasUnreadPlan || drawerBadgeCount > 0) ? (
+                <span
+                  aria-label="Unread execution context updates"
+                  className="pointer-events-none absolute -top-0.5 -right-0.5 size-2 rounded-(--radius-full) bg-(--color-accent)"
+                />
+              ) : null}
+            </div>
           </Tooltip>
         ) : null}
       </div>

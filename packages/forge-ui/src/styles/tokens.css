@@ -10,7 +10,7 @@
  * change, `--color-gray-800` does not.
  */
 
-@theme {
+@theme static {
   /* ---- Surface Palette: dark is the default surface for a long-running control plane ---- */
   --color-canvas: #131315;
   --color-surface: #18181b;

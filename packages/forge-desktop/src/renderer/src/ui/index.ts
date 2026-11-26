@@ -1,13 +1,56 @@
 /**
- * The single import surface for Forge's design system.
- *
- * Pages import from here and nowhere else for these concepts. A page that needs
- * a control this file does not export should add a primitive rather than style a
- * bare element, so the system stays the one place appearance is decided.
+ * The desktop UI facade bridging Forge's centralized `@forge/ui` design system
+ * with desktop domain widgets (`WorkflowNode`, `QuestionCard`, `DecisionCard`,
+ * `FileTree`, `DiffViewer`, `CodeViewer`, `RealTerminal`, etc.).
  */
 
 export {
+  ActionToolbar,
+  AlertBanner,
+  Badge,
+  Button,
+  buttonVariants,
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+  Checkbox,
   cn,
+  Code,
+  CodeBlock,
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+  ConfirmDialog,
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuGroup,
+  ContextMenuItem,
+  ContextMenuLabel,
+  ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
+  ContextMenuTrigger,
+  Dialog,
+  Drawer,
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+  EmptyState,
+  Field,
   FORGE_CONTROL_HEIGHTS,
   FORGE_ELEVATION_TOKENS,
   FORGE_ICON_REGISTRY,
@@ -15,40 +58,92 @@ export {
   FORGE_TYPOGRAPHY_CLASSES,
   FORGE_Z_LAYERS,
   Icon,
+  IconButton,
+  Input,
+  Label,
+  List,
+  ListRow,
+  ListSection,
+  Panel,
+  PanelBody,
+  PanelFooter,
+  PanelHeader,
+  Popover,
+  PopoverClose,
+  PopoverContent,
+  PopoverTrigger,
+  RadioGroup,
+  ScrollArea,
+  Select,
+  Separator,
+  Spinner,
+  SplitPane,
+  StatusDot,
+  Switch,
+  TabPanel,
+  Tabs,
+  Textarea,
+  ToastProvider,
+  Toolbar,
+  ToolbarButton,
+  ToolbarDivider,
+  Tooltip,
   useTheme,
+  useToast,
+  type ActionToolbarProps,
+  type AlertBannerProps,
+  type BadgeProps,
+  type ButtonProps,
+  type CardProps,
+  type CheckboxProps,
+  type CodeBlockProps,
+  type CollapsibleTriggerProps,
+  type ConfirmDialogProps,
+  type ContextMenuItemProps,
+  type ContextMenuTriggerProps,
+  type DialogProps,
+  type DrawerProps,
+  type DropdownMenuContentProps,
+  type DropdownMenuItemProps,
+  type DropdownMenuTriggerProps,
+  type EmptyStateProps,
+  type FieldProps,
   type ForgeControlSize,
   type ForgeIconName,
+  type IconButtonProps,
   type IconProps,
+  type InputProps,
+  type LabelProps,
+  type ListProps,
+  type ListRowProps,
+  type ListSectionProps,
+  type PanelHeaderProps,
+  type PanelProps,
+  type PopoverContentProps,
+  type PopoverTriggerProps,
+  type RadioGroupOption,
+  type RadioGroupProps,
+  type ScrollAreaProps,
+  type SelectOption,
+  type SelectProps,
+  type SeparatorProps,
+  type SpinnerProps,
+  type SplitPaneProps,
+  type StatusDotProps,
+  type SwitchProps,
+  type TabItem,
+  type TabPanelProps,
+  type TabsProps,
+  type TextareaProps,
   type Theme,
+  type ToastMessage,
+  type ToastTone,
+  type ToolbarAction,
+  type ToolbarButtonProps,
+  type ToolbarProps,
+  type TooltipProps,
 } from '@forge/ui'
 
-export { Badge, type BadgeProps } from './primitives/Badge'
-export { Button, type ButtonProps } from './primitives/Button'
-export {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-  type CardProps,
-} from './primitives/Card'
-export { Checkbox, type CheckboxProps } from './primitives/Checkbox'
-export { Code, CodeBlock, type CodeBlockProps } from './primitives/Code'
-export { Dialog, type DialogProps } from './primitives/Dialog'
-export { Drawer, type DrawerProps } from './primitives/Drawer'
-export { EmptyState, type EmptyStateProps } from './primitives/EmptyState'
-export { Field, type FieldProps } from './primitives/Field'
-export { IconButton, type IconButtonProps } from './primitives/IconButton'
-export { Input, Textarea, type InputProps, type TextareaProps } from './primitives/Input'
-export { ScrollArea, type ScrollAreaProps } from './primitives/ScrollArea'
-export { Select, type SelectOption, type SelectProps } from './primitives/Select'
-export { Separator, type SeparatorProps } from './primitives/Separator'
-export { Spinner, type SpinnerProps } from './primitives/Spinner'
-export { StatusDot, type StatusDotProps } from './primitives/StatusDot'
-export { TabPanel, Tabs, type TabItem, type TabPanelProps, type TabsProps } from './primitives/Tabs'
-export { ToastProvider, useToast, type ToastMessage, type ToastTone } from './primitives/Toast'
-export { Tooltip, type TooltipProps } from './primitives/Tooltip'
 export {
   WorkflowNode,
   type WorkflowNodeProps,

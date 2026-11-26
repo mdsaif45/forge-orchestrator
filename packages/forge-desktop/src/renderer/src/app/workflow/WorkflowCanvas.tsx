@@ -6,12 +6,21 @@ import type {
   WorkflowTemplateV2View,
 } from '@shared/ipc'
 import { Badge, Button, useToast } from '@renderer/ui'
+import {
+  hasDuplicateEdge,
+  serializeCanvasToWorkflowSchema,
+  wouldEdgeCreateCycle,
+} from './workflowCanvasModel'
 
 export interface WorkflowCanvasProps {
   readonly template: WorkflowTemplateV2View
   readonly onBack: () => void
   readonly onSave: (updatedTemplate: WorkflowTemplateV2View) => void
   readonly onRun: (template: WorkflowTemplateV2View) => void
+  readonly onExportSchema?: (
+    serializedJson: string,
+    updatedTemplate: WorkflowTemplateV2View,
+  ) => void
   readonly activeRunningNodeId?: string | null
   readonly completedNodeIds?: readonly string[]
   readonly failedNodeIds?: readonly string[]
@@ -27,7 +36,7 @@ interface PaletteItem {
   readonly defaultAgentExecutable?: string
   readonly icon: string
   readonly description: string
-  readonly category: 'Agents' | 'Gates' | 'Verification'
+  readonly category: 'Agents' | 'Gates' | 'Verification' | 'Router'
   readonly skills: readonly string[]
   readonly defaultInputs: readonly { name: string; kind: string; required: boolean }[]
   readonly defaultOutputs: readonly {
@@ -214,6 +223,31 @@ const PALETTE_ITEMS: readonly PaletteItem[] = [
       },
     ],
   },
+  {
+    id: 'palette-router',
+    title: 'Conditional Router',
+    type: 'router',
+    runtimeType: 'forge-engine',
+    icon: '🔀',
+    description: 'Routes execution conditionally across downstream branches based on verdicts.',
+    category: 'Router',
+    skills: [],
+    defaultInputs: [{ name: 'verdict', kind: 'decision', required: true }],
+    defaultOutputs: [
+      {
+        name: 'true_branch',
+        kind: 'route_signal',
+        format: 'json',
+        requiredSections: [],
+      },
+      {
+        name: 'false_branch',
+        kind: 'route_signal',
+        format: 'json',
+        requiredSections: [],
+      },
+    ],
+  },
 ]
 
 export function WorkflowCanvas({
@@ -221,6 +255,7 @@ export function WorkflowCanvas({
   onBack,
   onSave,
   onRun,
+  onExportSchema,
   activeRunningNodeId,
   completedNodeIds = [],
   failedNodeIds = [],
@@ -279,8 +314,11 @@ export function WorkflowCanvas({
     [currentTemplate.nodes, selectedNodeId],
   )
 
-  // Add node from palette
-  const handleAddPaletteNode = (item: PaletteItem) => {
+  // Add node from palette (click or drag-and-drop)
+  const handleAddPaletteNode = (
+    item: PaletteItem,
+    positionOverride?: { readonly x: number; readonly y: number },
+  ) => {
     const newId = `node-${crypto.randomUUID().slice(0, 8)}`
     const offset = currentTemplate.nodes.length * 40
     const newNode: WorkflowNodeView = {
@@ -295,7 +333,7 @@ export function WorkflowCanvas({
       },
       inputs: item.defaultInputs,
       outputs: item.defaultOutputs,
-      position: {
+      position: positionOverride ?? {
         x: Math.round(-pan.x + 300 + (offset % 200)),
         y: Math.round(-pan.y + 150 + (offset % 300)),
       },
@@ -360,7 +398,7 @@ export function WorkflowCanvas({
     setDraggingNodeId(null)
   }
 
-  // Connecting slots
+  // Connecting slots with DAG cycle & duplicate edge prevention
   const handleSlotClick = (
     e: React.MouseEvent,
     nodeId: string,
@@ -374,6 +412,29 @@ export function WorkflowCanvas({
     } else if (connectingSource !== null) {
       if (connectingSource.nodeId === nodeId) {
         show({ title: 'Cannot connect a node to itself', tone: 'warning' })
+        setConnectingSource(null)
+        return
+      }
+
+      if (
+        hasDuplicateEdge(
+          currentTemplate.edges,
+          connectingSource.nodeId,
+          nodeId,
+          connectingSource.handle,
+          handle,
+        )
+      ) {
+        show({ title: 'Edge already exists between these handles', tone: 'warning' })
+        setConnectingSource(null)
+        return
+      }
+
+      if (wouldEdgeCreateCycle(currentTemplate.edges, connectingSource.nodeId, nodeId)) {
+        show({
+          title: 'Cycle prevented: connection would create a loop in the workflow DAG',
+          tone: 'warning',
+        })
         setConnectingSource(null)
         return
       }
@@ -428,10 +489,35 @@ export function WorkflowCanvas({
     }))
   }
 
+  const serializedGraph = useMemo(
+    () => serializeCanvasToWorkflowSchema(currentTemplate),
+    [currentTemplate],
+  )
+
   // Save template
   const handleSaveClick = () => {
+    if (!serializedGraph.valid) {
+      show({
+        title: serializedGraph.errors[0] ?? 'Cannot save invalid workflow DAG',
+        tone: 'danger',
+      })
+      return
+    }
     onSave(currentTemplate)
     show({ title: 'Workflow saved successfully', tone: 'success' })
+  }
+
+  // Export serialized WorkflowGraph JSON
+  const handleExportSchemaClick = () => {
+    if (!serializedGraph.valid) {
+      show({
+        title: serializedGraph.errors[0] ?? 'Cannot serialize invalid workflow DAG',
+        tone: 'danger',
+      })
+      return
+    }
+    onExportSchema?.(serializedGraph.json, currentTemplate)
+    show({ title: 'Serialized WorkflowGraph schema JSON', tone: 'success' })
   }
 
   // Filtered palette items
@@ -507,6 +593,12 @@ export function WorkflowCanvas({
 
         {/* Right: Actions */}
         <div className="flex items-center gap-2">
+          <Badge tone={serializedGraph.valid ? 'success' : 'danger'} size="sm">
+            {serializedGraph.valid ? 'DAG Valid' : 'DAG Invalid'}
+          </Badge>
+          <Button variant="ghost" size="sm" onClick={handleExportSchemaClick}>
+            Export Schema
+          </Button>
           <Button
             variant="secondary"
             size="sm"
@@ -543,7 +635,7 @@ export function WorkflowCanvas({
           <div className="mb-2">
             <h2 className="text-[13px] font-bold text-(--color-text)">Node Palette</h2>
             <p className="text-[11px] text-(--color-text-muted)">
-              Click to add modular Lego pieces
+              Click or drag modular pieces onto canvas
             </p>
           </div>
 
@@ -561,6 +653,11 @@ export function WorkflowCanvas({
             {filteredPalette.map((item) => (
               <div
                 key={item.id}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('application/forge-palette-id', item.id)
+                  e.dataTransfer.effectAllowed = 'copy'
+                }}
                 onClick={() => {
                   handleAddPaletteNode(item)
                 }}
@@ -589,10 +686,26 @@ export function WorkflowCanvas({
 
         {/* CENTER INTERACTIVE CANVAS */}
         <div
+          data-testid="workflow-canvas-dropzone"
           className="relative flex-1 cursor-grab overflow-hidden active:cursor-grabbing bg-[radial-gradient(var(--color-border)_1px,transparent_1px)] [background-size:16px_16px]"
           onMouseDown={handleCanvasMouseDown}
           onMouseMove={handleCanvasMouseMove}
           onMouseUp={handleCanvasMouseUp}
+          onDragOver={(e) => {
+            e.preventDefault()
+          }}
+          onDrop={(e) => {
+            e.preventDefault()
+            const paletteId = e.dataTransfer.getData('application/forge-palette-id')
+            const matched = PALETTE_ITEMS.find((p) => p.id === paletteId)
+            if (!matched) {
+              return
+            }
+            const rect = e.currentTarget.getBoundingClientRect()
+            const dropX = Math.round((e.clientX - rect.left - pan.x) / zoom)
+            const dropY = Math.round((e.clientY - rect.top - pan.y) / zoom)
+            handleAddPaletteNode(matched, { x: dropX, y: dropY })
+          }}
         >
           {/* Connection Lines (SVG) */}
           <svg
@@ -692,7 +805,13 @@ export function WorkflowCanvas({
                   <div className="flex items-center justify-between border-b border-(--color-border)/50 pb-2">
                     <div className="flex items-center gap-1.5 overflow-hidden">
                       <span className="text-[14px]">
-                        {node.type === 'agent' ? '🤖' : node.type === 'user_gate' ? '👤' : '🧪'}
+                        {node.type === 'agent'
+                          ? '🤖'
+                          : node.type === 'user_gate'
+                            ? '👤'
+                            : node.type === 'router'
+                              ? '🔀'
+                              : '🧪'}
                       </span>
                       <span className="truncate text-[12px] font-bold text-(--color-text)">
                         {node.title}

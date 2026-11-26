@@ -252,3 +252,22 @@ export {
   type ResourceProbeSample,
   type ConcurrencyControllerOptions,
 } from './concurrencyController'
+export {
+  SubagentCapabilityQuarantineCoordinator,
+  QuarantinePolicyError,
+  QuarantineAccessDeniedError,
+  type SubagentCapability,
+  type QuarantineZone,
+  type LeaseStatus,
+  type LeaseRenewalStatus,
+  type QuarantinePolicy,
+  type IssueLeaseRequest,
+  type SubagentLease,
+  type ProgressAttestation,
+  type LeaseRenewalResult,
+  type CapabilityAccessDecision,
+  type QuarantinedSubagentRecord,
+  type QuarantineCoordinatorMetrics,
+  type QuarantineCoordinatorSnapshot,
+  type QuarantineCoordinatorOptions,
+} from './subagentCapabilityQuarantineCoordinator'

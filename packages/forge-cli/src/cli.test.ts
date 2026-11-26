@@ -5541,4 +5541,45 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('evaluates subagent capability quarantine and lease renewal with forge context quarantine-eval (AGENT-033)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli([
+      'context',
+      'quarantine-eval',
+      'external-subagent-1',
+      '--data-dir',
+      dataDir,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      subagentId: string
+      zone: string
+      grantedCapabilities: string[]
+      deniedCapabilities: string[]
+      readAccessAllowed: boolean
+      networkAccessAllowed: boolean
+      renewalApproved: boolean
+      renewalStatus: string
+      renewalCount: number
+      snapshotDigest: string
+    }
+    expect(parsed.subagentId).toBe('external-subagent-1')
+    expect(parsed.zone).toBe('SANDBOXED')
+    expect(parsed.grantedCapabilities).toEqual(['FILE_READ', 'FILE_WRITE'])
+    expect(parsed.deniedCapabilities).toEqual(['NETWORK_EGRESS'])
+    expect(parsed.readAccessAllowed).toBe(true)
+    expect(parsed.networkAccessAllowed).toBe(false)
+    expect(parsed.renewalApproved).toBe(true)
+    expect(parsed.renewalStatus).toBe('RENEWED')
+    expect(parsed.renewalCount).toBe(1)
+    expect(parsed.snapshotDigest).toHaveLength(64)
+
+    logSpy.mockRestore()
+  })
 })

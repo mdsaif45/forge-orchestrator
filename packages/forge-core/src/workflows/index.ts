@@ -308,3 +308,17 @@ export {
   type DslCompilationResult,
   type DslParseOptions,
 } from './dslParser'
+export {
+  SubWorkflowCompiler,
+  SubWorkflowCompilationError,
+  SubWorkflowCycleError,
+  SlotMappingError,
+  TemplateNotFoundError,
+  type FailureIsolationMode,
+  type SlotMapping,
+  type ExecutionBoundaryContract,
+  type SubWorkflowNodeSpec,
+  type SubWorkflowLineageEntry,
+  type NestedCompileInput,
+  type NestedCompilationResult,
+} from './subWorkflowCompiler'

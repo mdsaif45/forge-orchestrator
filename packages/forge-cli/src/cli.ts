@@ -20,7 +20,7 @@ import type { WorkflowDetailView, WorkflowSummaryView } from '@shared/views'
 import { createForgeCore, resolveDataDir } from '@forge/core/core/forgeCore'
 import { ConcurrencyController } from '@forge/core/core/concurrencyController'
 import { executeDirectTask, type DirectTaskEvent } from '@forge/core/core/taskRunner'
-import { GitService } from '@forge/core/git'
+import { GitService, WorktreeIsolationManager } from '@forge/core/git'
 import { discoverOllamaModels } from '@forge/core/providers/ollamaDiscovery'
 import { ConcurrencyStressSuite, createDefaultStressProfiles } from '@forge/core/runtimes'
 import { InteractiveTerminalTui } from './tui'
@@ -303,6 +303,7 @@ ${ANSI.bold}COMMANDS${ANSI.reset}
   tui [runId]                Launch interactive multi-pane terminal TUI monitor and live diff renderer
   benchmark [run|latency|stress] [id] Run empirical benchmark harness, stage latency profiler, or concurrency stress suite
   concurrency [status]       Inspect policy-governed execution concurrency pool and resource budget
+  worktree [list]            Inspect isolated multi-agent git worktrees and active sandbox leases
   models [list|scan|auto|set|fallback|circuit] Inspect, auto-select, fallback routing, and circuit breakers
   runtimes [list|test|env|quota|rate-limit|cache|coerce|truncate|stream-turn|reflect] Inspect registered runtimes, test execution, sanitized environment, quotas, tool rate limits, cache, parameter coercion, buffer limiter, streaming dispatcher, and tool schema reflection
   context [inspect|optimize|compact|budget] Inspect prompt packet, context files, prefix caching optimization, sliding window compaction, or token window budgeting
@@ -466,6 +467,14 @@ export async function runCli(argv: string[] = process.argv.slice(2)): Promise<nu
       action: positionals[1] ?? 'status',
       concurrency: values.concurrency ? parseInt(values.concurrency, 10) : undefined,
       tokenRateLimit: values.threshold ? parseInt(values.threshold, 10) : undefined,
+      json: values.json,
+    })
+  }
+
+  if (command === 'worktree' || command === 'worktrees') {
+    return handleWorktree({
+      action: positionals[1] ?? 'list',
+      cwd,
       json: values.json,
     })
   }
@@ -1136,6 +1145,52 @@ function handleConcurrency(opts: {
       `  Resources:     CPU Load=${String(status.resources.cpuLoadRatio)} (${String(status.resources.cpuCores)} cores), RSS=${rssMb} MiB, Tokens(60s)=${String(status.resources.tokensConsumedLastMinute)}/${String(status.policy.tokenRateLimitPerMinute)}`,
     )
     console.log(`  Digest:        ${status.statusDigest}\n`)
+    return 0
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (opts.json) {
+      console.log(JSON.stringify({ error: msg }))
+    } else {
+      console.error(`${ANSI.red}Error: ${msg}${ANSI.reset}`)
+    }
+    return 1
+  }
+}
+
+async function handleWorktree(opts: {
+  readonly action: string
+  readonly cwd: string
+  readonly json: boolean
+}): Promise<number> {
+  if (opts.action !== 'list') {
+    const errMsg = `Unknown worktree action "${opts.action}". Supported: list`
+    if (opts.json) {
+      console.log(JSON.stringify({ error: errMsg }))
+    } else {
+      console.error(`${ANSI.red}Error: ${errMsg}${ANSI.reset}`)
+    }
+    return 1
+  }
+
+  try {
+    const manager = new WorktreeIsolationManager({ repositoryPath: opts.cwd })
+    const result = await manager.listWorktrees()
+    if (opts.json) {
+      console.log(JSON.stringify(result))
+      return 0
+    }
+
+    console.log(`\n${ANSI.bold}ISOLATED GIT WORKTREES (PAR-002)${ANSI.reset}`)
+    console.log(`  Repository:    ${result.repositoryPath}`)
+    console.log(`  Worktree Root: ${result.worktreeRoot}`)
+    console.log(`  Temp Root:     ${result.tempSandboxRoot}`)
+    console.log(`  Active Leases: ${String(result.activeLeases.length)}`)
+    for (const wt of result.worktrees) {
+      const refLabel = wt.branch ?? (wt.detached ? 'detached' : 'unknown')
+      const forgeTag = wt.managedByForge ? ' [forge]' : ''
+      console.log(`  - ${wt.path} (${refLabel} @ ${wt.headSha?.slice(0, 8) ?? 'none'})${forgeTag}`)
+    }
+    console.log(`  Digest:        ${result.listDigest}\n`)
     return 0
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)

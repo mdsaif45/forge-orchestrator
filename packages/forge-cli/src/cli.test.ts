@@ -5507,4 +5507,38 @@ index 1111111..2222222 100644
 
     logSpy.mockRestore()
   })
+
+  it('lists isolated git worktrees and active sandbox leases with forge worktree list (PAR-002)', async () => {
+    const logs: string[] = []
+    const logSpy = vi.spyOn(console, 'log').mockImplementation((msg) => {
+      logs.push(String(msg))
+    })
+
+    const code = await runCli(['worktree', 'list', '--cwd', repoPath, '--json'])
+    expect(code).toBe(0)
+    const parsed = JSON.parse(logs[0] ?? '{}') as {
+      repositoryPath: string
+      worktreeRoot: string
+      tempSandboxRoot: string
+      worktrees: { path: string; managedByForge: boolean; headSha: string | null }[]
+      activeLeases: unknown[]
+      listDigest: string
+    }
+    expect(parsed.worktrees.length).toBeGreaterThanOrEqual(1)
+    expect(parsed.worktrees[0]?.headSha).toBeTruthy()
+    expect(parsed.activeLeases).toEqual([])
+    expect(parsed.listDigest).toHaveLength(64)
+
+    // Unknown action fails closed
+    const errLogs: string[] = []
+    logSpy.mockImplementation((msg) => {
+      errLogs.push(String(msg))
+    })
+    const errCode = await runCli(['worktree', 'invalid-action', '--cwd', repoPath, '--json'])
+    expect(errCode).toBe(1)
+    const errParsed = JSON.parse(errLogs[0] ?? '{}') as { error: string }
+    expect(errParsed.error).toContain('Unknown worktree action')
+
+    logSpy.mockRestore()
+  })
 })

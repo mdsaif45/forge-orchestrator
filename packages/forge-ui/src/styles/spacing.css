@@ -1,0 +1,39 @@
+/*
+ * Spacing, control height rhythm, and responsive layout grids for Forge (@forge/ui).
+ */
+
+@layer components {
+  .forge-control-xs {
+    height: var(--control-height-xs);
+  }
+
+  .forge-control-sm {
+    height: var(--control-height-sm);
+  }
+
+  .forge-control-md {
+    height: var(--control-height-md);
+  }
+
+  .forge-control-lg {
+    height: var(--control-height-lg);
+  }
+
+  .forge-grid-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+    gap: 0.75rem;
+  }
+
+  .forge-grid-split {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+  }
+
+  @media (min-width: 1024px) {
+    .forge-grid-split {
+      grid-template-columns: minmax(0, 2fr) minmax(18rem, 1fr);
+    }
+  }
+}

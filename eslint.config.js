@@ -68,6 +68,41 @@ export default tseslint.config(
     },
   },
 
+  // ---- @forge/ui centralized UI package -----------------------------------
+  {
+    files: ['packages/forge-ui/src/**/*.{ts,tsx}'],
+    ignores: ['**/*.test.{ts,tsx}'],
+    languageOptions: {
+      globals: globals.browser,
+    },
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                'electron',
+                'node:*',
+                'fs',
+                'path',
+                'child_process',
+                '@forge/core/**',
+                '@forge/runtimes/**',
+                '@forge/cli/**',
+                '@forge/desktop/**',
+              ],
+              message:
+                'ADR-004: @forge/ui is pure UI/design-system code and cannot depend on Node, Electron, core, runtimes, cli, or desktop.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // ---- Renderer -----------------------------------------------------------
   {
     files: ['packages/forge-desktop/src/renderer/**/*.{ts,tsx}'],

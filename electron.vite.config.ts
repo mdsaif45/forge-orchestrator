@@ -56,6 +56,8 @@ export default defineConfig({
     resolve: {
       alias: {
         '@forge/shared': resolve('packages/forge-shared/src'),
+        '@forge/ui/styles': resolve('packages/forge-ui/src/styles'),
+        '@forge/ui': resolve('packages/forge-ui/src'),
         '@renderer': resolve('packages/forge-desktop/src/renderer/src'),
         '@shared': shared,
       },

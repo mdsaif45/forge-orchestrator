@@ -21,5 +21,11 @@
       "@shared/*": ["packages/forge-shared/src/*"]
     }
   },
-  "exclude": ["**/*.test.ts", "**/*.test.tsx", "test/**", "packages/forge-desktop/src/renderer/**"]
+  "exclude": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "test/**",
+    "packages/forge-ui/**",
+    "packages/forge-desktop/src/renderer/**"
+  ]
 }

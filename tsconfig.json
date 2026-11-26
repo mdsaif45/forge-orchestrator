@@ -10,6 +10,8 @@
       "@forge/runtimes/*": ["packages/forge-runtimes/src/*"],
       "@forge/cli": ["packages/forge-cli/src/index.ts"],
       "@forge/cli/*": ["packages/forge-cli/src/*"],
+      "@forge/ui": ["packages/forge-ui/src/index.ts"],
+      "@forge/ui/*": ["packages/forge-ui/src/*"],
       "@forge/desktop": ["packages/forge-desktop/src/index.ts"],
       "@forge/desktop/*": ["packages/forge-desktop/src/*"],
       "@main/*": ["packages/forge-desktop/src/main/*"],

@@ -1,6 +1,7 @@
 {
   "extends": "./tsconfig.base.json",
   "include": [
+    "packages/forge-ui/**/*",
     "packages/forge-desktop/src/renderer/src/**/*",
     "packages/forge-desktop/src/preload/api.ts",
     "packages/forge-shared/**/*"
@@ -15,6 +16,8 @@
     "outDir": "node_modules/.tmp/tsc-web",
     "baseUrl": ".",
     "paths": {
+      "@forge/ui": ["packages/forge-ui/src/index.ts"],
+      "@forge/ui/*": ["packages/forge-ui/src/*"],
       "@renderer/*": ["packages/forge-desktop/src/renderer/src/*"],
       "@shared": ["packages/forge-shared/src/domain/index.ts"],
       "@shared/*": ["packages/forge-shared/src/*"],

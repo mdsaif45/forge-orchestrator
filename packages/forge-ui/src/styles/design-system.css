@@ -1,0 +1,196 @@
+@import './tokens.css';
+@import './typography.css';
+@import './spacing.css';
+
+/*
+ * Global base styles and shared surface hierarchy for Forge (@forge/ui).
+ * Everything visual belongs to a token, utility class, or primitive.
+ */
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    margin: 0;
+    background: var(--color-canvas);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+
+    /* A desktop app should not feel like a web page: no stray text selection,
+       re-enabled deliberately below on content meant to be read and copied. */
+    user-select: none;
+    cursor: default;
+  }
+
+  input,
+  textarea,
+  code,
+  pre,
+  [data-selectable] {
+    user-select: text;
+  }
+
+  /* Respect a reduced-motion preference across every primitive at once. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  /* Custom sleek scrollbars */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border);
+    border-radius: 9999px;
+    border: 1px solid transparent;
+    background-clip: padding-box;
+    transition: background-color 0.15s ease;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-border-strong);
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
+
+@layer components {
+  /* Layered semantic surface helpers */
+  .forge-surface-canvas {
+    background-color: var(--color-canvas);
+    color: var(--color-text);
+  }
+
+  .forge-surface-muted {
+    background-color: var(--color-surface);
+    color: var(--color-text);
+  }
+
+  .forge-surface-raised {
+    background-color: var(--color-surface-raised);
+    color: var(--color-text);
+    box-shadow: var(--elevation-raised);
+  }
+
+  .forge-surface-floating {
+    background-color: var(--color-surface-floating);
+    color: var(--color-text);
+    box-shadow: var(--elevation-floating);
+  }
+
+  .forge-glass-popover {
+    background-color: color-mix(
+      in srgb,
+      var(--color-surface-floating) var(--forge-glass-popover-opacity),
+      transparent
+    );
+    -webkit-backdrop-filter: blur(var(--forge-glass-blur)) saturate(var(--forge-glass-saturation));
+    backdrop-filter: blur(var(--forge-glass-blur)) saturate(var(--forge-glass-saturation));
+    box-shadow: var(--elevation-floating);
+  }
+
+  .forge-panel-edge {
+    border: 1px solid var(--color-edge);
+    box-shadow: var(--elevation-raised);
+  }
+
+  .forge-focus-ring:focus-visible {
+    outline: 2px solid var(--color-border-focus);
+    outline-offset: 2px;
+  }
+}
+
+/* Frameless Window Titlebar drag utilities */
+.app-drag-region {
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.app-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Syntax highlighting for rendered markdown */
+.forge-markdown .hljs-keyword,
+.forge-markdown .hljs-selector-tag,
+.forge-markdown .hljs-literal,
+.forge-markdown .hljs-section {
+  color: var(--color-syntax-keyword);
+}
+
+.forge-markdown .hljs-title,
+.forge-markdown .hljs-title.function_,
+.forge-markdown .hljs-built_in {
+  color: var(--color-syntax-function);
+}
+
+.forge-markdown .hljs-type,
+.forge-markdown .hljs-class .hljs-title,
+.forge-markdown .hljs-attr,
+.forge-markdown .hljs-attribute {
+  color: var(--color-syntax-type);
+}
+
+.forge-markdown .hljs-string,
+.forge-markdown .hljs-meta .hljs-string,
+.forge-markdown .hljs-regexp,
+.forge-markdown .hljs-addition {
+  color: var(--color-syntax-string);
+}
+
+.forge-markdown .hljs-number,
+.forge-markdown .hljs-symbol,
+.forge-markdown .hljs-bullet {
+  color: var(--color-syntax-number);
+}
+
+.forge-markdown .hljs-comment,
+.forge-markdown .hljs-quote,
+.forge-markdown .hljs-deletion {
+  color: var(--color-syntax-comment);
+  font-style: italic;
+}
+
+.forge-markdown .hljs-emphasis {
+  font-style: italic;
+}
+
+.forge-markdown .hljs-strong {
+  font-weight: 600;
+}
+
+/* Make transcript content and answers selectable/copyable */
+[data-selectable],
+[data-selectable] * {
+  user-select: text;
+  cursor: auto;
+}

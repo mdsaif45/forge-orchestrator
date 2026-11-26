@@ -17,10 +17,10 @@ docs/
 ├── architecture/       Subsystem architectures, execution models, storage, contracts
 │   ├── contracts/      Formal protocol, lifecycle, and storage schemas
 │   └── diagrams/       Mermaid system topologies and boundary graphs
-├── decisions/          Architectural Decision Records (ADRs 001–003)
+├── decisions/          Architectural Decision Records (ADRs 001–008)
 ├── research/           Empirical field studies, CLI measurements, platform facts
 ├── spikes/             Timeboxed technical feasibility explorations
-├── roadmap/            Strategic roadmap, M0–M9 milestone tasks, dependency maps
+├── roadmap/            Strategic roadmap, M0–M16 milestone tasks, dependency maps
 ├── project/            Verified ground truth: current state, progress, baseline metrics
 ├── specifications/     Normative rules, policy engine hierarchy, wire protocols
 ├── operations/         Local developer setup, testing runbooks, release procedures
@@ -83,10 +83,10 @@ Managed in [**`docs/decisions/`**](decisions/README.md):
 
 ## 5. Planning & Roadmap
 
-- [**`roadmap/roadmap.md`**](roadmap/roadmap.md): Strategic program phases (Phases 1 through 4).
-- [**`roadmap/milestones.md`**](roadmap/milestones.md): Canonical M0 through M9 task breakdown with issue and PR traceability.
+- [**`roadmap/roadmap.md`**](roadmap/roadmap.md): Strategic program phases (Phases 1 through 6).
+- [**`roadmap/milestones.md`**](roadmap/milestones.md): Canonical M0 through M16 task breakdown with issue and PR traceability.
 - [**`roadmap/dependency-map.md`**](roadmap/dependency-map.md): Topological dependency graphs.
-- [**`roadmap/deferred.md`**](roadmap/deferred.md): Intentionally deferred features and non-goals.
+- [**`roadmap/deferred.md`**](roadmap/deferred.md): Remaining non-goals and reactivated capabilities delivered in M12–M15.
 
 ---
 
@@ -94,7 +94,7 @@ Managed in [**`docs/decisions/`**](decisions/README.md):
 
 - [**`project/current-state.md`**](project/current-state.md): Authoritative capability matrix backed by physical test evidence.
 - [**`project/progress.md`**](project/progress.md): Milestone progress line and merged PR history.
-- [**`project/verification-baseline.md`**](project/verification-baseline.md): Measured test metrics (1,142 passing across 97 test files; 2 manual suites and 3 tests skipped), gate results, and the three-job CI topology.
+- [**`project/verification-baseline.md`**](project/verification-baseline.md): Measured test metrics, gate results, and the three-job CI topology.
 - [**`project/implementation-log.md`**](project/implementation-log.md): Reverse chronological engineering ledger.
 
 ---

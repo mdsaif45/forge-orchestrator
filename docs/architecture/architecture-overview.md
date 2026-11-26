@@ -2,10 +2,10 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Canonical System Architecture  
-**Last Updated:** 2026-09-25  
-**Baseline:** `main` @ `5987501` (PR #204 merged)  
-**Related Decisions:** [ADR-001](../decisions/ADR-001-agents-runtimes-accounts.md), [ADR-002](../decisions/ADR-002-interactive-orchestration.md), [ADR-003](../decisions/ADR-003-host-the-real-cli.md)  
-**Related Implementation:** `src/main/core/forgeCore.ts`, `src/main/cli.ts`, `src/main/index.ts`  
+**Last Updated:** 2026-11-26  
+**Baseline:** `main` @ `cfb0f4c` (PR #488 merged)  
+**Related Decisions:** [ADR-001](../decisions/ADR-001-agents-runtimes-accounts.md), [ADR-002](../decisions/ADR-002-interactive-orchestration.md), [ADR-003](../decisions/ADR-003-host-the-real-cli.md), [ADR-008](../decisions/ADR-008-modular-monorepo-workspace-architecture.md)  
+**Related Implementation:** `packages/forge-core/src/core/forgeCore.ts`, `packages/forge-cli/src/cli.ts`, `packages/forge-desktop/src/main/index.ts`  
 
 ---
 
@@ -23,27 +23,26 @@ Forge is built on a fundamental structural boundary:
 │                              CLIENT TIER                               │
 │                                                                        │
 │   ┌───────────────────────────┐      ┌─────────────────────────────┐   │
-│   │ Standalone CLI (forge)    │      │ Electron Desktop Shell      │   │
-│   │ bin/forge.ts              │      │ src/renderer/ (React + UI)  │   │
-│   │ NDJSON event stream       │      │ ContextBridge Preload       │   │
+│   │ Standalone CLI (@forge/cli│      │ Desktop Shell (@forge/desk) │   │
+│   │ bin/forge.ts              │      │ renderer/ (React 19 + UI)   │   │
+│   │ NDJSON stream · TUI       │      │ ContextBridge Preload       │   │
 │   └─────────────┬─────────────┘      └──────────────┬──────────────┘   │
 └─────────────────┼───────────────────────────────────┼──────────────────┘
                   │                                   │
                   ▼                                   ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        HEADLESS CORE KERNEL                            │
+│                     HEADLESS CORE (@forge/core)                        │
 │                        createForgeCore(...)                            │
 │                                                                        │
 │   ┌────────────────────────────────────────────────────────────────┐   │
-│   │ Core Orchestration & Task Execution                            │   │
-│   │ src/main/core/taskRunner.ts (executeDirectTask)                │   │
-│   │ src/main/runtimes/orchestrator.ts                              │   │
+│   │ Core Orchestration & DAG Execution                             │   │
+│   │ taskRunner.ts · WorkflowService · GraphExecutor · LeafRunner   │   │
 │   └──────┬──────────────────────┬──────────────────────┬───────────┘   │
 │          │                      │                      │               │
 │          ▼                      ▼                      ▼               │
 │   ┌──────────────┐       ┌──────────────┐       ┌──────────────┐       │
-│   │ Evidence &   │       │ Dual-Tier    │       │ Runtime      │       │
-│   │ Verification │       │ Persistence  │       │ Host         │       │
+│   │ Evidence &   │       │ Dual-Tier    │       │ @forge/      │       │
+│   │ Verification │       │ Persistence  │       │ runtimes     │       │
 │   │ GitService   │       │ RunStore     │       │ IAgentRuntime│       │
 │   │ Diff Recon   │       │ ArtifactStore│       │ Native Agent │       │
 │   │ Test Runner  │       │ EventStore   │       │ ConPTY / CLI │       │
@@ -66,66 +65,57 @@ A critical design error in early agent orchestrators is delegating state trackin
 
 ---
 
-## 3. Major System Subsystems
+## 3. Major System Subsystems (`packages/`)
 
-### 1. Headless Forge Core (`src/main/core/`)
-The foundational execution engine (`createForgeCore`), completely decoupled from Electron (achieved in PR #198). It initializes SQLite database connections, registers stores, boots the `GitService`, and manages task execution loops (`taskRunner.ts`). Both the CLI and Electron desktop app consume this same core kernel.
+### 1. Pure Domain & Contracts (`packages/forge-shared`)
+Zero-dependency TypeScript domain models (`domain/`), state machine transition table (`transitions.ts`), view DTOs (`views.ts`), and typed IPC request/response schemas (`ipc.ts`).
 
-### 2. Dual-Tier Persistence (`src/main/db/` & `src/main/artifacts/`)
-- **Relational / Indexed Metadata**: Handled by SQLite via `better-sqlite3` and `drizzle-orm`. Tables manage runs, workflow steps, event logs, and artifact metadata.
-- **Content-Addressed Blobs**: Handled by `ArtifactService` on the local filesystem (`.forge/artifacts/<runId>/`). Stores raw stdout/stderr streams, prompt packets, patches, and diff files with SHA-256 integrity verification.
+### 2. Headless Forge Core (`packages/forge-core`)
+The foundational execution engine (`createForgeCore`), completely decoupled from Electron:
+- **Execution & Workflow Engine (`core/`, `workflows/`)**: `taskRunner.ts`, `agentLoop.ts`, `WorkflowService`, `GraphExecutor`, `LeafRunner`, YAML DSL parser (`workflowDslParser.ts`), and sub-workflow compiler (`subworkflowCompiler.ts`).
+- **Dual-Tier Persistence (`db/`, `artifacts/`)**: SQLite via `better-sqlite3` + `drizzle-orm`, and content-addressed disk artifacts (`.forge/artifacts/<runId>/`) via `ArtifactService`.
+- **Evidence, Workspace & Sync (`evidence/`, `git/`, `workspace/`, `benchmark/`, `sync/`)**: Physical git diff reconciliation, child-process verification runner, adversarial verifier, multi-agent worktree isolation, policy-governed concurrency, multi-repo coordination, empirical benchmarks, and cloud replication backplane.
 
-### 3. Evidence & Verification (`src/main/evidence/` & `src/main/git/`)
-The physical verification subsystem. Directly executes `git diff` against the base SHA to catch untracked, modified, or out-of-scope files. Executes build and test runners independently of the agent to establish objective verdicts.
+### 3. Agent Runtimes & PTY Hosting (`packages/forge-runtimes`)
+Universal `IAgentRuntime` contracts, native in-process LLM agent loop, and interactive ConPTY / POSIX PTY hosting (`ProcessManager`) for Claude Code, Antigravity, OpenCode, and configurable external CLI adapters.
 
-### 4. Agent Runtime Abstraction (`src/main/runtimes/` & `src/main/providers/`)
-All agent interactions are modeled behind `IAgentRuntime`. 
-- **Native Agent Loop**: In-process autonomous loop executing the tools defined in `src/main/providers/tools.ts` (`read_file`, `list_dir`, `search_files`, `write_file`, `edit_file`, `run_command`) against a configured provider model.
-- **External CLI Adapters**: Spawns real CLI tools (Claude Code, Antigravity, OpenCode) inside real terminal pseudo-terminals (`node-pty`; ConPTY on Windows).
+### 4. Standalone CLI (`packages/forge-cli`, `bin/forge.ts`)
+Scriptable CLI dispatching `run`, `status`, `models`, `workflows`, `diff`, `db`, `config`, `context`, `benchmark`, `worktree`, `sync`, and `tui` (`CLI-004`) with NDJSON streaming and deterministic exit codes (`0`/`1`/`2`).
 
-### 5. Client Interfaces
-- **Headless CLI (`bin/forge.ts`, `src/main/cli.ts`)**: Fast, scriptable entrypoint with `--json` streaming NDJSON events and exit codes 0/1/2.
-- **Electron Shell (`src/main/`, `src/preload/`, `src/renderer/`)**: Desktop application providing visual terminal panes, real-time diff inspections, decision locking cards, and question queues.
+### 5. Electron Workstation Shell (`packages/forge-desktop`)
+Electron main process entrypoint (`src/main/`), context-isolated preload bridge (`src/preload/`), and React 19 UI (`src/renderer/`) including visual terminal panes, real-time diff inspection, and the drag-and-drop workflow canvas (`UI-001`).
 
 ---
 
 ## 4. Layering & Dependency Direction
 
-Forge enforces strict unidirectional dependency rules, enforced by automated architecture tests and ESLint boundaries:
+Forge enforces strict unidirectional dependency rules via ESLint boundaries and `npm run check:cycles`:
 
 ```
-src/shared/               Pure types, domain schemas, validation, transitions
-     ▲                    (NO Node.js, NO Electron, NO React imports)
-     │
-src/main/db/              SQLite schemas, migrations, repositories
-     ▲
-     │
-src/main/core/            Headless Forge Core kernel & TaskRunner
-     ▲
-     │
-src/main/runtimes/        Agent adapters, tool implementations, PTY hosting
-     ▲
-     │
-┌────┴──────────────────────────┐
-│                               │
-bin/forge.ts (CLI)      src/main/index.ts (Electron Main)
-                                │
-                        src/preload/index.ts (Typed ContextBridge)
-                                │
-                        src/renderer/ (React 19, UI primitives)
+packages/forge-shared/     Pure types, domain schemas, validation, transitions
+         ▲                 (NO Node.js, NO Electron, NO React imports)
+         │
+packages/forge-runtimes/   Agent contracts, runtime adapters, PTY hosting
+         ▲
+         │
+packages/forge-core/       SQLite stores, core kernel, GraphExecutor, verifiers
+         ▲
+         │
+┌────────┴────────────────────────────┐
+│                                     │
+packages/forge-cli/           packages/forge-desktop/
+bin/forge.ts (CLI + TUI)      src/main/ + src/preload/ + src/renderer/ (React 19)
 ```
 
-1. `src/shared` is imported by all layers. It must remain 100% pure TypeScript with zero platform dependencies.
-2. `src/main/core` cannot import Electron or Renderer code.
-3. `src/renderer` cannot import Node.js built-ins (`fs`, `child_process`) or Electron internals; it communicates strictly across the typed IPC boundary via `src/preload`.
+1. `@forge/shared` is imported by all packages and remains 100% platform-agnostic.
+2. `@forge/core` cannot import Electron or React code.
+3. `@forge/desktop`'s renderer cannot import Node.js built-ins or Electron internals; it communicates strictly across the typed preload bridge.
 
 ---
 
 ## 5. Process & Threading Model
 
-Forge operates across distinct operating system processes:
-
-1. **Main Process (Node.js)**: Runs the Electron main loop or standalone CLI. Owns filesystem access, git child processes, SQLite databases, and child process management.
-2. **Renderer Process (Chromium)**: Sandboxed browser window running the React UI. Sandboxed with context isolation enabled; no native access.
-3. **Agent Child Processes**: Spawned via `src/main/process/processManager.ts` using `node-pty` (ConPTY on Windows) or piped stdio. Isolated in their own process trees with aggressive cleanup on cancellation or exit.
-4. **Verification Child Processes**: Short-lived processes spawned to execute build commands, test suites, or git diffs with strict timeouts and secret redaction.
+1. **Main Process / CLI Host (Node.js)**: Runs the Electron main loop or standalone `@forge/cli`. Owns filesystem access, git child processes, SQLite databases, and child process management.
+2. **Renderer Process (Chromium)**: Sandboxed React UI with `contextIsolation: true` and no native access.
+3. **Agent Child Processes**: Spawned via `packages/forge-runtimes/src/process/processManager.ts` using `node-pty` (ConPTY on Windows) or piped stdio, with process-tree cleanup and secret redaction.
+4. **Verification Child Processes**: Short-lived processes spawned by `@forge/core` to execute build commands, test suites, or git diffs with strict timeouts.

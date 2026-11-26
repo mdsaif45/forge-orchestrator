@@ -1,11 +1,11 @@
 # ADR-008 — Modular Monorepo Workspace Architecture
 
-**Status:** ACCEPTED  
+**Status:** IMPLEMENTED  
 **Authority:** Canonical Repository Packaging Architecture  
 **Date:** 2026-11-23  
-**Target:** Entire Codebase (`packages/`, `src/`)  
+**Target:** Entire Codebase (`packages/`)  
 **Related Decisions:** [ADR-001](ADR-001-agents-runtimes-accounts.md), [ADR-003](ADR-003-host-the-real-cli.md), [ADR-004](ADR-004-architectural-layering-and-boundaries.md), [ADR-007](ADR-007-generic-workflow-graph-engine.md)  
-**Related Milestones:** Milestone M16 ([#449](https://github.com/mdsaif45/forge-orchestrator/issues/449))
+**Related Milestones:** Milestone M16 ([#449](https://github.com/mdsaif45/forge-orchestrator/issues/449), PRs #456–#467)
 
 ---
 

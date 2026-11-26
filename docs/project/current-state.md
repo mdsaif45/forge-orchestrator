@@ -2,8 +2,8 @@
 
 **Status:** IMPLEMENTED
 **Authority:** Implementation truth (see [documentation-policy.md](../meta/documentation-policy.md))
-**Last Updated:** 2026-11-19
-**Baseline:** `main` @ `3bda40d` (PR #313 merged)
+**Last Updated:** 2026-11-26
+**Baseline:** `main` @ `cfb0f4c` (PR #488 merged)
 **Verification Baseline:** [verification-baseline.md](verification-baseline.md)
 **Related Roadmap:** [roadmap.md](../roadmap/roadmap.md)
 
@@ -180,48 +180,45 @@ All test counts are per-file assertion counts measured with
 
 | Capability | Desired State | Implementation State | Verification State | Evidence | Source | Tests | Related Roadmap Item |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| Typed IPC contract & router parity | Zero unchecked IPC channels | IMPLEMENTED | VERIFIED | All 70 IPC channels declared with Zod request/response contracts | `src/shared/ipc.ts`, `src/main/ipc/` | `npm run check:router` gate | CORE-002 |
-| Windowed artifact IPC streaming | Binary-safe base64 offset reader | IMPLEMENTED | VERIFIED | `getArtifactWindow` transports base64 encoded byte slices over IPC | `src/main/ipc/handlers.ts`, `src/preload/index.ts` | `npm run check:router` gate | ARTIFACT-001 |
-| Context-isolated preload bridge | Secure Electron process boundary | IMPLEMENTED | VERIFIED | Preload bridge exposes only typed API methods; contextIsolation enabled | `src/preload/` | `npm run smoke` gate | CORE-002 |
-| React renderer & design system | Desktop engineering control plane UI | IMPLEMENTED | VERIFIED | React UI builds, renders views, and passes UI check | `src/renderer/` | `npm run check:ui`, `npm run test:e2e` | CORE-002 |
-| Terminal TUI for the CLI | Interactive multi-pane terminal TUI | PLANNED | NOT APPLICABLE | No implementation on `main`; planned for future release | None | None | CLI-004 |
+| Typed IPC contract & router parity | Zero unchecked IPC channels | IMPLEMENTED | VERIFIED | All IPC channels declared with Zod request/response contracts | `packages/forge-shared/src/ipc.ts`, `packages/forge-desktop/src/main/ipc/` | `npm run check:router` gate | CORE-002 |
+| Windowed artifact IPC streaming | Binary-safe base64 offset reader | IMPLEMENTED | VERIFIED | `getArtifactWindow` transports base64 encoded byte slices over IPC | `packages/forge-desktop/src/main/ipc/handlers.ts`, `packages/forge-desktop/src/preload/index.ts` | `npm run check:router` gate | ARTIFACT-001 |
+| Context-isolated preload bridge | Secure Electron process boundary | IMPLEMENTED | VERIFIED | Preload bridge exposes only typed API methods; contextIsolation enabled | `packages/forge-desktop/src/preload/` | `npm run smoke` gate | CORE-002 |
+| React renderer & design system | Desktop engineering control plane UI | IMPLEMENTED | VERIFIED | React UI builds, renders views, and passes UI check | `packages/forge-desktop/src/renderer/` | `npm run check:ui`, `npm run test:e2e` | CORE-002 |
+| Visual drag-and-drop workflow canvas | Interactive DAG composition canvas | IMPLEMENTED | VERIFIED | Drag-and-drop visual node/edge authoring bound to DSL compiler | `packages/forge-desktop/src/renderer/src/app/workflow/WorkflowCanvas.tsx` | `WorkflowCanvas.test.tsx`, `npm run test:e2e` | UI-001 (#439) |
+| Terminal TUI for the CLI | Interactive multi-pane terminal TUI | IMPLEMENTED | VERIFIED | Multi-pane TUI monitor & live diff viewer (`forge tui`) | `packages/forge-cli/src/tui/` | `packages/forge-cli/src/cli.test.ts` | CLI-004 (#438) |
 
-> No terminal TUI exists on `main`: there is no `src/main/tui/` directory and no Ink
-> dependency in `package.json`.
+> **Package layout note (ADR-008 / M16):** Legacy `src/` has been retired. Modules formerly documented under `src/shared/`, `src/main/runtimes/`, `src/main/`, and `src/preload`+`src/renderer/` now reside physically under `packages/forge-shared/`, `packages/forge-runtimes/`, `packages/forge-core/`, `packages/forge-cli/`, and `packages/forge-desktop/`.
+
+### 2.7 M12–M16 Platform Hardening, Benchmarking, Isolation, Workflow DSL & Replication
+
+| Capability | Desired State | Implementation State | Verification State | Evidence | Source | Tests | Related Roadmap Item |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| Empirical multi-agent benchmark harness & latency profiler | Reproducible benchmark suite & stage timing audit | IMPLEMENTED | VERIFIED | Runs reproducible benchmark scenarios, profiles stage wall-clock latencies, and runs concurrency endurance stress tests | `packages/forge-core/src/benchmark/` | `packages/forge-core/src/benchmark/*.test.ts` | BENCH-001..003 (#442–#444) |
+| Policy concurrency controller & worktree isolation | Enforced worker quotas & sandboxed agent worktrees | IMPLEMENTED | VERIFIED | Controls resource budgets (`forge concurrency status`), isolates per-agent git worktrees (`forge worktree list`), and enforces subagent quarantine leases | `packages/forge-core/src/workspace/`, `packages/forge-core/src/core/subagentQuarantine.ts` | `concurrencyController.test.ts`, `worktreeIsolationManager.test.ts`, `subagentQuarantine.test.ts` | PAR-001 (#445), PAR-002 (#446), AGENT-033 (#433) |
+| Multi-repository workspace orchestration | Cross-repo registration & reconciliation | IMPLEMENTED | VERIFIED | Coordinates multi-repository workspaces (`forge projects multi-repo`) | `packages/forge-core/src/workspace/multiRepoManager.ts` | `multiRepoManager.test.ts` | POLISH-001 (#440) |
+| Declarative YAML Workflow DSL & sub-workflow compiler | Human-editable DSL & reusable nested DAG templates | IMPLEMENTED | VERIFIED | Parses/validates YAML workflow graphs (`forge workflows parse-dsl`) and compiles parameterized nested sub-workflows (`forge workflows compile-nested`) | `packages/forge-core/src/workflows/workflowDslParser.ts`, `subworkflowCompiler.ts` | `workflowDslParser.test.ts`, `subworkflowCompiler.test.ts` | COMP-001 (#447), COMP-002 (#448) |
+| Cloud synchronization & state replication backplane | Content-addressed delta reconciliation | IMPLEMENTED | VERIFIED | Syncs local-first snapshots across replication peers (`forge sync reconcile`) | `packages/forge-core/src/sync/cloudReplicationBackplane.ts` | `cloudReplicationBackplane.test.ts` | POLISH-002 (#441) |
 
 ---
 
-## 3. Work in flight (planning truth, not implementation truth)
+## 3. Work in flight
 
 | PR | Branch | State | Scope |
 | :--- | :--- | :--- | :--- |
-| — | `feat/verify-003-adversarial-verifier` | IN PROGRESS | VERIFY-003 adversarial evidence verifier & artifact integrity hardening |
+| Current branch | `docs/sync-m12-m16-progress-and-monorepo-truth` | IN PROGRESS | Synchronize markdown progress, roadmap, baseline metrics, and M16 `@forge/*` package paths |
 
-Nothing on unmerged branches is counted as implemented in §2.
+Nothing on unmerged branches is counted as implemented in §2. All 17 GitHub milestones (M0–M16) are merged and closed on `main` (`cfb0f4c`).
 
 ---
 
-## 4. Known open issues
+## 4. Known open issues & resolved tracker items
 
-Issue numbers below are carried over from planning documents absorbed into this
-restructure. They have **not** been re-verified against the GitHub issue tracker as
-part of this documentation pass, and are listed as pointers rather than as confirmed
-state — see [Open questions](#5-open-questions).
-
-- `#178` — intermittent Windows git `EBUSY` when concurrent suites create and delete
-  temporary git repositories.
-- `#183` — stale runtime bindings in the UI can fall back silently instead of
-  surfacing an error.
-- `#180` — hosted sessions cannot always distinguish provider token exhaustion from a
-  hung process.
+- Zero open GitHub issues remain across the repository (`M0–M16` all closed).
+- Previously listed legacy items (`#178` Windows git `EBUSY`, `#180` provider token exhaustion detection, `#183` stale runtime bindings, `VERIFY-003`, and `CLI-004`) have all been implemented, verified, and closed.
 
 ---
 
 ## 5. Open questions
 
-- **Q-CS-01:** The three issue numbers in §4 were inherited from prior planning
-  documents. Their current open/closed state is unconfirmed. Resolve by checking the
-  tracker and either citing state with a date or removing them.
-- **Q-CS-02:** Several subsystems on `main` (`src/main/context/`, `src/main/health/`,
-  `src/main/templates/`, `src/main/audit/`) are not yet represented in the capability
-  matrix. They are implemented but undocumented at the architecture level.
+- `[RESOLVED] Q-CS-01`: Issues `#178`, `#180`, and `#183` are verified closed on GitHub.
+- `[RESOLVED] Q-CS-02`: All subsystems under legacy `src/` were cataloged and physically migrated to `packages/forge-{shared,runtimes,core,cli,desktop}` under Milestone M16 (ADR-008).

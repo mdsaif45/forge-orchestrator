@@ -1,0 +1,66 @@
+/*
+ * Semantic typography classes for Forge (@forge/ui).
+ * Keeps UI labels, meta rows, section titles, code blocks, and thread columns consistent.
+ */
+
+@layer components {
+  .typography-page-title {
+    font-size: var(--text-page-title);
+    font-weight: 600;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+  }
+
+  .typography-ui-header {
+    font-size: var(--text-ui-header);
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  .typography-ui-section {
+    font-size: var(--text-ui-section);
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
+  .typography-ui-label {
+    font-size: var(--text-ui-label);
+    line-height: 1.4;
+  }
+
+  .typography-meta {
+    font-size: var(--text-meta);
+    line-height: 1.4;
+  }
+
+  .typography-micro {
+    font-size: var(--text-micro);
+    line-height: 1.35;
+  }
+
+  .typography-markdown {
+    font-size: var(--text-markdown);
+    line-height: 1.6;
+  }
+
+  .typography-code {
+    font-family: var(--font-mono);
+    font-size: var(--text-code);
+    line-height: 1.5;
+  }
+
+  /* Centered readable conversation & execution thread columns */
+  .forge-reading-column {
+    width: min(100%, var(--reading-column-max));
+    margin-inline: auto;
+    padding-inline: clamp(0.75rem, 2.5vw, 1.25rem);
+  }
+
+  [data-thread-width='wider'] .forge-reading-column {
+    width: min(100%, var(--reading-column-wide));
+  }
+
+  [data-thread-width='full'] .forge-reading-column {
+    width: 100%;
+  }
+}

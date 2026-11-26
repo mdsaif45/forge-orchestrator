@@ -6,8 +6,21 @@
  * bare element, so the system stays the one place appearance is decided.
  */
 
-export { cn } from './cn'
-export { useTheme, type Theme } from './theme'
+export {
+  cn,
+  FORGE_CONTROL_HEIGHTS,
+  FORGE_ELEVATION_TOKENS,
+  FORGE_ICON_REGISTRY,
+  FORGE_SURFACES,
+  FORGE_TYPOGRAPHY_CLASSES,
+  FORGE_Z_LAYERS,
+  Icon,
+  useTheme,
+  type ForgeControlSize,
+  type ForgeIconName,
+  type IconProps,
+  type Theme,
+} from '@forge/ui'
 
 export { Badge, type BadgeProps } from './primitives/Badge'
 export { Button, type ButtonProps } from './primitives/Button'

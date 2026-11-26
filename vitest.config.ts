@@ -21,6 +21,7 @@ export default defineConfig({
       '@forge/core': resolve('packages/forge-core/src'),
       '@forge/runtimes': resolve('packages/forge-runtimes/src'),
       '@forge/cli': resolve('packages/forge-cli/src'),
+      '@forge/ui': resolve('packages/forge-ui/src'),
       '@forge/desktop': resolve('packages/forge-desktop/src'),
       '@main': resolve('packages/forge-desktop/src/main'),
       '@shared': resolve('packages/forge-shared/src'),
@@ -36,7 +37,7 @@ export default defineConfig({
           name: 'node',
           environment: 'node',
           include: ['packages/**/*.test.ts'],
-          exclude: ['packages/forge-desktop/src/renderer/**'],
+          exclude: ['packages/forge-desktop/src/renderer/**', 'packages/forge-ui/**'],
         },
       },
       {
@@ -44,7 +45,10 @@ export default defineConfig({
         test: {
           name: 'renderer',
           environment: 'jsdom',
-          include: ['packages/forge-desktop/src/renderer/**/*.test.{ts,tsx}'],
+          include: [
+            'packages/forge-desktop/src/renderer/**/*.test.{ts,tsx}',
+            'packages/forge-ui/**/*.test.{ts,tsx}',
+          ],
           setupFiles: ['test/setup.ts'],
         },
       },

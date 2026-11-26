@@ -4,11 +4,12 @@
 means changing this directory — never a one-off value in a feature screen.
 
 ```
-tokens.css      colour · type · radius · shadow · motion · z-index  (+ light theme)
-cn.ts           class merge helper (clsx + tailwind-merge)
-theme.ts        data-theme switching, persisted
-primitives/     the controls
-index.ts        the single import surface
+@forge/ui/      canonical tokens, typography, spacing, surface system, vector icons (lucide-react)
+tokens.css      bridge import to @forge/ui/styles/tokens.css
+cn.ts           bridge export from @forge/ui
+theme.ts        bridge export from @forge/ui
+primitives/     desktop controls (progressively migrating into @forge/ui)
+index.ts        the single desktop import surface (@renderer/ui)
 ```
 
 ## The layering rule

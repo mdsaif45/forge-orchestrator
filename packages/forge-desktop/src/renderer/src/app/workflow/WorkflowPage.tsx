@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import type {
+  ArtifactMetadataView,
+  ChangeSetView,
   RoleBindingsView,
   WorkflowArtifactView,
   WorkflowDetailView,
@@ -12,28 +14,18 @@ import type {
 import { WorkflowCatalogView } from './WorkflowCatalogView'
 import { WorkflowCanvas } from './WorkflowCanvas'
 import { WorkflowArtifactViewer } from './WorkflowArtifactViewer'
-import { agentSessionKey, filterToolTimelineByStep } from '@shared/domain'
+import { filterToolTimelineByStep } from '@shared/domain'
 import { useWorkflowRuntimeEvents } from './useWorkflowRuntimeEvents'
-import {
-  AgentTerminal,
-  Badge,
-  Button,
-  Card,
-  CreateTemplateDialog,
-  MarkdownRenderer,
-  RealTerminal,
-  StartWorkflowDialog,
-  StatusDot,
-  useToast,
-  WorkflowEdge,
-  WorkflowNode,
-} from '@renderer/ui'
+import { Button, CreateTemplateDialog, Icon, StartWorkflowDialog, useToast } from '@renderer/ui'
 import { unwrap } from '@renderer/ipc'
 import { useProjectStore } from '../projectStore'
 import { StepInspector } from './StepInspector'
+import { ThreadContainer } from './thread/ThreadContainer'
+import { buildThreadEntries, type ThreadUserInterjection } from './thread/threadProjection'
 
 interface LogEntry {
   readonly id: string
+  readonly stepIndex?: number | undefined
   readonly timestamp: string
   readonly text: string
 }
@@ -72,33 +64,18 @@ function describeWorkflowState(workflow: WorkflowDetailView): string {
   }
 }
 
-function getPersonaForRole(role: string): {
-  readonly persona: string
-  readonly stageLabel: string
-} {
-  switch (role) {
-    case 'planner':
-      return { persona: 'Alex (Planner)', stageLabel: 'Stage 1 • Planning' }
-    case 'user':
-      return { persona: 'You (Approval Gate)', stageLabel: 'Stage 2 • Review Gate' }
-    case 'implementer':
-      return { persona: 'Sam (Implementer)', stageLabel: 'Stage 3 • Sandbox Code' }
-    case 'reviewer':
-      return { persona: 'Morgan (Reviewer)', stageLabel: 'Stage 4 • Code Audit' }
-    case 'system':
-      return { persona: 'Forge Engine', stageLabel: 'Stage • Verification' }
-    default:
-      return { persona: role, stageLabel: `Stage • ${role}` }
-  }
-}
-
 export function WorkflowPage(): React.JSX.Element {
   const detail = useProjectStore((state) => state.detail)
   const project = detail?.project ?? null
 
   const [workflow, setWorkflow] = useState<WorkflowDetailView | null>(null)
-  const { toolTimeline } = useWorkflowRuntimeEvents(workflow?.id ?? null)
+  const { toolTimeline, stepStreams, clearEvents } = useWorkflowRuntimeEvents(workflow?.id ?? null)
   const [activeTaskTitle, setActiveTaskTitle] = useState<string | null>(null)
+  const [activePromptObjective, setActivePromptObjective] = useState<string | null>(null)
+  const [artifacts, setArtifacts] = useState<readonly ArtifactMetadataView[]>([])
+  const [changeSets, setChangeSets] = useState<readonly ChangeSetView[]>([])
+  const [interjections, setInterjections] = useState<readonly ThreadUserInterjection[]>([])
+  const [inspectorOpen, setInspectorOpen] = useState<boolean>(false)
   const [baseTemplates, setBaseTemplates] = useState<readonly WorkflowTemplateView[]>([])
   const [customTemplates, setCustomTemplates] = useState<readonly WorkflowTemplateView[]>(() => {
     const saved = localStorage.getItem('forge.custom_templates')
@@ -272,6 +249,7 @@ export function WorkflowPage(): React.JSX.Element {
                     const logTime = new Date(l.at)
                     return {
                       id: `hist-${String(logTime.getTime())}-${String(Math.random())}`,
+                      stepIndex: l.stepIndex,
                       timestamp: logTime.toLocaleTimeString(),
                       text: `[STEP ${String(l.stepIndex)}] ${l.text}`,
                     }
@@ -360,6 +338,7 @@ export function WorkflowPage(): React.JSX.Element {
                   const logTime = new Date(l.at)
                   return {
                     id: `hist-${String(logTime.getTime())}-${String(Math.random())}`,
+                    stepIndex: l.stepIndex,
                     timestamp: logTime.toLocaleTimeString(),
                     text: `[STEP ${String(l.stepIndex)}] ${l.text}`,
                   }
@@ -389,6 +368,7 @@ export function WorkflowPage(): React.JSX.Element {
         ...prev,
         {
           id: `log-${String(logTime.getTime())}-${String(Math.random())}`,
+          stepIndex: payload.stepIndex,
           timestamp: logTime.toLocaleTimeString(),
           text: `[STEP ${String(payload.stepIndex)}] ${payload.text}`,
         },
@@ -434,6 +414,34 @@ export function WorkflowPage(): React.JSX.Element {
       })
   }, [project])
 
+  // Sync workflow artifacts & repository changesets for inline thread blocks
+  useEffect(() => {
+    if (project === null || workflow === null) {
+      return
+    }
+    let cancelled = false
+    const wfId = workflow.id
+    const projId = project.id
+
+    Promise.all([
+      window.forge.artifacts.listForRun(wfId).then((res) => (res.ok ? res.value.artifacts : [])),
+      window.forge.changeset.list(projId).then((res) => (res.ok ? res.value.changeSets : [])),
+    ])
+      .then(([arts, css]) => {
+        if (!cancelled) {
+          setArtifacts(arts)
+          setChangeSets(css)
+        }
+      })
+      .catch(() => {
+        // Non-fatal; thread continues without supplementary artifacts
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [project, workflow])
+
   const handleStartWorkflow = async (data: {
     readonly templateId: string
     readonly title: string
@@ -450,17 +458,22 @@ export function WorkflowPage(): React.JSX.Element {
         objective: data.objective,
       })
       const started = unwrap(res)
+      clearEvents()
+      setInterjections([])
       setWorkflow(started)
       setActiveTaskTitle(data.title)
+      setActivePromptObjective(data.objective)
       const now = new Date()
       setLogs([
         {
           id: `init-${String(now.getTime())}`,
+          stepIndex: 0,
           timestamp: now.toLocaleTimeString(),
           text: `[START] Task "${data.title}" initiated (${started.templateId})`,
         },
         {
           id: `init-planner-${String(now.getTime())}`,
+          stepIndex: 0,
           timestamp: now.toLocaleTimeString(),
           text: `[PLANNER] Alex (Planner) starting architectural analysis and dependency scan...`,
         },
@@ -479,6 +492,101 @@ export function WorkflowPage(): React.JSX.Element {
       })
     } finally {
       setActionInProgress(false)
+    }
+  }
+
+  const handleInterject = async (stepIndex: number, text: string): Promise<void> => {
+    if (workflow === null) return
+    try {
+      await window.forge.workflow.interject(workflow.id, stepIndex, text).then(unwrap)
+      setInterjections((prev) => [
+        ...prev,
+        {
+          id: `interj-${String(Date.now())}-${String(prev.length)}`,
+          text,
+          stepIndex,
+          at: new Date().toISOString(),
+        },
+      ])
+      show({
+        tone: 'neutral',
+        title: 'Guidance Sent',
+        description: `Delivered inline instruction to Stage ${String(stepIndex + 1)}.`,
+      })
+    } catch (err: unknown) {
+      show({
+        tone: 'danger',
+        title: 'Could Not Send Guidance',
+        description: err instanceof Error ? err.message : 'Unknown error',
+      })
+    }
+  }
+
+  const handleOpenArtifact = async (meta: ArtifactMetadataView): Promise<void> => {
+    try {
+      const lengthBytes = Math.min(Math.max(meta.sizeBytes, 1), 262_144)
+      const win = await window.forge.artifacts
+        .readWindow({ artifactId: meta.id, offsetBytes: 0, lengthBytes })
+        .then(unwrap)
+      const bytes = Uint8Array.from(atob(win.data), (c) => c.charCodeAt(0))
+      const decoded = new TextDecoder().decode(bytes)
+      const format =
+        meta.mimeType.includes('markdown') || meta.name.endsWith('.md')
+          ? 'markdown'
+          : meta.kind === 'diff' || meta.name.endsWith('.diff') || meta.name.endsWith('.patch')
+            ? 'diff'
+            : meta.mimeType.includes('json') || meta.name.endsWith('.json')
+              ? 'json'
+              : 'text'
+      setViewingArtifact({
+        id: meta.id,
+        workflowId: meta.runId,
+        nodeId: meta.stepId ?? 'workflow',
+        kind: meta.kind,
+        format,
+        title: meta.name,
+        content: decoded,
+        metadata: {
+          relativePath: meta.relativePath,
+          sha256: meta.sha256,
+          sizeBytes: meta.sizeBytes,
+        },
+        createdAt: meta.createdAt,
+      })
+    } catch (err: unknown) {
+      show({
+        tone: 'danger',
+        title: 'Could Not Open Artifact',
+        description: err instanceof Error ? err.message : 'Unknown error',
+      })
+    }
+  }
+
+  const handleStartNextCycle = async (objective: string): Promise<void> => {
+    await handleStartWorkflow({
+      templateId: workflow?.templateId ?? selectedTemplateId,
+      title: activeTaskTitle ?? 'Follow-up Iteration',
+      objective,
+    })
+  }
+
+  const handleSwitchRoleRuntime = async (role: string, runtimeId: string): Promise<void> => {
+    if (project === null) return
+    try {
+      await window.forge.binding.set(project.id, role, runtimeId).then(unwrap)
+      const updated = await window.forge.binding.list(project.id).then(unwrap)
+      setBindings(updated)
+      show({
+        tone: 'success',
+        title: 'Agent Binding Updated',
+        description: `Assigned ${runtimeId} to ${role} for this project.`,
+      })
+    } catch (err: unknown) {
+      show({
+        tone: 'danger',
+        title: 'Could Not Update Binding',
+        description: err instanceof Error ? err.message : 'Unknown error',
+      })
     }
   }
 
@@ -584,8 +692,6 @@ export function WorkflowPage(): React.JSX.Element {
         workflow.state === 'DONE' ||
         workflow.state === 'CANCELLED' ||
         workflow.state.startsWith('HALTED')
-
-  const isRunning = workflow !== null && !isTerminal
 
   const isAwaitingApproval =
     workflow !== null &&
@@ -875,235 +981,86 @@ export function WorkflowPage(): React.JSX.Element {
 
           <Button
             variant="secondary"
+            size="sm"
             onClick={() => {
               void handleExportReport()
             }}
-            className="h-8 rounded-lg border border-(--color-border) bg-(--color-surface-raised) px-3 text-[12px] font-medium text-(--color-text) hover:bg-(--color-surface)"
           >
-            📥 Export Report
+            <Icon name="download" className="size-3.5" />
+            <span>Export Report</span>
+          </Button>
+
+          <Button
+            variant={inspectorOpen ? 'secondary' : 'ghost'}
+            size="sm"
+            onClick={() => {
+              setInspectorOpen((cur) => !cur)
+            }}
+          >
+            <Icon name="panel-right" className="size-3.5" />
+            <span>{inspectorOpen ? 'Hide inspector' : 'Inspector'}</span>
           </Button>
         </div>
       </div>
 
-      {/* 2. DEDICATED WORKFLOW STATUS STRIP */}
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-(--color-border) bg-(--color-surface-raised) px-4 py-2 text-[12px]">
-        <div className="flex items-center gap-2.5">
-          <StatusDot status={status} pulse={isRunning} />
-          <span
-            className={`font-bold ${
-              status === 'failed'
-                ? 'text-(--color-danger)'
-                : status === 'passed'
-                  ? 'text-(--color-success)'
-                  : 'text-(--color-text)'
-            }`}
-          >
-            {workflow.state.startsWith('HALTED')
+      {/* 2. CONTINUOUS THREAD-NATIVE EXECUTION WORKSPACE + TOGGLEABLE STAGE INSPECTOR */}
+      <div className="flex min-h-0 flex-1 gap-3 overflow-hidden">
+        <ThreadContainer
+          projectId={project.id}
+          repositoryPath={project.repository.absolutePath}
+          workflowId={workflow.id}
+          templateId={workflow.templateId}
+          iteration={workflow.iteration}
+          maxIterations={workflow.limits.maxIterations}
+          status={status}
+          statusLabel={
+            workflow.state.startsWith('HALTED')
               ? `Halted: ${workflow.haltReason ?? 'Policy violation or agent exit'}`
-              : describeWorkflowState(workflow)}
-          </span>
-          <span className="text-(--color-text-subtle)">
-            (Iteration {String(workflow.iteration + 1)} of {String(workflow.limits.maxIterations)}
-            {workflow.iteration === 0
-              ? ' • Initial Run'
-              : ` • Retry Cycle ${String(workflow.iteration)}`}
-            )
-          </span>
-        </div>
+              : describeWorkflowState(workflow)
+          }
+          isDiscussionMode={isDiscussionMode}
+          isTerminal={isTerminal}
+          isAwaitingApproval={isAwaitingApproval}
+          stageSteps={stageSteps}
+          selectedStep={effectiveSelectedStep}
+          entries={buildThreadEntries({
+            workflow,
+            stageSteps,
+            taskTitle: activeTaskTitle,
+            promptObjective: activePromptObjective,
+            toolTimeline,
+            stepStreams,
+            artifacts,
+            changeSets,
+            logs,
+            interjections,
+          })}
+          bindings={bindings}
+          actionInProgress={actionInProgress}
+          onSelectStep={(step) => {
+            setSelectedStep(step)
+            setInspectorOpen(true)
+          }}
+          onOpenArtifact={(artifact) => {
+            void handleOpenArtifact(artifact)
+          }}
+          onInterject={handleInterject}
+          onStartNextCycle={handleStartNextCycle}
+          onSwitchRoleRuntime={handleSwitchRoleRuntime}
+          onApproveAndImplement={handleApproveAndImplement}
+        />
 
-        <div className="flex items-center gap-2">
-          {!isTerminal && (
-            <Badge
-              tone={isDiscussionMode ? 'warning' : 'accent'}
-              size="sm"
-              className="rounded-md font-mono text-[10px]"
-            >
-              {isDiscussionMode
-                ? 'PLANNING MODE (Read-only Sandbox)'
-                : 'IMPLEMENTATION MODE (Decision Locked)'}
-            </Badge>
-          )}
-          <Badge tone="neutral" size="sm" className="font-mono text-[10px]">
-            Template: {workflow.templateId}
-          </Badge>
-        </div>
-      </div>
-
-      {/* 3. INTERACTIVE PLAN REVIEW BANNER WHEN AWAITING USER APPROVAL */}
-      {isAwaitingApproval && (
-        <Card
-          tone="raised"
-          className="border-(--color-warning)/50 bg-(--color-warning)/10 p-3.5 shadow-xs"
-        >
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-2.5">
-                <span className="text-[20px]">📋</span>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[13px] font-bold text-(--color-text)">
-                      Architectural Plan Ready for Your Review
-                    </span>
-                    <Badge tone="warning" size="sm">
-                      Human Gate
-                    </Badge>
-                  </div>
-                  <p className="m-0 text-[11px] text-(--color-text-muted)">
-                    Alex (Planner) has produced the plan below. Review the blueprint and click
-                    Approve to authorize implementation.
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                <Button
-                  variant="primary"
-                  onClick={() => {
-                    void handleApproveAndImplement()
-                  }}
-                  disabled={actionInProgress}
-                  className="h-7 px-3 text-[11px] font-semibold"
-                >
-                  ✓ Approve & Start Implementation
-                </Button>
-              </div>
-            </div>
-
-            {/* Embed Alex's Generated Plan Summary */}
-            {workflow.steps.find((s: WorkflowStepView) => s.role === 'planner')?.reportStatus && (
-              <div className="rounded-lg border border-(--color-border) bg-(--color-surface-inset) p-3 max-h-[180px] overflow-y-auto">
-                <span className="text-[10px] font-mono uppercase font-bold text-(--color-accent)">
-                  Proposed Architectural Blueprint:
-                </span>
-                <div className="mt-1 text-[12px]">
-                  <MarkdownRenderer
-                    content={
-                      workflow.steps.find((s: WorkflowStepView) => s.role === 'planner')
-                        ?.reportStatus ?? ''
-                    }
-                  />
-                </div>
-              </div>
-            )}
+        {inspectorOpen && effectiveSelectedStep !== null ? (
+          <div className="hidden w-96 shrink-0 flex-col overflow-hidden lg:flex">
+            <StepInspector
+              step={effectiveSelectedStep}
+              tools={filterToolTimelineByStep(toolTimeline, effectiveSelectedStep.index)}
+              onClose={() => {
+                setInspectorOpen(false)
+              }}
+            />
           </div>
-        </Card>
-      )}
-
-      {/* 4. MAIN WORKFLOW WORKSPACE: Pipeline Graph, Live Logs & Inspector */}
-      <div className="grid flex-1 grid-cols-1 gap-4 lg:grid-cols-3 overflow-hidden">
-        {/* Left 2 Columns: Pipeline Nodes & Live Logs */}
-        <div className="flex flex-col gap-3 lg:col-span-2 overflow-hidden">
-          {/* Workflow Stage Pipeline Graph (ALWAYS rendered) */}
-          <Card tone="raised" className="p-3.5 overflow-x-auto">
-            <div className="flex items-center gap-3">
-              {stageSteps.map((step: WorkflowStepView, idx: number) => {
-                const { persona, stageLabel } = getPersonaForRole(step.role)
-                const isSelected = effectiveSelectedStep?.id === step.id
-                return (
-                  <React.Fragment key={step.id}>
-                    <WorkflowNode
-                      role={step.role}
-                      label={persona}
-                      stageLabel={stageLabel}
-                      state={
-                        step.state as
-                          | 'pending'
-                          | 'running'
-                          | 'completed'
-                          | 'failed'
-                          | 'halted'
-                          | 'awaiting_user'
-                      }
-                      verdict={step.verdict}
-                      runtimeId={step.runtimeId}
-                      selected={isSelected}
-                      active={step.state === 'running'}
-                      onClick={() => {
-                        setSelectedStep(step)
-                      }}
-                    />
-                    {idx < stageSteps.length - 1 && (
-                      <WorkflowEdge
-                        state={
-                          stageSteps[idx + 1]?.state === 'running'
-                            ? 'active'
-                            : step.state === 'completed'
-                              ? 'completed'
-                              : 'pending'
-                        }
-                      />
-                    )}
-                  </React.Fragment>
-                )
-              })}
-            </div>
-          </Card>
-
-          {/* One terminal, showing the step that is actually running. */}
-          <div className="flex flex-1 flex-col overflow-hidden">
-            <div className="flex items-center justify-between pb-2">
-              <span className="text-[11px] font-semibold text-(--color-text)">
-                {/* Named for the persona, not the transport. "node-pty / xterm" told the
-                    user which library renders the pane, which is not something they can
-                    act on; which agent is talking is. */}
-                {effectiveSelectedStep === null
-                  ? 'Terminal'
-                  : `Terminal — ${getPersonaForRole(effectiveSelectedStep.role).persona}`}
-              </span>
-              <span className="sr-only">LIVE LOG</span>
-            </div>
-
-            {/* The step's real output (#170). When running, attaches directly to the real
-                agent process via PTY, with zero decoy session. Keystrokes flow directly to
-                the active agent CLI. When idle or inspecting historical steps, shows the log transcript. */}
-            {effectiveSelectedStep !== null && effectiveSelectedStep.state === 'running' ? (
-              <RealTerminal
-                projectId={project.id}
-                attachSessionKey={agentSessionKey(workflow.id, effectiveSelectedStep.index)}
-                title={`Live Agent Terminal — ${getPersonaForRole(effectiveSelectedStep.role).persona}`}
-                personaName={getPersonaForRole(effectiveSelectedStep.role).persona}
-                runtimeId={effectiveSelectedStep.runtimeId}
-                className="flex-1 min-h-[300px]"
-              />
-            ) : (
-              <AgentTerminal
-                logs={logs}
-                title={
-                  effectiveSelectedStep === null
-                    ? 'Terminal'
-                    : `${getPersonaForRole(effectiveSelectedStep.role).persona} Terminal`
-                }
-                personaName={
-                  effectiveSelectedStep !== null
-                    ? getPersonaForRole(effectiveSelectedStep.role).persona
-                    : undefined
-                }
-                runtimeId={effectiveSelectedStep?.runtimeId}
-                repositoryPath={project.repository.absolutePath}
-                isRunning={isRunning}
-                onClear={() => {
-                  setLogs([])
-                }}
-                className="flex-1 min-h-[300px]"
-              />
-            )}
-          </div>
-        </div>
-
-        {/* Right Column: Step Inspector Panel with Live Console Tab */}
-        <Card tone="raised" className="flex flex-col overflow-hidden">
-          <StepInspector
-            step={effectiveSelectedStep}
-            tools={
-              effectiveSelectedStep === null
-                ? toolTimeline
-                : filterToolTimelineByStep(toolTimeline, effectiveSelectedStep.index)
-            }
-            onClose={() => {
-              setSelectedStep(null)
-            }}
-          />
-        </Card>
+        ) : null}
       </div>
 
       {/* Start New Work / Requirements Modal */}

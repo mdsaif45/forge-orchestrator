@@ -333,9 +333,11 @@ test('workflow page renders graph, starts workflow and allows step inspection', 
   // Start a workflow run
   await page.getByRole('button', { name: 'Start Workflow' }).click()
 
-  // The state machine graph and live log are visible
+  // The state machine graph, chronological thread turn, and live log marker are visible
   await expect(page.getByText('LIVE LOG')).toBeVisible()
-  const plannerNode = page.getByRole('button', { name: /planner/i })
+  const plannerNode = page
+    .getByRole('region', { name: 'Workflow stages' })
+    .getByRole('button', { name: /planner/i })
   await expect(plannerNode).toBeVisible()
 
   // Click a node to open step inspector

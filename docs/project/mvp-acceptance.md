@@ -76,8 +76,8 @@
 
 ## 3. Acceptance Test Results
 
-- **Test Suite**: `src/main/acceptance/mvpAcceptance.test.ts`
-- **Total Test Suite**: 45 test files, 685 tests passing across all packages.
+- **Test Suite**: `packages/forge-core/src/acceptance/mvpAcceptance.test.ts`
+- **Historical Verification Baseline (PR #43 / MVP acceptance)**: 45 test files, 685 tests passing at time of acceptance. For current suite totals across `@forge/*`, see [`verification-baseline.md`](verification-baseline.md).
 - **Coverage**:
   - Full closed loop: `DISCOVERY` ➔ `PLANNING` ➔ `AWAITING_APPROVAL` ➔ `DECISIONS_LOCKED` ➔ `IMPLEMENTING` ➔ `VERIFYING` ➔ `REVIEWING` ➔ `DONE`.
   - Pause on genuine open questions & resume upon user response.

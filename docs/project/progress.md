@@ -2,11 +2,11 @@
 
 ```
 Project:            Forge — AI Engineering Control Plane
-Current milestone:  Milestones M0 through M11 100% COMPLETE; M2/M3 Enhancements in progress
-Overall status:     Generic Workflow Graph Engine (M6), Usability & Real Agent Wiring (M7), Live Agent Channel (M8), Warm Sessions (M9), Interactive Control (M10), and Real CLI Hosting (M11) are 100% COMPLETE on main. All GitHub issues and milestones 3, 8, 9, 10, 11, 12 formally closed with physical evidence.
-Last updated:       2026-11-21
-Evidence baseline:  main @ 7fdec9b (PR #379 merged)
-Active branch:      feat/m1-m6-subgoal-slicer-masker-snapshot-remediation
+Current milestone:  Milestones M0 through M16 100% COMPLETE
+Overall status:     All 17 GitHub milestones (M0–M16, IDs #1–#12 and #23–#27) formally closed with zero open issues on main @ cfb0f4c (PR #488 merged).
+Last updated:       2026-11-26
+Evidence baseline:  main @ cfb0f4c (PR #488 merged)
+Active branch:      docs/sync-m12-m16-progress-and-monorepo-truth
 ```
 
 ---
@@ -14,29 +14,39 @@ Active branch:      feat/m1-m6-subgoal-slicer-masker-snapshot-remediation
 ## 1. Progress Line
 
 ```
-M0  Foundation & Quality Gates    ██████████  DONE        PR #186 merged
+M0  Foundation & Quality Gates         ██████████  DONE        PR #186, PR #209
         ↓
-M1  Headless Core                 ██████████  DONE        PR #198 (CORE-001/002); PR #231 (CORE-003)
+M1  Headless Core                      ██████████  DONE        PR #198, PR #231
         ↓
-M2  Native Agent Core             ██████████  DONE        PR #198 (AGENT-001); PR #235 (AGENT-003, AGENT-004)
+M2  Native Agent Core                  ██████████  DONE        PR #198, PR #235
         ↓
-M3  Forge CLI 1.0                 █████████░  DONE        PR #198 (CLI-001..3); PR #232 (CLI-005); PR #235 (CLI-006)
+M3  Forge CLI 1.0 (+ Interactive TUI)  ██████████  DONE        PR #198, PR #232, PR #235, PR #477
         ↓
-M4  State, Events & Persistence   ██████████  DONE        PR #203 (STATE-001); PR #231 (IPC-001, EVENT-001)
+M4  State, Events & Persistence        ██████████  DONE        PR #203, PR #231
         ↓
-M5  Verification & Criteria       ██████████  DONE        PR #208 (VERIFY-003)
+M5  Verification & Criteria            ██████████  DONE        PR #204, PR #206, PR #208
         ↓
-M6  Generic Workflow Graph        ██████████  DONE        PRs #214-#230 merged; WORK-006E cutover complete
+M6  Generic Workflow Graph             ██████████  DONE        PRs #214–#230 (WORK-006E cutover)
         ↓
-M7  Human Control & Steering      ██████████  DONE        PR #230 (HUMAN-001); PR #232 (HUMAN-004); PR #234 (HUMAN-002, HUMAN-005)
+M7  Human Control & Steering           ██████████  DONE        PR #230, PR #232, PR #234
         ↓
-M8  Extensible Provider Ecosystem ██████████  DONE        PR #231 (RUNTIME-001); PR #233 (RUNTIME-003); PR #234 (RUNTIME-002)
+M8  Extensible Provider Ecosystem      ██████████  DONE        PR #231, PR #233, PR #234
         ↓
-M9  Warm Sessions & Speed         ██████████  DONE        PR #232 (WARM-001, WARM-002); PR #233 (WARM-003 benchmark)
+M9  Warm Sessions & Speed              ██████████  DONE        PR #232, PR #233
         ↓
-M10 Interactive Control Plane     ██████████  DONE        PR #230 (#163); PR #233 (#164); PR #234 (#161, #171)
+M10 Interactive Control Plane          ██████████  DONE        PR #230, PR #233, PR #234
         ↓
-M11 Host the Real CLI             ██████████  DONE        PR #232 (#154, #170); PR #234 (#162, #168, #172)
+M11 Host the Real CLI                  ██████████  DONE        PR #232, PR #234
+        ↓
+M12 Autonomous Control Plane Hardening ██████████  DONE        PRs #236–#477 (30 issues closed)
+        ↓
+M13 Empirical Benchmarking & Stress    ██████████  DONE        PR #478 (#442), PR #479 (#443), PR #480 (#444)
+        ↓
+M14 Workspace Isolation & Concurrency  ██████████  DONE        PR #481 (#445), PR #482 (#446), PR #483 (#433), PR #484 (#440)
+        ↓
+M15 Workflow DSL, Canvas & Cloud Sync  ██████████  DONE        PR #485 (#447), PR #486 (#448), PR #487 (#439), PR #488 (#441)
+        ↓
+M16 Modular Monorepo Refactoring       ██████████  DONE        PRs #456–#467 (#449–#464)
 ```
 
 ---
@@ -45,24 +55,53 @@ M11 Host the Real CLI             ██████████  DONE        PR
 
 | Milestone | Status | Completed Work | In Progress Work | Next Up |
 | :--- | :--- | :--- | :--- | :--- |
-| **M0 Baseline** | **DONE** | CI matrix, vitest suites, lint/formatting, baseline smoke check, Windows git EBUSY flakiness resolution (M0-002), spike #64 formal closure (M0-003). | — | — |
-| **M1 Headless Core** | **DONE** | `createForgeCore` decoupled from Electron; `--data-dir` support; headless `.forgerc` configuration loader (`CORE-003`, PR #231). | — | — |
-| **M2 Native Agent** | **DONE** | Native in-process tool loop (`taskRunner.ts`, `agentLoop.ts`), six tools in `providers/tools.ts`, streaming artifact ingestion (`AGENT-002`), concurrent read-only tool execution (`AGENT-003`), and local Ollama auto-discovery & capability probing (`AGENT-004`). | — | — |
-| **M3 Forge CLI** | **DONE** | Standalone `bin/forge.ts`, NDJSON stream, exit codes 0/1/2, live tool-call timeline (`CLI-005`), and headless workflow inspection (`CLI-006`). | — | Terminal TUI (`CLI-004`) deferred. |
-| **M4 State & Storage** | **DONE** | SQLite `RunStore`, `EventStore`, `ArtifactStore`, `ArtifactService` including `readWindow()` (PR #203), typed IPC event streaming (`IPC-001`, PR #231), and live agent channel subscription (`EVENT-001`, PR #231). | — | — |
-| **M5 Verification** | **DONE** | Physical diff reconciliation, `ChangeSet` snapshotting, completion-criteria evaluation & task loop integration, independent build/test runner (`verifier.ts`), untracked/binary reconciliation, adversarial evidence auditing (`VERIFY-003`, PR #208). | — | — |
-| **M6 Workflow Graph** | **DONE** | Generic Workflow Graph engine foundation: DAG execution (`WORK-001`), stage controls (`WORK-002`), conditional routing, bounded loops, durable artifact lineage hydration (`WORK-003`), recovery lifecycle stabilization (`WORK-004`), generic leaf runner (`WORK-005`), graph factory (`WORK-006A`), role preflight (`WORK-006B`), human gate authorization (`WORK-006C`), authoritative reviewer routing & crash recovery (`WORK-006D`), and WorkflowService production cutover (`WORK-006E`, PR #230). | — | M6 100% COMPLETE. |
-| **M7 Human Control** | **DONE** | Real human approval gate (`HUMAN-001`, PR #230), live prompt & interjection delivery (`HUMAN-002`, PR #234), master interactive control plane (`HUMAN-003`, PR #234), UI terminal attachment to running process (`HUMAN-004`, PR #232), and Task Domain Boundary ADR-005 (`HUMAN-005`, PR #234). | — | M7 100% COMPLETE. |
-| **M8 Provider Ecosystem** | **DONE** | Data-driven custom CLI adapter configuration (`RUNTIME-001`, PR #231), Antigravity CLI interactive hosted PTY session (`RUNTIME-002`, PR #234), and provider overage quota detection (`RUNTIME-003`, PR #233). | — | M8 100% COMPLETE. |
-| **M9 Warm Sessions** | **DONE** | Resumable sessions in `IAgentRuntime` (`WARM-001`, PR #232), session resumption in Claude & Antigravity adapters (`WARM-002`, PR #232), and stage wall-clock benchmark harness (`WARM-003`, PR #233). | — | M9 100% COMPLETE. |
-| **M10 Interactive Control** | **DONE** | Real blocking human approval gate (#163, PR #230), stage rerun and skip controls (#164, PR #233), and mid-run user interjections with domain event attribution (#161, #171, PR #234). | — | M10 100% COMPLETE. |
-| **M11 Host the Real CLI** | **DONE** | Real CLI hosting in interactive ConPTY sessions (#167, #168, PR #234), terminal pane attached to real process (#170, PR #232), and complete decommission of legacy stdout stream parsers (#172, PR #234). | — | M11 100% COMPLETE. |
+| **M0 Baseline** | **DONE** | CI matrix, vitest suites, lint/formatting, smoke checks, Windows git EBUSY fix (M0-002), spike #64 closure (M0-003). | — | — |
+| **M1 Headless Core** | **DONE** | `createForgeCore` decoupled from Electron; `--data-dir` support; `.forgerc` loader (`CORE-003`). | — | — |
+| **M2 Native Agent** | **DONE** | Native tool loop (`taskRunner.ts`, `agentLoop.ts`), six built-in tools, streaming artifacts, concurrent read-only tools, Ollama probing. | — | — |
+| **M3 Forge CLI** | **DONE** | Standalone `bin/forge.ts`, NDJSON stream, exit codes 0/1/2, live tool timeline (`CLI-005`), headless workflows (`CLI-006`), interactive terminal TUI (`CLI-004`, PR #477). | — | — |
+| **M4 State & Storage** | **DONE** | SQLite `RunStore`/`EventStore`/`ArtifactStore`, `ArtifactService` (`readWindow()`), typed IPC streaming, event replay. | — | — |
+| **M5 Verification** | **DONE** | Physical diff reconciliation, `ChangeSet` snapshotting, completion-criteria evaluation, independent verifier, adversarial auditing (`VERIFY-003`). | — | — |
+| **M6 Workflow Graph** | **DONE** | Generic Workflow Graph engine (`GraphExecutor`), branch worktrees, fan-in merge, stage controls, bounded loops, artifact lineage, `WorkflowService` cutover. | — | — |
+| **M7 Human Control** | **DONE** | Real human approval gate (`HUMAN-001`), live PTY interjection (`HUMAN-002`), UI xterm attachment (`HUMAN-004`), ADR-005 (`HUMAN-005`). | — | — |
+| **M8 Provider Ecosystem** | **DONE** | Custom CLI adapter config (`RUNTIME-001`), Antigravity PTY session (`RUNTIME-002`), provider quota detection (`RUNTIME-003`). | — | — |
+| **M9 Warm Sessions** | **DONE** | Resumable sessions (`WARM-001`), Claude & Antigravity session resume (`WARM-002`), stage benchmark (`WARM-003`). | — | — |
+| **M10 Interactive Control** | **DONE** | Blocking human approval gate (#163), stage rerun & skip controls (#164), mid-run user interjections (#161, #171). | — | — |
+| **M11 Host the Real CLI** | **DONE** | Real CLI hosting in ConPTY sessions (#167, #168), terminal pane attachment (#170), legacy stdout parser removal (#172). | — | — |
+| **M12 Autonomous Control Plane** | **DONE** | 30 reliability/security/DB/workflow/evidence hardening features across `@forge/core`, `@forge/cli`, `@forge/runtimes` plus interactive TUI (`CLI-004`, PR #477). | — | — |
+| **M13 Empirical Benchmarking** | **DONE** | Empirical benchmark harness (`BENCH-001`, PR #478), latency profiler (`BENCH-002`, PR #479), concurrency endurance suite (`BENCH-003`, PR #480). | — | — |
+| **M14 Workspace Isolation & Concurrency** | **DONE** | Policy concurrency controller (`PAR-001`, PR #481), multi-agent worktree isolation (`PAR-002`, PR #482), subagent quarantine (`AGENT-033`, PR #483), multi-repo management (`POLISH-001`, PR #484). | — | — |
+| **M15 Workflow DSL & Cloud Sync** | **DONE** | YAML workflow DSL parser (`COMP-001`, PR #485), sub-workflow compiler (`COMP-002`, PR #486), drag-and-drop canvas (`UI-001`, PR #487), cloud replication backplane (`POLISH-002`, PR #488). | — | — |
+| **M16 Modular Monorepo Refactoring** | **DONE** | Full migration out of `src/` into `@forge/shared`, `@forge/core`, `@forge/runtimes`, `@forge/cli`, `@forge/desktop` per ADR-008 (`ARCH-001..009`, PRs #456–#467). | — | — |
 
 ---
 
 ## 3. Major Slice History & Merged PRs (Reverse Chronological)
 
-### 2026-11-21: In Progress — Cluster XV (#368, #369, #370, #371, #372) — M1/M2/M4/M5/M6 Agent Scratchpad Buffer, Fan-In Barrier Synchronization, Diff Symbol Dependency Tracer, SQLite Savepoint Stack, and Secret Rotation Supervisor
+### 2026-11-26: M15 Completed — DSL, Canvas & Cloud Sync (#447, #448, #439, #441)
+- **PR #488 (`cfb0f4c`):** `POLISH-002` — Cloud synchronization and team state replication backplanes (`#441`).
+- **PR #487 (`25bc88c`):** `UI-001` — Visual drag-and-drop workflow graph composition canvas (`#439`).
+- **PR #486 (`92c08c2`):** `COMP-002` — Parameterized reusable sub-workflow DAG template compiler (`#448`).
+- **PR #485 (`8b249b6`):** `COMP-001` — Human-editable declarative workflow graph schema parser and validator (`#447`).
+
+### 2026-11-25 – 2026-11-26: M14 Completed — Workspace Isolation, Quarantine & Multi-Repo (#445, #446, #433, #440)
+- **PR #484 (`706d78b`):** `POLISH-001` — Multi-repository workspace management and cross-repo coordination (`#440`).
+- **PR #483 (`d11a9c1`):** `AGENT-033` — Subagent capability quarantine and lease renewal coordinator (`#433`).
+- **PR #482 (`3613e31`):** `PAR-002` — Multi-agent git worktree isolation manager and temp directory sandboxing (`#446`).
+- **PR #481 (`4cc7bdf`):** `PAR-001` — Policy-governed concurrency controller and resource budget limiter (`#445`).
+
+### 2026-11-25: M13 Completed — Empirical Benchmarking & Endurance Hardening (#442, #443, #444)
+- **PR #480 (`9d94096`):** `BENCH-003` — High-concurrency multi-agent stress testing and endurance verification suite (`#444`).
+- **PR #479 (`766d544`):** `BENCH-002` — Stage wall-clock latency profiler and comparative performance auditor (`#443`).
+- **PR #478 (`8712068`):** `BENCH-001` — Empirical multi-agent reproducible benchmark harness (`#442`).
+
+### 2026-11-24 – 2026-11-25: M12 Final Hardening & CLI-004 TUI (#428–#438)
+- **PR #477 (`5008599`):** `CLI-004` — Interactive terminal TUI for live CLI monitoring and diff rendering (`#438`).
+- **PRs #468–#476 (`893dd23`..`17f56e1`):** `AGENT-032`, `WORK-039`, `EVIDENCE-027`, `STATE-029`, `CONFIG-030`, `WORK-040`, `EVIDENCE-028`, `STATE-030`, `CONFIG-031`.
+
+### 2026-11-23 – 2026-11-24: M16 Completed — Modular Monorepo Refactoring (#449–#464)
+- **PRs #456–#461 & #465–#467 (`7328df8`..`5ebeaf0`):** Migrated legacy `src/` into `@forge/shared`, `@forge/runtimes`, `@forge/core`, `@forge/cli`, and `@forge/desktop`, then retired `src/`.
+
+### 2026-11-21: M12 Earlier Clusters (`#368–#372` and prior PRs #236–#427)
 - **Branch:** `feat/m1-m6-scratchpad-barrier-symbol-savepoint-rotation`
 - **Delivered:**
   - `AGENT-022`: Agent scratchpad working memory buffer and LRU eviction pruner with `forge context scratchpad`.
@@ -394,17 +433,16 @@ M11 Host the Real CLI             ██████████  DONE        PR
 The production execution cutover from the legacy linear `Orchestrator` to the **generic workflow graph engine** is complete (Milestone M6 / WORK-006E):
 
 1. **Active Production Path:**
-   - Production runtime entrypoint is `WorkflowService` (`src/main/workflows/workflowService.ts`).
-   - `WorkflowService` compiles canonical workflow templates (`FEATURE_IMPLEMENTATION`, `BUG_FIX`) to directed acyclic graphs (`WorkflowTemplateV2`) via `compileLinearTemplateToGraph`.
-   - `WorkflowService` creates and runs `createGraphExecutorWithLeafRunner` (`src/main/workflows/graphFactory.ts`), dispatching leaf nodes (`agent`, `verification`, `user_gate`) through `LeafRunner`.
+   - Production runtime entrypoint is `WorkflowService` (`packages/forge-core/src/workflows/workflowService.ts`).
+   - `WorkflowService` compiles canonical workflow templates (`FEATURE_IMPLEMENTATION`, `BUG_FIX`) and YAML workflows to directed acyclic graphs (`WorkflowTemplateV2`) via `compileLinearTemplateToGraph`.
+   - `WorkflowService` creates and runs `createGraphExecutorWithLeafRunner` (`packages/forge-core/src/workflows/graphFactory.ts`), dispatching leaf nodes (`agent`, `verification`, `user_gate`) through `LeafRunner`.
    - Production execution path is strictly: `WorkflowService → GraphExecutor` (with `LeafRunner`).
    - The legacy `Orchestrator` execution path has been superseded.
    - Encapsulation is preserved: no IPC handler exposes `GraphExecutor` directly, and `createForgeCore` initializes `WorkflowService` with clean dependency injection.
 
 2. **Generic Graph Engine Status: 100% COMPLETE**
-   - Resides in `src/main/workflows/` (`GraphExecutor`, `LeafRunner`, `ProductionGraphFactory`, `roleResolution.ts`, `reviewerRouting.ts`).
-   - Slices 5B-1A (graph factory), 5B-1B (binding resolution & role preflight), 5B-1C Slice A (gate authorization), and Slice 5B-1C Slice B (reviewer routing & crash recovery) are merged and verified.
-   - Parity verification and regression coverage across graph lifecycles, reviewer routing (43 tests), graph composition (18 tests), and workflow service (6 tests) are complete and green.
+   - Resides in `packages/forge-core/src/workflows/` (`GraphExecutor`, `LeafRunner`, `ProductionGraphFactory`, `roleResolution.ts`, `reviewerRouting.ts`, `workflowDslParser.ts`, `subworkflowCompiler.ts`).
+   - Slices 5B-1A..5B-1C, `WorkflowService` cutover, declarative YAML DSL authoring, nested reusable templates, and visual drag-and-drop canvas composition (`packages/forge-desktop/src/renderer/src/app/workflow/WorkflowCanvas.tsx`) are merged and verified.
 
 3. **Human Gate & Safety Invariants:**
    - Human approval gate (`HUMAN-001`, Issue #163) blocks until an authoritative human gate decision is locked in SQLite (`approveAndStartImplementation` / `rejectImplementation`).
@@ -414,56 +452,32 @@ The production execution cutover from the legacy linear `Orchestrator` to the **
 
 ## 5. Milestone Taxonomy & GitHub Tracking Reconciliation
 
-An explicit discrepancy exists between GitHub milestone numbers, GitHub milestone titles, and the internal milestone nomenclature used in documentation and PR branches:
+All 17 GitHub milestones (**M0–M16**) are **closed** (`0` open issues across the repository):
 
-| Entity | GitHub ID / Number | Title / Name on GitHub | Status on GitHub | Role in Documentation & Architecture |
+| Milestone # | Title on GitHub | State | Closed Issues | Notes |
 | :--- | :--- | :--- | :--- | :--- |
-| **Milestone 1** | #1 (id 17355191) | `M0 - Foundation` | Closed (0 open, 13 closed) | M0: Foundation & Quality Gates |
-| **Milestone 2** | #2 (id 17355192) | `M1 - State Core` | Closed (0 open, 10 closed) | M1: State Core / Headless Core |
-| **Milestone 3** | #3 (id 17355194) | `M2 - Runtime Adapters` | Open (1 open: #64, 11 closed) | M2: Native Agent Core & Adapters |
-| **Milestone 4** | #4 (id 17355195) | `M3 - Workflow Engine` | Closed (0 open, 7 closed) | M3: Linear Workflow Engine |
-| **Milestone 5** | #5 (id 17355196) | `M4 - Evidence and Review` | Closed (0 open, 6 closed) | M4: State, Events & Persistence |
-| **Milestone 6** | #6 (id 17355197) | `M5 - Human Control Plane` | Closed (0 open, 7 closed) | M5: Verification & Criteria |
-| **Milestone 7** | #7 (id 17355198) | `M6 - Polish and Scale` | Closed (0 open, 6 closed) | Early v0.1.0-alpha release milestone (closed 2026-08-26). **Not the Graph Engine.** |
-| **Milestone 8** | #8 (id 17462002) | `M7 - Usability and Real Agent Wiring` | Open (2 open: #117, #138, 20 closed) | Post-alpha usability findings |
-| **Milestone 9** | #9 (id 17563798) | `M8 - Live Agent Channel` | Open (4 open: #149, #153, #154, #155, 3 closed) | Streaming runtime events & tool timeline |
-| **Milestone 10** | #10 (id 17563799) | `M9 - Warm Sessions and Speed` | Open (4 open: #156, #157, #158, #159, 0 closed) | Resumable agent sessions (`--resume`, `--conversation`) |
-| **Milestone 11** | #11 (id 17563800) | `M10 - Interactive Control` | Open (5 open: #160, #161, #162, #163, #164, 0 closed) | Interactive human control plane & stage steering |
-| **Milestone 12** | #12 (id 17575708) | `M11 - Host the Real CLI` | Open (6 open: #165, #168, #171, #172, #174, #180, 11 closed) | ConPTY terminal hosting & CLI hooks |
-| **M6 Generic Workflow Graph** | *None* | *No GitHub Milestone* | N/A | ADR-007 program (`WORK-001`..`WORK-006`, PRs #213–#228). All PRs carried `milestone: null`. |
-
-### Key Tracker Insights & Inconsistencies:
-1. **GitHub entity numbering offset:** Milestone titles M0–M11 are offset by +1 from their GitHub database IDs (e.g. GitHub Milestone #11 is titled `M10 - Interactive Control`).
-2. **Issue #164 resolution status:** Issue #164 ("Templates become a starting shape: run, skip, or re-run one stage") belongs to GitHub Milestone #11 (`M10 - Interactive Control`). While engine-level stage controls (`WORK-002`) were implemented in `GraphExecutor` via PR #217, the issue remains legitimately OPEN on GitHub because full issue acceptance criteria require user-facing execution / UI steering, which depends on production cutover and interactive steering (Milestone M10).
-3. **Issues #64 and #178:** Documented in `docs/roadmap/milestones.md` under M0 as resolved (`DONE`), but remained open on GitHub.
+| **#1** | `M0 - Foundation` | Closed | 13 | Foundation, CI matrix, Windows git `EBUSY` fix |
+| **#2** | `M1 - State Core` | Closed | 10 | State & Headless Core (`createForgeCore`) |
+| **#3** | `M2 - Runtime Adapters` | Closed | 12 | Native agent & CLI adapters |
+| **#4** | `M3 - Workflow Engine` | Closed | 7 | Linear workflow engine |
+| **#5** | `M4 - Evidence and Review` | Closed | 6 | State, persistence & diff reconciliation |
+| **#6** | `M5 - Human Control Plane` | Closed | 7 | Verification & completion criteria |
+| **#7** | `M6 - Polish and Scale` | Closed | 6 | Early v0.1.0-alpha release milestone |
+| **#8** | `M7 - Usability and Real Agent Wiring` | Closed | 22 | Post-alpha usability & ADR-005 wiring |
+| **#9** | `M8 - Live Agent Channel` | Closed | 7 | Streaming runtime events & tool timeline |
+| **#10** | `M9 - Warm Sessions and Speed` | Closed | 4 | Resumable sessions (`WARM-001..003`) |
+| **#11** | `M10 - Interactive Control` | Closed | 5 | Approval gate, stage controls, interjections |
+| **#12** | `M11 - Host the Real CLI` | Closed | 17 | ConPTY hosting & CLI hooks |
+| **#23** | `M12 - Autonomous Multi-Agent Control Plane` | Closed | 30 | Hardening clusters & `CLI-004` TUI |
+| **#24** | `M13 - Empirical Benchmarking and Hardening` | Closed | 6 | `BENCH-001..003` |
+| **#25** | `M14 - Workspace Isolation and Concurrency` | Closed | 8 | `PAR-001`, `PAR-002`, `AGENT-033`, `POLISH-001` |
+| **#26** | `M15 - Workflow DSL and Distributed Cloud Replication` | Closed | 8 | `COMP-001`, `COMP-002`, `UI-001`, `POLISH-002` |
+| **#27** | `M16 - Modular Monorepo Workspace Refactoring` | Closed | 19 | `ARCH-001..009` (`@forge/*` monorepo packages) |
 
 ---
 
 ## 6. Active Work, Dependencies, and Next Action
 
-- **Current State Baseline:** `main` @ `7fdec9b` (PR #379 merged).
-- **Recent Completed PRs:**
-  - **PR #301:** `feat(core,workflows,evidence,state,config): prompt coercer, condition evaluator, merkle lineage, event journal, and feature flags (#296, #297, #298, #299, #300)` (`6ba52f7`).
-  - **PR #307:** `feat(core,workflows,evidence,state,config): rate limiter, step timeout supervisor, secret leak scanner, db integrity auditor, and env interpolator (#290, #291, #292, #293, #294)` (`8748f6e`).
-  - **PR #313:** `feat(core,workflows,evidence,state,config): tool output limiter, workflow checkpoint, verification manifest, event replay, and config migrator (#308, #309, #310, #311, #312)` (`3bda40d`).
-  - **PR #319:** `feat(core,workflows,evidence,db,config,cli): prompt compactor, workflow simulator, export surface auditor, ledger verifier, and env sync (#314, #315, #316, #317, #318)` (`9727b6c`).
-  - **PR #325:** `feat(core,workflows,evidence,db,config,cli): stream dispatcher, subgraph extractor, patch fuzz auditor, snapshot differ, and config drift (#320, #321, #322, #323, #324)` (`bf6c9e1`).
-  - **PR #343:** `feat(core,workflows,evidence,db,config,cli): conversation compressor, preflight evaluator, log sanitizer, migration runner, and sensitive data redactor (#338, #339, #340, #341, #342)` (`b86c86c`).
-  - **PR #349:** `feat(core,workflows,evidence,db,config,cli): tool result coalescer, topological wave planner, tap test parser, query sandbox, and tool sandbox policy (#344, #345, #346, #347, #348)` (`ba73735`).
-  - **PR #355:** `feat(core,workflows,evidence,db,config,cli): retry supervisor, step duration sla, provenance attestation, query plan analyzer, and layered config resolver (#350, #351, #352, #353, #354)` (`898f7a8`).
-  - **PR #361:** `feat(core,workflows,evidence,db,config,cli): speculative prefetch, fork-join batches, change impact selector, journal diff auditor, and deprecated config transformer (#356, #357, #358, #359, #360)` (`631e84a`).
-  - **PR #367:** `feat(core,workflows,evidence,db,config,cli): goal subtask decomposer, retry escalation, diff semantic chunker, shard router, and config hot-reload (#362, #363, #364, #365, #366)` (`74bccbd`).
-  - **PR #373:** `feat(core,workflows,evidence,db,config,cli): working scratchpad buffer, fan-in barrier quorum, symbol dependency tracer, savepoint stack manager, and secret rotation supervisor (#368, #369, #370, #371, #372)` (`429c1c9`).
-  - **PR #379:** `feat(core,workflows,evidence,db,config,cli): token budget throttler, deadlock detector, path traversal auditor, connection pool supervisor, and config type coercer (#374, #375, #376, #377, #378)` (`7fdec9b`).
-- **In-Progress Cluster XVII (feat/m1-m6-subgoal-slicer-masker-snapshot-remediation):**
-  - **Issue #380 (AGENT-024):** `feat(core): agent subgoal checkpoint serialization and warm session recovery engine (AGENT-024)`.
-  - **Issue #381 (WORK-031):** `feat(workflows): dynamic fan-out batch slicer and concurrency partition gate (WORK-031)`.
-  - **Issue #382 (EVIDENCE-019):** `feat(evidence): changeset sensitive identifier and semantic token obfuscation masker (EVIDENCE-019)`.
-  - **Issue #383 (STATE-021):** `feat(db): sqlite multi-version read snapshot and point-in-time barrier manager (STATE-021)`.
-  - **Issue #384 (CONFIG-022):** `feat(config): workspace configuration policy diff and drift remediation planner (CONFIG-022)`.
-- **Milestones Status:** All GitHub Milestones M0 through M11 are completed and closed with zero remaining open issues.
-- **Dependencies & Blockers:** None. Local verification gates and test suites are 100% green.
-- **Immediate Next Action:**
-  1. Open PR for Issues #380, #381, #382, #383, #384.
-  2. Verify all CI checks pass on GitHub Actions.
-  3. Merge PR to `main` via squash merge.
+- **Current Baseline:** `main` @ `cfb0f4c` (PR #488 merged).
+- **Milestones Status:** Milestones **M0–M16** are 100% completed and closed on GitHub with zero open issues.
+- **Next Action:** Land documentation progress & monorepo path sync PR, then create the centralized UI library and conversation-native execution milestone plan.

@@ -2,12 +2,37 @@
 
 **Status:** IMPLEMENTED  
 **Authority:** Physical Implementation Truth  
-**Last Updated:** 2026-09-26  
-**Baseline:** `main` @ `7b91d67` (PR #207 merged) | Active Branch: `feat/verify-003-adversarial-verifier`  
+**Last Updated:** 2026-11-26  
+**Baseline:** `main` @ `cfb0f4c` (PR #488 merged)  
 
 ---
 
 ## 1. Merged Pull Requests (Reverse Chronological)
+
+### Milestone 15 — Workflow DSL, Visual Canvas & Cloud Replication
+- **PR #488** (`cfb0f4c`, 2026-11-26): `feat(sync): cloud synchronization and team state replication backplanes (POLISH-002)` (#441)
+- **PR #487** (`25bc88c`, 2026-11-26): `feat(ui): visual drag-and-drop workflow graph composition canvas (UI-001)` (#439)
+- **PR #486** (`92c08c2`, 2026-11-26): `feat(workflow): parameterized reusable sub-workflow DAG template compiler (COMP-002)` (#448)
+- **PR #485** (`8b249b6`, 2026-11-26): `feat(workflow): human-editable declarative workflow graph schema parser and validator (COMP-001)` (#447)
+
+### Milestone 14 — Workspace Isolation, Quarantine & Multi-Repo
+- **PR #484** (`706d78b`, 2026-11-26): `feat(workspace): multi-repository workspace management and cross-repo coordination (POLISH-001)` (#440)
+- **PR #483** (`d11a9c1`, 2026-11-26): `feat(core): subagent capability quarantine and lease renewal coordinator (AGENT-033)` (#433)
+- **PR #482** (`3613e31`, 2026-11-26): `feat(workspace): multi-agent git worktree isolation manager and temp directory sandboxing (PAR-002)` (#446)
+- **PR #481** (`4cc7bdf`, 2026-11-25): `feat(workspace): policy-governed concurrency controller and resource budget limiter (PAR-001)` (#445)
+
+### Milestone 13 — Empirical Benchmarking & Stress Suites
+- **PR #480** (`9d94096`, 2026-11-25): `feat(benchmark): high-concurrency multi-agent stress testing and endurance verification suite (BENCH-003)` (#444)
+- **PR #479** (`766d544`, 2026-11-25): `feat(benchmark): stage wall-clock latency profiler and comparative performance auditor (BENCH-002)` (#443)
+- **PR #478** (`8712068`, 2026-11-25): `feat(benchmark): empirical multi-agent reproducible benchmark harness (BENCH-001)` (#442)
+
+### Milestone 12 (Final Slices) & Milestone 16 (Monorepo Architecture)
+- **PR #477** (`5008599`, 2026-11-25): `feat(cli): interactive terminal TUI for live CLI monitoring and diff rendering (CLI-004)` (#438)
+- **PRs #468–#476** (2026-11-24 – 2026-11-25): Streaming chunk pipeline (`AGENT-032`), speculative branch pruner (`WORK-039`), reverse patch synthesizer (`EVIDENCE-027`), query planner hint injector (`STATE-029`), capability revocation killswitch (`CONFIG-030`), savepoint & rewind arbiter (`WORK-040`), binary diff compressor (`EVIDENCE-028`), mmap reader (`STATE-030`), dynamic sandbox & audit replay daemon (`CONFIG-031`).
+- **PRs #456–#461 & #465–#467** (2026-11-23 – 2026-11-24): **M16 Modular Monorepo Workspace Refactoring (ADR-008, `ARCH-001..009`)** — physically separated codebase into `@forge/shared`, `@forge/runtimes`, `@forge/core`, `@forge/cli`, `@forge/desktop` and retired `src/`.
+- **PRs #236–#427**: Clusters II–XXIV delivering autonomous agent resilience, workflow graph controls, evidence auditing, SQLite maintenance, and security configuration subcommands.
+
+### Historical Earlier Pull Requests (M0–M6 Foundation)
 
 ### PR #207: `docs(project): record CRIT-001 completion after PR #204 merge`
 - **Merged:** 2026-09-25T20:00:00Z
@@ -73,37 +98,8 @@
 
 ---
 
-## 2. Active Development Branches & PRs
+## 2. Active Development Branches & Open Questions
 
-| PR / Branch | State | Scope | Tests Added |
-| :--- | :--- | :--- | :--- |
-| `feat/verify-003-adversarial-verifier` | PR #208 (OPEN) | VERIFY-003 adversarial evidence verifier, cross-checking against physical diffs, contradictory evidence detection, and cryptographic artifact integrity | +31 tests (1,142 → 1,173 passing) |
-| Small Milestones Consolidation | IN PROGRESS | M0-002 (Windows git EBUSY flakiness), M0-003 (Spike #64 formal closure), AGENT-002 (Streaming artifact ingestion) | +3 tests (1,173 → 1,176 passing) |
-
-### Milestone VERIFY-003 Details
-- **Branch:** `feat/verify-003-adversarial-verifier`
-- **PR:** #208 (OPEN)
-- **Scope:** Strengthen Forge's independent verification layer to reliably detect deceptive, incomplete, contradictory, or insufficient agent-produced evidence.
-- **Key Deliverables:**
-  - `src/main/evidence/adversarial.ts`: Adversarial evidence auditor (`auditAdversarialEvidence`) detecting stale evidence, contradictory exit-0 with test failures, nonexistent artifact references, `claimed-but-unchanged` physical diff mismatches, out-of-scope modifications, false success claims, and malformed criteria inputs.
-  - `src/main/evidence/verifier.ts`: Integration with `verifyStep` and false claims cross-checking against build/test child process outputs. Disqualifies PASS verdict on adversarial findings.
-  - `src/shared/domain/evidence.ts`: Hardened `evidencePassed(artifact)` against test runners wrapped with `|| true` masking exit codes.
-  - `src/shared/domain/completion.ts`: Normalized paths in `fromFileExists` for cross-platform robustness.
-  - `src/main/artifacts/artifactService.ts`: Added `verifyArtifactIntegrity(id)` to cryptographically verify physical existence, byte count, and SHA-256 digest against SQLite metadata.
-  - `src/main/core/taskRunner.ts`: Hardened criteria evaluation and step verdict to preserve `unknown` verdict on `StepEvidence` while enforcing exit code 1.
-- **Tests Added:**
-  - `src/main/evidence/adversarial.test.ts` (12 tests)
-  - `src/main/evidence/verify003.adversarial.test.ts` (14 scenario tests)
-  - `src/main/artifacts/artifactService.test.ts` (+5 integrity tests)
-- **Suite Metrics:** 99 passed test files, 1,173 passing tests (2 manual test files skipped; 3 tests skipped).
-
-### Small Milestones (M0-002, M0-003, AGENT-002) Details
-- **M0-002 (Issue #178):** Replaced unpolled `rmSync` with polled `await removeTempDir()` in `src/main/git/gitService.test.ts`, eliminating Windows file-locking `EBUSY` flakiness during parallel test runs.
-- **M0-003 (Issue #64):** Formally closed obsolete spike #64 with documentation references to ADR-001 (§3 & §4) and ADR-003, confirming Forge reuses host CLI logins without custom re-authentication hacks.
-- **AGENT-002:** Implemented `ArtifactService.writeArtifactStream()` in `src/main/artifacts/artifactService.ts` for memory-safe streaming ingestion of high-throughput tool output (>50 KB) with on-the-fly SHA-256 hashing, byte tracking, and transactional rollback on SQLite metadata failure. Covered by 3 new unit tests in `src/main/artifacts/artifactService.test.ts`.
-
----
-
-## 3. Open questions
-
-- **[RESOLVED] Q-IL-01:** PR #204's title and scope were remediated to `feat(criteria, cli): implement CRIT-001 criteria evaluation & runs/artifacts inspection CLI` prior to merge, explicitly decoupling it from `CLI-004`. `CLI-004` (React Ink TUI) remains NOT STARTED.
+- All M0–M16 engineering milestones and issues are merged on `main` (`cfb0f4c`).
+- PR #208 (`VERIFY-003`), M0-002 (`#178`), M0-003 (`#64`), and `CLI-004` (`#438` / PR #477) noted in earlier log revisions are all merged and closed.
+- **[RESOLVED] Q-IL-01:** `CLI-004` (Interactive terminal TUI) was later implemented cleanly in Milestone 12 via `#438` / PR #477 (`5008599`).

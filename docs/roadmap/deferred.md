@@ -2,40 +2,40 @@
 
 **Status:** ACCEPTED  
 **Authority:** Planning Truth  
-**Last Updated:** 2026-09-21  
-**Baseline:** `main` @ `5987501` (PR #204 merged)  
+**Last Updated:** 2026-11-26  
+**Baseline:** `main` @ `cfb0f4c` (PR #488 merged)  
 **Related Roadmap:** [roadmap.md](roadmap.md), [milestones.md](milestones.md)  
 
 ---
 
-## 1. Explicit Non-Goals (For MVP)
+## 1. Explicit Non-Goals
 
-To maintain focus and avoid architectural bloat, the following capabilities are explicitly classified as non-goals for the initial releases of Forge:
+To maintain focus on orchestration control and avoid architectural bloat, the following capabilities remain explicit non-goals for Forge:
 
 | Non-Goal | Technical & Strategic Rationale |
 | :--- | :--- |
-| **Custom Code Editor** | Forge is an orchestration control plane, not an IDE replacement. Developers already have tuned editors (VS Code, Cursor, Neovim, JetBrains). Forge diffs and monitors repositories; it does not build a text editor. |
-| **Cloud Synchronization / Team SaaS** | Forge is local-first and sovereign. Syncing state to a central SaaS backend introduces auth complexity, latency, and security liabilities prematurely. |
-| **Autonomous Self-Approval** | Removing the human from critical decision gates and merge authorization is an anti-pattern. Forge automates transport, not judgment. |
-| **Plugin Marketplace** | Core execution and adapter interfaces (`IAgentRuntime`) must stabilize before defining third-party plugin extension points. |
+| **Custom Code Editor** | Forge is an orchestration control plane, not an IDE replacement. Developers keep their preferred editors (VS Code, Cursor, Neovim, JetBrains); Forge orchestrates agents, diffs, and verification around the repository. |
+| **Autonomous Self-Approval** | Removing the human from critical decision gates and merge authorization is an anti-pattern. Forge automates execution and verification, not engineering judgment (Axiom A4). |
+| **Third-Party Plugin Marketplace** | Provider/runtime extension is standardized via `IAgentRuntime` and data-driven CLI configs rather than an untrusted third-party UI plugin ecosystem. |
 
 ---
 
-## 2. Intentionally Deferred Items
+## 2. Previously Deferred Items — Now Implemented
 
-The following features have been proposed and validated as valuable, but are intentionally deferred to later milestones:
+The items originally deferred in earlier releases were reactivated after their upstream prerequisites stabilized and are now **complete on `main`**:
 
-### 1. Visual Drag-and-Drop Workflow Canvas
-- **Deferred to:** Milestone M6 / M7.
-- **Rationale:** Building a visual canvas before the underlying execution engine (`WORK-001`) is stable results in throwaway UI code. The DAG execution semantics must be proven headlessly before building visual authoring tools.
-- **Reactivation Trigger:** Successful headless execution of DAG workflow schemas.
+### 1. Visual Drag-and-Drop Workflow Canvas (`UI-001`) — **IMPLEMENTED**
+- **Originally Deferred To:** M6 / M7; **Delivered In:** M15 (#439, PR #487).
+- **Status:** React visual DAG composition canvas (`WorkflowCanvas.tsx`) delivered after `GraphExecutor` and YAML DSL schemas (`COMP-001`, `COMP-002`) stabilized.
 
-### 2. Multi-Repository Workspace Orchestration
-- **Deferred to:** Milestone M9.
-- **Rationale:** Orchestrating agents across multiple interdependent git repositories simultaneously multiplies worktree management, branch tracking, and dependency complexity. Single-repository multi-agent execution must achieve zero-defect reliability first.
-- **Reactivation Trigger:** M7 Human Control Plane declared complete and verified.
+### 2. Multi-Repository Workspace Orchestration (`POLISH-001`) — **IMPLEMENTED**
+- **Originally Deferred To:** M9; **Delivered In:** M14 (#440, PR #484).
+- **Status:** Multi-repository workspace registration and cross-repo coordination shipped on top of policy-governed concurrency (`PAR-001`) and isolated git worktrees (`PAR-002`).
 
-### 3. Agent Semantic Memory System
-- **Deferred to:** Milestone M8.
-- **Rationale:** Cross-run agent memory without verified ground truth leads to hallucination propagation. Long-term memory should be backed by the immutable SQLite event log and committed git history, not arbitrary vector embeddings.
-- **Reactivation Trigger:** Event log replay and indexing fully implemented.
+### 3. Cross-Run Agent Memory (`AGENT-007`) — **IMPLEMENTED**
+- **Originally Deferred To:** M8; **Delivered In:** M12 (`agentMemory.ts`).
+- **Status:** Grounded solution pattern recall backed by verified exit-0 runs, SQLite event history, and physical git artifacts (avoiding ungrounded vector hallucinations).
+
+### 4. Cloud Synchronization & State Replication Backplanes (`POLISH-002`) — **IMPLEMENTED**
+- **Originally Deferred To:** Post-MVP; **Delivered In:** M15 (#441, PR #488).
+- **Status:** Content-addressed local-first state sync and delta reconciliation backplane added while keeping SQLite + local disk sovereign.

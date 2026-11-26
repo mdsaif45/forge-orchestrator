@@ -10,9 +10,7 @@ describe('route table', () => {
       '/',
       '/ask',
       '/workflows',
-      '/decisions',
       '/changes',
-      '/questions',
       '/agents',
       '/settings',
     ])

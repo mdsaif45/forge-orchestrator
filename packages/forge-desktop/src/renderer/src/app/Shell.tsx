@@ -29,8 +29,12 @@ export function Shell(): React.JSX.Element {
   const [sinkOpen, setSinkOpen] = useState(false)
 
   const settingsOpen = useUiStore((state) => state.settingsOpen)
+  const openSettings = useUiStore((state) => state.openSettings)
   const closeSettings = useUiStore((state) => state.closeSettings)
   const toggleSettings = useUiStore((state) => state.toggleSettings)
+
+  const contextPanelOpen = useUiStore((state) => state.contextPanelOpen)
+  const toggleContextPanel = useUiStore((state) => state.toggleContextPanel)
 
   const createProjectOpen = useUiStore((state) => state.createProjectOpen)
   const openCreateProject = useUiStore((state) => state.openCreateProject)
@@ -110,7 +114,10 @@ export function Shell(): React.JSX.Element {
           void select(projectId)
         }}
         onNewProject={openCreateProject}
+        onProjectSettings={openSettings}
         workflowState={workflowState}
+        contextPanelOpen={contextPanelOpen}
+        onToggleContextPanel={toggleContextPanel}
         onOpenKitchenSink={() => {
           setSinkOpen(true)
         }}

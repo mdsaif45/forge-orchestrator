@@ -18,6 +18,9 @@ interface UiState {
   readonly sidebarCollapsed: boolean
   readonly toggleSidebar: () => void
   readonly setSidebarCollapsed: (collapsed: boolean) => void
+  readonly contextPanelOpen: boolean
+  readonly toggleContextPanel: () => void
+  readonly setContextPanelOpen: (open: boolean) => void
   readonly settingsOpen: boolean
   readonly openSettings: () => void
   readonly closeSettings: () => void
@@ -33,6 +36,9 @@ export const useUiStore = create<UiState>()(
       sidebarCollapsed: false,
       toggleSidebar: () => set((state) => ({ sidebarCollapsed: !state.sidebarCollapsed })),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
+      contextPanelOpen: false,
+      toggleContextPanel: () => set((state) => ({ contextPanelOpen: !state.contextPanelOpen })),
+      setContextPanelOpen: (contextPanelOpen) => set({ contextPanelOpen }),
       settingsOpen: false,
       openSettings: () => set({ settingsOpen: true }),
       closeSettings: () => set({ settingsOpen: false }),
@@ -43,7 +49,10 @@ export const useUiStore = create<UiState>()(
     }),
     {
       name: 'forge.ui',
-      partialize: (state) => ({ sidebarCollapsed: state.sidebarCollapsed }),
+      partialize: (state) => ({
+        sidebarCollapsed: state.sidebarCollapsed,
+        contextPanelOpen: state.contextPanelOpen,
+      }),
     },
   ),
 )

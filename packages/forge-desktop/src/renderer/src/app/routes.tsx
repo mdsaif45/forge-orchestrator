@@ -1,14 +1,5 @@
 import type { ReactNode } from 'react'
-import {
-  AgentsIcon,
-  AskIcon,
-  ChangesIcon,
-  DecisionsIcon,
-  OverviewIcon,
-  QuestionsIcon,
-  SettingsIcon,
-  WorkflowsIcon,
-} from './icons'
+import { Icon } from '../ui'
 
 /**
  * The route table — the single source of truth for navigation.
@@ -16,12 +7,15 @@ import {
  * The sidebar and the router both derive from this array, so a route cannot
  * exist in one and not the other, and a nav item cannot point at a dead link.
  * `RoutePath` is a union over it, making a typo a compile error.
+ *
+ * Questions and Decisions are thread-native inside the execution flow (`/workflows`),
+ * rather than standalone top-level navigation destinations.
  */
 export const ROUTES = [
   {
     path: '/',
     label: 'Overview',
-    icon: <OverviewIcon />,
+    icon: <Icon name="overview" />,
     empty: {
       title: 'No project open',
       description:
@@ -31,7 +25,7 @@ export const ROUTES = [
   {
     path: '/ask',
     label: 'Ask',
-    icon: <AskIcon />,
+    icon: <Icon name="ask" />,
     empty: {
       title: 'No project open',
       description: 'Ask questions to explore repository architecture, workflows, and conventions.',
@@ -40,7 +34,7 @@ export const ROUTES = [
   {
     path: '/workflows',
     label: 'Workflows',
-    icon: <WorkflowsIcon />,
+    icon: <Icon name="workflows" />,
     empty: {
       title: 'No workflows yet',
       description:
@@ -48,19 +42,9 @@ export const ROUTES = [
     },
   },
   {
-    path: '/decisions',
-    label: 'Decisions',
-    icon: <DecisionsIcon />,
-    empty: {
-      title: 'No decisions recorded',
-      description:
-        'Decisions you approve become locked. An agent cannot change a locked decision without asking you first.',
-    },
-  },
-  {
     path: '/changes',
     label: 'Changes',
-    icon: <ChangesIcon />,
+    icon: <Icon name="changes" />,
     empty: {
       title: 'No changes captured',
       description:
@@ -68,19 +52,9 @@ export const ROUTES = [
     },
   },
   {
-    path: '/questions',
-    label: 'Questions',
-    icon: <QuestionsIcon />,
-    empty: {
-      title: 'No open questions',
-      description:
-        'When an agent cannot resolve something from the repository, it asks here with its evidence — and the workflow waits.',
-    },
-  },
-  {
     path: '/agents',
     label: 'Agents',
-    icon: <AgentsIcon />,
+    icon: <Icon name="agents" />,
     empty: {
       title: 'No agent runtimes configured',
       description:
@@ -90,7 +64,7 @@ export const ROUTES = [
   {
     path: '/settings',
     label: 'Settings',
-    icon: <SettingsIcon />,
+    icon: <Icon name="settings" />,
     empty: {
       title: 'Settings',
       description:

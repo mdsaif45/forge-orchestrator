@@ -448,8 +448,10 @@ app
       'every nav item routes to a live page (no dead links)',
       // Every nav item leads somewhere real, whatever the table holds. Asserting a
       // fixed count duplicated the route table and broke when a route was removed
-      // (#102) — the useful claim is 'no dead links', not 'exactly eight of them'.
-      nav.count > 0 && deadLinks.length === 0,
+      // (#102) — the useful claim is 'no dead links', not 'eight of them'.
+      nav.count > 0 &&
+        deadLinks.length === 0 &&
+        !nav.visited.some((v) => v.label === 'Questions' || v.label === 'Decisions'),
       `${nav.count} links, dead: ${JSON.stringify(deadLinks)}`,
     )
     check(
@@ -461,6 +463,63 @@ app
       'the active route is marked with aria-current',
       nav.visited.every((v) => v.current === 'page'),
       JSON.stringify(nav.visited.map((v) => [v.label, v.current])),
+    )
+
+    // Unified Project Switcher menu opens with + New project & Project settings,
+    // and legacy #/questions / #/decisions hashes redirect cleanly to /workflows.
+    const topbarCheck = await evaluate(
+      window,
+      `(async () => {
+       const settle = () =>
+         new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+
+       const trigger = document.querySelector('header button[aria-label="Active project"]')
+       if (!trigger) return JSON.stringify({ hasTrigger: false })
+
+       const headerHeight = document.querySelector('header').getBoundingClientRect().height
+       // Base UI Menu.Trigger activates on pointerdown/mousedown rather than synthetic click alone
+       trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
+       trigger.click()
+       await settle()
+       await settle()
+
+       const menu = document.querySelector('[role="menu"]')
+       const menuItems = menu ? [...menu.querySelectorAll('[role="menuitem"]')].map((el) => el.textContent.trim()) : []
+       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+       await settle()
+
+       window.location.hash = '#/questions'
+       await settle()
+       const questionsHeading = document.querySelector('main h1')?.textContent?.trim() ?? null
+       window.location.hash = '#/decisions'
+       await settle()
+       const decisionsHeading = document.querySelector('main h1')?.textContent?.trim() ?? null
+       window.location.hash = '#/'
+       await settle()
+
+       return JSON.stringify({
+         hasTrigger: true,
+         headerHeight,
+         hasMenu: menu !== null,
+         menuItems,
+         questionsHeading,
+         decisionsHeading,
+         hasContextToggle: document.querySelector('header button[aria-label="Show context panel"]') !== null,
+       })
+     })()`,
+    )
+    const tb = JSON.parse(topbarCheck)
+    check(
+      'topbar project switcher menu and legacy hash redirects work',
+      tb.hasTrigger === true &&
+        tb.headerHeight === 40 &&
+        tb.hasMenu === true &&
+        tb.menuItems.some((item) => item.includes('+ New project')) &&
+        tb.menuItems.some((item) => item.includes('Project settings')) &&
+        tb.hasContextToggle === true &&
+        tb.questionsHeading === 'Workflows' &&
+        tb.decisionsHeading === 'Workflows',
+      topbarCheck,
     )
 
     // An unknown path must land on the catch-all rather than a blank frame.

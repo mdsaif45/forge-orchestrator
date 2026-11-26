@@ -22,3 +22,19 @@ export {
   type PreparedWorktree,
   type WorktreeServiceOptions,
 } from './worktreeService'
+export {
+  WorktreeIsolationManager,
+  WorktreeIsolationError,
+  WorktreeLockConflictError,
+  EmptyRepositoryIsolationError,
+  type IsolationScope,
+  type WorktreeLockState,
+  type IsolationScopeConfig,
+  type WorktreeLeaseSnapshot,
+  type WorktreeCleanupReport,
+  type WorktreeLease,
+  type CleanupHook,
+  type WorktreeInventoryEntry,
+  type WorktreeListResult,
+  type WorktreeIsolationManagerOptions,
+} from './worktreeIsolationManager'
